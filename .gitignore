@@ -1,0 +1,13 @@
+node_modules/
+dist/
+release/
+.npm-cache/
+.pnpm-store/
+*.log
+.DS_Store
+.vite/
+coverage/
+
+# 验收脚本产物（截图与临时浏览器 profile，不入库）
+.verify-shots/
+*.tsbuildinfo

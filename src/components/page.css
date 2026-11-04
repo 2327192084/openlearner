@@ -1,0 +1,111 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  padding-bottom: var(--sp-6);
+}
+
+.page__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+
+.page__head-main {
+  min-width: 0;
+}
+
+.page__title {
+  font-size: var(--fs-2xl);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.page__summary {
+  margin-top: var(--sp-2);
+  max-width: 68ch;
+  color: var(--c-text-2);
+  font-size: var(--fs-base);
+  line-height: 1.7;
+}
+
+.page__head-side {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: none;
+  padding-top: var(--sp-1);
+}
+
+.page__items {
+  margin: 0;
+  padding-left: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  color: var(--c-text-2);
+  line-height: 1.7;
+}
+
+.page__items li::marker {
+  color: var(--c-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.page__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--sp-4);
+}
+
+.page__section-title {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  margin-bottom: var(--sp-3);
+}
+
+.page__stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.page__row {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.page__mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+}
+
+.page__muted {
+  color: var(--c-text-3);
+  font-size: var(--fs-sm);
+}
+
+/* 定义列表：设置页与资料详情都用它显示键值信息 */
+.dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--sp-2) var(--sp-4);
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.dl dt {
+  color: var(--c-text-3);
+}
+
+.dl dd {
+  margin: 0;
+  color: var(--c-text);
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}

@@ -1,0 +1,65 @@
+/* ==========================================================================
+   设计令牌
+   一个地方定义，全局引用。P1–P7 加界面时不要再写死颜色与间距，
+   否则「文案统一」「批量操作」这类打磨项会变成一次全项目翻查。
+   ========================================================================== */
+
+:root {
+  /* 色板：低饱和中性色 + 一个主色。学术工具不需要花哨配色，
+     评审注意力应该落在「点回原文」上，而不是被界面本身抢走。 */
+  --c-bg: #f7f8fa;
+  --c-surface: #ffffff;
+  --c-surface-2: #fbfcfd;
+  --c-border: #e3e6eb;
+  --c-border-strong: #cfd4dc;
+
+  --c-text: #1b1f26;
+  --c-text-2: #5b6472;
+  --c-text-3: #8b94a3;
+
+  --c-primary: #2f5fd0;
+  --c-primary-hover: #2650b4;
+  --c-primary-soft: #eaf0fd;
+
+  --c-success: #1f8a5b;
+  --c-success-soft: #e8f6ef;
+  --c-warning: #a9690b;
+  --c-warning-soft: #fdf3e3;
+  --c-danger: #c0392b;
+  --c-danger-soft: #fdeceb;
+
+  /* 字号阶梯 */
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-base: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --fs-2xl: 26px;
+
+  /* 间距，8 的倍数保持节奏一致 */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+
+  --radius-sm: 4px;
+  --radius: 8px;
+  --radius-lg: 12px;
+
+  --shadow-sm: 0 1px 2px rgb(16 24 40 / 6%);
+  --shadow: 0 1px 3px rgb(16 24 40 / 8%), 0 1px 2px rgb(16 24 40 / 4%);
+
+  /* 布局固定尺寸，导航与内容区都引用它，避免宽度对不齐 */
+  --nav-w: 216px;
+  --topbar-h: 56px;
+
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB',
+    sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', 'Consolas', monospace;
+
+  color-scheme: light;
+}

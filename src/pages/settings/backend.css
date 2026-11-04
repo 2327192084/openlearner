@@ -1,0 +1,151 @@
+.backend-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.backend-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+}
+
+.backend-item__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.backend-item__title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.backend-item__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.backend-item__meta .page__mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backend-item__caps {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-xs);
+}
+
+.backend-item__sep {
+  color: var(--c-border-strong);
+}
+
+.backend-item__actions {
+  display: flex;
+  gap: var(--sp-1);
+  flex: none;
+}
+
+/* 能力标记：不支持的用灰色，一眼能看出缺口 */
+.cap {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 var(--sp-2);
+  border-radius: 999px;
+  background: var(--c-bg);
+  color: var(--c-text-3);
+  border: 1px solid var(--c-border);
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+}
+
+.cap--on {
+  background: var(--c-success-soft);
+  color: var(--c-success);
+  border-color: color-mix(in srgb, var(--c-success) 22%, transparent);
+}
+
+/* ---------------- 表单 ---------------- */
+
+.backend-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+  border: 1px solid var(--c-primary);
+  border-radius: var(--radius-lg);
+  background: var(--c-primary-soft);
+}
+
+.backend-form__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.backend-form__head .page__section-title {
+  margin-bottom: 0;
+  font-size: var(--fs-base);
+  color: var(--c-primary);
+}
+
+.backend-form__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--sp-4);
+}
+
+.backend-form__caps {
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.backend-form__caps legend {
+  padding: 0 var(--sp-1);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--c-text-2);
+}
+
+.backend-form__caps-row {
+  display: flex;
+  gap: var(--sp-5);
+  flex-wrap: wrap;
+}
+
+.backend-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+}
+
+/* 表单里的输入框底色要和浅蓝背景区分开 */
+.backend-form .input,
+.backend-form .select {
+  background: var(--c-surface);
+}

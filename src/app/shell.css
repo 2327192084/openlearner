@@ -1,0 +1,222 @@
+.shell {
+  display: grid;
+  grid-template-columns: var(--nav-w) 1fr;
+  height: 100%;
+  background: var(--c-bg);
+}
+
+/* ==========================================================================
+   左侧导航
+   ========================================================================== */
+
+.shell__nav {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--c-surface);
+  border-right: 1px solid var(--c-border);
+  /* 桌面端窗口拖动：Electron 里品牌区可拖窗口，导航条目本身不拖 */
+  user-select: none;
+}
+
+.shell__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  height: var(--topbar-h);
+  padding: 0 var(--sp-4);
+  border-bottom: 1px solid var(--c-border);
+  flex: none;
+}
+
+.shell__brand-mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius);
+  background: var(--c-primary);
+  color: #fff;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  flex: none;
+}
+
+.shell__brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  min-width: 0;
+}
+
+.shell__brand-text strong {
+  font-size: var(--fs-base);
+  font-weight: 650;
+}
+
+.shell__brand-text small {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
+.shell__links {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-3) var(--sp-2);
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.shell__link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  min-height: 34px;
+  padding: 0 var(--sp-3);
+  border-radius: var(--radius);
+  color: var(--c-text-2);
+  font-size: var(--fs-base);
+  text-decoration: none;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.shell__link:hover {
+  background: var(--c-bg);
+  color: var(--c-text);
+  text-decoration: none;
+}
+
+.shell__link--active {
+  background: var(--c-primary-soft);
+  color: var(--c-primary);
+  font-weight: 600;
+}
+
+/* 待接入标记：一个小圆点，比文字更轻，不打断扫描 */
+.shell__link-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--c-warning);
+  opacity: 0.7;
+  flex: none;
+}
+
+.shell__nav-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--c-border);
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+  flex: none;
+}
+
+.shell__nav-foot-version {
+  font-family: var(--font-mono);
+}
+
+/* ==========================================================================
+   主区域
+   ========================================================================== */
+
+.shell__main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.shell__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  height: var(--topbar-h);
+  padding: 0 var(--sp-5);
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+  flex: none;
+}
+
+.shell__topbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.shell__page-title {
+  font-size: var(--fs-lg);
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shell__topbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex: none;
+}
+
+.shell__count {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.shell__content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--sp-5);
+}
+
+/* 内容区限宽：正文行宽过长会显著降低可读性 */
+.shell__content > * {
+  max-width: 1080px;
+  margin-inline: auto;
+}
+
+/* ==========================================================================
+   窄窗口（未来移动端 / 小窗口桌面）自适应
+   ========================================================================== */
+
+@media (max-width: 860px) {
+  :root {
+    --nav-w: 60px;
+  }
+
+  .shell__brand-text,
+  .shell__link-title,
+  .shell__nav-foot span {
+    display: none;
+  }
+
+  .shell__link {
+    justify-content: center;
+  }
+
+  .shell__brand {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .shell__nav-foot {
+    justify-content: center;
+  }
+
+  .shell__content {
+    padding: var(--sp-4);
+  }
+}
