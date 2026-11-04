@@ -321,3 +321,66 @@
   flex: 1;
   min-width: 200px;
 }
+
+/* ==========================================================================
+   扫描件的两条出路
+   目的是「说清楚代价」，不是「看起来很专业」。
+   所以每一条都带限制说明，不用折叠、不用 tooltip 藏起来。
+   ========================================================================== */
+
+.scan-options {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px dashed color-mix(in srgb, currentColor 25%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.scan-options__title {
+  font-weight: 600;
+}
+
+.scan-option {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.scan-option__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.scan-option__tag {
+  padding: 0 var(--sp-2);
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+  white-space: nowrap;
+}
+
+.scan-option__body {
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  /* 提示文字是「说明」而非「警告」，稍微压一点对比度更耐读 */
+  opacity: 0.92;
+}
+
+.scan-option__body strong {
+  font-weight: 600;
+}
+
+.scan-options__foot {
+  padding-top: var(--sp-2);
+  border-top: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  font-size: var(--fs-sm);
+}
+
+/* 卡片上的「示例后端·非 AI」徽标：不能让它看起来像正常结果 */
+.kp-card__badges .badge {
+  white-space: nowrap;
+}

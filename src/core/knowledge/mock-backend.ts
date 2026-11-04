@@ -83,26 +83,28 @@ export class MockBackend implements OrganizeBackend {
   }
 
   /**
-   * 从一段原文里摘出若干条"知识点"。
+   * 从一段原文里摘出若干条「知识点」。
    *
-   * 做法：按句子切分，取长度适中的句子作为一条。
-   * 引用就是这句话**原文**（不做任何改写），
-   * 因此定位器拿到的就是真实存在的文本 —— 定位必然成功。
+   * ## 这里**不做总结**，是刻意的
    *
-   * ## 为什么这里不混入「故意定位失败」的条目
+   * 早期实现是把句子末尾的标点去掉就当 statement，结果界面上看到的是
+   * 「第一章 数据结构绪论 数据结构研究的是数据元素之间的关系…」——
+   * 和原文一模一样。用户会以为「AI 的总结能力很差」，
+   * 实际上是**根本没用上 AI**。
    *
-   * 早先这里的注释写着「刻意混入少量定位不到的条目（见 needsUnlocatedDemo）」，
-   * 但那个函数从来就不存在 —— 注释描述了一个没实现的意图。
-   * 后果很实在：`verify-p2.cjs` 里「定位失败不携带位置」那条断言，
-   * 因为待处理永远是 0 条而**恒为 PASS**，功能真坏掉也不会红。
+   * 现在的做法：如实表达「这是摘录，不是总结」。
+   * statement 明确写成「原文摘录：…」的形式，并且在前面加上
+   * 可被识别的水印式标注，让人一眼看出这批结果是示例后端的产物。
    *
-   * 现在的处理是：假后端保持「全部能定位」，让它是干净的成功样本；
-   * 而定位失败路径由 `scripts/verify-p2-unlocated.cjs` 专门验证 ——
-   * 那个脚本直接往库里注入一条「引用不存在」的知识点，
-   * 把 unlocated 状态真造出来再断言。
+   * 为什么不去伪造一个「看起来像总结」的句子：
+   * 那会让示例结果和真实 AI 结果难以区分，用户没法判断
+   * 「是模型不行」还是「我在用假后端」。诚实地难看，比体面地误导强。
    *
-   * 这样职责更清楚：假后端负责「跑通」，专项脚本负责「跑不通时怎么办」。
-   * 如果将来要在假后端里混入失败样本，记得同时改主验收脚本的期望值。
+   * ## 它真正的用途
+   *
+   * 1. 验证「导入 → 定位 → 校对」这条链路通不通（不花钱）
+   * 2. P7 体验模式：评审不配 Key 也能看到完整交互
+   * 它从来不是一个「凑合能用的总结器」。
    */
   private extractFromSegment(segment: OrganizeInputSegment): KnowledgeDraft[] {
     const sentences = segment.text
@@ -113,16 +115,16 @@ export class MockBackend implements OrganizeBackend {
     const drafts: KnowledgeDraft[] = [];
 
     for (const raw of sentences.slice(0, 4)) {
-      // 去掉句末标点当"概念表述"，读起来更像一条知识点而不是抄句子
-      const statement = raw.replace(/[。！？；]+$/, '');
-      if (statement.length < 10) continue;
+      const core = raw.replace(/[。！？；]+$/, '');
+      if (core.length < 10) continue;
 
       drafts.push({
-        statement,
+        // 明确标注这是摘录而非总结，避免被误认为 AI 的输出质量
+        statement: `【原文摘录·未经提炼】${core}`,
         // 引用用原文整句（含标点），确保能在原文里字面命中
         quotes: [raw],
         cognitiveLevel: guessLevel(raw),
-        tags: segment.chapter ? [segment.chapter] : [],
+        tags: [...(segment.chapter ? [segment.chapter] : []), '示例后端'],
       });
     }
 

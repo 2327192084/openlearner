@@ -235,6 +235,23 @@ export function KnowledgeCard({
         <div className="kp-card__badges">
           <Badge tone={status.tone}>{status.text}</Badge>
           <Badge tone="neutral">{cognitiveLabel(point.cognitiveLevel)}</Badge>
+          {/*
+            标明这条是谁生成的。
+            没有这个标识时，用户用示例后端生成了一批「只摘句子不总结」的结果，
+            会以为是 AI 的总结能力不行 —— 实际上压根没用上 AI。
+            这类「看不出自己用的是哪个模式」的界面，比功能缺失更误导人。
+          */}
+          {point.backendId === 'mock' ? (
+            <Badge tone="neutral">
+              <span title="示例后端只从原文摘句子，不做总结。要真正的总结请到设置页配置 AI 后端。">
+                示例后端·非 AI
+              </span>
+            </Badge>
+          ) : (
+            <Badge tone="info">
+              <span title="由真实 AI 模型生成">AI 生成</span>
+            </Badge>
+          )}
           <span className="kp-card__loc">{locationLabel(point)}</span>
         </div>
         {!editing ? (

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ScanNotice } from './ScanNotice.tsx';
 import { Badge, ErrorState, LoadingState, Notice } from '@/components/states.tsx';
 import type { Source, SourceSegment } from '@/core/model.ts';
 import type { SearchHit } from '@/core/sources.ts';
@@ -216,18 +217,10 @@ export function SourceReader({
         早先统一写成「这是扫描件」，对后者是错误结论。
       */}
       {searchDisabled ? (
-        <Notice
-          tone={source.textStatus === 'decode-failed' ? 'danger' : 'warning'}
-          title={
-            source.textStatus === 'decode-failed'
-              ? '这份资料有文字，但没能解析出来'
-              : '这份资料是扫描件，没有文字层'
-          }
-        >
-          {TEXT_STATUS_LABEL[source.textStatus].hint}
-          <br />
-          搜索栏已停用；翻页仍可正常使用。
-        </Notice>
+        <ScanNotice
+          status={source.textStatus}
+          hint={TEXT_STATUS_LABEL[source.textStatus].hint}
+        />
       ) : null}
 
       <div className="reader__layout">
