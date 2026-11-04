@@ -332,7 +332,11 @@ async function main() {
     })()`);
     record(
       'IndexedDB 分区齐全且 meta 已落库',
-      dbState.stores.length === 10 &&
+      // 不数分区总数：P1 新增了 sourceSegments，以后还会加。
+      // 数总数会让「加分区」这种正常演进而变成验收红灯。
+      ['sources', 'sourceSegments', 'courses', 'meta', 'settings'].every((n) =>
+        dbState.stores.includes(n),
+      ) &&
         dbState.metaCount === 1 &&
         dbState.metaName === '数据结构复习' &&
         dbState.counts.settings === 1,

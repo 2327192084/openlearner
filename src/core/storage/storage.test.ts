@@ -101,6 +101,10 @@ for (const factory of factories) {
         courseId: null,
         pageCount: 10,
         byteSize: 1024,
+        // P1 引入的字段：存储契约测试也要跟着补齐，
+        // 否则测的是一个已经不存在的 Source 形状
+        textStatus: 'ready' as const,
+        segmentCount: 0,
         createdAt: ts,
         updatedAt: ts,
       });
@@ -146,6 +150,8 @@ for (const factory of factories) {
         courseId: null,
         pageCount: null,
         byteSize: 0,
+        textStatus: 'ready' as const,
+        segmentCount: 0,
         createdAt: ts,
         updatedAt: ts,
       });

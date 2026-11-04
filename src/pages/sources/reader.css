@@ -1,0 +1,425 @@
+/* ==========================================================================
+   阅读器
+   正文行宽是本文件最要紧的一条：超过约 68 个汉字，眼睛回行会串行。
+   ========================================================================== */
+
+.reader {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding-bottom: var(--sp-6);
+}
+
+.reader__head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-4);
+}
+
+.reader__head-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.reader__head-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin-top: var(--sp-2);
+}
+
+.reader__layout {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: var(--sp-4);
+  align-items: start;
+}
+
+/* ---------- 目录 ---------- */
+
+.reader__toc {
+  position: sticky;
+  top: 0;
+  max-height: calc(100vh - var(--topbar-h) - 140px);
+  display: flex;
+  flex-direction: column;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.reader__toc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-surface-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  flex: none;
+}
+
+.reader__toc-list {
+  margin: 0;
+  padding: var(--sp-1);
+  list-style: none;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.reader__toc-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-1) var(--sp-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--c-text-2);
+  font-size: var(--fs-sm);
+  text-align: left;
+  line-height: 1.5;
+}
+
+.reader__toc-item:hover {
+  background: var(--c-bg);
+  color: var(--c-text);
+}
+
+.reader__toc-item--active {
+  background: var(--c-primary-soft);
+  color: var(--c-primary);
+  font-weight: 600;
+}
+
+.reader__toc-index {
+  flex: none;
+  width: 2.2em;
+  color: var(--c-text-3);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-xs);
+}
+
+.reader__toc-item--active .reader__toc-index {
+  color: var(--c-primary);
+}
+
+.reader__toc-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 有命中的页给一个点，扫目录时能看出「哪些页提到了这个词」 */
+.reader__toc-hit {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--c-warning);
+  margin-left: auto;
+}
+
+/* ---------- 主区 ---------- */
+
+.reader__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.reader__pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+}
+
+.reader__pager-info {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 搜索 ---------- */
+
+.reader__search {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.reader__search-form {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.reader__search-form .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.reader__hits {
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface);
+  overflow: hidden;
+}
+
+.reader__hits-head {
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-surface-2);
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
+.reader__hits-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.reader__hit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border: none;
+  border-top: 1px solid var(--c-border);
+  background: transparent;
+  text-align: left;
+}
+
+.reader__hits-list li:first-child .reader__hit {
+  border-top: none;
+}
+
+.reader__hit:hover {
+  background: var(--c-surface-2);
+}
+
+.reader__hit--active {
+  background: var(--c-primary-soft);
+}
+
+.reader__hit-page {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--c-primary);
+}
+
+.reader__hit-snippet {
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.reader__hits-empty {
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  line-height: 1.7;
+}
+
+/* ---------- 正文 ---------- */
+
+.reader__body {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-5) var(--sp-6);
+}
+
+.reader__body:focus-visible {
+  outline: 2px solid var(--c-primary);
+  outline-offset: 2px;
+}
+
+/*
+ * 正文排版：衬线体 + 1.9 行高。
+ * 教材正文是连续阅读，不是扫读界面，行高比界面文字需要更大的呼吸。
+ */
+.reader__p {
+  font-size: 15px;
+  line-height: 1.9;
+  color: var(--c-text);
+  max-width: 42em;
+  margin-bottom: 1em;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.reader__p:last-child {
+  margin-bottom: 0;
+}
+
+/* 高亮：不用纯黄，避免和浅底对比过强刺眼 */
+.reader__mark {
+  background: color-mix(in srgb, var(--c-warning) 22%, transparent);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.reader__mark--active {
+  background: color-mix(in srgb, var(--c-warning) 55%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--c-warning) 70%, transparent);
+}
+
+.reader__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding-top: var(--sp-1);
+}
+
+/* ---------- 课程标签 ---------- */
+
+.course-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.course-chip {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 2px var(--sp-1) 2px var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  background: var(--c-surface-2);
+  font-size: var(--fs-sm);
+}
+
+.course-chip__name {
+  font-weight: 600;
+}
+
+.course-chip__count {
+  color: var(--c-text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  margin-right: var(--sp-1);
+}
+
+/* ---------- 详情抽屉 ---------- */
+
+.drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.drawer__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgb(16 24 40 / 32%);
+}
+
+.drawer__panel {
+  position: relative;
+  width: min(440px, 100%);
+  height: 100%;
+  background: var(--c-surface);
+  border-left: 1px solid var(--c-border);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.drawer__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--c-border);
+  flex: none;
+}
+
+.drawer__title {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+
+.drawer__body {
+  padding: var(--sp-4);
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.drawer__source-title {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.drawer__danger {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid color-mix(in srgb, var(--c-danger) 28%, transparent);
+  border-radius: var(--radius);
+  background: var(--c-danger-soft);
+}
+
+.drawer__danger-title {
+  font-weight: 600;
+  color: var(--c-danger);
+  font-size: var(--fs-sm);
+}
+
+.drawer__danger-text {
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: color-mix(in srgb, var(--c-danger) 80%, var(--c-text));
+}
+
+/* ---------- 窄窗口 ---------- */
+
+@media (max-width: 900px) {
+  .reader__layout {
+    grid-template-columns: 1fr;
+  }
+
+  .reader__toc {
+    position: static;
+    max-height: 220px;
+  }
+
+  .reader__body {
+    padding: var(--sp-4);
+  }
+}

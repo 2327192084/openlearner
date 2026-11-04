@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react';
 import type { LibraryService } from '@/core/library.ts';
 import type { BackendService } from '@/core/backends.ts';
+import type { CourseService, SourceService } from '@/core/sources.ts';
 
 /**
  * 应用运行时上下文。
@@ -11,6 +12,10 @@ import type { BackendService } from '@/core/backends.ts';
 export interface AppServices {
   library: LibraryService;
   backends: BackendService;
+  /** P1：资料导入、阅读、搜索 */
+  sources: SourceService;
+  /** P1：课程分组 */
+  courses: CourseService;
   /** 运行环境：浏览器 / Electron 桌面端 / 测试 */
   env: 'web' | 'desktop' | 'test';
 }

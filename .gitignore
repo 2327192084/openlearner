@@ -11,3 +11,6 @@ coverage/
 # 验收脚本产物（截图与临时浏览器 profile，不入库）
 .verify-shots/
 *.tsbuildinfo
+
+# 调试与构建临时目录
+.scratch/

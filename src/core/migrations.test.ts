@@ -1,0 +1,203 @@
+import { describe, expect, it, beforeEach } from 'vitest';
+import { migrateBackup, MigrationError } from './migrations.ts';
+import { LibraryService, validateBackup } from './library.ts';
+import { MemoryStorage } from './storage/memory-storage.ts';
+import { LIBRARY_SCHEMA_VERSION } from './model.ts';
+import type { LibraryBackup } from './model.ts';
+
+/**
+ * 备份版本迁移测试。
+ *
+ * 为什么这件事重要到要单独一组测试：
+ * P0 已经交付、可能已经有人导过 v1 备份。P1 把 schemaVersion 提到 2
+ * （新增 sourceSegments 分区 + Source 的 textStatus/segmentCount），
+ * 如果导入时只认 v2，那些备份就全废了 —— 而用户的资料是他们最不该丢的东西。
+ *
+ * 迁移的原则也在这里被断言：**只做加法**，不清空、不伪造。
+ */
+
+const ts = '2026-11-01T00:00:00.000Z';
+
+/** 构造一份 P0 时期的 v1 备份 */
+function makeV1Backup(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
+  return {
+    format: 'openleaner-library',
+    schemaVersion: 1,
+    exportedAt: ts,
+    meta: { id: 'library', name: 'P0 时代的库', createdAt: ts, updatedAt: ts, schemaVersion: 1 },
+    settings: { locale: 'zh-CN', questionLanguage: 'zh', onboarded: true },
+    courses: [{ id: 'course_1', name: '高等数学', color: null, createdAt: ts }],
+    // 注意：v1 的 Source 没有 textStatus / segmentCount
+    sources: [
+      {
+        id: 'source_1',
+        title: '第一章',
+        fileName: 'ch1.pdf',
+        kind: 'pdf',
+        courseId: 'course_1',
+        pageCount: 12,
+        byteSize: 102400,
+        createdAt: ts,
+        updatedAt: ts,
+      },
+    ],
+    knowledgePoints: [],
+    decks: [],
+    questions: [],
+    slideDecks: [],
+    backends: [],
+    ...overrides,
+  };
+}
+
+describe('migrateBackup：v1 → v2', () => {
+  it('版本号升到当前', () => {
+    const migrated = migrateBackup(makeV1Backup() as unknown as LibraryBackup);
+    expect(migrated.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
+  });
+
+  it('补出 sourceSegments 分区（空数组，不是 undefined）', () => {
+    const migrated = migrateBackup(makeV1Backup() as unknown as LibraryBackup);
+
+    expect(Array.isArray(migrated.sourceSegments)).toBe(true);
+    expect(migrated.sourceSegments).toHaveLength(0);
+
+    // 关键：不能是 undefined。JSON.stringify 会把 undefined 的键整个丢掉，
+    // 导入方再读就变成"没有这个字段"，下游全要判空
+    expect(JSON.parse(JSON.stringify(migrated))).toHaveProperty('sourceSegments');
+  });
+
+  it('给旧资料补上 textStatus 与 segmentCount', () => {
+    const migrated = migrateBackup(makeV1Backup() as unknown as LibraryBackup);
+    const source = migrated.sources[0];
+
+    expect(source.textStatus).toBe('ready');
+    // v1 从未把正文落库，所以真实段数就是 0。
+    // 编一个非零值会让阅读器点开空白，那比提示重导更糟
+    expect(source.segmentCount).toBe(0);
+  });
+
+  it('不伪造正文：迁移后没有凭空造出的段', () => {
+    const migrated = migrateBackup(makeV1Backup() as unknown as LibraryBackup);
+    // 宁可让用户重导一次，也不能造出能点开的假原文
+    expect(migrated.sourceSegments).toEqual([]);
+  });
+
+  it('原有数据一条不少', () => {
+    const migrated = migrateBackup(makeV1Backup() as unknown as LibraryBackup);
+
+    expect(migrated.meta.name).toBe('P0 时代的库');
+    expect(migrated.settings.onboarded).toBe(true);
+    expect(migrated.courses).toHaveLength(1);
+    expect(migrated.sources).toHaveLength(1);
+    expect(migrated.sources[0].title).toBe('第一章');
+    expect(migrated.sources[0].pageCount).toBe(12);
+  });
+
+  it('已是当前版本时原样返回（幂等）', () => {
+    const current = {
+      ...makeV1Backup(),
+      schemaVersion: LIBRARY_SCHEMA_VERSION,
+      sourceSegments: [],
+    } as unknown as LibraryBackup;
+
+    const result = migrateBackup(current);
+    expect(result).toBe(current);
+  });
+
+  it('拒绝更高版本，并提示升级而不是猜字段', () => {
+    const future = { ...makeV1Backup(), schemaVersion: 99 } as unknown as LibraryBackup;
+
+    expect(() => migrateBackup(future)).toThrow(MigrationError);
+    try {
+      migrateBackup(future);
+    } catch (err) {
+      expect((err as MigrationError).hint).toMatch(/升级/);
+    }
+  });
+
+  it('拒绝无效版本号', () => {
+    const invalid = { ...makeV1Backup(), schemaVersion: 0 } as unknown as LibraryBackup;
+    expect(() => migrateBackup(invalid)).toThrow(MigrationError);
+  });
+});
+
+describe('v1 备份能真正导入到学习库', () => {
+  let service: LibraryService;
+  let storage: MemoryStorage;
+
+  beforeEach(async () => {
+    storage = new MemoryStorage();
+    service = new LibraryService(storage);
+    await service.create('目标库');
+  });
+
+  it('整条链路：v1 备份 → 导入 → 课程与资料都在', async () => {
+    const meta = await service.importBackup(makeV1Backup());
+
+    expect(meta.name).toBe('P0 时代的库');
+    // 导入后库结构版本应当是当前版本，不是备份里的旧版本
+    expect(meta.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
+
+    const courses = await storage.getAll('courses');
+    expect(courses).toHaveLength(1);
+    expect(courses[0].name).toBe('高等数学');
+
+    const sources = await storage.getAll('sources');
+    expect(sources).toHaveLength(1);
+    expect(sources[0].textStatus).toBe('ready');
+    expect(sources[0].segmentCount).toBe(0);
+  });
+
+  it('导入 v1 备份后没有残留的孤儿段', async () => {
+    await service.importBackup(makeV1Backup());
+    expect(await storage.getAll('sourceSegments')).toHaveLength(0);
+  });
+
+  it('v2 备份往返不丢数据（导出再导入）', async () => {
+    // 先导入 v1
+    await service.importBackup(makeV1Backup());
+
+    // 再导出（此时是 v2）
+    const exported = await service.exportBackup();
+    expect(exported.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
+    expect(exported).toHaveProperty('sourceSegments');
+
+    // 换个空库导入回来
+    const target = new MemoryStorage();
+    const targetService = new LibraryService(target);
+    await targetService.create('另一个库');
+    await targetService.importBackup(JSON.parse(JSON.stringify(exported)));
+
+    const sources = await target.getAll('sources');
+    expect(sources).toHaveLength(1);
+    expect(sources[0].title).toBe('第一章');
+  });
+});
+
+describe('validateBackup 与迁移的先后顺序', () => {
+  it('不是备份的 JSON 得到的是「不是备份」提示，而不是迁移错误', () => {
+    // 顺序反了的话，用户会看到「缺少 v1→v2 迁移规则」这种把人带偏的话
+    try {
+      validateBackup({ hello: 'world' });
+      expect.unreachable('应当抛错');
+    } catch (err) {
+      expect((err as Error).message).toMatch(/不是本应用的学习库备份/);
+    }
+  });
+
+  it('缺 sourceSegments 的 v2 备份也能导入（补空数组）', async () => {
+    const storage = new MemoryStorage();
+    const service = new LibraryService(storage);
+    await service.create('库');
+
+    const incomplete = {
+      ...makeV1Backup(),
+      schemaVersion: LIBRARY_SCHEMA_VERSION,
+      // 故意不给 sourceSegments
+    };
+
+    await expect(service.importBackup(incomplete)).resolves.toBeDefined();
+    expect(await storage.getAll('sourceSegments')).toHaveLength(0);
+  });
+});

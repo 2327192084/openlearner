@@ -1,5 +1,5 @@
 import { register } from '@/core/registry.ts';
-import { SourcesPage } from './SourcesPage.tsx';
+import { SourcesPage } from './sources/SourcesPage.tsx';
 import { KnowledgePage } from './KnowledgePage.tsx';
 import { SlidesPage } from './SlidesPage.tsx';
 import { DecksPage } from './DecksPage.tsx';
@@ -23,7 +23,8 @@ register({
   summary: '导入并阅读教材、课件、讲义',
   order: 10,
   inNav: true,
-  status: 'planned',
+  // P1 已实现：导入、按课程分组、阅读器、全文搜索、详情与删除
+  status: 'ready',
   phase: 'P1',
   component: SourcesPage,
 });

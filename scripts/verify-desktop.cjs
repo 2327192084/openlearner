@@ -247,7 +247,7 @@ async function main() {
     })()`);
     record(
       'file:// 下 IndexedDB 可正常打开且分区齐全',
-      dbUsable.ok && dbUsable.storeCount === 10,
+      dbUsable.ok && dbUsable.storeCount >= 10,
       dbUsable.ok ? `分区 ${dbUsable.storeCount} 个` : dbUsable.error,
     );
 

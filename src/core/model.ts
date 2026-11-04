@@ -9,31 +9,72 @@
  */
 
 /** 当前学习库结构版本。改动实体结构时递增，并在 migrations.ts 补一段迁移。 */
-export const LIBRARY_SCHEMA_VERSION = 1;
+export const LIBRARY_SCHEMA_VERSION = 2;
 
-/** 每份资料在库里的位置信息，是「点回原文」的前提（P1/P2 依赖）。 */
+/**
+ * 位置信息 —— 全项目「点回原文」的唯一依据。
+ *
+ * 语义在这里必须**精确定义**，因为 P2/P3/P4 全靠它：
+ * 指错页比不能跳转更糟，它冒充可信。
+ *
+ * - `page`：页码，从 1 开始。按页切分的资料（PDF/PPTX）用它；
+ *   按章节切分的资料（DOCX/MD）此值为该章节**起始**所占的序号。
+ * - `chapter`：章节标题，便于目录跳转与出题时标注范围。
+ * - `charStart`/`charEnd`：相对于**该页/该章节文本**（即 SourceSegment.text）的字符偏移，
+ *   左闭右开。刻意不用「全文偏移」：全文偏移在重新导入或编辑后会整体错位，
+ *   而页内偏移只依赖那一页的文本，稳定得多。
+ */
 export interface SourceLocation {
   /** 资料 id */
   sourceId: string;
-  /** 页码（从 1 开始）。按章节切分的资料此值为该章节起始页。 */
+  /** 页码（从 1 开始）。按章节切分的资料此值为该章节起始页/序号。 */
   page?: number;
   /** 章节标题（按章节切分时使用） */
   chapter?: string;
-  /** 该片段在全文中的字符偏移，用于精确定位高亮 */
+  /** 该片段在**本页/本章文本**中的起始字符偏移（左闭） */
   charStart?: number;
+  /** 结束字符偏移（右开） */
   charEnd?: number;
 }
 
+/** 资料里的一段可定位文本（一页，或一章）。 */
+export interface SourceSegment {
+  id: string;
+  sourceId: string;
+  /** 顺序号，从 1 开始；用于翻页与稳定排序 */
+  index: number;
+  /** 页码。按章节切分的资料里等于 index */
+  page: number;
+  /** 所属章节标题，没有则 null */
+  chapter: string | null;
+  /**
+   * 规范化后的正文。
+   *
+   * 「规范化」指：PDF 里被行尾硬断开的句子已经接回整句（见 parser/normalize.ts），
+   * 段落之间用 `\n\n` 分隔。这样全文搜索整句能命中，
+   * 而 charStart/charEnd 也直接对应这里，高亮不会错位。
+   */
+  text: string;
+  /** 该段字符数，避免每次搜索都算长度 */
+  charCount: number;
+}
+
+/** 资料的文本可用状态。扫描件在这里被显式标出来，而不是伪装成「导入成功」。 */
+export type SourceTextStatus =
+  /** 正常，有可检索的文本层 */
+  | 'ready'
+  /** 扫描件：没有文本层，读不出文字。P6 会走看图模型 */
+  | 'no-text-layer';
+
 /**
  * 资料（教材/课件/讲义/粘贴文本）。
- * P0 只建记录，P1 才做真实的解析与切分。
  */
 export interface Source {
   id: string;
   title: string;
   /** 原始文件名，粘贴文本为 null */
   fileName: string | null;
-  /** 来源类型；P0 只作为占位信息保存 */
+  /** 来源类型 */
   kind: 'pdf' | 'docx' | 'pptx' | 'markdown' | 'text';
   /** 归属课程，未归类为 null */
   courseId: string | null;
@@ -41,6 +82,10 @@ export interface Source {
   pageCount: number | null;
   /** 导入时的字节数（粘贴文本为字符数） */
   byteSize: number;
+  /** 文本可用状态 */
+  textStatus: SourceTextStatus;
+  /** 切分出的段数，列表页直接显示，不必再查 segments */
+  segmentCount: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -192,6 +237,8 @@ export interface LibraryBackup {
   settings: AppSettings;
   courses: Course[];
   sources: Source[];
+  /** 切分后的正文。跟资料一起备份，否则恢复后「点回原文」全失效 */
+  sourceSegments: SourceSegment[];
   knowledgePoints: KnowledgePoint[];
   decks: Deck[];
   questions: Question[];

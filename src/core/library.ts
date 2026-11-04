@@ -1,6 +1,7 @@
 import { newId, nowIso } from './id.ts';
 import { DEFAULT_SETTINGS, LIBRARY_SCHEMA_VERSION } from './model.ts';
 import type { AppSettings, LibraryBackup, LibraryMeta } from './model.ts';
+import { migrateBackup } from './migrations.ts';
 import type { StorageAdapter, StoreSnapshot } from './storage/types.ts';
 import { BACKUP_STORES } from './storage/types.ts';
 
@@ -109,6 +110,8 @@ export class LibraryService {
       settings,
       courses: snapshot.courses,
       sources: snapshot.sources,
+      // 切分正文必须跟着走：不导出的话，恢复之后「点回原文」全部失效
+      sourceSegments: snapshot.sourceSegments,
       knowledgePoints: snapshot.knowledgePoints,
       decks: snapshot.decks,
       questions: snapshot.questions,
@@ -124,7 +127,11 @@ export class LibraryService {
    * 校验失败时抛 LibraryError 并带可操作提示，而不是笼统「导入失败」。
    */
   async importBackup(raw: unknown): Promise<LibraryMeta> {
-    const backup = validateBackup(raw);
+    // 校验在前（能给出可操作的提示），迁移在后（处理旧版本备份）。
+    // 顺序不能反：对一个根本不是备份的 JSON 跑迁移，只会得到无意义的
+    // 「缺少 v1→v2 迁移规则」这类提示，把用户带偏。
+    const validated = validateBackup(raw);
+    const backup = migrateBackup(validated);
 
     const snapshot = {} as StoreSnapshot;
     for (const store of BACKUP_STORES) {

@@ -17,6 +17,9 @@
     "electron:pack": "npm run build && electron-builder --dir"
   },
   "dependencies": {
+    "fast-xml-parser": "^5.12.0",
+    "jszip": "^3.10.2",
+    "pdfjs-dist": "^6.5.438",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.9.5"

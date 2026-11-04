@@ -1,0 +1,469 @@
+import { newId, nowIso } from './id.ts';
+import type { Course, Source, SourceSegment } from './model.ts';
+import { kindFromFileName, parseAny, titleFromFileName } from './parsers/index.ts';
+import { ImportError, importError } from './parsers/types.ts';
+import type { ImportFailureCode } from './parsers/types.ts';
+import type { StorageAdapter } from './storage/types.ts';
+
+/**
+ * 资料服务：导入、列表、阅读、搜索、删除。
+ *
+ * 这一层是 P2 之后所有功能的地基（计划书：「这一层是全项目地基，
+ * P2 之后所有功能都吃它的切分与位置信息，这里不准，后面全都歪」）。
+ * 所以两条铁律：
+ *  1. 位置信息只能来自解析器实测的页码，**任何情况下不猜**；
+ *  2. 删除必须级联清理，不留孤儿 segment（否则会永远占着空间还搜得到）。
+ */
+
+/** 单次导入的结果 */
+export interface ImportOutcome {
+  fileName: string;
+  ok: boolean;
+  source?: Source;
+  /** 失败时一定有 code 与 hint —— 界面不允许只显示「失败」 */
+  failure?: { code: ImportFailureCode; message: string; hint: string };
+}
+
+/** 全文搜索命中的一处位置 */
+export interface SearchHit {
+  segmentId: string;
+  page: number;
+  chapter: string | null;
+  /** 命中位置在该段文本内的字符偏移（左闭右开） */
+  charStart: number;
+  charEnd: number;
+  /** 用于列表预览的上下文片段（前后各约 30 字） */
+  snippet: string;
+}
+
+/** 按课程分组的资料 */
+export interface CourseGroup {
+  course: Course | null;
+  sources: Source[];
+}
+
+export class SourceService {
+  constructor(private readonly storage: StorageAdapter) {}
+
+  /**
+   * 导入一批文件。
+   *
+   * 逐份处理，**单份失败不影响其他份** —— 学生一次拖 5 个课件进来，
+   * 其中 1 个是扫描件或坏文件时，不该让另外 4 个也白等。
+   * 返回逐份的结果，由界面逐条显示。
+   */
+  async importFiles(
+    files: File[],
+    opts: {
+      courseId?: string | null;
+      onProgress?: (done: number, total: number, current: string) => void;
+    } = {},
+  ): Promise<ImportOutcome[]> {
+    const outcomes: ImportOutcome[] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      opts.onProgress?.(i, files.length, file.name);
+
+      try {
+        const buffer = new Uint8Array(await file.arrayBuffer());
+        const source = await this.importBuffer(file.name, buffer, {
+          courseId: opts.courseId ?? null,
+          byteSize: file.size,
+        });
+        outcomes.push({ fileName: file.name, ok: true, source });
+      } catch (err) {
+        outcomes.push(toFailure(file.name, err));
+      }
+    }
+
+    opts.onProgress?.(files.length, files.length, '');
+    return outcomes;
+  }
+
+  /**
+   * 从字节导入一份资料（文件名已知）。
+   * 与 importFiles 共用，便于测试不依赖浏览器 File。
+   */
+  async importBuffer(
+    fileName: string,
+    data: Uint8Array,
+    opts: { courseId?: string | null; byteSize?: number; title?: string } = {},
+  ): Promise<Source> {
+    const parsed = await parseAny(fileName, data);
+
+    const ts = nowIso();
+    const sourceId = newId('source');
+
+    // 段与资料必须一起写。半途失败留下「有资料没正文」的记录，
+    // 阅读器点开会空白，用户会以为文件坏了。
+    const segments: SourceSegment[] = parsed.segments.map((seg) => ({
+      id: newId('seg'),
+      sourceId,
+      index: seg.index,
+      page: seg.page,
+      chapter: seg.chapter,
+      text: seg.text,
+      charCount: seg.text.length,
+    }));
+
+    const source: Source = {
+      id: sourceId,
+      title: opts.title?.trim() || parsed.title || titleFromFileName(fileName),
+      fileName,
+      kind: kindFromFileName(fileName),
+      courseId: opts.courseId ?? null,
+      pageCount: parsed.pageCount,
+      byteSize: opts.byteSize ?? data.byteLength,
+      textStatus: parsed.textStatus,
+      segmentCount: segments.length,
+      createdAt: ts,
+      updatedAt: ts,
+    };
+
+    // 先写段再写资料：万一中途失败，是「有段没资料」（不可见、可被清理），
+    // 而不是「有资料没段」（可见但点开是空的，最糟的用户体验）
+    await this.storage.putMany('sourceSegments', segments);
+    await this.storage.put('sources', source);
+
+    return source;
+  }
+
+  /** 把一段粘贴的文字存成资料 */
+  async importText(
+    title: string,
+    text: string,
+    opts: { courseId?: string | null } = {},
+  ): Promise<Source> {
+    if (!text.trim()) {
+      throw importError('empty', '粘贴的内容是空的');
+    }
+
+    const data = new TextEncoder().encode(text);
+    const safeTitle = title.trim() || '粘贴的资料';
+
+    const parsed = await parseAny(`${safeTitle}.txt`, data);
+
+    const ts = nowIso();
+    const sourceId = newId('source');
+    const segments: SourceSegment[] = parsed.segments.map((seg) => ({
+      id: newId('seg'),
+      sourceId,
+      index: seg.index,
+      page: seg.page,
+      chapter: seg.chapter,
+      text: seg.text,
+      charCount: seg.text.length,
+    }));
+
+    const source: Source = {
+      id: sourceId,
+      title: safeTitle,
+      fileName: null,
+      kind: 'text',
+      courseId: opts.courseId ?? null,
+      pageCount: parsed.pageCount,
+      byteSize: data.byteLength,
+      textStatus: parsed.textStatus,
+      segmentCount: segments.length,
+      createdAt: ts,
+      updatedAt: ts,
+    };
+
+    await this.storage.putMany('sourceSegments', segments);
+    await this.storage.put('sources', source);
+
+    return source;
+  }
+
+  async list(): Promise<Source[]> {
+    const all = await this.storage.getAll('sources');
+    return all.sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+  }
+
+  async get(id: string): Promise<Source | null> {
+    return this.storage.get('sources', id);
+  }
+
+  /** 取某份资料的全部段，按 index 升序 */
+  async getSegments(sourceId: string): Promise<SourceSegment[]> {
+    const all = await this.storage.getAll('sourceSegments');
+    return all
+      .filter((s) => s.sourceId === sourceId)
+      .sort((a, b) => a.index - b.index);
+  }
+
+  /**
+   * 按课程分组。
+   *
+   * 未归类的资料单独成组（course: null），组名由界面写「未分类」。
+   * 空课程（没有任何资料）也保留 —— 用户刚建完课程时应该能看到它，
+   * 否则会以为没建成功。这是 P1「按课程分组」的完整语义。
+   */
+  async listByCourse(): Promise<CourseGroup[]> {
+    const [courses, sources] = await Promise.all([
+      this.storage.getAll('courses'),
+      this.list(),
+    ]);
+
+    const byCourse = new Map<string | null, Source[]>();
+    for (const course of courses) byCourse.set(course.id, []);
+    byCourse.set(null, []);
+
+    for (const source of sources) {
+      const key = source.courseId && byCourse.has(source.courseId) ? source.courseId : null;
+      byCourse.get(key)!.push(source);
+    }
+
+    const groups: CourseGroup[] = [];
+    for (const course of courses.sort((a, b) => a.name.localeCompare(b.name, 'zh'))) {
+      groups.push({ course, sources: byCourse.get(course.id)! });
+    }
+
+    const unclassified = byCourse.get(null)!;
+    // 空组只在没有课程时才显示，避免界面上挂一个空的「未分类」
+    if (unclassified.length > 0 || courses.length === 0) {
+      groups.push({ course: null, sources: unclassified });
+    }
+
+    return groups;
+  }
+
+  /**
+   * 删除资料，并级联清理它的全部段。
+   *
+   * 顺序是**先删段再删资料**：
+   * 反过来的话，如果中途失败，会留下「有段没资料」的孤儿段 ——
+   * 它们不会被任何界面显示，却永远占空间、还能被搜索到。
+   * 先删段则最坏是「有资料没段」，界面会显示 0 页，用户能再删一次。
+   */
+  async remove(id: string): Promise<void> {
+    const segments = await this.getSegments(id);
+    for (const seg of segments) {
+      await this.storage.remove('sourceSegments', seg.id);
+    }
+    await this.storage.remove('sources', id);
+  }
+
+  /** 改标题 / 换课程 */
+  async update(
+    id: string,
+    patch: { title?: string; courseId?: string | null },
+  ): Promise<Source | null> {
+    const existing = await this.storage.get('sources', id);
+    if (!existing) return null;
+
+    const next: Source = {
+      ...existing,
+      title: patch.title?.trim() || existing.title,
+      courseId: patch.courseId !== undefined ? patch.courseId : existing.courseId,
+      updatedAt: nowIso(),
+    };
+    await this.storage.put('sources', next);
+    return next;
+  }
+
+  /**
+   * 把资料归到某个课程（传 null 表示移到「未分类」）。
+   *
+   * 单独开一个方法而不是只留 update()：列表页的换课程下拉最常用它，
+   * 语义明确、调用处不会因为忘了只看 courseId 而误改标题。
+   */
+  async setCourse(sourceId: string, courseId: string | null): Promise<Source | null> {
+    return this.update(sourceId, { courseId });
+  }
+
+  /**
+   * 全文搜索。
+   *
+   * 两条实现要点：
+   *
+   * 1. **跨行匹配**。PDF 取出的文本里段落是 `\n\n` 分隔的，
+   *    而用户搜的是一句连续的话。所以匹配前把换行当空白处理，
+   *    但返回的偏移必须映射回**原始文本**的坐标，否则高亮会错位。
+   *
+   * 2. **大小写不敏感**（英文资料），但保留原文的字符位置。
+   */
+  async search(sourceId: string, query: string): Promise<SearchHit[]> {
+    const needle = query.trim();
+    if (!needle) return [];
+
+    const segments = await this.getSegments(sourceId);
+    const hits: SearchHit[] = [];
+
+    for (const seg of segments) {
+      const occurrences = findAllFolded(seg.text, needle);
+
+      for (const { start, end } of occurrences) {
+        hits.push({
+          segmentId: seg.id,
+          page: seg.page,
+          chapter: seg.chapter,
+          charStart: start,
+          charEnd: end,
+          snippet: makeSnippet(seg.text, start, end),
+        });
+      }
+    }
+
+    // 按页码排序，方便用户从上到下翻
+    return hits.sort((a, b) => a.page - b.page || a.charStart - b.charStart);
+  }
+}
+
+/**
+ * 在文本里找所有出现位置，**忽略一切空白**，跨换行也能匹配。
+ *
+ * 为什么要剔掉空白而不是把它折成空格（第一版做法，实测失败）：
+ * 中文没有词间空格，用户搜「句后」要能命中原文的「句\n后」。
+ * 折成空格的话搜索串里没有空格，就永远匹配不上。
+ * 剔掉空白对英文也是对的：「algo\nrithm」拼回「algorithm」正是想要的效果。
+ *
+ * 关键实现：构建折叠文本时**同时记录每个折叠字符来自原文的哪个下标**。
+ * 命中后把下标映射回原文，返回的偏移可以直接用于高亮切分。
+ * 不能用「先删除空白再 indexOf」那种做法 —— 那样偏移是折叠后坐标，
+ * 拿去切原文本会越切越偏，高亮错位。
+ */
+export function findAllFolded(
+  text: string,
+  query: string,
+): { start: number; end: number }[] {
+  const chars = [...text];
+
+  // 折叠：去掉空白 + 转小写，并记录每个输出字符的原文下标
+  const foldedParts: string[] = [];
+  const origOf: number[] = [];
+
+  chars.forEach((ch, idx) => {
+    if (/\s/.test(ch)) return;
+    const lower = ch.toLowerCase();
+    // toLowerCase 可能产出多个字符（如 İ），每个都映射到同一原文下标
+    for (const c of lower) {
+      foldedParts.push(c);
+      origOf.push(idx);
+    }
+  });
+
+  const foldedText = foldedParts.join('');
+
+  // 查询同样折叠
+  const queryParts: string[] = [];
+  for (const ch of [...query]) {
+    if (/\s/.test(ch)) continue;
+    for (const c of ch.toLowerCase()) queryParts.push(c);
+  }
+  const foldedQuery = queryParts.join('');
+
+  if (!foldedQuery) return [];
+
+  const results: { start: number; end: number }[] = [];
+  let from = 0;
+
+  while (from <= foldedText.length - foldedQuery.length) {
+    const idx = foldedText.indexOf(foldedQuery, from);
+    if (idx === -1) break;
+
+    const firstChar = origOf[idx];
+    const lastChar = origOf[idx + foldedQuery.length - 1];
+    results.push({ start: firstChar, end: lastChar + 1 });
+
+    // 从下一个折叠字符继续，允许重叠命中（如「aa」在「aaa」里出现两次）
+    from = idx + 1;
+  }
+
+  return results;
+}
+
+/** 生成预览片段：命中词前后各 30 字，换行压成空格 */
+function makeSnippet(text: string, start: number, end: number, radius = 30): string {
+  const from = Math.max(0, start - radius);
+  const to = Math.min(text.length, end + radius);
+
+  const prefix = from > 0 ? '…' : '';
+  const suffix = to < text.length ? '…' : '';
+  const body = text.slice(from, to).replace(/\s+/g, ' ').trim();
+
+  return `${prefix}${body}${suffix}`;
+}
+
+/** 把任意异常转成「有原因、有下一步」的失败对象 */
+function toFailure(fileName: string, err: unknown): ImportOutcome {
+  if (err instanceof ImportError) {
+    return {
+      fileName,
+      ok: false,
+      failure: { code: err.code, message: err.message, hint: err.hint },
+    };
+  }
+
+  const message = err instanceof Error ? err.message : String(err);
+  return {
+    fileName,
+    ok: false,
+    failure: {
+      code: 'unknown',
+      message: `「${fileName}」导入失败：${message}`,
+      hint: '可以换一份文件试试；若持续出现，请记下文件名反馈。',
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 课程
+// ---------------------------------------------------------------------------
+
+export class CourseService {
+  constructor(private readonly storage: StorageAdapter) {}
+
+  async list(): Promise<Course[]> {
+    const all = await this.storage.getAll('courses');
+    return all.sort((a, b) => a.name.localeCompare(b.name, 'zh'));
+  }
+
+  async create(name: string, color: string | null = null): Promise<Course> {
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error('课程名不能为空');
+
+    const course: Course = {
+      id: newId('course'),
+      name: trimmed,
+      color,
+      createdAt: nowIso(),
+    };
+    await this.storage.put('courses', course);
+    return course;
+  }
+
+  /**
+   * 删除课程。
+   *
+   * 刻意**不删资料**：资料是用户辛苦导入的内容，
+   * 删一个课程名不该把它们一起带走。只把 courseId 置空（回到未分类）。
+   * 界面上会明确告知这一点。
+   */
+  async remove(id: string): Promise<number> {
+    const sources = await this.storage.getAll('sources');
+    const affected = sources.filter((s) => s.courseId === id);
+
+    for (const source of affected) {
+      await this.storage.put('sources', {
+        ...source,
+        courseId: null,
+        updatedAt: nowIso(),
+      });
+    }
+
+    await this.storage.remove('courses', id);
+    return affected.length;
+  }
+
+  async rename(id: string, name: string): Promise<Course | null> {
+    const existing = await this.storage.get('courses', id);
+    if (!existing) return null;
+    const next = { ...existing, name: name.trim() || existing.name };
+    await this.storage.put('courses', next);
+    return next;
+  }
+}

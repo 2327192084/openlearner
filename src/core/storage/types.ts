@@ -8,6 +8,7 @@ import type {
   SettingsRecord,
   SlideDeck,
   Source,
+  SourceSegment,
 } from '../model.ts';
 
 /** 学习库的存储分区。每个分区是一张「表」。 */
@@ -16,6 +17,14 @@ export const STORES = [
   'settings',
   'courses',
   'sources',
+  /**
+   * 资料的切分正文，单独一张表。
+   *
+   * 为什么不塞进 Source 记录：一份 50 页课件的片段会到数百条、正文几十万字，
+   * 塞进去会让「读资料列表」也拖着全部正文。分开之后列表只读元信息，
+   * 阅读器按 sourceId 取需要的段。
+   */
+  'sourceSegments',
   'knowledgePoints',
   'decks',
   'questions',
@@ -35,6 +44,7 @@ export type StoreName = (typeof STORES)[number];
 export const BACKUP_STORES = [
   'courses',
   'sources',
+  'sourceSegments',
   'knowledgePoints',
   'decks',
   'questions',
@@ -50,6 +60,7 @@ export interface StoreRecordMap {
   settings: SettingsRecord;
   courses: Course;
   sources: Source;
+  sourceSegments: SourceSegment;
   knowledgePoints: KnowledgePoint;
   decks: Deck;
   questions: Question;

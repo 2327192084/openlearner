@@ -144,3 +144,90 @@ P1 要动的两个地方，接口已经定死，不需要改骨架：
   但 P7 演示前应补 `build/icon.ico`（256×256），否则显示 Electron 原子图标。
 - **静态托管**：hash 路由下不需要 SPA 回退，直接静态托管即可。
 - 无头浏览器验证用的是本机 Edge，断言以 DOM 与交互为准，不做像素级比对。
+
+---
+
+## 六、P1 · 资料导入与阅读
+
+### 支持的格式与切分方式
+
+| 格式 | 切分依据 | 说明 |
+|---|---|---|
+| PDF | 按页 | 真实页码，`SourceSegment.page` 即 PDF 页号 |
+| PPTX | 按幻灯片 | **按 `sldIdLst` 顺序，不按文件名** —— PowerPoint 调整页序只改引用顺序，按文件名排会指错页 |
+| DOCX | 按章节 | 依 Heading 1/2 切分；无标题的长文档按段落聚合 |
+| Markdown | 按 `#` 标题 | 剥掉语法符号但不动文字 |
+| 纯文本 | 按段落聚合 | 超长段落按句末标点切，不切断句子 |
+
+### 位置信息（全项目的命根子）
+
+```ts
+interface SourceLocation {
+  sourceId: string;
+  page?: number;      // 从 1 开始
+  chapter?: string;
+  charStart?: number; // 相对**该页/该章文本**的偏移，左闭
+  charEnd?: number;   // 右开
+}
+```
+
+两个刻意的设计决定：
+
+1. **偏移相对页内文本，不是全文偏移。** 全文偏移在重新导入或编辑后会整体错位，
+   而页内偏移只依赖那一页的文本，稳定得多。
+2. **不猜位置。** 解析器只写它实测到的页码。P2 要求「指认不到原文位置时留空等人处理」，
+   不要自动填一个位置上去 —— 指错页比不能跳转更糟，它冒充可信。
+
+### 文本规范化（决定「原文」长什么样）
+
+PDF 取词有两个必须处理的特性，都是对着真实样本实测出来的：
+
+- **行尾硬断句**：同一段话的第二行是独立的海拔基线，取出来是
+  「…非线性」+「结构包括树与图。」，中间没有连接符。不接回去，全文搜索整句永远搜不到。
+- **段内折行与段落间距不同**：实测样本行高 12，段内折行 23.25（1.94 倍），
+  段落之间 32.25（2.69 倍）。所以按 **间距 / 行高** 判段，
+  阈值 2.2。用「间距中位数」会失败 —— 段落间距反而更多，中位数被污染，所有段落并成一块。
+
+### 扫描件
+
+`textStatus: 'no-text-layer'` —— **不是错误**。能导入、能翻页，但搜不出字，
+阅读器会禁用搜索框并说明原因（P6 走看图模型）。
+
+### PDF worker 的两个坑
+
+1. 浏览器里必须设 `GlobalWorkerOptions.workerSrc`，否则一份 PDF 都解析不了。
+2. 必须用 `?url` 让打包器产出 worker 路径；但 **Node（单测）里不能用 `?url`**
+   —— 没有打包器时它会被解析成文件系统路径，pdfjs 必然失败。
+   所以按 `typeof window !== 'undefined'` 分支：浏览器设 workerSrc，Node 退回 fake worker。
+
+> 这个 bug 单元测试抓不到（测试注入 pdfjs 自身，走不到真实加载分支），
+> 是 `verify-p1.cjs` 在真实浏览器里跑出来的。
+
+### 验收
+
+```bash
+npm run build
+
+# 浏览器
+npx vite preview --port 4173
+node scripts/verify-p1.cjs           # 21 项
+
+# 桌面端 file://（验 PDF worker 在打包产物里可用）
+npx electron-builder --dir
+node scripts/verify-p1-desktop.cjs   # 6 项
+```
+
+### 测试样本
+
+`src/test/fixtures/` 由 `node scripts/make-fixtures.cjs` 生成，**需提交**（测试不依赖浏览器）。
+样本内容固定（三章数据结构讲义），`expectations.json` 记录了每页应含的原文片段与检索词→页码映射，
+测试直接引用它断言「哪句话在哪一页」。
+
+### 一个环境坑
+
+`npx vite build` 在 Windows 上可能报 `esbuild ... Access is denied`（`%TEMP%` 权限问题）。
+这不是代码问题，把临时目录指到工作区内即可：
+
+```bash
+TMP="E:/openleaner/.scratch/tmp" TEMP="E:/openleaner/.scratch/tmp" npx vite build
+```

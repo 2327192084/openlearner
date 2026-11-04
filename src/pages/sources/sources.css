@@ -1,0 +1,323 @@
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- 导入区 ---------- */
+
+.sources-import {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+/* 拖拽落区：整块可投，不做成一圈虚线给人「要点」的错觉 */
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-6) var(--sp-5);
+  border: 2px dashed var(--c-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--c-surface-2);
+  text-align: center;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.dropzone--over {
+  border-color: var(--c-primary);
+  background: var(--c-primary-soft);
+}
+
+.dropzone__title {
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+
+.dropzone__hint {
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  line-height: 1.6;
+  max-width: 52ch;
+}
+
+.dropzone__actions {
+  display: flex;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* 进度：一眼看到「第几份 / 共几份」和当前文件名 */
+.import-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+}
+
+.import-progress__line {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+}
+
+.import-progress__file {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
+.import-progress__bar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--c-border);
+  overflow: hidden;
+}
+
+.import-progress__fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--c-primary);
+  transition: width 0.2s ease;
+}
+
+/* ---------- 导入结果 ---------- */
+
+.import-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.import-result__summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.import-result__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.outcome {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+}
+
+.outcome--ok {
+  border-left-color: var(--c-success);
+}
+
+.outcome--fail {
+  border-left-color: var(--c-danger);
+}
+
+.outcome__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.outcome__name {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  word-break: break-all;
+  min-width: 0;
+}
+
+.outcome__message {
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  line-height: 1.6;
+}
+
+/* hint 是 P1 硬要求，做成带底色的块，不会被当成附注跳过 */
+.outcome__hint {
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  background: var(--c-warning-soft);
+  color: color-mix(in srgb, var(--c-warning) 88%, #000);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+
+.outcome__hint strong {
+  font-weight: 600;
+}
+
+/* ---------- 列表 ---------- */
+
+.course-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.course-group__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-5);
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-surface-2);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.course-group__name {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+
+.course-group__actions {
+  display: flex;
+  gap: var(--sp-1);
+  flex: none;
+}
+
+.source-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.source-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-5);
+  border-top: 1px solid var(--c-border);
+}
+
+.source-item:first-child {
+  border-top: none;
+}
+
+.source-item:hover {
+  background: var(--c-surface-2);
+}
+
+.source-item__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+  flex: 1;
+  /* 整行可点进阅读器，键盘也走同一路径 */
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+}
+
+.source-item__title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.source-item__title strong {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 46ch;
+}
+
+.source-item__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
+.source-item__sep {
+  color: var(--c-border-strong);
+}
+
+.source-item__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: none;
+}
+
+.source-item__actions .select {
+  width: auto;
+  min-width: 132px;
+  min-height: 28px;
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-sm);
+}
+
+/* 已生成内容计数：P1 恒为 0，位置先占住，避免 P2 上线后列表跳动 */
+.gen-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--c-text-3);
+}
+
+.gen-count--zero {
+  color: var(--c-text-3);
+}
+
+.course-create {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.course-create .field {
+  flex: 1;
+  min-width: 200px;
+}

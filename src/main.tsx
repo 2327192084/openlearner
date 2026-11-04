@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { LibraryService } from '@/core/library.ts';
 import { BackendService } from '@/core/backends.ts';
+import { CourseService, SourceService } from '@/core/sources.ts';
 import { IndexedDbStorage } from '@/core/storage/indexeddb-storage.ts';
 import { ServicesContext, type AppServices } from '@/app/services-context.ts';
 import { AppRouter } from '@/app/router.tsx';
@@ -28,12 +29,14 @@ function Bootstrap() {
     const storage = new IndexedDbStorage();
     const library = new LibraryService(storage);
     const backends = new BackendService(storage);
+    const sources = new SourceService(storage);
+    const courses = new CourseService(storage);
 
     library
       .init()
       .then(() => {
         if (cancelled) return;
-        setServices({ library, backends, env: detectEnv() });
+        setServices({ library, backends, sources, courses, env: detectEnv() });
       })
       .catch((err: unknown) => {
         if (cancelled) return;
