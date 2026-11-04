@@ -1,0 +1,617 @@
+/* ==========================================================================
+   知识点页（P2）：整理入口 + 两栏校对
+   只写这个页面独有的结构样式，颜色/间距/圆角全部引用 tokens.css 的令牌，
+   按钮、输入、卡片、徽标、空态、错态一律复用 components.css 的通用类。
+   ========================================================================== */
+
+/* ---------- 选资料 ---------- */
+
+.kp-picker__body {
+  display: flex;
+  gap: var(--sp-5);
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.kp-picker__field {
+  flex: 0 1 340px;
+  min-width: 240px;
+}
+
+.kp-picker__meta {
+  flex: 1 1 320px;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding-left: var(--sp-5);
+  border-left: 1px solid var(--c-border);
+}
+
+.kp-picker__title {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  word-break: break-word;
+}
+
+/*
+  统计再给一行完整文字。
+  徽标适合扫视，但「几条已定位、几条待处理」是验收要看的具体数字，
+  光看徽标容易数错，所以两种形式都给。
+*/
+.kp-picker__count {
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 校对区骨架 ---------- */
+
+.kp-work {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.kp-work__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+
+.kp-work__head-main {
+  min-width: 0;
+}
+
+.kp-work__head-main p {
+  margin-top: var(--sp-1);
+  line-height: 1.7;
+  max-width: 68ch;
+}
+
+/*
+  两栏：左原文、右知识点。
+  左栏略宽（1.25fr）——原文是判据，卡片只需要够放一段表述。
+  窄窗口下折成一栏（见文件末尾），因为并排各占 50% 会让两边都不可读。
+*/
+.kp-work__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 1fr);
+  gap: var(--sp-4);
+  align-items: start;
+}
+
+.kp-work__left,
+.kp-work__right {
+  min-width: 0;
+}
+
+/*
+  左栏粘住顶部，让原文在滚动右侧卡片时始终可见 —— 校对的前提是两边同时看得见。
+  sticky 必须落在**网格项**上，不能只落在它内部的卡片上：
+  卡片的包含块就是网格项，网格项高度等于卡片高度时，
+  卡片没有任何可粘的余量，滚起来就跟着一起走了（实测踩到过）。
+*/
+.kp-work__left {
+  position: sticky;
+  top: calc(var(--sp-2) * -1);
+  align-self: start;
+  max-height: calc(100vh - var(--topbar-h) - 96px);
+}
+
+/* ---------- 左栏：原文 ---------- */
+
+.kp-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-height: inherit;
+}
+
+.kp-pane__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-surface-2);
+  flex: none;
+}
+
+.kp-pane__head-info {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+
+.kp-pane__jump {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--c-border);
+  font-size: var(--fs-xs);
+  flex: none;
+}
+
+.kp-pane__jump .select {
+  width: auto;
+  min-width: 160px;
+  min-height: 28px;
+  padding: 2px var(--sp-2);
+  font-size: var(--fs-sm);
+}
+
+/* 正文：行高比阅读器略松，因为对照时视线要来回跳 */
+.kp-pane__body {
+  padding: var(--sp-4) var(--sp-5);
+  overflow-y: auto;
+  min-height: 0;
+  font-size: var(--fs-base);
+  line-height: 1.9;
+  color: var(--c-text);
+  /* 正文行宽上限：超过约 68 个汉字，眼睛回行会串行 */
+  max-width: 70ch;
+}
+
+.kp-text__p {
+  margin: 0 0 var(--sp-3);
+  word-break: break-word;
+}
+
+.kp-text__p:last-child {
+  margin-bottom: 0;
+}
+
+/*
+  高亮。
+  非当前条目用淡黄底（“这里有东西”），当前条目用更实的琥珀底加下划线
+  （“就是这一条”）。两级区分不能只靠颜色深浅——色弱用户看不出来，
+  所以当前条目额外加一条下边框。
+*/
+.kp-text__mark {
+  background: var(--c-warning-soft);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--c-warning) 30%, transparent);
+}
+
+.kp-text__mark--active {
+  background: color-mix(in srgb, var(--c-warning) 32%, #fff);
+  box-shadow: inset 0 -2px 0 var(--c-warning);
+  font-weight: 500;
+}
+
+.kp-pane__empty {
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--c-border);
+  background: var(--c-warning-soft);
+  color: color-mix(in srgb, var(--c-warning) 88%, #000);
+  font-size: var(--fs-sm);
+}
+
+/* ---------- 右栏：知识点列表 ---------- */
+
+.kp-list__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  padding: 0 var(--sp-1) var(--sp-2);
+  font-size: var(--fs-sm);
+}
+
+.kp-list__run {
+  color: var(--c-text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.kp-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.kp-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-left: 3px solid var(--c-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--c-surface);
+  box-shadow: var(--shadow-sm);
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.kp-card:hover {
+  border-color: var(--c-border-strong);
+}
+
+.kp-card--active {
+  border-color: var(--c-primary);
+  border-left-color: var(--c-primary);
+  box-shadow: 0 0 0 3px var(--c-primary-soft);
+}
+
+/*
+  「待处理」必须看起来和成功定位的不一样 —— 这是 P2 验收原话。
+  橙色左边框 + 浅橙底，扫一眼就能从一列白卡里挑出来。
+  注意只改边框和底色，不改文字颜色：文字仍是正常对比度，便于逐字校对。
+*/
+.kp-card--unlocated {
+  border-left-color: var(--c-warning);
+  border-color: color-mix(in srgb, var(--c-warning) 32%, var(--c-border));
+  background: color-mix(in srgb, var(--c-warning-soft) 55%, var(--c-surface));
+}
+
+.kp-card--unlocated.kp-card--active {
+  border-color: var(--c-primary);
+  border-left-color: var(--c-warning);
+}
+
+.kp-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.kp-card__badges {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.kp-card__loc {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.kp-card__statement {
+  font-size: var(--fs-base);
+  line-height: 1.75;
+  word-break: break-word;
+}
+
+.kp-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+.kp-tag {
+  padding: 0 var(--sp-2);
+  border-radius: 999px;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  font-size: var(--fs-xs);
+  color: var(--c-text-2);
+  line-height: 1.7;
+}
+
+.kp-card__edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* ---------- 待处理块 ---------- */
+
+.kp-card__unlocated {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid color-mix(in srgb, var(--c-warning) 30%, transparent);
+  border-radius: var(--radius);
+  background: var(--c-surface);
+}
+
+.kp-card__unlocated-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--c-warning);
+}
+
+.kp-card__unlocated-hint {
+  font-size: var(--fs-xs);
+  color: var(--c-text-2);
+  line-height: 1.6;
+}
+
+/*
+  模型给的引用：用引号块 + 等宽不做。
+  这段文字**在原文里找不到**，所以不能做成可点击的高亮，
+  只能作为「模型到底说了什么」的证据摆在这里。
+*/
+.kp-card__quotes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.kp-quote {
+  padding: var(--sp-2) var(--sp-3);
+  border-left: 3px solid var(--c-border-strong);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--c-surface-2);
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--c-text-2);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.kp-card__pick {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* ---------- 卡片底部 ---------- */
+
+.kp-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--c-border);
+}
+
+.kp-card__level {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+}
+
+.select--sm {
+  width: auto;
+  min-height: 28px;
+  padding: 2px var(--sp-2);
+  font-size: var(--fs-sm);
+}
+
+/* ---------- 整理区 ---------- */
+
+.kp-generate-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.kp-generate-wrap__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding-top: var(--sp-2);
+}
+
+.kp-generate-wrap__title {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.kp-generate-wrap__body {
+  display: block;
+}
+
+/*
+  收起是隐藏，不是卸载：GeneratePanel 里放着 AbortController 与本次 run 的结果，
+  卸载会让「中途收起」变成「再也停不掉这次生成」。
+  生成中父组件本来就不会加 --hidden（停止按钮在里面，藏起来等于藏掉停止入口），
+  所以这里不需要额外的 --running 变体。
+*/
+.kp-generate-wrap__body--hidden {
+  display: none;
+}
+
+.kp-generate__form {
+  display: flex;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.kp-generate__form > .field:first-child {
+  flex: 0 1 280px;
+  min-width: 220px;
+}
+
+.kp-generate__form > .field:last-child {
+  flex: 0 1 420px;
+  min-width: 260px;
+}
+
+.kp-range {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.kp-range .input {
+  width: auto;
+  flex: 1;
+  min-width: 0;
+}
+
+.kp-range__sep {
+  flex: none;
+  font-size: var(--fs-sm);
+  color: var(--c-text-3);
+}
+
+/* 后端只读提示：不做成禁用输入的样子，避免用户以为是自己不会点 */
+.kp-generate__backends {
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+/* 预计用量：数字要显眼，因为它决定用户是否愿意点下去 */
+.kp-generate__estimate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+}
+
+.kp-generate__estimate-label {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
+.kp-generate__estimate-value {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-lg);
+  font-variant-numeric: tabular-nums;
+}
+
+.kp-generate__estimate-value strong {
+  font-size: var(--fs-xl);
+  color: var(--c-primary);
+}
+
+/* ---------- 进度 ---------- */
+
+.kp-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+}
+
+.kp-progress__line {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.kp-progress__bar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--c-border);
+  overflow: hidden;
+}
+
+.kp-progress__fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--c-primary);
+  transition: width 0.2s ease;
+}
+
+.kp-progress__hint {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+  line-height: 1.6;
+}
+
+/* 重新整理的后果提示：常驻在按钮上方，不阻塞操作 */
+.kp-replace-hint {
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius);
+  background: var(--c-warning-soft);
+  color: color-mix(in srgb, var(--c-warning) 88%, #000);
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+}
+
+/* ---------- 结果 ---------- */
+
+.kp-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.kp-result__dl {
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+}
+
+/* ---------- 窄窗口 ---------- */
+
+/*
+  折成一栏之后取消 sticky：
+  两栏并排时左栏粘住有意义（右栏在滚，原文要一直在），
+  一栏时原文在上、卡片在下，粘住反而会盖住卡片。
+*/
+@media (max-width: 1000px) {
+  .kp-work__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .kp-work__left {
+    position: static;
+    max-height: none;
+  }
+
+  .kp-pane {
+    max-height: none;
+  }
+
+  .kp-pane__body {
+    max-height: 50vh;
+  }
+
+  .kp-picker__meta {
+    padding-left: 0;
+    border-left: none;
+    padding-top: var(--sp-3);
+    border-top: 1px solid var(--c-border);
+  }
+}

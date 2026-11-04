@@ -1,6 +1,6 @@
 import { register } from '@/core/registry.ts';
 import { SourcesPage } from './sources/SourcesPage.tsx';
-import { KnowledgePage } from './KnowledgePage.tsx';
+import { KnowledgePage } from './knowledge/KnowledgePage.tsx';
 import { SlidesPage } from './SlidesPage.tsx';
 import { DecksPage } from './DecksPage.tsx';
 import { PracticePage } from './PracticePage.tsx';
@@ -35,7 +35,8 @@ register({
   summary: 'AI 整理出的中间层，可校对回原文',
   order: 20,
   inNav: true,
-  status: 'planned',
+  // P2 已实现：选资料 → 整理（页码范围/预计用量/进度/停止）→ 两栏校对 → 定位失败人工处理
+  status: 'ready',
   phase: 'P2',
   component: KnowledgePage,
 });

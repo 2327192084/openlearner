@@ -9,7 +9,7 @@
  */
 
 /** 当前学习库结构版本。改动实体结构时递增，并在 migrations.ts 补一段迁移。 */
-export const LIBRARY_SCHEMA_VERSION = 2;
+export const LIBRARY_SCHEMA_VERSION = 3;
 
 /**
  * 位置信息 —— 全项目「点回原文」的唯一依据。
@@ -99,8 +99,28 @@ export interface Course {
 }
 
 /**
+ * 一条知识点的定位状态。
+ *
+ * 为什么要有这个字段：计划书 P2 第 7 条要求
+ * 「指认不到原文位置的条目单独标出来，等人处理，**不要自动填一个位置上去**」。
+ * 用一个显式状态把这件事变成数据，而不是靠「anchors 为空」去猜 ——
+ * 「用户删掉了锚点」和「AI 给的位置找不到」是两种不同的情况，界面提示也不同。
+ */
+export type AnchorStatus =
+  /** 定位成功，anchors 可用 */
+  | 'located'
+  /** AI 给了引用文本，但在原文里找不到 → 需要人工处理 */
+  | 'unlocated'
+  /** 人工确认为「没有出处」（比如模型总结性的话），不再提示 */
+  | 'waived';
+
+/**
  * 知识点：中间层实体，PPT 与习题都由它派生。
- * P2 才真正生产数据；P0 先把契约定死，避免后续返工。
+ *
+ * 设计上最重要的一条：**模型不产出页码，只产出原文引用**。
+ * 页码由我们在真实段落里定位后写入（见 core/knowledge/locator.ts）。
+ * 让模型直接说「第 12 页」是不可信的 —— 它不知道分页在哪，
+ * 而指错页比不能跳转更糟，因为它冒充可信。
  */
 export interface KnowledgePoint {
   id: string;
@@ -111,14 +131,52 @@ export interface KnowledgePoint {
   /** 认知层级，决定出题难度（P3 依赖） */
   cognitiveLevel: 'remember' | 'understand' | 'apply' | 'analyze';
   tags: string[];
-  /** 锚定的原文位置。P2 要求指认不到时**留空等人处理**，不要自动填。 */
+  /**
+   * 锚定的原文位置。定位失败时**为空数组**，绝不用估算位置填充。
+   * 每个 anchor 的 page/charStart/charEnd 都是实测出来的。
+   */
   anchors: SourceLocation[];
-  /** 原文片段（引用文本），可与 anchors 一一对应 */
+  /** 原文片段（引用文本），与 anchors 一一对应 */
   quotes: string[];
+  /** 定位状态，决定界面上是否要标红提醒人工处理 */
+  anchorStatus: AnchorStatus;
   /** 该知识点是教材原文还是网上补充资料 */
   origin: 'material' | 'web';
+  /** 来源资料（P2 生成时记录，便于回溯与重新定位） */
+  sourceId: string | null;
+  /** 生成这批知识点用的后端 id，便于 P5「多后端结果并存对比」 */
+  backendId: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * 一次生成任务的元信息。
+ *
+ * 单独存一张表而不是塞进 source：一次生成可能跨多份资料（后期），
+ * 而且「中途停止」要求已产出的部分保留，需要一个地方记录这次跑到哪。
+ */
+export interface GenerationRun {
+  id: string;
+  /** 归属资料（P2 阶段一次只处理一份） */
+  sourceId: string;
+  /** 页码范围，null 表示整份 */
+  pageRange: { from: number; to: number } | null;
+  status: 'running' | 'completed' | 'stopped' | 'failed';
+  /** 预计用量（token），生成前显示 */
+  estimatedTokens: number | null;
+  /** 实际用量，生成后显示 */
+  actualTokens: number | null;
+  /** 产出的知识点条数 */
+  producedCount: number;
+  /** 定位失败的条数，便于界面直接提示 */
+  unlocatedCount: number;
+  /** 失败原因（status === 'failed' 时） */
+  error: string | null;
+  /** 用的后端 */
+  backendId: string | null;
+  startedAt: string;
+  finishedAt: string | null;
 }
 
 /** 习题集。P3 实现，P0 只占位。 */
@@ -240,6 +298,8 @@ export interface LibraryBackup {
   /** 切分后的正文。跟资料一起备份，否则恢复后「点回原文」全失效 */
   sourceSegments: SourceSegment[];
   knowledgePoints: KnowledgePoint[];
+  /** 生成任务记录。跟知识点一起备份，否则恢复后看不到「这批是哪次跑的、花了多少」 */
+  generationRuns: GenerationRun[];
   decks: Deck[];
   questions: Question[];
   slideDecks: SlideDeck[];

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { LibraryService } from '@/core/library.ts';
 import { BackendService } from '@/core/backends.ts';
 import { CourseService, SourceService } from '@/core/sources.ts';
+import { KnowledgeService } from '@/core/knowledge/service.ts';
 import { IndexedDbStorage } from '@/core/storage/indexeddb-storage.ts';
 import { ServicesContext, type AppServices } from '@/app/services-context.ts';
 import { AppRouter } from '@/app/router.tsx';
@@ -31,12 +32,13 @@ function Bootstrap() {
     const backends = new BackendService(storage);
     const sources = new SourceService(storage);
     const courses = new CourseService(storage);
+    const knowledge = new KnowledgeService(storage, sources);
 
     library
       .init()
       .then(() => {
         if (cancelled) return;
-        setServices({ library, backends, sources, courses, env: detectEnv() });
+        setServices({ library, backends, sources, courses, knowledge, env: detectEnv() });
       })
       .catch((err: unknown) => {
         if (cancelled) return;

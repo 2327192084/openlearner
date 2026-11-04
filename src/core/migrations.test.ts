@@ -201,3 +201,139 @@ describe('validateBackup 与迁移的先后顺序', () => {
     expect(await storage.getAll('sourceSegments')).toHaveLength(0);
   });
 });
+
+/**
+ * v2 → v3 迁移（P2 引入）
+ *
+ * 新增：KnowledgePoint 的 anchorStatus / sourceId / backendId，
+ * 以及 generationRuns 分区。
+ */
+describe('migrateBackup：v2 → v3', () => {
+  /** 构造一份 P1 时期的 v2 备份 */
+  function makeV2Backup(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      format: 'openleaner-library',
+      schemaVersion: 2,
+      exportedAt: ts,
+      meta: { id: 'library', name: 'P1 时代的库', createdAt: ts, updatedAt: ts, schemaVersion: 2 },
+      settings: { locale: 'zh-CN', questionLanguage: 'zh', onboarded: true },
+      courses: [],
+      sources: [
+        {
+          id: 'source_1',
+          title: '第一章',
+          fileName: 'ch1.pdf',
+          kind: 'pdf',
+          courseId: null,
+          pageCount: 3,
+          byteSize: 1024,
+          textStatus: 'ready',
+          segmentCount: 3,
+          createdAt: ts,
+          updatedAt: ts,
+        },
+      ],
+      sourceSegments: [],
+      // v2 的知识点没有 anchorStatus / sourceId / backendId
+      knowledgePoints: [
+        {
+          id: 'kp_1',
+          statement: '有锚点的老知识点',
+          chapter: '第一章',
+          cognitiveLevel: 'remember',
+          tags: [],
+          anchors: [{ sourceId: 'source_1', page: 1, charStart: 0, charEnd: 10 }],
+          quotes: ['某段原文引用'],
+          origin: 'material',
+          createdAt: ts,
+          updatedAt: ts,
+        },
+        {
+          id: 'kp_2',
+          statement: '没有锚点的老知识点',
+          chapter: null,
+          cognitiveLevel: 'understand',
+          tags: [],
+          anchors: [],
+          quotes: [],
+          origin: 'material',
+          createdAt: ts,
+          updatedAt: ts,
+        },
+      ],
+      decks: [],
+      questions: [],
+      slideDecks: [],
+      backends: [],
+      ...overrides,
+    };
+  }
+
+  it('版本号升到当前', () => {
+    const migrated = migrateBackup(makeV2Backup() as unknown as LibraryBackup);
+    expect(migrated.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
+  });
+
+  it('补出 generationRuns 分区（空数组）', () => {
+    const migrated = migrateBackup(makeV2Backup() as unknown as LibraryBackup);
+    expect(Array.isArray(migrated.generationRuns)).toBe(true);
+    expect(JSON.parse(JSON.stringify(migrated))).toHaveProperty('generationRuns');
+  });
+
+  it('有锚点的旧知识点推导为 located', () => {
+    const migrated = migrateBackup(makeV2Backup() as unknown as LibraryBackup);
+    expect(migrated.knowledgePoints[0].anchorStatus).toBe('located');
+  });
+
+  it('没锚点的旧知识点推导为 unlocated（不能默认当成已确认）', () => {
+    const migrated = migrateBackup(makeV2Backup() as unknown as LibraryBackup);
+
+    // 把「不知道」当成「已确认」是更糟的错误 —— 界面就不会提醒人去看
+    expect(migrated.knowledgePoints[1].anchorStatus).toBe('unlocated');
+  });
+
+  it('sourceId 与 backendId 补 null 而不是 undefined', () => {
+    const migrated = migrateBackup(makeV2Backup() as unknown as LibraryBackup);
+    const kp = migrated.knowledgePoints[0];
+
+    expect(kp.sourceId).toBeNull();
+    expect(kp.backendId).toBeNull();
+    // undefined 会在 JSON 序列化时被丢掉，导入方再读就变成"没有这个字段"
+    const round = JSON.parse(JSON.stringify(migrated));
+    expect(round.knowledgePoints[0]).toHaveProperty('sourceId');
+  });
+
+  it('原有字段一条不少', () => {
+    const migrated = migrateBackup(makeV2Backup() as unknown as LibraryBackup);
+    const kp = migrated.knowledgePoints[0];
+
+    expect(kp.statement).toBe('有锚点的老知识点');
+    expect(kp.cognitiveLevel).toBe('remember');
+    expect(kp.anchors).toHaveLength(1);
+    expect(kp.quotes).toEqual(['某段原文引用']);
+  });
+
+  it('v1 备份能一路升到 v3', () => {
+    const migrated = migrateBackup(makeV1Backup() as unknown as LibraryBackup);
+
+    expect(migrated.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
+    expect(Array.isArray(migrated.sourceSegments)).toBe(true);
+    expect(Array.isArray(migrated.generationRuns)).toBe(true);
+    // v1 没有知识点，迁移后仍应为空
+    expect(migrated.knowledgePoints).toEqual([]);
+  });
+
+  it('v2 备份能真正导入学习库', async () => {
+    const storage = new MemoryStorage();
+    const service = new LibraryService(storage);
+    await service.create('目标');
+
+    const meta = await service.importBackup(makeV2Backup());
+    expect(meta.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
+
+    const points = await storage.getAll('knowledgePoints');
+    expect(points).toHaveLength(2);
+    expect(points[0].anchorStatus).toBe('located');
+    expect(points[1].anchorStatus).toBe('unlocated');
+  });
+});

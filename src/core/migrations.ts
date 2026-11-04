@@ -52,6 +52,40 @@ const migrations: Record<number, Migration> = {
       sourceSegments: [],
     };
   },
+
+  /**
+   * v2 → v3
+   *
+   * P2 给 KnowledgePoint 加了 anchorStatus / sourceId / backendId，
+   * 并新增 generationRuns 分区。
+   *
+   * 对已有的知识点：按「有没有 anchors」推导 anchorStatus。
+   * 这是唯一能从旧数据可靠推出的信息 —— 旧版本没有记录定位状态。
+   * 有锚点的算 located，没锚点的算 unlocated（需要人看一眼），
+   * 这比默认填 located 安全：把「不知道」当成「已确认」是更糟的错误。
+   */
+  2: (backup) => {
+    const points = Array.isArray(backup.knowledgePoints)
+      ? (backup.knowledgePoints as Record<string, unknown>[])
+      : [];
+
+    const migratedPoints = points.map((k) => {
+      const anchors = Array.isArray(k.anchors) ? k.anchors : [];
+      return {
+        ...k,
+        anchorStatus: anchors.length > 0 ? 'located' : 'unlocated',
+        sourceId: k.sourceId ?? null,
+        backendId: k.backendId ?? null,
+      };
+    });
+
+    return {
+      ...backup,
+      schemaVersion: 3,
+      knowledgePoints: migratedPoints,
+      generationRuns: Array.isArray(backup.generationRuns) ? backup.generationRuns : [],
+    };
+  },
 };
 
 /**

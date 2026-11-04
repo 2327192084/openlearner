@@ -231,15 +231,36 @@ async function main() {
     }
 
     // ---------- 3. 占位页真的说了「待接入」 ----------
-    await cdp.eval(`[...document.querySelectorAll('.shell__link')].find(a => (a.getAttribute('href') ?? '').endsWith('/knowledge')).click()`);
-    await sleep(400);
-    const placeholderText = await cdp.eval(
-      `document.querySelector('.shell__content')?.innerText ?? ''`,
-    );
+    //
+    // 注意：这里必须挑一个**当前确实还没实现**的页面。
+    // 早先写死 /knowledge，P2 把知识点页实现以后这条就变成假失败了 ——
+    // 断言过期和功能回归长得一模一样，都会红，但处理方式完全相反。
+    // 所以改成从页面列表里自动找一个 status 仍为 planned 的页面来验。
+    const plannedCandidate = await cdp.eval(`(() => {
+      // 导航里带「待接入」小圆点的就是 planned 页面（见 AppShell 的 shell__link-dot）
+      const link = [...document.querySelectorAll('.shell__link')]
+        .find(a => a.querySelector('.shell__link-dot'));
+      return link ? (link.getAttribute('href') ?? '') : null;
+    })()`);
+
+    let placeholderText = '';
+    if (plannedCandidate) {
+      await cdp.eval(`(() => {
+        const link = [...document.querySelectorAll('.shell__link')]
+          .find(a => (a.getAttribute('href') ?? '') === ${JSON.stringify(plannedCandidate)});
+        if (link) link.click();
+      })()`);
+      await sleep(500);
+      placeholderText = await cdp.eval(
+        `document.querySelector('.shell__content')?.innerText ?? ''`,
+      );
+    }
     record(
       '占位页显示「该功能待接入」',
-      placeholderText.includes('该功能待接入'),
-      placeholderText.slice(0, 40).replace(/\n/g, ' '),
+      plannedCandidate !== null && placeholderText.includes('该功能待接入'),
+      plannedCandidate
+        ? `${plannedCandidate} → ${placeholderText.slice(0, 40).replace(/\n/g, ' ')}`
+        : '没有找到仍为 planned 的页面（若所有页面都已实现，此断言应删除而非改宽度）',
     );
 
     // ---------- 4. 设置页空态 ----------

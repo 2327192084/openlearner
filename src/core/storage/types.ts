@@ -9,6 +9,7 @@ import type {
   SlideDeck,
   Source,
   SourceSegment,
+  GenerationRun,
 } from '../model.ts';
 
 /** 学习库的存储分区。每个分区是一张「表」。 */
@@ -26,6 +27,7 @@ export const STORES = [
    */
   'sourceSegments',
   'knowledgePoints',
+  'generationRuns',
   'decks',
   'questions',
   'slideDecks',
@@ -46,6 +48,7 @@ export const BACKUP_STORES = [
   'sources',
   'sourceSegments',
   'knowledgePoints',
+  'generationRuns',
   'decks',
   'questions',
   'slideDecks',
@@ -62,6 +65,7 @@ export interface StoreRecordMap {
   sources: Source;
   sourceSegments: SourceSegment;
   knowledgePoints: KnowledgePoint;
+  generationRuns: GenerationRun;
   decks: Deck;
   questions: Question;
   slideDecks: SlideDeck;

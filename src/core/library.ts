@@ -113,6 +113,7 @@ export class LibraryService {
       // 切分正文必须跟着走：不导出的话，恢复之后「点回原文」全部失效
       sourceSegments: snapshot.sourceSegments,
       knowledgePoints: snapshot.knowledgePoints,
+      generationRuns: snapshot.generationRuns,
       decks: snapshot.decks,
       questions: snapshot.questions,
       slideDecks: snapshot.slideDecks,
@@ -222,6 +223,7 @@ export function validateBackup(raw: unknown): LibraryBackup {
     courses: asArray(obj.courses),
     sources: asArray(obj.sources),
     knowledgePoints: asArray(obj.knowledgePoints),
+    generationRuns: asArray(obj.generationRuns),
     decks: asArray(obj.decks),
     questions: asArray(obj.questions),
     slideDecks: asArray(obj.slideDecks),
