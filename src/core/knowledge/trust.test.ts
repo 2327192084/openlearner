@@ -198,3 +198,49 @@ describe('认知层级推断只是建议值', () => {
     expect(result.drafts[0].cognitiveLevel).toBe('analyze');
   });
 });
+
+describe('不变量：unlocated 必须没有任何位置', () => {
+  /**
+   * 这条不变量是 P2 的核心约束，值得单独钉死。
+   *
+   * 早先 locateQuotes 在多引用场景下会返回 `anchors: 部分命中` 而 located=false，
+   * 于是库里出现「状态=待处理 但带着位置」的矛盾数据。
+   * 界面上会同时显示"待处理"徽标和可点的"看原文"，用户不知道该信哪个。
+   */
+  it('多引用里有一条找不到时，anchors 必须完全为空（不是部分保留）', () => {
+    const result = locateQuotes(
+      SEGMENTS,
+      [
+        '甲内容甲内容甲内容甲内容', // 第 1 页，能找到
+        '这段内容原文里根本没有出现过', // 找不到
+      ],
+      'src_1',
+    );
+
+    expect(result.located).toBe(false);
+    // 关键：不能返回部分命中的锚点
+    expect(result.anchors).toEqual([]);
+  });
+
+  it('第一条能命中、第二条不能命中时也不保留任何位置', () => {
+    const result = locateQuotes(
+      SEGMENTS,
+      ['乙内容乙内容乙内容乙内容', '完全不存在的内容啊同学们'],
+      'src_1',
+    );
+
+    expect(result.located).toBe(false);
+    expect(result.anchors).toEqual([]);
+  });
+
+  it('全部命中时才返回全部位置', () => {
+    const result = locateQuotes(
+      SEGMENTS,
+      ['甲内容甲内容甲内容', '乙内容乙内容乙内容'],
+      'src_1',
+    );
+
+    expect(result.located).toBe(true);
+    expect(result.anchors).toHaveLength(2);
+  });
+});

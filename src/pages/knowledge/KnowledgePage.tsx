@@ -68,6 +68,18 @@ export function KnowledgePage() {
 
   const articleRef = useRef<HTMLDivElement | null>(null);
 
+  /**
+   * 当前选中资料的镜像。
+   *
+   * 用途只有一个：在异步回调里判断「这次结果还属于当前资料吗」。
+   * 直接读 state 会拿到闭包里的过期值，而把它放进 useCallback 依赖
+   * 又会让整个加载函数重建、触发多余的重新请求。
+   */
+  const selectedIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
   const loadSources = useCallback(async () => {
     setSourcesState({ kind: 'loading' });
     try {
@@ -128,6 +140,23 @@ export function KnowledgePage() {
     setActivePointId(null);
     setSegmentIndex(0);
     setLastRun(null);
+
+    /**
+     * 从库里读「上次整理」的记录，而不是只靠内存。
+     *
+     * 早先 lastRun 只在本页 state 里，刷新后那行「上次整理：产出 N 条」就消失了，
+     * 用户会以为记录丢了 —— 而它其实一直在 generationRuns 里。
+     */
+    void (async () => {
+      try {
+        const run = await knowledge.latestRun(selectedId);
+        // 竞态守卫：异步返回时用户可能已切到别的资料。
+        // 比对「发起请求时的资料」与 ref 里的当前资料，不一致就丢弃这次结果。
+        if (selectedIdRef.current === selectedId) setLastRun(run);
+      } catch {
+        /* 读不到历史记录不该挡住主要流程，静默即可 */
+      }
+    })();
 
     try {
       const segments = await sourceService.getSegments(selectedId);

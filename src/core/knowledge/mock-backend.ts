@@ -89,8 +89,20 @@ export class MockBackend implements OrganizeBackend {
    * 引用就是这句话**原文**（不做任何改写），
    * 因此定位器拿到的就是真实存在的文本 —— 定位必然成功。
    *
-   * 同时刻意混入少量"故意定位不到"的条目（见 needsUnlocatedDemo），
-   * 用来验证界面上的「待人工处理」状态真的会出现、且能被处理。
+   * ## 为什么这里不混入「故意定位失败」的条目
+   *
+   * 早先这里的注释写着「刻意混入少量定位不到的条目（见 needsUnlocatedDemo）」，
+   * 但那个函数从来就不存在 —— 注释描述了一个没实现的意图。
+   * 后果很实在：`verify-p2.cjs` 里「定位失败不携带位置」那条断言，
+   * 因为待处理永远是 0 条而**恒为 PASS**，功能真坏掉也不会红。
+   *
+   * 现在的处理是：假后端保持「全部能定位」，让它是干净的成功样本；
+   * 而定位失败路径由 `scripts/verify-p2-unlocated.cjs` 专门验证 ——
+   * 那个脚本直接往库里注入一条「引用不存在」的知识点，
+   * 把 unlocated 状态真造出来再断言。
+   *
+   * 这样职责更清楚：假后端负责「跑通」，专项脚本负责「跑不通时怎么办」。
+   * 如果将来要在假后端里混入失败样本，记得同时改主验收脚本的期望值。
    */
   private extractFromSegment(segment: OrganizeInputSegment): KnowledgeDraft[] {
     const sentences = segment.text

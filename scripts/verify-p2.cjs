@@ -388,10 +388,21 @@ async function main() {
       };
     })()`);
 
+    // 这条断言的语义要说清楚：
+    //
+    // 假后端的输出全部能定位，所以这里是「0 条待处理 → 0 条带位置 → PASS」，
+    // 也就是一个**零结果也能通过**的形态。功能真坏掉它不会红。
+    // 它真正能保证的是「不变量没被破坏」：不存在『状态待处理却带着位置』的矛盾数据。
+    //
+    // 定位失败路径的完整验证在 scripts/verify-p2-unlocated.cjs ——
+    // 那个脚本注入一条引用不存在的知识点，把 unlocated 状态真造出来再断言。
     record(
-      '**定位失败的条目不携带任何位置（不自动填充）**',
+      '不变量：不存在「状态待处理却带着位置」的矛盾数据',
       unlocatedCheck.unlocatedWithAnchors === 0,
-      `待处理 ${unlocatedCheck.unlocated} 条，其中带位置的 ${unlocatedCheck.unlocatedWithAnchors} 条`,
+      `待处理 ${unlocatedCheck.unlocated} 条，矛盾数据 ${unlocatedCheck.unlocatedWithAnchors} 条` +
+        (unlocatedCheck.unlocated === 0
+          ? '（假后端全部可定位，属正常；失败路径见 verify-p2-unlocated.cjs）'
+          : ''),
     );
 
     // ---------- 7. 编辑知识点并持久化 ----------

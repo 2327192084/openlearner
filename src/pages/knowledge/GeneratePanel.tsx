@@ -250,14 +250,18 @@ export function GeneratePanel({
   /**
    * 进度百分比。
    *
-   * 用「已产出条数 / 段落总数」而不是 core 的 segmentIndex：
-   * segmentIndex 在 core 里就是 min(produced, segmentTotal)，
-   * 直接拿来当「已处理段数」显示会是假信息 —— 每段产出几条并不固定。
-   * 这里明确按条数估，进度条只表达「大致跑到哪」。
+   * 用 core 提供的 `estimatedTotal`（按每段约 3 条粗估）做分母，而不是段落总数。
+   *
+   * 早先这里写的是 `produced / segmentTotal`，那个算法有个实际的坑：
+   * 3 段资料产出 10 条时，10/3 = 333%，进度条早就溢出了，
+   * 只是被 Math.min(100, ...) 夹住才没露馅 —— 中间过程是错的。
+   *
+   * `segmentTotal` 仍然用于文案（「共 N 段」），它是准确值；
+   * `estimatedTotal` 只用来算百分比，界面上已标明是估算。
    */
   const percent =
-    progress && progress.segmentTotal > 0
-      ? Math.min(100, Math.round((progress.produced / progress.segmentTotal) * 100))
+    progress && progress.estimatedTotal > 0
+      ? Math.min(100, Math.round((progress.produced / progress.estimatedTotal) * 100))
       : 0;
 
   return (

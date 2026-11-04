@@ -271,12 +271,18 @@ export function locateQuotes(
   for (const quote of usableQuotes) {
     const result = locateQuote(segments, quote, sourceId);
     if (!result.located) {
-      // 有一条找不到就整体判失败，但保留已找到的引用文本供人工参考
-      return {
-        anchors: anchors.length > 0 ? anchors : [],
-        matchedQuotes,
-        located: false,
-      };
+      /**
+       * 有一条找不到就整体判失败，且**必须把 anchors 清空**。
+       *
+       * 早先这里返回 `anchors.length > 0 ? anchors : []`，看起来是「保留已找到的供人工参考」，
+       * 但那会造出自相矛盾的数据：anchorStatus === 'unlocated' 却带着位置。
+       * 这直接违反 P2 的核心约束 ——「指认不到原文位置的条目不要自动填位置」。
+       * 一条知识点若有两处引用、只找到一处，界面会同时显示"待处理"又能点回原文，
+       * 用户根本不知道该信哪个。
+       *
+       * 宁可一条位置都不给：待处理就干干净净，人工重新指认时从零开始。
+       */
+      return { anchors: [], matchedQuotes: [], located: false };
     }
     anchors.push(...result.anchors);
     matchedQuotes.push(...result.matchedQuotes);

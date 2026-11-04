@@ -18,14 +18,31 @@ import { locateQuotes } from './locator.ts';
  * 它只负责编排：准备输入 → 调后端 → 定位 → 落库 → 汇报进度与用量。
  */
 
-/** 生成进度事件，界面据此更新进度条 */
+/**
+ * 生成进度事件，界面据此更新进度条。
+ *
+ * ## 关于这些字段的语义（容易误用，写清楚）
+ *
+ * 后端是「逐条产出知识点」的，**不是「逐段推进」的** ——
+ * 一段原文可能产出 0 条也可能产出 5 条，所以没有一个诚实的「已处理到第几段」。
+ *
+ * 早先这里叫 segmentIndex，取值是 `min(produced, segmentTotal)`，
+ * 那既不是段进度也不是条进度，只是被 min 夹住的一个变形数字。
+ * 拿来显示「已处理 N 段」就是假信息。
+ *
+ * 现在改成 `produced / estimatedTotal`：
+ *   - produced：真实已产出条数（准确）
+ *   - estimatedTotal：按每段约 3 条粗估的总条数（**明确是估算**）
+ * 两个都是界面能如实说明的东西。段总数单独保留，用于「共 N 段资料」的文案。
+ */
 export interface GenerateProgress {
-  /** 已产出的条数 */
+  /** 已产出的知识点条数（准确值） */
   produced: number;
-  /** 已处理到第几段（共几段） */
-  segmentIndex: number;
+  /** 按每段约 3 条粗估的总条数，用于算百分比。**是估算，不是事实** */
+  estimatedTotal: number;
+  /** 本次涉及的资料段总数（准确值），用于「共 N 段」文案 */
   segmentTotal: number;
-  /** 定位失败的条数（实时累计，便于提前提醒） */
+  /** 定位失败的条数（实时累计） */
   unlocated: number;
 }
 
@@ -70,6 +87,25 @@ export class KnowledgeService {
 
   async get(id: string): Promise<KnowledgePoint | null> {
     return this.storage.get('knowledgePoints', id);
+  }
+
+  /**
+   * 取某份资料最近一次的生成记录。
+   *
+   * 界面需要它来显示「上次整理：产出 N 条、其中 M 条待处理、用了 X tokens」。
+   * 早先界面只能在内存里记本次 run，**刷新后这行就消失了** ——
+   * 用户会以为记录丢了。放进库里才能持久。
+   */
+  async latestRun(sourceId: string): Promise<GenerationRun | null> {
+    const runs = await this.storage.getAll('generationRuns');
+    const mine = runs.filter((r) => r.sourceId === sourceId);
+    if (mine.length === 0) return null;
+
+    return mine.sort((a, b) => {
+      const ta = new Date(a.startedAt).getTime();
+      const tb = new Date(b.startedAt).getTime();
+      return tb - ta;
+    })[0];
   }
 
   /**
@@ -179,7 +215,9 @@ export class KnowledgeService {
 
           options.onProgress?.({
             produced: points.length,
-            segmentIndex: Math.min(points.length, segments.length),
+            // 每段约 3 条是经验值（假后端每段 0-4 条，真实模型波动更大）。
+            // 只用于算进度条百分比，界面上必须标明是估算。
+            estimatedTotal: segments.length * 3,
             segmentTotal: segments.length,
             unlocated: unlocatedCount,
           });
