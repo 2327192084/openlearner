@@ -3,6 +3,7 @@ import type { LibraryService } from '@/core/library.ts';
 import type { BackendService } from '@/core/backends.ts';
 import type { CourseService, SourceService } from '@/core/sources.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
+import type { DeckService } from '@/core/questions/service.ts';
 
 /**
  * 应用运行时上下文。
@@ -19,6 +20,8 @@ export interface AppServices {
   courses: CourseService;
   /** P2：知识点整理与校对 */
   knowledge: KnowledgeService;
+  /** P3：习题集、作答与错题 */
+  decks: DeckService;
   /** 运行环境：浏览器 / Electron 桌面端 / 测试 */
   env: 'web' | 'desktop' | 'test';
 }

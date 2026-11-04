@@ -9,7 +9,7 @@
  */
 
 /** 当前学习库结构版本。改动实体结构时递增，并在 migrations.ts 补一段迁移。 */
-export const LIBRARY_SCHEMA_VERSION = 3;
+export const LIBRARY_SCHEMA_VERSION = 4;
 
 /**
  * 位置信息 —— 全项目「点回原文」的唯一依据。
@@ -186,27 +186,142 @@ export interface GenerationRun {
   finishedAt: string | null;
 }
 
-/** 习题集。P3 实现，P0 只占位。 */
+/** 习题集。 */
 export interface Deck {
   id: string;
   title: string;
   courseId: string | null;
+  /**
+   * 草稿 / 已发布。
+   *
+   * 计划书 P3 第 2 条：「生成习题集 → 先落草稿，人工检查后才发布；
+   * 发布时逐题再校验一遍」。草稿里可随意删改，发布后学生才开始刷。
+   */
   status: 'draft' | 'published';
+  /** 生成这批题用的资料（可空：也支持手工建的空习题集） */
+  sourceId: string | null;
+  /** 生成用的后端，便于回溯「这批题是谁出的」 */
+  backendId: string | null;
+  /** 题数缓存，列表页直接显示，不必每次数 */
+  questionCount: number;
+  /** 发布前校验发现的阻塞问题数（0 才能发布） */
+  blockingIssues: number;
+  publishedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-/** 单道题目。P3 实现，P0 只占位。 */
+/** 题型 */
+export type QuestionKind =
+  /** 单选：一个正确选项 */
+  | 'single'
+  /** 多选：多个正确选项 */
+  | 'multiple'
+  /** 填空：文本答案 */
+  | 'blank'
+  /** 问答：长文本答案，需自评 */
+  | 'essay';
+
+/** 一个选项（仅单选/多选有） */
+export interface QuestionOption {
+  /** 稳定标识，如 'A' 'B'，作答记录靠它 */
+  key: string;
+  text: string;
+}
+
+/**
+ * 单道题目。
+ *
+ * ## 关键设计：出处继承知识点，不让模型重新给引用
+ *
+ * `knowledgePointId` 指向出题的来源知识点，`anchors` **直接继承**它的位置。
+ *
+ * 为什么不让模型再说一次「这道题出自哪段原文」：
+ * 模型对同一段话两次引用可能不一致，会出现
+ * 「知识点说第 3 页、题目说第 5 页」的矛盾，而学生不知道该信哪个。
+ * 继承已经验证过的位置，题目的「点回原文」必然准确。
+ */
 export interface Question {
   id: string;
   deckId: string;
-  kind: 'single' | 'multiple' | 'blank' | 'essay';
+  kind: QuestionKind;
   prompt: string;
-  /** 答案、解析、出处（出处必填，P3 验收要求题题可点通） */
+  /** 选项。single/multiple 必须有；blank/essay 为空数组 */
+  options: QuestionOption[];
+  /**
+   * 正确答案。
+   * - single：一个选项 key，如 'A'
+   * - multiple：多个 key 用逗号分隔，如 'A,C'
+   * - blank / essay：参考答案文本
+   */
   answer: string;
   explanation: string;
+  /** 出处。继承自知识点，可能是空数组（该知识点本身就没定位到） */
   anchors: SourceLocation[];
+  /** 出题依据的知识点 id；手工建的题可为 null */
+  knowledgePointId: string | null;
+  /** 认知层级，从知识点继承，决定难度 */
+  cognitiveLevel: 'remember' | 'understand' | 'apply' | 'analyze';
+  /** 题干涉及的概念（用于列表展示与筛选） */
+  topic: string | null;
+  /** 排序序号，保证题目顺序稳定 */
+  order: number;
   createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * 一次作答记录。
+ *
+ * 单独一张表而不是塞进 Question：同一道题可以刷多次，
+ * 每次的作答时间、对错都要留着 —— 这是错题归集与间隔复习的数据基础。
+ */
+export interface AnswerRecord {
+  id: string;
+  questionId: string;
+  deckId: string;
+  /** 用户提交的答案，格式同 Question.answer */
+  response: string;
+  /** 判定结果。essay 类型是自评 */
+  correct: boolean | null;
+  /** 本次耗时毫秒，可空 */
+  elapsedMs: number | null;
+  answeredAt: string;
+  /**
+   * 单调递增的提交序号。
+   *
+   * 为什么不能只靠 answeredAt：`new Date().toISOString()` 精度只到毫秒，
+   * 学生连点两次、或者脚本连续提交时，两条记录的 answeredAt 会**完全相同**。
+   * 那样「最近一次作答」就排不出先后 —— 而错题归集恰恰依赖这个顺序：
+   * 判断错题的标准是「最近一次答错了」，顺序错了结论就反了。
+   *
+   * 这是实测发现的：测试里连续提交两次「错→对」，
+   * 因为时间戳相同，取到的"最近一次"仍是被判错的那条。
+   */
+  sequence: number;
+}
+
+/**
+ * 发布前校验发现的一个问题。
+ *
+ * 计划书 P3：「发布时逐题再校验一遍」。
+ * 做成数据结构而不是一串字符串，界面才能逐条指出「第几题、什么问题」。
+ */
+export interface QuestionIssue {
+  questionId: string;
+  /** 题号（从 1 开始），便于用户定位 */
+  order: number;
+  severity: 'blocking' | 'warning';
+  /** 问题代码，便于统计与测试断言 */
+  code:
+    | 'missing-prompt'
+    | 'missing-answer'
+    | 'missing-explanation'
+    | 'missing-anchors'
+    | 'missing-options'
+    | 'invalid-answer-key'
+    | 'duplicate-prompt';
+  message: string;
 }
 
 /** 学习 PPT。P4 实现，P0 只占位。 */
@@ -309,6 +424,8 @@ export interface LibraryBackup {
   generationRuns: GenerationRun[];
   decks: Deck[];
   questions: Question[];
+  /** 作答记录。跟题一起备份，否则恢复后错题本全空 */
+  answerRecords: AnswerRecord[];
   slideDecks: SlideDeck[];
   backends: BackendConfig[];
 }

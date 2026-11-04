@@ -1,0 +1,716 @@
+/* ==========================================================================
+   习题集页（P3 上半）：列表 + 出题 + 草稿审阅
+   只写这个页面独有的结构样式；颜色/间距/圆角全部引用 tokens.css 的令牌，
+   按钮、输入、卡片、徽标、空态、错态一律复用 components.css 的通用类。
+   ========================================================================== */
+
+/* ---------- 工具栏 ---------- */
+
+.dk-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+  font-size: var(--fs-sm);
+}
+
+.dk-toolbar__stats {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 列表 ---------- */
+
+.dk-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.dk-list__items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.dk-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  padding: var(--sp-4) var(--sp-5);
+}
+
+.dk-row__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  flex: 1 1 auto;
+}
+
+.dk-row__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+/*
+  标题做成按钮而不是链接：它触发的是页内视图切换，不是导航。
+  用 <a> 会让用户期待「在新标签打开」，而且会拿到一个假的 href。
+*/
+.dk-row__title {
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--c-text);
+  text-align: left;
+  cursor: pointer;
+  word-break: break-word;
+}
+
+.dk-row__title:hover:not(:disabled) {
+  color: var(--c-primary);
+  text-decoration: underline;
+}
+
+.dk-row__title:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dk-row__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.dk-row__dot {
+  color: var(--c-text-3);
+}
+
+.dk-row__note {
+  font-size: var(--fs-xs);
+  color: var(--c-warning);
+}
+
+.dk-row__side {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 320px;
+}
+
+/* ---------- 出题面板 ---------- */
+
+.dk-gen__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--sp-4);
+  align-items: start;
+}
+
+.dk-gen__points {
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.dk-gen__points-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.dk-gen__points-hint {
+  font-size: var(--fs-xs);
+  color: var(--c-text-2);
+  line-height: 1.7;
+  max-width: 72ch;
+}
+
+.dk-gen__kinds {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--sp-2);
+}
+
+/*
+  题型选择做成卡片而不是裸 checkbox 行：
+  每种题型的差别（判分方式、是否有选项）对用户是有意义的信息，
+  挤成一行「☐ 单选 ☐ 多选」就把它丢了。
+*/
+.dk-gen__chip {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface);
+  cursor: pointer;
+  transition: border-color 0.12s ease;
+}
+
+.dk-gen__chip:hover {
+  border-color: var(--c-border-strong);
+}
+
+.dk-gen__chip input {
+  margin-top: 3px;
+  flex: none;
+}
+
+.dk-gen__chip-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.dk-gen__chip-label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.dk-gen__chip-hint {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+  line-height: 1.5;
+}
+
+.dk-gen__levels {
+  display: flex;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding-top: var(--sp-1);
+}
+
+.dk-gen__footer {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--c-border);
+}
+
+.dk-gen__estimate-label {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
+.dk-gen__estimate-value {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-base);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 进度 ---------- */
+
+.dk-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+}
+
+.dk-progress__line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.dk-progress__bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--c-border);
+  overflow: hidden;
+}
+
+.dk-progress__fill {
+  height: 100%;
+  background: var(--c-primary);
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+
+.dk-progress__hint {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+  line-height: 1.6;
+}
+
+/* ---------- 结果 ---------- */
+
+.dk-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.dk-result__dl {
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+}
+
+/* ---------- 提示条里的动作 ---------- */
+
+.dk-hint__actions {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin-top: var(--sp-3);
+}
+
+/* ---------- 详情页 ---------- */
+
+.dk-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.dk-detail__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.dk-detail__rename {
+  margin-left: var(--sp-2);
+  font-weight: 500;
+}
+
+.dk-detail__listhead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.dk-detail__listhead .page__section-title {
+  margin-bottom: 0;
+}
+
+/* ---------- 校验结果 ---------- */
+
+.dk-check {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--sp-3);
+}
+
+/*
+  blocking 与 warning **必须分组且视觉上分得开**：
+  左边红色（修好才能发），右边黄色（可以发，但看一眼）。
+  混在一起列会让用户以为全部都拦着发布。
+*/
+.dk-check__group {
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.dk-check__group--blocking {
+  background: var(--c-danger-soft);
+  border-color: color-mix(in srgb, var(--c-danger) 24%, transparent);
+}
+
+.dk-check__group--warning {
+  background: var(--c-warning-soft);
+  border-color: color-mix(in srgb, var(--c-warning) 24%, transparent);
+}
+
+.dk-check__title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.dk-check__empty {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
+.dk-check__list {
+  margin: 0;
+  padding-left: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+
+/* 每条问题点一下跳到那道题——比让用户自己滚着找快得多 */
+.dk-check__jump {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+  text-align: left;
+  cursor: pointer;
+  line-height: 1.6;
+}
+
+.dk-check__jump:hover {
+  text-decoration: underline;
+}
+
+.dk-check--ok {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid color-mix(in srgb, var(--c-success) 24%, transparent);
+  border-radius: var(--radius);
+  background: var(--c-success-soft);
+  color: color-mix(in srgb, var(--c-success) 88%, #000);
+  font-size: var(--fs-sm);
+}
+
+/* ---------- 发布区 ---------- */
+
+.dk-publish {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--c-border);
+}
+
+.dk-publish__info {
+  font-size: var(--fs-sm);
+  min-width: 0;
+}
+
+.dk-publish__blocked {
+  color: var(--c-danger);
+  font-weight: 500;
+}
+
+.dk-publish__warn {
+  color: var(--c-warning);
+  font-weight: 500;
+}
+
+/* ---------- 发布二次确认 ---------- */
+
+.dk-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  border: 1px solid color-mix(in srgb, var(--c-warning) 32%, transparent);
+  border-radius: var(--radius);
+  background: var(--c-warning-soft);
+  color: color-mix(in srgb, var(--c-warning) 92%, #000);
+}
+
+.dk-confirm__title {
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+
+.dk-confirm__body {
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+}
+
+.dk-confirm__list {
+  margin: var(--sp-2) 0 0;
+  padding-left: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+/* ---------- 题目卡片 ---------- */
+
+.dk-questions {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.dk-q {
+  padding: var(--sp-4) var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* 有阻塞问题时，整张卡左侧加一道红边 —— 扫视时不必逐张读徽标 */
+.dk-q:has(.dk-q__issue--blocking) {
+  border-left: 3px solid var(--c-danger);
+}
+
+.dk-q__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.dk-q__badges {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.dk-q__number {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--c-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.dk-q__topic {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
+.dk-q__issues {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.dk-q__issue {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+
+.dk-q__issue--blocking {
+  background: var(--c-danger-soft);
+  color: color-mix(in srgb, var(--c-danger) 88%, #000);
+}
+
+.dk-q__issue--warning {
+  background: var(--c-warning-soft);
+  color: color-mix(in srgb, var(--c-warning) 88%, #000);
+}
+
+.dk-q__issue-code {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* card__body 默认有 padding，这里卡片自己已经有 padding 了 */
+.dk-q > .card__body {
+  padding: 0;
+}
+
+.dk-q__prompt {
+  font-size: var(--fs-base);
+  line-height: 1.8;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dk-q__options {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.dk-q__option {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+
+.dk-q__option--correct {
+  border-color: color-mix(in srgb, var(--c-success) 32%, transparent);
+  background: var(--c-success-soft);
+}
+
+.dk-q__option-key {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--c-text-2);
+}
+
+.dk-q__option-text {
+  min-width: 0;
+  word-break: break-word;
+}
+
+.dk-q__option-edit {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.dk-q__option-edit .dk-q__option-key {
+  flex: none;
+}
+
+.dk-q__field {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+}
+
+.dk-q__field-label {
+  flex: none;
+  width: 6em;
+  color: var(--c-text-3);
+}
+
+.dk-q__field-value {
+  min-width: 0;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.dk-q__field-value--empty {
+  color: var(--c-text-3);
+}
+
+.dk-q__anchor {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.dk-q__edit textarea {
+  font-size: var(--fs-sm);
+}
+
+/* ==========================================================================
+   窄窗口：列表行的操作按钮折到标题下面
+   ========================================================================== */
+
+@media (max-width: 900px) {
+  .dk-row {
+    flex-direction: column;
+    gap: var(--sp-3);
+  }
+
+  .dk-row__side {
+    max-width: none;
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .dk-q__field {
+    flex-direction: column;
+    gap: var(--sp-1);
+  }
+
+  .dk-q__field-label {
+    width: auto;
+  }
+}
+
+/* ---------- 折叠状态下的出题入口 ---------- */
+
+.dk-collapsed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px dashed var(--c-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--c-surface-2);
+}
+
+.dk-collapsed__title {
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+
+.dk-collapsed__desc {
+  margin-top: var(--sp-1);
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  line-height: 1.6;
+}

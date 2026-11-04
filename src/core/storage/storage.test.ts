@@ -122,6 +122,13 @@ for (const factory of factories) {
         title: '习题集',
         courseId: null,
         status: 'draft',
+        // P3 引入的字段：存储契约测试也要跟着补齐，
+        // 否则测的是一个已经不存在的 Deck 形状
+        sourceId: null,
+        backendId: null,
+        questionCount: 0,
+        blockingIssues: 0,
+        publishedAt: null,
         createdAt: ts,
         updatedAt: ts,
       });

@@ -2,8 +2,8 @@ import { register } from '@/core/registry.ts';
 import { SourcesPage } from './sources/SourcesPage.tsx';
 import { KnowledgePage } from './knowledge/KnowledgePage.tsx';
 import { SlidesPage } from './SlidesPage.tsx';
-import { DecksPage } from './DecksPage.tsx';
-import { PracticePage } from './PracticePage.tsx';
+import { DecksPage } from './decks/DecksPage.tsx';
+import { PracticePage } from './practice/PracticePage.tsx';
 import { SettingsPage } from './settings/SettingsPage.tsx';
 import { DemoPage } from './DemoPage.tsx';
 
@@ -47,7 +47,8 @@ register({
   summary: '从知识点出题，每题带答案·解析·出处',
   order: 30,
   inNav: true,
-  status: 'planned',
+  // P3 已实现：出题 → 草稿逐题审阅（编辑/删除/校验分组）→ 发布 / 改回草稿
+  status: 'ready',
   phase: 'P3',
   component: DecksPage,
 });
@@ -58,7 +59,8 @@ register({
   summary: '作答判分、错题归集、重刷',
   order: 40,
   inNav: true,
-  status: 'planned',
+  // P3 已实现：选已发布题集 / 只刷错题 → 逐题作答判分 → 看解析与原文 → 成绩 → 错题本
+  status: 'ready',
   phase: 'P3',
   component: PracticePage,
 });

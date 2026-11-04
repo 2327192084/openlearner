@@ -1,0 +1,751 @@
+/* ==========================================================================
+   练习页（P3 下半）：会话、成绩、错题本、「看原文」
+   只写这个页面独有的结构样式；颜色/间距/圆角全部引用 tokens.css 的令牌，
+   按钮、输入、卡片、徽标、空态、错态一律复用 components.css 的通用类。
+   ========================================================================== */
+
+/* ---------- 快捷入口 ---------- */
+
+.pr-quick {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--sp-3);
+}
+
+/*
+  做成按钮/链接的卡片，不是「卡片里再放一个按钮」：
+  整块可点，目标更大，也不用纠结点哪一块。
+*/
+.pr-quick__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-4) var(--sp-5);
+  text-align: left;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  color: inherit;
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.pr-quick__card:hover {
+  border-color: var(--c-primary);
+  box-shadow: var(--shadow);
+  text-decoration: none;
+}
+
+.pr-quick__title {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--c-text);
+}
+
+.pr-quick__desc {
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  line-height: 1.6;
+}
+
+/* ---------- 可选习题集 ---------- */
+
+.pr-decks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.pr-deck {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  padding: var(--sp-4) var(--sp-5);
+}
+
+.pr-deck__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.pr-deck__title {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.pr-deck__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.pr-deck__dot {
+  color: var(--c-text-3);
+}
+
+.pr-deck__note {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
+/* ==========================================================================
+   练习会话
+   ========================================================================== */
+
+.pr-session {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.pr-session__bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.pr-session__bar-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.pr-session__title {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.pr-session__progress {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 整卷进度条：细，不抢题目注意力，但随时知道还剩多少 */
+.pr-session__rail {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--c-border);
+  overflow: hidden;
+}
+
+.pr-session__rail-fill {
+  height: 100%;
+  background: var(--c-primary);
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+
+/* ---------- 题目卡 ---------- */
+
+.pr-q {
+  display: flex;
+  flex-direction: column;
+}
+
+.pr-q__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: var(--sp-3) var(--sp-5);
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-surface-2);
+}
+
+.pr-q__badges {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.pr-q__topic {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
+.pr-q__body {
+  padding: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+/*
+  题干字号比正文大一号、行高更松。
+  这是用户此刻唯一要读的东西，不该和界面其他文字同一字号。
+*/
+.pr-q__prompt {
+  font-size: var(--fs-lg);
+  line-height: 1.85;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.pr-q__options {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.pr-q__option {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius);
+  background: var(--c-surface);
+  font-size: var(--fs-base);
+  line-height: 1.7;
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.pr-q__option:hover {
+  border-color: var(--c-text-3);
+  background: var(--c-surface-2);
+}
+
+.pr-q__option input {
+  margin-top: 4px;
+  flex: none;
+}
+
+.pr-q__option--checked {
+  border-color: var(--c-primary);
+  background: var(--c-primary-soft);
+}
+
+/*
+  判分后的两种标记。
+  只靠颜色不够（色弱分不出红绿），所以每项还带文字徽标「正确答案」，
+  答错的那项靠「选中 + 不是正确答案」组合判断，不单靠颜色。
+*/
+.pr-q__option--correct {
+  border-color: var(--c-success);
+  background: var(--c-success-soft);
+}
+
+.pr-q__option--wrong {
+  border-color: var(--c-danger);
+  background: var(--c-danger-soft);
+}
+
+.pr-q__option-key {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--c-text-2);
+}
+
+.pr-q__option-text {
+  min-width: 0;
+  word-break: break-word;
+  flex: 1 1 auto;
+}
+
+/* ---------- 自评 ---------- */
+
+.pr-q__selfgrade {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  border: 1px solid color-mix(in srgb, var(--c-primary) 24%, transparent);
+  border-radius: var(--radius);
+  background: var(--c-primary-soft);
+}
+
+/* ---------- 判分结果 ---------- */
+
+.pr-q__result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--c-border);
+}
+
+.pr-q__verdict {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  font-size: var(--fs-lg);
+  font-weight: 650;
+}
+
+.pr-q__verdict--correct {
+  color: var(--c-success);
+}
+
+.pr-q__verdict--wrong {
+  color: var(--c-danger);
+}
+
+.pr-q__verdict--unknown {
+  color: var(--c-warning);
+}
+
+.pr-q__verdict-time {
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--c-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.pr-q__answer,
+.pr-q__explain {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--radius);
+  font-size: var(--fs-sm);
+  line-height: 1.75;
+}
+
+.pr-q__answer {
+  background: var(--c-success-soft);
+  border: 1px solid color-mix(in srgb, var(--c-success) 22%, transparent);
+}
+
+.pr-q__explain {
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+}
+
+.pr-q__explain--empty {
+  color: var(--c-text-3);
+}
+
+.pr-q__answer-label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--c-text-3);
+}
+
+.pr-q__answer-text,
+.pr-q__explain-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---------- 出处：卖点要看起来是卖点 ---------- */
+
+.pr-q__source {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.pr-q__source-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-sm);
+}
+
+.pr-q__source-label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--c-text-3);
+}
+
+.pr-q__source-empty {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
+/* ---------- 翻页 ---------- */
+
+.pr-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  padding-top: var(--sp-2);
+}
+
+/*
+  题号小圆点：一眼看出哪几题还没做、哪几题错了。
+  不是装饰——它替代了「往回翻 20 页找那道错题」。
+*/
+.pr-nav__dots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  max-width: 60%;
+}
+
+.pr-nav__dot {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--c-border-strong);
+  background: var(--c-surface);
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+.pr-nav__dot:hover {
+  transform: scale(1.25);
+}
+
+.pr-nav__dot--todo {
+  background: var(--c-surface);
+}
+
+.pr-nav__dot--correct {
+  background: var(--c-success);
+  border-color: var(--c-success);
+}
+
+.pr-nav__dot--wrong {
+  background: var(--c-danger);
+  border-color: var(--c-danger);
+}
+
+.pr-nav__dot--unknown {
+  background: var(--c-warning);
+  border-color: var(--c-warning);
+}
+
+/* 当前题：外圈，而不是再换一种填充色 —— 填充色已经用来表示对错了 */
+.pr-nav__dot--active {
+  box-shadow: 0 0 0 2px var(--c-surface), 0 0 0 4px var(--c-primary);
+}
+
+/* ---------- 成绩 ---------- */
+
+.pr-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.pr-result__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: var(--sp-3);
+}
+
+.pr-result__stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  align-items: center;
+  padding: var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+}
+
+.pr-result__stat--ok {
+  background: var(--c-success-soft);
+  border-color: color-mix(in srgb, var(--c-success) 22%, transparent);
+}
+
+.pr-result__stat--bad {
+  background: var(--c-danger-soft);
+  border-color: color-mix(in srgb, var(--c-danger) 22%, transparent);
+}
+
+.pr-result__stat-value {
+  font-size: var(--fs-2xl);
+  font-weight: 650;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.pr-result__stat-label {
+  font-size: var(--fs-xs);
+  color: var(--c-text-2);
+}
+
+/* ==========================================================================
+   错题本
+   ========================================================================== */
+
+.wb-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.wb-filters__body {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.wb-filters__field {
+  flex: 1 1 240px;
+  min-width: 200px;
+}
+
+.wb-filters__actions {
+  display: flex;
+  gap: var(--sp-2);
+  flex: none;
+  flex-wrap: wrap;
+}
+
+.wb-count {
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.wb-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.wb-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
+}
+
+.wb-item__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  flex: 1 1 auto;
+}
+
+.wb-item__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.wb-item__deck {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
+.wb-item__prompt {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--c-text);
+  font-size: var(--fs-base);
+  line-height: 1.7;
+  text-align: left;
+  cursor: pointer;
+  word-break: break-word;
+}
+
+.wb-item__prompt:hover {
+  color: var(--c-primary);
+}
+
+.wb-item__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.wb-item__dot {
+  color: var(--c-border-strong);
+}
+
+.wb-item__detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+}
+
+.wb-item__field {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+}
+
+.wb-item__field-label {
+  flex: none;
+  width: 5.5em;
+  color: var(--c-text-3);
+  font-size: var(--fs-xs);
+}
+
+.wb-item__field--empty {
+  color: var(--c-text-3);
+}
+
+.wb-item__side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  flex: none;
+}
+
+/* ==========================================================================
+   「看原文」片段（SourcePeek）
+   核心卖点：做成一个视觉上明确「这是原文，不是我的解释」的块。
+   ========================================================================== */
+
+.sp-peek {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius);
+  background: var(--c-surface);
+  overflow: hidden;
+}
+
+.sp-peek__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-surface-2);
+}
+
+.sp-peek__head-main {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  min-width: 0;
+  font-size: var(--fs-sm);
+}
+
+.sp-peek__title {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sp-peek__body {
+  padding: var(--sp-3) var(--sp-4);
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.sp-peek__text {
+  margin: 0;
+  font-size: var(--fs-base);
+  line-height: 1.9;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 68ch;
+}
+
+/*
+  命中高亮：琥珀底 + 下划线。
+  和知识点页同一套视觉语言（kp-text__mark），让「这里有东西」在
+  两个页面里是同一个意思。
+*/
+.sp-peek__mark {
+  background: color-mix(in srgb, var(--c-warning) 32%, #fff);
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+  box-shadow: inset 0 -2px 0 var(--c-warning);
+  font-weight: 500;
+}
+
+.sp-peek__nomark {
+  display: block;
+  margin-top: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+}
+
+.sp-peek__ellipsis {
+  font-size: var(--fs-sm);
+  color: var(--c-text-3);
+  line-height: 1.4;
+}
+
+/* ==========================================================================
+   窄窗口
+   ========================================================================== */
+
+@media (max-width: 900px) {
+  .pr-deck,
+  .wb-item {
+    flex-direction: column;
+    gap: var(--sp-3);
+  }
+
+  .wb-item__side {
+    flex-direction: row;
+    width: 100%;
+  }
+
+  .pr-nav__dots {
+    max-width: 100%;
+    order: 3;
+    width: 100%;
+  }
+
+  .pr-q__body {
+    padding: var(--sp-4);
+  }
+}

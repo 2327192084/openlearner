@@ -86,6 +86,56 @@ const migrations: Record<number, Migration> = {
       generationRuns: Array.isArray(backup.generationRuns) ? backup.generationRuns : [],
     };
   },
+
+  /**
+   * v3 → v4（P3 引入）
+   *
+   * Deck 新增：sourceId / backendId / questionCount / blockingIssues / publishedAt
+   * Question 彻底重塑：新增 options / knowledgePointId / cognitiveLevel / topic / order，
+   *                    并新增 answerRecords 分区
+   *
+   * 关键判断：v3 时期的 Deck/Question 只是 P0 占位，**从未真正产生过数据**
+   * （P3 之前没有任何地方写入这两张表，界面上也是「待接入」）。
+   * 所以这里不需要为旧记录做复杂推断 —— 但仍然要保证字段齐全，
+   * 否则一旦真有残留数据，导入后读字段就是 undefined。
+   *
+   * 对已存在的旧题目，一律标为 blocking（缺选项、缺出处、缺层级），
+   * 让它们无法通过发布校验 —— 这比伪造默认值让它「看起来能用」安全。
+   */
+  3: (backup) => {
+    const decks = Array.isArray(backup.decks) ? (backup.decks as Record<string, unknown>[]) : [];
+    const questions = Array.isArray(backup.questions)
+      ? (backup.questions as Record<string, unknown>[])
+      : [];
+
+    const migratedDecks = decks.map((d) => ({
+      ...d,
+      sourceId: d.sourceId ?? null,
+      backendId: d.backendId ?? null,
+      questionCount: typeof d.questionCount === 'number' ? d.questionCount : 0,
+      // 旧草稿的校验状态未知，标成 1 逼用户重跑一次校验再发布
+      blockingIssues: typeof d.blockingIssues === 'number' ? d.blockingIssues : 1,
+      publishedAt: d.publishedAt ?? null,
+    }));
+
+    const migratedQuestions = questions.map((q, i) => ({
+      ...q,
+      options: Array.isArray(q.options) ? q.options : [],
+      knowledgePointId: q.knowledgePointId ?? null,
+      cognitiveLevel: typeof q.cognitiveLevel === 'string' ? q.cognitiveLevel : 'understand',
+      topic: q.topic ?? null,
+      order: typeof q.order === 'number' ? q.order : i,
+      updatedAt: q.updatedAt ?? q.createdAt ?? new Date().toISOString(),
+    }));
+
+    return {
+      ...backup,
+      schemaVersion: 4,
+      decks: migratedDecks,
+      questions: migratedQuestions,
+      answerRecords: Array.isArray(backup.answerRecords) ? backup.answerRecords : [],
+    };
+  },
 };
 
 /**

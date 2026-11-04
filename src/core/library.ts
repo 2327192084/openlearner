@@ -116,6 +116,7 @@ export class LibraryService {
       generationRuns: snapshot.generationRuns,
       decks: snapshot.decks,
       questions: snapshot.questions,
+      answerRecords: snapshot.answerRecords,
       slideDecks: snapshot.slideDecks,
       backends: snapshot.backends,
     };
@@ -226,6 +227,7 @@ export function validateBackup(raw: unknown): LibraryBackup {
     generationRuns: asArray(obj.generationRuns),
     decks: asArray(obj.decks),
     questions: asArray(obj.questions),
+    answerRecords: asArray(obj.answerRecords),
     slideDecks: asArray(obj.slideDecks),
     backends: asArray(obj.backends),
   } as LibraryBackup;

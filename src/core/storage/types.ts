@@ -10,6 +10,7 @@ import type {
   Source,
   SourceSegment,
   GenerationRun,
+  AnswerRecord,
 } from '../model.ts';
 
 /** 学习库的存储分区。每个分区是一张「表」。 */
@@ -30,6 +31,7 @@ export const STORES = [
   'generationRuns',
   'decks',
   'questions',
+  'answerRecords',
   'slideDecks',
   'backends',
   /**
@@ -51,6 +53,7 @@ export const BACKUP_STORES = [
   'generationRuns',
   'decks',
   'questions',
+  'answerRecords',
   'slideDecks',
   'backends',
 ] as const;
@@ -68,6 +71,7 @@ export interface StoreRecordMap {
   generationRuns: GenerationRun;
   decks: Deck;
   questions: Question;
+  answerRecords: AnswerRecord;
   slideDecks: SlideDeck;
   backends: BackendConfig;
   secrets: SecretRecord;
