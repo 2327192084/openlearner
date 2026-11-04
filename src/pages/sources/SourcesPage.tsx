@@ -567,8 +567,10 @@ function CourseSection({
                   <span className="source-item__title">
                     <strong>{source.title}</strong>
                     <Badge tone="neutral">{kindLabel(source.kind)}</Badge>
-                    {source.textStatus === 'no-text-layer' ? (
-                      <Badge tone="planned">扫描件</Badge>
+                    {source.textStatus !== 'ready' ? (
+                      <Badge tone={source.textStatus === 'decode-failed' ? 'danger' : 'planned'}>
+                        {source.textStatus === 'decode-failed' ? '解析失败' : '扫描件'}
+                      </Badge>
                     ) : null}
                   </span>
                   <span className="source-item__meta">
@@ -583,10 +585,14 @@ function CourseSection({
                       不编造数据，但位置先占住 —— 否则 P2 上线后列表会整体跳一下。
                     */}
                     <span className="gen-count gen-count--zero">已生成内容 0</span>
-                    {source.textStatus === 'no-text-layer' ? (
+                    {source.textStatus !== 'ready' ? (
                       <>
                         <span className="source-item__sep">·</span>
-                        <span title={status.hint}>只能翻看，搜不出字</span>
+                        <span title={status.hint}>
+                          {source.textStatus === 'decode-failed'
+                            ? '有字但读不出，见详情'
+                            : '只能翻看，搜不出字'}
+                        </span>
                       </>
                     ) : null}
                   </span>

@@ -55,7 +55,12 @@ export function SourceReader({
   const [activeHit, setActiveHit] = useState<SearchHit | null>(null);
   const activeMarkRef = useRef<HTMLElement | null>(null);
 
-  const searchDisabled = source.textStatus === 'no-text-layer';
+  /**
+   * 只要不是 ready 就禁用搜索。
+   * 早先只判 no-text-layer，导致新加的 decode-failed 状态下搜索框仍然可用，
+   * 用户搜了没结果却不知道是编码问题。
+   */
+  const searchDisabled = source.textStatus !== 'ready';
 
   const load = useCallback(async () => {
     setSegmentsState({ kind: 'loading' });
@@ -204,11 +209,24 @@ export function SourceReader({
     <div className="reader">
       <ReaderHeader source={source} onBack={onBack} onOpenDetail={onOpenDetail} />
 
-      {/* 扫描件提示：它不是错误，是可导入但不可搜索 */}
+      {/*
+        两种「读不出字」必须说不同的话：
+          - 扫描件：文件里本来就没字，用户该换电子版 / 等 OCR
+          - 解码失败：文件里有字，是我们没解开，该我们修
+        早先统一写成「这是扫描件」，对后者是错误结论。
+      */}
       {searchDisabled ? (
-        <Notice tone="warning" title="这份资料是扫描件，没有文字层">
-          {TEXT_STATUS_LABEL['no-text-layer'].hint}
-          现在可以正常翻页阅读；搜索栏已停用，因为里面没有可检索的文字。
+        <Notice
+          tone={source.textStatus === 'decode-failed' ? 'danger' : 'warning'}
+          title={
+            source.textStatus === 'decode-failed'
+              ? '这份资料有文字，但没能解析出来'
+              : '这份资料是扫描件，没有文字层'
+          }
+        >
+          {TEXT_STATUS_LABEL[source.textStatus].hint}
+          <br />
+          搜索栏已停用；翻页仍可正常使用。
         </Notice>
       ) : null}
 

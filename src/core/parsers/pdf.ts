@@ -90,14 +90,51 @@ export async function parsePdf(
 
   const pdfjs = options.pdfjs ?? (await loadPdfjs());
 
+  /**
+   * cMap 与标准字体的地址。
+   *
+   * ## 这一段为什么至关重要
+   *
+   * 中文教材 PDF 绝大多数用 **CID 编码字体**（Identity-H）。取文字时有两类情况：
+   *
+   *  1. PDF 里带 `ToUnicode` 表 —— 字符映射内嵌，不配 cMap 也能解码。
+   *     我们早期的测试样本正好是这种（渲染器直出的 PDF 都带），
+   *     所以测试一直绿着。
+   *  2. **只有 Identity-H、没有 ToUnicode** —— 真实教材、扫描后转文字的 PDF
+   *     常见这种。此时 pdfjs 必须靠 cMap 表才能把字形码还原成 Unicode，
+   *     拿不到 cMap 就返回**空字符串**。
+   *
+   * 空字符串会让整份文档被判成「扫描件」，用户看到的是
+   * 「这份资料没有文字层」—— 一个完全误导人的结论：
+   * 文件里明明有字，是我们读不出来。
+   *
+   * 这就是「测试全绿但真实文件失败」的典型案例：
+   * 测试样本恰好覆盖不到出问题的分支。
+   *
+   * ## 为什么用资源 URL 而不是绝对路径
+   *
+   * 构建产物要在两种协议下都能跑：
+   *   - 浏览器：http(s)://，public/ 下的文件被复制到站点根
+   *   - Electron：file:// 加载 dist/index.html，相对路径要能解析
+   * 所以用 `new URL(相对路径, 当前页面地址)` 得到实际可访问的 URL，
+   * 两种协议下都成立，且打包后路径自动跟着走。
+   */
+  const assetBase = resolveAssetBase();
+
   let doc;
   try {
     doc = await pdfjs.getDocument({
       data,
       useSystemFonts: true,
-      // 不从网络取字体/CMap，避免离线环境卡住
       disableFontFace: false,
       useWorkerFetch: false,
+      ...(assetBase
+        ? {
+            cMapUrl: `${assetBase}cmaps/`,
+            cMapPacked: true,
+            standardFontDataUrl: `${assetBase}standard_fonts/`,
+          }
+        : {}),
     }).promise;
   } catch (err) {
     throw classifyPdfError(err);
@@ -107,9 +144,41 @@ export async function parsePdf(
   const segments: ParsedSegment[] = [];
   let meaningfulChars = 0;
 
+  /**
+   * 诊断信息：用来区分「真的是扫描件」和「我们解码失败」。
+   *
+   * 这个区分非常重要，因为两者的结论完全相反：
+   *   - 扫描件：文件里本来就没有文字，用户需要换电子版或等 OCR
+   *   - 解码失败：**文件里有字**，是我们的配置/依赖问题，
+   *     把责任推给用户是错的
+   *
+   * 判据来自 pdfjs 能提供的信息：
+   *   - 页面是否有 setFont 操作（有字体说明文字是用字体排版的，不是位图）
+   *   - 是否有字形绘制操作（showText），即有字要画出来
+   *   - 但 getTextContent 返回的字符串全是空
+   * 三者同时成立 → 几乎可以断定是编码没解开，而不是没有文字。
+   */
+  let pagesWithFonts = 0;
+  let fontDrawOps = 0;
+
   try {
     for (let i = 1; i <= total; i++) {
       const page = await doc.getPage(i);
+
+      // 先看这一页有没有字体与绘制文字的指令
+      try {
+        const ops = await page.getOperatorList();
+        let hasFont = false;
+        for (let k = 0; k < ops.fnArray.length; k++) {
+          const fn = ops.fnArray[k];
+          if (fn === pdfjs.OPS.setFont) hasFont = true;
+          else if (fn === pdfjs.OPS.showText) fontDrawOps += 1;
+        }
+        if (hasFont) pagesWithFonts += 1;
+      } catch {
+        /* 取不到操作列表不影响正文提取，忽略 */
+      }
+
       const content = await page.getTextContent();
       // TextMarkedContent 没有 str，过滤掉。
       // 这里用显式 filter + map 而不是类型守卫，是因为 pdfjs 的
@@ -146,15 +215,42 @@ export async function parsePdf(
 
   // 扫描件判定：整份都没有文本层才算，不是逐页判。
   // 一份混合文档（部分页有文字）仍然可用，只是那些页搜不到。
-  const textStatus = looksLikeNoText(segments.map((s) => s.text).join('')) 
-    ? 'no-text-layer'
-    : 'ready';
+  /**
+   * 判定文本状态 —— 这里必须区分两种「取不到字」。
+   *
+   * 只看「有没有取到文字」是不够的：解码失败也会取不到文字，
+   * 但那不是扫描件。把它们混为一谈，用户会收到一个错误结论
+   * （「这是扫描件，去换电子版」），而真正该做的是修我们的编码配置。
+   *
+   * 判据：
+   *   - 完全没有文字 + 大部分页有字体 + 有字形绘制指令
+   *     → **decode-failed**：文件里有字，我们没解开
+   *   - 完全没有文字，且没有字体/绘制指令
+   *     → no-text-layer：确实是扫描件（文字在图片里）
+   */
+  const extractedLength = segments.map((s) => s.text).join('').replace(/\s/g, '').length;
+  const noText = looksLikeNoText(segments.map((s) => s.text).join(''));
+
+  const looksLikeDecodeFailure =
+    noText && pagesWithFonts > Math.max(1, Math.floor(total / 2)) && fontDrawOps > 0;
+
+  const textStatus: ParsedDocument['textStatus'] = looksLikeDecodeFailure
+    ? 'decode-failed'
+    : noText
+      ? 'no-text-layer'
+      : 'ready';
 
   return {
     title: options.title ?? '未命名资料',
     pageCount: total,
     segments,
     textStatus,
+    /** 诊断信息，用于界面给出更准确的解释 */
+    diagnostics: {
+      extractedChars: extractedLength,
+      pagesWithFonts,
+      fontDrawOps,
+    },
   };
 }
 
@@ -227,6 +323,32 @@ let pdfjsReady: Promise<typeof import('pdfjs-dist')> | null = null;
 /** 判断是否在浏览器（有打包器处理的资源 URL 语义）里运行 */
 function isBrowser(): boolean {
   return typeof window !== 'undefined' && typeof document !== 'undefined';
+}
+
+/**
+ * 解析 cMap 与标准字体所在的**绝对 URL 前缀**。
+ *
+ * 为什么要算这个，而不是写死 '/cmaps/'：
+ *
+ * 构建产物要同时跑在两种协议下：
+ *   - 浏览器 http(s):// → public/ 下的文件在站点根
+ *   - Electron file://  → 相对 dist/index.html 解析
+ *
+ * 写死 `/cmaps/` 在 file:// 下会解析成磁盘根目录，必然 404。
+ * 用 `new URL('./cmaps/', document.baseURI)` 则两种协议都正确。
+ *
+ * Node（单测）里没有 document，返回 null，调用方就不传 cMapUrl ——
+ * 单测的样本自带 ToUnicode，不需要 cMap。
+ */
+function resolveAssetBase(): string | null {
+  if (!isBrowser()) return null;
+  try {
+    // document.baseURI 在 Electron 里是 file:///.../dist/index.html
+    // 在浏览器里是 http://host/，用相对路径解析都能得到正确前缀
+    return new URL('./', document.baseURI).href;
+  } catch {
+    return null;
+  }
 }
 
 async function loadPdfjs(): Promise<typeof import('pdfjs-dist')> {

@@ -41,7 +41,7 @@ export function formatPageCount(pageCount: number | null): string {
 
 export const TEXT_STATUS_LABEL: Record<
   SourceTextStatus,
-  { text: string; tone: 'ready' | 'planned'; hint: string }
+  { text: string; tone: 'ready' | 'planned' | 'danger'; hint: string }
 > = {
   ready: {
     text: '文本可搜索',
@@ -52,6 +52,19 @@ export const TEXT_STATUS_LABEL: Record<
     text: '扫描件·无文字层',
     tone: 'planned',
     hint: '这份是扫描件，只能翻看，搜不出文字。P6 会接入看图模型来读它——它没有被当成导入失败。',
+  },
+  /**
+   * 解码失败与扫描件必须说**不同的话**。
+   *
+   * 扫描件是「文件里本来就没字」，用户该换电子版；
+   * 解码失败是「文件里有字但我们没解开」，责任在我们。
+   * 早先两者共用一句「这是扫描件」，等于给了用户一个错误结论 ——
+   * 他拿着一份完全正常的电子版教材被告知是扫描件，会白折腾。
+   */
+  'decode-failed': {
+    text: '文字解析失败',
+    tone: 'danger',
+    hint: '文件里确实有文字，但没能读出来（多半是字体的编码表缺失）。这不是扫描件，先别急着换文件：请把这份 PDF 反馈给我们，或另存一份再导入试试。',
   },
 };
 

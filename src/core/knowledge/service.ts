@@ -146,6 +146,21 @@ export class KnowledgeService {
      */
     const hasRealText = allSegments.some((s) => s.text.replace(/\s/g, '').length > 0);
     if (!hasRealText) {
+      /**
+       * 这里必须按 source.textStatus 分开说，因为两种情况的下一步完全不同：
+       *
+       *   - 扫描件：文件里本来就没字，用户该换电子版或等 OCR
+       *   - 解码失败：文件里**有字**，是我们没读出来，该我们修
+       *
+       * 早先两种情况共用「这是扫描件，换一份电子版」这句话，
+       * 对解码失败的用户是**错误的结论**：他手上的正是完好的电子版教材。
+       */
+      if (source.textStatus === 'decode-failed') {
+        throw new Error(
+          '这份资料里确实有文字，但没能解析出来（字体编码表缺失）。不是扫描件，不用换文件——' +
+            '请把这份 PDF 反馈给我们，或先用「另存为」的方式重新导出一份再试。',
+        );
+      }
       throw new Error(
         '这份资料没有文字层（扫描件），无法整理出知识点。可以先换一份电子版，或等 P6 的看图识别功能。',
       );

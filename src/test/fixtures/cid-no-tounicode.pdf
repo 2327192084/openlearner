@@ -1,0 +1,42 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type0 /BaseFont /SimSun /Encoding /UniGB-UCS2-H /DescendantFonts [6 0 R] >>
+endobj
+5 0 obj
+<< /Length 331 >>
+stream
+BT /F1 14 Tf 60 780 Td <7B2C4E007AE000206570636E7ED367847EEA8BBA> Tj ET
+BT /F1 14 Tf 60 740 Td <6570636E7ED3678478147A767684662F6570636E51437D204E4B95F4768451737CFB4EE553CA57288FD94E9B51737CFB4E0A768464CD4F5C3002> Tj ET
+BT /F1 14 Tf 60 700 Td <903B8F917ED3678452064E3A7EBF60277ED367844E0E975E7EBF60277ED367844E2459277C7B3002> Tj ET
+endstream
+endobj
+6 0 obj
+<< /Type /Font /Subtype /CIDFontType2 /BaseFont /SimSun /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 4 >> /FontDescriptor 7 0 R /DW 1000 >>
+endobj
+7 0 obj
+<< /Type /FontDescriptor /FontName /SimSun /Flags 6 /FontBBox [-25 -254 1000 880] /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 880 /StemV 93 >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000357 00000 n 
+0000000739 00000 n 
+0000000913 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+1079
+%%EOF

@@ -8,6 +8,7 @@ import {
   Notice,
 } from '@/components/states.tsx';
 import { useServices } from '@/app/services-context.ts';
+import { TEXT_STATUS_LABEL } from '../sources/format.ts';
 import type { GenerationRun, KnowledgePoint, Source, SourceSegment } from '@/core/model.ts';
 import { GeneratePanel } from './GeneratePanel.tsx';
 import { KnowledgeCard } from './KnowledgeCard.tsx';
@@ -342,8 +343,15 @@ export function KnowledgePage() {
                 <div className="kp-picker__title">{selectedSource.title}</div>
                 <div className="page__row">
                   <span className="page__muted">{pageCountLabel(selectedSource)}</span>
-                  {selectedSource.textStatus === 'no-text-layer' ? (
-                    <Badge tone="planned">扫描件·无文字层</Badge>
+                  {/*
+                    只在「有文字层」之外才提醒。用 !== 'ready' 而不是
+                    只判断 no-text-layer：这样以后再加状态（比如部分页缺字）
+                    也不会漏掉提醒，界面不会对它保持沉默。
+                  */}
+                  {selectedSource.textStatus !== 'ready' ? (
+                    <Badge tone={selectedSource.textStatus === 'decode-failed' ? 'danger' : 'planned'}>
+                      {TEXT_STATUS_LABEL[selectedSource.textStatus].text}
+                    </Badge>
                   ) : null}
                   {pointsState.kind === 'ready' ? (
                     <>
