@@ -2,10 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge, Notice } from '@/components/states.tsx';
 import { useServices } from '@/app/services-context.ts';
 import type { GenerationRun, Source, SourceSegment } from '@/core/model.ts';
-import { MockBackend } from '@/core/knowledge/mock-backend.ts';
-import type { OrganizeBackend } from '@/core/knowledge/backend-types.ts';
+import { useOrganizeBackend } from './use-organize-backend.ts';
 import type { GenerateProgress } from '@/core/knowledge/service.ts';
-import type { BackendView } from '@/core/backends.ts';
 import { describeError, formatCount, hintFrom, parsePageRange } from './types.ts';
 
 /**
@@ -59,12 +57,15 @@ export function GeneratePanel({
 }) {
   const { knowledge, backends: backendService } = useServices();
 
-  /** 假后端实例要稳定：每次渲染 new 一个会让 useMemo 依赖失效，估用量反复重算 */
-  const mockBackend = useMemo(() => new MockBackend(), []);
-  const backend: OrganizeBackend = mockBackend;
-
-  const [backendList, setBackendList] = useState<BackendView[] | null>(null);
-  const [backendError, setBackendError] = useState<string | null>(null);
+  /**
+   * 后端选择。
+   *
+   * P2 时这里是写死的 MockBackend；P5 起可以切到真实模型。
+   * 真实后端的 key 走懒加载（见 use-organize-backend.ts），
+   * 组件状态里不保存明文 key。
+   */
+  const backendChoice = useOrganizeBackend(backendService);
+  const backend = backendChoice.backend;
 
   const [fromDraft, setFromDraft] = useState('');
   const [toDraft, setToDraft] = useState('');
@@ -80,26 +81,6 @@ export function GeneratePanel({
   const lastLiveAt = useRef(0);
 
   const running = phase.kind === 'running';
-
-  // ---- 后端列表：P2 只能看，不能选（真实调用是 P5） ----
-  useEffect(() => {
-    let alive = true;
-    backendService
-      .list()
-      .then((list) => {
-        if (!alive) return;
-        setBackendList(list);
-        setBackendError(null);
-      })
-      .catch((err: unknown) => {
-        if (!alive) return;
-        setBackendList([]);
-        setBackendError(describeError(err));
-      });
-    return () => {
-      alive = false;
-    };
-  }, [backendService]);
 
   // ---- 页码范围与预计用量 ----
 
@@ -297,25 +278,38 @@ export function GeneratePanel({
             <select
               id="kp-backend"
               className="select"
-              value={backend.id}
-              onChange={() => {
-                /* 唯一的可选值就是示例后端；其他选项 disabled，不会触发这里 */
-              }}
+              value={backendChoice.selected}
+              onChange={(e) => backendChoice.select(e.target.value)}
               disabled={running}
             >
-              <option value={backend.id}>{backend.label}</option>
-              {backendList?.map((item) => (
-                <option key={item.id} value={item.id} disabled>
-                  {item.label}（暂不可用，P5 接入）
+              {backendChoice.options.map((opt) => (
+                <option key={opt.key} value={opt.key} disabled={!opt.available}>
+                  {opt.label}
+                  {opt.available ? '' : `（${opt.reason ?? '不可用'}）`}
                 </option>
               ))}
             </select>
             <div className="field__hint">
-              离线示例后端从原文里摘句子当知识点，不联网、不花钱，结果可重复。
-              {backendList && backendList.length > 0
-                ? `你配置的 ${backendList.length} 个后端列在上面，P2 阶段还不能调用。`
-                : ''}
+              {backendChoice.activeNote}
+              {backendChoice.isRealModel ? (
+                <>
+                  <br />
+                  <strong>这是真实调用，会产生费用。</strong>
+                  整理完请核对每条知识点的出处是否真的对得上原文。
+                </>
+              ) : (
+                <>
+                  <br />
+                  想用真模型整理？先到「设置」添加一个 AI 后端并填 API Key，
+                  回来这里就能选中它。
+                </>
+              )}
             </div>
+            {backendChoice.loadError ? (
+              <div className="field__error">
+                读取后端配置失败：{backendChoice.loadError}
+              </div>
+            ) : null}
           </div>
 
           <div className="field">
@@ -350,28 +344,6 @@ export function GeneratePanel({
             </div>
             {parsed.error ? <div className="field__error">{parsed.error}</div> : null}
           </div>
-        </div>
-
-        {/*
-          后端选择器：P2 阶段没有真实 AI 调用实现，所以已配置的后端一律禁用。
-          不做「点了才发现不能用」——计划书 P5 的原话，从 P2 就按它办。
-        */}
-        <div className="kp-generate__backends">
-          {backendList === null ? (
-            <span className="page__muted">正在读取已配置的后端…</span>
-          ) : backendList.length === 0 ? (
-            <span className="page__muted">
-              还没有配置其他后端。设置页可以录入，但 P2 阶段还不会真的调用模型（P5 接入）。
-            </span>
-          ) : (
-            <span className="page__muted">
-              已配置 {backendList.length} 个后端，P2 阶段还不能调用（P5 接入后可选）；
-              现在只能用离线示例后端。
-            </span>
-          )}
-          {backendError ? (
-            <span className="page__muted">后端列表读取失败：{backendError}</span>
-          ) : null}
         </div>
 
         <div className="kp-generate__estimate">

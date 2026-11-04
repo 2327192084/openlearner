@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Badge, Notice } from '@/components/states.tsx';
 import { useServices } from '@/app/services-context.ts';
 import { DEFAULT_BACKEND_DRAFT, type BackendDraft, type BackendView } from '@/core/backends.ts';
+import { testConnection, type ConnectionTestResult } from '@/core/ai/deepseek-backend.ts';
 import './backend.css';
 
 type Flash = { tone: 'info' | 'warning' | 'danger'; text: string } | null;
@@ -39,6 +40,11 @@ export function BackendSection({
   const [list, setList] = useState<BackendView[] | null>(null);
   const [editing, setEditing] = useState<BackendView | 'new' | null>(null);
 
+  /** 正在测试连接的后端 id（null 表示没有在测试） */
+  const [testingId, setTestingId] = useState<string | null>(null);
+  /** 最近一次测试结果，按后端 id 存，卡片上直接显示 */
+  const [testResults, setTestResults] = useState<Record<string, ConnectionTestResult>>({});
+
   const refresh = useCallback(async () => {
     setList(await backendService.list());
   }, [backendService]);
@@ -46,6 +52,70 @@ export function BackendSection({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  /**
+   * 测试连接。
+   *
+   * 做三件事，缺一不可：
+   *   1. 从存储里取出这把 key（界面上从不持有明文）
+   *   2. 发一个 token 极少的最小请求
+   *   3. 把结果**按后端逐条**显示在卡片上，而不是只弹一个总提示 ——
+   *      用户可能配了多个后端，得知道是哪一个不行。
+   */
+  const handleTest = async (target: BackendView) => {
+    setTestingId(target.id);
+    try {
+      const apiKey = await backendService.readCredential(target.id);
+      if (!apiKey) {
+        setTestResults((prev) => ({
+          ...prev,
+          [target.id]: {
+            ok: false,
+            failure: {
+              code: 'invalid-key',
+              message: '读不到这把 Key',
+              hint: '请点「编辑」重新填一次 API Key 并保存，然后重试。',
+            },
+          },
+        }));
+        return;
+      }
+
+      const result = await testConnection({
+        apiKey,
+        model: target.model || 'deepseek-chat',
+        ...(target.baseUrl ? { baseUrl: target.baseUrl } : {}),
+      });
+
+      setTestResults((prev) => ({ ...prev, [target.id]: result }));
+
+      if (result.ok) {
+        onFlash({
+          tone: 'info',
+          text: `「${target.label}」连接正常（${result.model ?? 'ok'}，${result.latencyMs ?? 0} ms）`,
+        });
+      } else {
+        onFlash({
+          tone: 'danger',
+          text: `「${target.label}」连接失败：${result.failure?.message ?? '未知原因'}`,
+        });
+      }
+    } catch (err) {
+      setTestResults((prev) => ({
+        ...prev,
+        [target.id]: {
+          ok: false,
+          failure: {
+            code: 'unknown',
+            message: err instanceof Error ? err.message : String(err),
+            hint: '遇到未预期的问题。检查接口地址是否为 https://api.deepseek.com。',
+          },
+        },
+      }));
+    } finally {
+      setTestingId(null);
+    }
+  };
 
   const handleDelete = async (target: BackendView) => {
     const ok = window.confirm(
@@ -117,6 +187,13 @@ export function BackendSection({
                         {item.hasCredential ? `凭据 ${item.credentialHint}` : '未保存凭据'}
                       </span>
                     </div>
+                    {/*
+                      测试结果就地显示在该后端下方，而不是只弹一个全局提示。
+                      配了多个后端时，用户需要知道「是哪一个不行、为什么」。
+                    */}
+                    {testResults[item.id] ? (
+                      <TestResultLine result={testResults[item.id]} />
+                    ) : null}
                   </div>
                   <div className="backend-item__actions">
                     {!item.isDefault ? (
@@ -129,6 +206,24 @@ export function BackendSection({
                         设为默认
                       </button>
                     ) : null}
+                    {/*
+                      测试连接：发一个最小请求验证 key 真的能用。
+                      计划书 P5 要求「界面在调用前就告知可用性，不做点了才发现不能用」，
+                      这个按钮就是那条要求的落点。
+                    */}
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--sm"
+                      onClick={() => void handleTest(item)}
+                      disabled={editing !== null || testingId !== null || !item.hasCredential}
+                      title={
+                        item.hasCredential
+                          ? '发一个最小请求验证这把 Key 能用'
+                          : '先填 API Key 才能测试'
+                      }
+                    >
+                      {testingId === item.id ? '测试中…' : '测试连接'}
+                    </button>
                     <button
                       type="button"
                       className="btn btn--ghost btn--sm"
@@ -386,5 +481,30 @@ function BackendForm({
         </button>
       </div>
     </form>
+  );
+}
+
+/**
+ * 一行测试结果。
+ *
+ * 失败时必须显示 hint（下一步能做什么），不能只说「失败」——
+ * 这是 P1 就定下的规则，界面上一律遵守。
+ */
+function TestResultLine({ result }: { result: ConnectionTestResult }) {
+  if (result.ok) {
+    return (
+      <div className="backend-item__test backend-item__test--ok">
+        ✓ 连接正常
+        {result.model ? ` · ${result.model}` : ''}
+        {typeof result.latencyMs === 'number' ? ` · ${result.latencyMs} ms` : ''}
+      </div>
+    );
+  }
+
+  return (
+    <div className="backend-item__test backend-item__test--fail">
+      <strong>✗ {result.failure?.message ?? '连接失败'}</strong>
+      {result.failure?.hint ? <div>{result.failure.hint}</div> : null}
+    </div>
   );
 }

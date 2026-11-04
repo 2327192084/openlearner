@@ -149,3 +149,33 @@
 .backend-form .select {
   background: var(--c-surface);
 }
+
+/* 测试连接的结果：成功要一眼看出好，失败要给得出下一步 */
+.backend-item__test {
+  margin-top: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+}
+
+.backend-item__test--ok {
+  background: var(--c-success-soft);
+  color: var(--c-success);
+}
+
+.backend-item__test--fail {
+  background: var(--c-danger-soft);
+  color: var(--c-danger);
+}
+
+.backend-item__test--fail strong {
+  display: block;
+  font-weight: 600;
+}
+
+.backend-item__test--fail div {
+  margin-top: 2px;
+  /* hint 是可操作的下一步，允许换行，不要截断 */
+  white-space: normal;
+}
