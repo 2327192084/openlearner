@@ -51,7 +51,8 @@
     "win": {
       "target": [
         "nsis"
-      ]
+      ],
+      "artifactName": "${productName}-${version}-setup.${ext}"
     },
     "mac": {
       "target": [
@@ -62,6 +63,19 @@
       "target": [
         "AppImage"
       ]
+    },
+    "extraFiles": [
+      {
+        "from": "build/OpenLeaner-Launcher.bat",
+        "to": "OpenLeaner-Launcher.bat"
+      }
+    ],
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "OpenLeaner"
     }
   }
 }

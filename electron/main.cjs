@@ -17,6 +17,114 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 // --------------------------------------------------------------------------
+// userData 目录：必须在任何其他操作之前确保它存在
+// --------------------------------------------------------------------------
+//
+// 为什么这一小段要放在最前面，而且不能省：
+//
+// Electron/Chromium 会在启动早期往 userData 目录写配置文件（Local State 等）。
+// 如果这个目录**不存在**，在部分受管/受限的 Windows 环境里 Chromium 无法自己
+// 创建它，会直接在 native 层段错误（SIGSEGV）退出 —— 表现是用户双击后
+// **完全没有任何反应**，连日志都没有一行，因为崩在 JS 执行之前。
+//
+// 这个坑排查了很久：最小 20 行 Electron 程序同样起不来，
+// 一开始误以为是打包、asar、原生模块或 ABI 的问题。实际只是缺一个目录。
+//
+// 所以：自己建，并且真的验证可写（只读目录同样会让 Chromium 崩）。
+function ensureUserDataDir() {
+  const candidates = [];
+
+  // 1) 默认位置（Electron 自己算出来的）
+  try {
+    candidates.push(app.getPath('userData'));
+  } catch {
+    /* 取不到就跳过 */
+  }
+
+  // 2) 系统 AppData 下的规范位置
+  const appData = process.env.APPDATA;
+  if (appData) candidates.push(path.join(appData, 'OpenLeaner'));
+
+  // 3) 兜底：安装目录旁边（便携行为；受限机器上常常只有这里可写）
+  candidates.push(path.join(path.dirname(process.execPath), 'openleaner-data'));
+
+  for (const dir of candidates) {
+    if (!dir) continue;
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      // 目录存在还不够，要真的能写 —— 只读目录一样会崩
+      const probe = path.join(dir, '.write-test');
+      fs.writeFileSync(probe, 'ok');
+      fs.unlinkSync(probe);
+
+      // 显式指定，避免 Chromium 自己去找一个不存在的默认位置
+      app.setPath('userData', dir);
+      return { dir, ok: true };
+    } catch {
+      /* 换下一个候选 */
+    }
+  }
+
+  return { dir: null, ok: false };
+}
+
+const userDataResult = ensureUserDataDir();
+
+// --------------------------------------------------------------------------
+// 关于 Chromium 沙箱（重要，读之前先看结论）
+// --------------------------------------------------------------------------
+//
+// 实测结论：在部分 Windows 环境下，Chromium 沙箱在**进入 JS 之前**就初始化失败，
+// 进程以 exit code 3 退出，用户看到的是「双击完全没反应」，日志一个字都没有。
+//
+// 实测矩阵（对打包后的 exe，逐个跑）：
+//   ./OpenLeaner.exe                            → exit 3，main.cjs 未执行
+//   ./OpenLeaner.exe --disable-gpu               → exit 3，main.cjs 未执行
+//   ./OpenLeaner.exe --user-data-dir=...         → exit 3，main.cjs 未执行
+//   ./OpenLeaner.exe --no-sandbox                → 正常运行，窗口出现
+//   ELECTRON_DISABLE_SANDBOX=1 ./OpenLeaner.exe  → 正常运行（环境变量有效）
+//
+// 试过但**无效**的做法（记下来免得后人重复踩）：
+//   app.commandLine.appendSwitch('no-sandbox')
+//     → 太晚。沙箱在 JS 执行前就初始化完了，这行代码根本来不及跑。
+//
+// 因此，运行时无法自救。解决方式放在**启动层**：
+//   - 开发/验收：用 `npm run electron:dev` 或命令行带 --no-sandbox
+//   - 打包产物：由 electron-builder 生成的快捷方式/启动脚本带上该参数
+//     （见 docs/桌面端启动说明.md）
+//
+// 安全说明（必须如实写进合规声明）：
+//   关掉的是 **Chromium 渲染进程沙箱**，不是操作系统账户权限。
+//   我们仍然保持：contextIsolation: true、nodeIntegration: false、
+//   preload 只暴露白名单方法、外链仅 http/https、权限请求默认拒绝、
+//   渲染进程只加载本地打包的静态文件（不加载远程网页）。
+//   这几条让无沙箱状态下的实际暴露面显著小于「浏览器打开了任意网站」。
+
+// 三个位置都不可写：不静默退出，留一个能看懂的说法。
+// 此时 app 还没 ready，dialog 不可用，只能尽力写文件。
+if (!userDataResult.ok) {
+  try {
+    fs.writeFileSync(
+      path.join(path.dirname(process.execPath), 'openleaner-startup-error.txt'),
+      [
+        'OpenLeaner 无法启动：找不到可写的用户数据目录。',
+        '',
+        '已尝试的位置：',
+        '  - 系统默认 userData 目录',
+        '  - %APPDATA%\\OpenLeaner',
+        '  - 程序安装目录旁的 openleaner-data',
+        '',
+        '请检查这些位置是否被安全软件限制写入，或以管理员身份运行一次。',
+      ].join('\n'),
+      'utf-8',
+    );
+  } catch {
+    /* 连这个都写不了，只能退出 */
+  }
+}
+
+
+// --------------------------------------------------------------------------
 // 常量
 // --------------------------------------------------------------------------
 

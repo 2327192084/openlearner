@@ -14,3 +14,5 @@ coverage/
 
 # 调试与构建临时目录
 .scratch/
+.scratch-t/
+.scratch-test-native.cjs

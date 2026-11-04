@@ -14,8 +14,13 @@ npm run dev          # 浏览器开发模式，http://127.0.0.1:5173
 npm test             # 单元测试
 npx tsc -b           # 类型检查
 npm run build        # 生产构建到 dist/
-npm run electron:dev # 桌面端开发模式（需要能创建窗口的交互式桌面会话）
+npm run electron:dev    # 桌面端开发模式（需交互式桌面会话）
 npm run electron:build  # 打包桌面安装包到 release/
+
+# 桌面端启动：用启动器，不要直接双击 exe
+#   release\win-unpacked\OpenLeaner-Launcher.bat
+# 原因见 docs/桌面端启动说明.md（部分 Windows 环境下 Chromium 沙箱在 JS
+# 执行前就崩溃，进程 exit 3 且零日志，只能靠启动参数绕过）
 ```
 
 ### 验收复跑
