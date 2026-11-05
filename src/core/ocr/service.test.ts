@@ -311,8 +311,19 @@ describe('OcrService：只识别指定页', () => {
 
     const result = await service.run('source_scan', { pages: [2] });
     expect(vision.calls).toEqual([2]);
-    expect(result!.segments).toHaveLength(1);
-    expect(result!.segments[0]!.page).toBe(2);
+    /**
+     * 局部识别按页合并：**其余页必须保留**。
+     *
+     * 早先这里断言 `toHaveLength(1)` —— 那正是 bug 本身：
+     * 5 页资料只识别第 2 页就只剩 1 段，另外 4 页再也翻不到。
+     * 现实里 628 页的扫描件识别 1 页后只剩 1 页，用户以为资料被毁了。
+     *
+     * 现在的语义：识别到的那页替换正文，其余页原样保留。
+     */
+    expect(result!.segments).toHaveLength(5);
+    expect(result!.segments[1]!.page).toBe(2);
+    expect(result!.segments[1]!.text).toContain('第 2 页');
+    expect(result!.segments.map((s) => s.page)).toEqual([1, 2, 3, 4, 5]);
   });
 
   it('页码去重并升序，越界页被丢掉', async () => {

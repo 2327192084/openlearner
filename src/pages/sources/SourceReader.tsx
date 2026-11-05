@@ -121,6 +121,31 @@ export function SourceReader({
   const activeMarkRef = useRef<HTMLElement | null>(null);
 
   /**
+   * 扫描件（PDF 但没有文字层）的**页面图**。
+   *
+   * ## 为什么必须有这个
+   *
+   * 扫描件的正文是空字符串 —— 字在像素里。早先阅读器只渲染 `segment.text`，
+   * 于是扫描件打开后是一片空白：用户看不到教材，也不知道为什么，
+   * 只会以为「这软件打不开我的资料」。这是「资料库打不开图片资料」的根因。
+   *
+   * 现在按页把 PDF 渲染成图片显示。渲染走 `renderSourcePage`，
+   * 与「插入原文页到 PPT」用的是同一份实现 —— 那条路径已验收过。
+   *
+   * 只在 `textStatus === 'no-text-layer'` 时渲染：有文字层的 PDF
+   * 直接显示文字更清晰、更省内存，没必要渲染成图。
+   */
+  const [pageImage, setPageImage] = useState<string | null>(null);
+  const [pageImageState, setPageImageState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [pageImageError, setPageImageError] = useState<string | null>(null);
+
+  const needsPageImage = source.kind === 'pdf' && source.textStatus === 'no-text-layer';
+
+  /**
+   * 当前页号与渲染 effect 都在 segments 声明之后（那里才拿得到 segments）。
+   */
+
+  /**
    * 只要不是 ready 就禁用搜索。
    * 早先只判 no-text-layer，导致新加的 decode-failed 状态下搜索框仍然可用，
    * 用户搜了没结果却不知道是编码问题。
@@ -148,6 +173,69 @@ export function SourceReader({
 
   const segments = segmentsState.kind === 'ready' ? segmentsState.segments : [];
   const segment = segments[current];
+
+  /**
+   * 当前页号（扫描件渲染用）。按 segment.page 取，不用数组下标 ——
+   * 按章节切分的资料里两者不相等。
+   */
+  const currentPageNo =
+    segments.length > 0
+      ? (segments[Math.min(current, segments.length - 1)]?.page ?? 1)
+      : 1;
+
+  /**
+   * 扫描件：把当前页渲染成图片。
+   *
+   * 扫描件的正文是空字符串（字在像素里），只渲染 text 的话打开就是白板。
+   * 走 renderSourcePage，与「插入原文页到 PPT」同一份实现。
+   * 只在 no-text-layer 时渲染：有文字层的 PDF 直接显示文字更清晰、更省内存。
+   */
+  useEffect(() => {
+    if (!needsPageImage) {
+      setPageImage(null);
+      setPageImageState('idle');
+      return;
+    }
+
+    const controller = new AbortController();
+    let cancelled = false;
+    setPageImageState('loading');
+    setPageImage(null);
+    setPageImageError(null);
+
+    void (async () => {
+      try {
+        const bytes = await service.getOriginalFile(source.id);
+        if (cancelled) return;
+        if (!bytes || bytes.byteLength === 0) {
+          setPageImageState('error');
+          setPageImageError(
+            '这份 PDF 的原始文件不在本机，没法渲染出页面图。换过机器或从备份恢复过的资料需要重新导入一次。',
+          );
+          return;
+        }
+
+        const { renderSourcePage } = await import('@/core/slides/source-page.ts');
+        if (cancelled) return;
+        const out = await renderSourcePage(bytes, currentPageNo, {
+          targetWidth: 1200,
+          signal: controller.signal,
+        });
+        if (cancelled) return;
+        setPageImage(out.imageData);
+        setPageImageState('idle');
+      } catch (err) {
+        if (cancelled || controller.signal.aborted) return;
+        setPageImageState('error');
+        setPageImageError(err instanceof Error ? err.message : '这一页渲染不出来');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [needsPageImage, source.id, currentPageNo, service]);
 
   const go = useCallback(
     (next: number) => {
@@ -458,6 +546,33 @@ export function SourceReader({
                 </figure>
               ) : (
                 <div className="page__muted">正在打开图片…</div>
+              )
+            ) : null}
+
+            {/*
+              扫描件（PDF 无文字层）：正文是空的，必须把原页渲染成图显示。
+              不显示的话，用户打开教材只看到一片空白 —— 那正是
+              「资料库打不开我的资料」这个反馈的根因。
+            */}
+            {needsPageImage ? (
+              pageImageState === 'error' ? (
+                <Notice tone="warning" title="这一页显示不出来">
+                  {pageImageError}
+                </Notice>
+              ) : pageImage ? (
+                <figure className="reader__figure">
+                  <img
+                    src={pageImage}
+                    alt={`${source.title} 第 ${currentPageNo} 页`}
+                    className="reader__image"
+                  />
+                  <figcaption className="page__muted">
+                    第 {currentPageNo} 页原图。这是扫描件，文字在图片里 ——
+                    可以用上方的「识别」把它转成可搜索的正文。
+                  </figcaption>
+                </figure>
+              ) : (
+                <div className="page__muted">正在渲染第 {currentPageNo} 页…</div>
               )
             ) : null}
 

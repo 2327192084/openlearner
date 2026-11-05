@@ -449,6 +449,91 @@ export class SourceService {
   }
 
   /**
+   * 按页合并正文，**不删除未被涉及的页**。
+   *
+   * 为什么需要它（与 writeSegments 的区别）：
+   *
+   * `writeSegments` 是整份替换 —— 它会先删光这份资料的所有旧段。
+   * 那适合「重新解析整份文件」，但**不适合 OCR 的局部识别**：
+   * 用户点「只识别第 1 页」看效果时，628 页的资料会被压成 1 段，
+   * 其余 627 页的页码与目录全部消失，再也翻不回去。这是数据损失。
+   *
+   * 合并规则：
+   *  - 传入的页覆盖同页原文（识别结果替换原先的空正文）；
+   *  - 未涉及的页**原样保留**（扫描件落地时每页都有一段空正文占位，
+   *    所以页码与顺序不会丢）；
+   *  - 页码落在已有页之外（理论上不该发生）时补到末尾，不丢数据。
+   *
+   * @param patch 本次识别出的页（page 从 1 开始）
+   * @param textStatus 合并后的状态
+   */
+  async mergeSegments(
+    sourceId: string,
+    patch: readonly WriteSegmentInput[],
+    textStatus: Source['textStatus'],
+  ): Promise<{ source: Source; segments: SourceSegment[] } | null> {
+    const existing = await this.storage.get('sources', sourceId);
+    if (!existing) return null;
+
+    const old = await this.getSegments(sourceId);
+    // 页码 → 旧段（同页只可能有一段，见各解析器的约定）
+    const oldByPage = new Map<number, SourceSegment>();
+    for (const seg of old) oldByPage.set(seg.page, seg);
+
+    const patchByPage = new Map<number, WriteSegmentInput>();
+    for (const p of patch) patchByPage.set(p.page, p);
+
+    // 以旧段的页号集合为骨架，逐页决定用新正文还是旧正文
+    const pages = new Set<number>();
+    for (const seg of old) pages.add(seg.page);
+    for (const p of patch) pages.add(p.page);
+
+    const next: SourceSegment[] = [];
+    const sortedPages = [...pages].sort((a, b) => a - b);
+    for (const page of sortedPages) {
+      const incoming = patchByPage.get(page);
+      const prev = oldByPage.get(page);
+      if (incoming) {
+        next.push({
+          id: prev?.id ?? newId('seg'),
+          sourceId,
+          index: 0, // 下面统一编号
+          page,
+          chapter: incoming.chapter ?? prev?.chapter ?? null,
+          text: incoming.text,
+          charCount: incoming.text.length,
+        });
+      } else if (prev) {
+        next.push(prev);
+      }
+    }
+
+    // 统一重编号：跳过空白页时不留空洞
+    const renumbered = next.map((seg, i) => ({ ...seg, index: i + 1 }));
+
+    /**
+     * 写回。有变化的段用 put（覆盖同 id），新增段是新 id，
+     * 所以不需要先删光 —— 这也正是它与 writeSegments 的关键差别。
+     */
+    const oldIds = new Set(old.map((s) => s.id));
+    const keepIds = new Set(renumbered.filter((s) => oldIds.has(s.id)).map((s) => s.id));
+    for (const seg of old) {
+      if (!keepIds.has(seg.id)) await this.storage.remove('sourceSegments', seg.id);
+    }
+    await this.storage.putMany('sourceSegments', renumbered);
+
+    const source: Source = {
+      ...existing,
+      textStatus,
+      segmentCount: renumbered.length,
+      updatedAt: nowIso(),
+    };
+    await this.storage.put('sources', source);
+
+    return { source, segments: renumbered };
+  }
+
+  /**
    * 把资料归到某个课程（传 null 表示移到「未分类」）。
    *
    * 单独开一个方法而不是只留 update()：列表页的换课程下拉最常用它，

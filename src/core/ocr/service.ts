@@ -251,8 +251,24 @@ export class OcrService {
       );
     }
 
-    const segments = written.sort((a, b) => a.page - b.page);
-    const saved = await this.sources.writeSegments(sourceId, segments, 'ready');
+    /**
+     * 写回分两种，按「是否整篇」区分 —— 这是关键。
+     *
+     * - **整篇识别**（没传 pages，或 pages 覆盖了所有页）：整份替换，
+     *   把旧的空段清掉，不留「前几页是空的」脏数据。
+     * - **局部识别**（用户点「只识别第 1 页」看效果）：按页合并，
+     *   未识别的页原样保留。否则 628 页的资料识别 1 页后只剩 1 段，
+     *   其余 627 页的页码与目录全没了，用户再也翻不回去 —— 那是数据损失。
+     *
+     * 两种语义都是真实需求：整篇跑完该清爽，局部试跑不该破坏可翻性。
+     */
+    const isWholeDocument = targets.length >= totalPages || !options.pages;
+    const segments = [...written].sort((a, b) => a.page - b.page);
+
+    const saved = isWholeDocument
+      ? await this.sources.writeSegments(sourceId, segments, 'ready')
+      : await this.sources.mergeSegments(sourceId, segments, 'ready');
+
     if (!saved) {
       throw new OcrError(
         '识别完成但没能写回资料（资料可能已被删除）',
