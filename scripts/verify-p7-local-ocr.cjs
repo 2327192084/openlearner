@@ -134,26 +134,40 @@ async function main() {
   const coreJs = fs.existsSync(coreDir)
     ? fs.readdirSync(coreDir).filter((f) => f.endsWith('.wasm.js'))
     : [];
-  record('core 目录含 .wasm.js 胶水文件', coreJs.length >= 6, `${coreJs.length} 个`);
+  record('core 目录含 .wasm.js 胶水文件', coreJs.length >= 3, `${coreJs.length} 个`);
 
-  // getCore.js 按 CPU 特性四选一，6 个变体缺一个就会在别的机器上 404
-  const variants = [
+  /**
+   * 我们创建 worker 时传 `oem=1`（LSTM_ONLY），tesseract.js 因此把
+   * `lstmOnly` 定为 true，运行时只会在 3 个 `-lstm` 变体里按 CPU 特性挑一个。
+   * 非 lstm 的三个变体永远不会被 importScripts，可以不放（省 23MB）。
+   *
+   * 但三个 lstm 变体必须都有：getCore.js 按 CPU 四选一 ——
+   * relaxedsimd → simd → 普通。少一个，换台机器就 404。
+   */
+  const lstmVariants = [
     'tesseract-core-lstm',
     'tesseract-core-simd-lstm',
     'tesseract-core-relaxedsimd-lstm',
-    'tesseract-core',
-    'tesseract-core-simd',
-    'tesseract-core-relaxedsimd',
   ];
-  const missing = variants.filter((v) => {
+  const missing = lstmVariants.filter((v) => {
     const hasWasm = fs.existsSync(path.join(coreDir, `${v}.wasm`));
     const hasGlue = fs.existsSync(path.join(coreDir, `${v}.wasm.js`));
     return !(hasWasm && hasGlue);
   });
   record(
-    '6 个 core 变体齐全（换 CPU 也能跑）',
+    '3 个 LSTM core 变体齐全（换 CPU 也能跑）',
     missing.length === 0,
     missing.length ? `缺 ${missing.join(', ')}` : '全部就位',
+  );
+
+  // 非 lstm 变体不该被打包：我们用不到，白占 23MB
+  const legacy = fs.existsSync(coreDir)
+    ? fs.readdirSync(coreDir).filter((f) => /^tesseract-core(-simd|-relaxedsimd)?\.wasm(\.js)?$/.test(f))
+    : [];
+  record(
+    '没有打包用不到的非 LSTM 变体（省体积）',
+    legacy.length === 0,
+    legacy.length ? `多带了 ${legacy.length} 个` : '已精简',
   );
 
   const userDataDir = path.join(OUT_DIR, 'edge-profile-p7');

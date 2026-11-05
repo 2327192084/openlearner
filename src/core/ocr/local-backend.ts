@@ -54,10 +54,12 @@ import { OcrError } from './types.ts';
  *    全绿，真浏览器里却报
  *    `Failed to execute 'importScripts' … tesseract-core-*.wasm.js failed to load`。
  *
- * 2. **6 个 core 变体一个都不能少**。`getCore.js` 按 CPU 特性四选一：
- *    relaxedsimd → simd → 普通（再按 lstmOnly 各分两路）。
- *    只留其中几个，换台机器就 404。本机（支持 relaxedsimd）实测：
- *    只留 simd 时装不起来。代价是 `core/` 约 43MB —— 这是浏览器离线 OCR 的固有体积。
+ * 2. **LSTM 变体一个都不能少，非 LSTM 的可以不放**。
+ *    我们创建 worker 时传 `oem=1`（LSTM_ONLY），tesseract.js 因此把
+ *    `lstmOnly` 定为 true，`getCore.js` 只会在三个 `-lstm` 变体里按 CPU 特性挑：
+ *    relaxedsimd → simd → 普通。少一个，换台机器就 404。
+ *    而非 lstm 的三个变体永远不会被 importScripts ——
+ *    不放它们能省约 23MB（`core/` 从 43MB 降到 20MB），已实测识别仍然正常。
  */
 
 /** 静态资源根（与 pdfjs 的 cmaps 共用同一套解析逻辑） */
