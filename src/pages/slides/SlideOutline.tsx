@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { SlideDeck, SlideOutlinePage } from '@/core/model.ts';
 import { useServices } from '@/app/services-context.ts';
 import { Badge, Notice } from '@/components/states.tsx';
+import { SlideFigurePanel } from './SlideFigurePanel.tsx';
 import {
   describeError,
   hintFrom,
@@ -32,17 +33,58 @@ export interface SlideOutlineProps {
 }
 
 export function SlideOutline({ deck, onDeck }: SlideOutlineProps) {
-  const { slides } = useServices();
+  const { slides, sources: sourceService } = useServices();
   const [selectedId, setSelectedId] = useState<string | null>(deck.pages[0]?.id ?? null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string; hint: string } | null>(null);
   const [note, setNote] = useState<string | null>(null);
+
+  /**
+   * 图文页面板：null=关着。insert 带 afterPageId（不传就按 core 默认插在封面后），
+   * replace 带要换图的那一页。
+   */
+  const [figurePanel, setFigurePanel] = useState<
+    { mode: 'insert'; afterPageId?: string } | { mode: 'replace'; pageId: string } | null
+  >(null);
+
+  /**
+   * 这份 PPT 的资料还能不能截原文页。
+   * null = 还没查完（按钮先禁用，避免用户点了才被告知不行）。
+   */
+  const [canSnapshot, setCanSnapshot] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const sourceId = deck.sourceId;
+    if (!sourceId) {
+      setCanSnapshot(false);
+      return;
+    }
+    setCanSnapshot(null);
+    sourceService
+      .hasOriginalFile(sourceId)
+      .then((ok) => {
+        if (alive) setCanSnapshot(ok);
+      })
+      .catch(() => {
+        // 查不出来就当作不行：宁可入口明确不可用，也不要让用户白点一次
+        if (alive) setCanSnapshot(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [sourceService, deck.sourceId]);
 
   // 页被删掉后选中项会失效，退回第一页而不是留下一个指向空白的编辑区
   useEffect(() => {
     if (selectedId && deck.pages.some((p) => p.id === selectedId)) return;
     setSelectedId(deck.pages[0]?.id ?? null);
   }, [deck.pages, selectedId]);
+
+  // 页数变了（插了图文页/删了页）就关掉面板，否则面板会浮在一个已经不存在的位置上
+  useEffect(() => {
+    setFigurePanel(null);
+  }, [deck.pages.length]);
 
   const run = useCallback(
     async (action: () => Promise<SlideDeck>, fallbackHint: string, message?: string) => {
@@ -88,6 +130,35 @@ export function SlideOutline({ deck, onDeck }: SlideOutlineProps) {
             ＋ 末尾加页
           </button>
         </div>
+
+        <div className="sl-outline__figure-entry">
+          <button
+            type="button"
+            className="btn btn--sm"
+            disabled={busy || canSnapshot !== true}
+            title={
+              canSnapshot === null
+                ? '正在确认这份资料还留着原始文件…'
+                : canSnapshot === false
+                  ? '这份资料导入时没有保留原始文件，无法截取原文页'
+                  : '把原文的某一页原样截成图片插进来'
+            }
+            onClick={() =>
+              setFigurePanel(
+                selectedId ? { mode: 'insert', afterPageId: selectedId } : { mode: 'insert' },
+              )
+            }
+          >
+            插入原文页
+          </button>
+          <div className="field__hint">
+            {canSnapshot === null
+              ? '正在确认这份资料还留着原始文件…'
+              : canSnapshot === false
+                ? '这份资料导入时没有保留原始文件，无法截取原文页。只有 PDF 资料能截。'
+                : '把资料里的某一页原样截成图片，插在选中的那一页后面。图和原文是同一页。'}
+          </div>
+        </div>
         <ol className="sl-outline__pages">
           {deck.pages.map((item, index) => {
             const stats = pageStats(deck, item.id);
@@ -105,15 +176,7 @@ export function SlideOutline({ deck, onDeck }: SlideOutlineProps) {
                     <Badge tone={layoutTone(item.layout)}>{layoutLabel(item.layout)}</Badge>
                   </span>
                   <span className="sl-outline__page-title">{item.title || '（无标题）'}</span>
-                  <span className="sl-outline__page-stats">
-                    {item.layout === 'bullets'
-                      ? `${stats.bullets} 条要点，其中 ${stats.withCitation} 条有出处`
-                      : item.layout === 'title'
-                        ? '封面页'
-                        : item.layout === 'section'
-                          ? '章节分隔页'
-                          : '资料页'}
-                  </span>
+                  <span className="sl-outline__page-stats">{pageSummary(item, stats)}</span>
                 </button>
               </li>
             );
@@ -131,6 +194,26 @@ export function SlideOutline({ deck, onDeck }: SlideOutlineProps) {
           </Notice>
         ) : null}
         {note ? <Notice tone="info">{note}</Notice> : null}
+
+        {figurePanel ? (
+          <SlideFigurePanel
+            deck={deck}
+            {...(figurePanel.mode === 'insert' && figurePanel.afterPageId
+              ? { afterPageId: figurePanel.afterPageId }
+              : {})}
+            {...(figurePanel.mode === 'replace' ? { replacePageId: figurePanel.pageId } : {})}
+            onDone={(next) => {
+              onDeck(next);
+              setNote(
+                figurePanel.mode === 'replace'
+                  ? '图已经换掉了。大纲里的其他页没有变。'
+                  : '已插入一页图文页，图注可以在下面改。',
+              );
+              setFigurePanel(null);
+            }}
+            onCancel={() => setFigurePanel(null)}
+          />
+        ) : null}
 
         {page ? (
           <PageEditor
@@ -192,6 +275,13 @@ export function SlideOutline({ deck, onDeck }: SlideOutlineProps) {
                 '这条要点没有删除。刷新页面后重试。',
               )
             }
+            onPatchCaption={(value) =>
+              void run(
+                () => slides.updateFigureCaption(deck.id, page.id, value),
+                '图注没有保存。可以再改一次，或者刷新页面后重试。',
+              )
+            }
+            onReplaceFigure={() => setFigurePanel({ mode: 'replace', pageId: page.id })}
           />
         ) : (
           <div className="empty">
@@ -202,6 +292,20 @@ export function SlideOutline({ deck, onDeck }: SlideOutlineProps) {
       </div>
     </div>
   );
+}
+
+/** 页列表里那一行的小字说明 */
+function pageSummary(page: SlideOutlinePage, stats: ReturnType<typeof pageStats>): string {
+  if (page.layout === 'title') return '封面页';
+  if (page.layout === 'section') return '章节分隔页';
+  if (page.layout === 'sources') return '资料页';
+  if (page.layout === 'figure') {
+    const pageNo = page.figure ? `原文第 ${page.figure.page} 页` : '截图缺失';
+    return page.bullets.length > 0
+      ? `图文页 · ${pageNo} · 另 ${stats.bullets} 条要点`
+      : `图文页 · ${pageNo}`;
+  }
+  return `${stats.bullets} 条要点，其中 ${stats.withCitation} 条有出处`;
 }
 
 interface PageEditorProps {
@@ -218,6 +322,10 @@ interface PageEditorProps {
   onPatchBullet: (bulletId: string, value: string) => void;
   onAddBullet: (value: string) => void;
   onRemoveBullet: (bulletId: string) => void;
+  /** 图文页：改图注 */
+  onPatchCaption: (value: string) => void;
+  /** 图文页：换图（打开选页面板） */
+  onReplaceFigure: () => void;
 }
 
 function PageEditor({
@@ -234,6 +342,8 @@ function PageEditor({
   onPatchBullet,
   onAddBullet,
   onRemoveBullet,
+  onPatchCaption,
+  onReplaceFigure,
 }: PageEditorProps) {
   const stats = pageStats(deck, page.id);
   const isFirst = index === 0;
@@ -362,8 +472,13 @@ function PageEditor({
         <div className="field">
           <span className="field__label">副标题</span>
           <div className="field__hint">
-            只有封面页和章节页有副标题。这一页是「{layoutLabel(page.layout)}」版式，标题下方直接是要点
-            {page.layout === 'sources' ? '（这一页是导出的资料来源页，不参与编辑）' : ''}。
+            只有封面页和章节页有副标题。这一页是「{layoutLabel(page.layout)}」版式，
+            {page.layout === 'figure'
+              ? '标题下面是原文截图和图注，要说明的话写在图注里'
+              : page.layout === 'sources'
+                ? '标题下面直接是自动汇总的出处列表（不参与编辑）'
+                : '标题下方直接是要点'}
+            。
           </div>
         </div>
       )}
@@ -379,9 +494,79 @@ function PageEditor({
         ) : null}
       </div>
 
-      {page.layout === 'bullets' ? (
+      {page.layout === 'figure' ? (
+        <div className="sl-figure-edit">
+          <div className="sl-figure-edit__head">
+            <span className="field__label">原文截图</span>
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              disabled={busy}
+              onClick={onReplaceFigure}
+              title="重新选一页原文，换掉这张图"
+            >
+              换一张图
+            </button>
+          </div>
+
+          {page.figure ? (
+            <>
+              <div className="sl-figure-edit__preview">
+                <img
+                  className="sl-figure-edit__thumb"
+                  src={page.figure.imageData}
+                  alt={`原文第 ${page.figure.page} 页`}
+                />
+                <div className="sl-figure-edit__meta">
+                  <span>
+                    原文第 <strong>{page.figure.page}</strong> 页 · {page.figure.width} ×{' '}
+                    {page.figure.height} px
+                  </span>
+                  <span className="page__muted">
+                    这张图是导出前就嵌进 PPT 的，换图只需要重新截一次，不必重做整份大纲。
+                  </span>
+                </div>
+              </div>
+
+              <div className="field">
+                <label className="field__label" htmlFor={`sl-figure-caption-${page.id}`}>
+                  图注
+                </label>
+                <input
+                  className="input"
+                  id={`sl-figure-caption-${page.id}`}
+                  type="text"
+                  key={`caption-${page.figure.caption}`}
+                  defaultValue={page.figure.caption}
+                  disabled={busy}
+                  onBlur={(event) => {
+                    const value = event.currentTarget.value;
+                    if (value.trim() === page.figure?.caption.trim()) return;
+                    // 空图注不是「没图注」，而是「这张图哪来的」这句话丢了。
+                    // core 会存成空串并在幻灯片上不画图注，所以这里也允许清空，
+                    // 但提示写清代价。
+                    onPatchCaption(value);
+                  }}
+                />
+                <div className="field__hint">
+                  图注显示在图片正下方；这一页的标题在上面单独改，两者可以不一样。清空后幻灯片上就没有「这张图哪来的」这句话了。
+                </div>
+              </div>
+            </>
+          ) : (
+            <Notice tone="warning" title="这一页的截图数据不见了">
+              换一张图就能恢复。大纲里的其他页不受影响。
+            </Notice>
+          )}
+        </div>
+      ) : null}
+
+      {page.layout === 'bullets' || page.layout === 'figure' ? (
         <div className="field">
-          <span className="field__label">要点（{page.bullets.length} 条）</span>
+          <span className="field__label">
+            要点（{page.bullets.length} 条）
+            {page.layout === 'figure' ? ' · 显示在图片右侧' : ''}
+          </span>
           <ol className="sl-bullets">
             {page.bullets.map((bullet, bulletIndex) => (
               <li className="sl-bullet" key={bullet.id}>
@@ -472,7 +657,7 @@ function PageEditor({
             这一页是「{layoutLabel(page.layout)}」版式，没有要点
           </div>
           <div className="notice__body">
-            只有「要点」版式能加要点。想放正文，用「在页后加页」加一页要点页；或者把这一页的版式留给标题/章节。
+            只有「要点」和「图文」版式能加要点。想放正文，用「在页后加页」加一页要点页；或者把这一页的版式留给标题/章节。
           </div>
         </div>
       )}

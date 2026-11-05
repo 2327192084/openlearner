@@ -321,7 +321,7 @@ function classifyPdfError(err: unknown): Error {
 let pdfjsReady: Promise<typeof import('pdfjs-dist')> | null = null;
 
 /** 判断是否在浏览器（有打包器处理的资源 URL 语义）里运行 */
-function isBrowser(): boolean {
+export function isBrowser(): boolean {
   return typeof window !== 'undefined' && typeof document !== 'undefined';
 }
 
@@ -340,7 +340,7 @@ function isBrowser(): boolean {
  * Node（单测）里没有 document，返回 null，调用方就不传 cMapUrl ——
  * 单测的样本自带 ToUnicode，不需要 cMap。
  */
-function resolveAssetBase(): string | null {
+export function resolveAssetBase(): string | null {
   if (!isBrowser()) return null;
   try {
     // document.baseURI 在 Electron 里是 file:///.../dist/index.html
@@ -351,7 +351,7 @@ function resolveAssetBase(): string | null {
   }
 }
 
-async function loadPdfjs(): Promise<typeof import('pdfjs-dist')> {
+export async function loadPdfjs(): Promise<typeof import('pdfjs-dist')> {
   // 只加载并配置一次。重复设置 workerSrc 会触发 pdfjs 的重复初始化告警。
   if (!pdfjsReady) {
     pdfjsReady = (async () => {

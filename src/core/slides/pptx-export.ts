@@ -114,6 +114,9 @@ function renderSlide(pptx: PptxGenJS, slide: RenderSlide): void {
     case 'sources':
       renderSources(slide, s);
       break;
+    case 'figure':
+      renderFigure(slide, s);
+      break;
   }
 
   // 页脚：资料名 + 页码（封面页不显示，和正规幻灯片一致）
@@ -281,6 +284,131 @@ function renderBullets(slide: RenderSlide, s: PptxSlide): void {
       wrap: true,
     });
   });
+}
+
+/**
+ * 图文页：原文页截图 + 标题 + 图注（+ 可选要点）。
+ *
+ * 图来自 SlideFigure，已经是 data URL，pptxgenjs 直接写进 ppt/media ——
+ * 所以导出的 .pptx 是**自包含**的，发给别人不需要附上 44MB 原 PDF。
+ */
+function renderFigure(slide: RenderSlide, s: PptxSlide): void {
+  s.addText(slide.title, {
+    x: SLIDE_BOX.marginX,
+    y: SLIDE_BOX.titleTop,
+    w: SLIDE_SIZE.width - SLIDE_BOX.marginX * 2,
+    h: SLIDE_BOX.titleHeight,
+    fontSize: 26,
+    bold: true,
+    color: THEME.text,
+    fontFace: FONT,
+    valign: 'middle',
+  });
+
+  s.addShape('rect', {
+    x: SLIDE_BOX.marginX,
+    y: SLIDE_BOX.titleTop + SLIDE_BOX.titleHeight + 0.05,
+    w: SLIDE_SIZE.width - SLIDE_BOX.marginX * 2,
+    h: 0.02,
+    fill: { color: THEME.rule },
+    line: { color: THEME.rule, width: 0 },
+  });
+
+  if (slide.figure && slide.figureBox) {
+    const box = slide.figureBox;
+    s.addImage({
+      data: slide.figure.imageData,
+      x: box.x,
+      y: box.y,
+      w: box.w,
+      h: box.h,
+      // 图片左上角贴住计算好的框，不用 sizing：框本身就是按比例算出来的，
+      // 再用 contain 会二次缩放，最终尺寸和预览对不上
+    });
+
+    // 细边框：白底页面贴在白底幻灯片上，没有边界会像「飘着的文字」
+    s.addShape('rect', {
+      x: box.x,
+      y: box.y,
+      w: box.w,
+      h: box.h,
+      fill: { type: 'none' },
+      line: { color: THEME.rule, width: 0.75 },
+    });
+  }
+
+  // 图注放图片正下方；图片和图注之间留 0.12 英寸
+  if (slide.figureCaption) {
+    const captionY = slide.figureBox
+      ? slide.figureBox.y + slide.figureBox.h + 0.12
+      : SLIDE_BOX.bodyTop;
+
+    // 图注可能被挤到页脚区（图片很高时），夹一下避免压住页码
+    const maxY = SLIDE_BOX.footerTop - 0.45;
+    const y = Math.min(captionY, maxY);
+
+    // 图注左边界对齐图片。按整页宽度居中时，图片只占左侧 62%，
+    // 图注会落在图片右边大半个页面之外，读者不知道它在说明谁。
+    //
+    // 但宽度不能等于图片宽度：竖版 A4 的图片只有 3.2 英寸宽，
+    // 一句「《数据结构》第 12 页 · 二叉树的遍历」会被拆成两行。
+    // 所以取「图片宽度」与「最小可读宽度」的较大者，并用右边界夹住。
+    const captionX = slide.figureBox ? slide.figureBox.x : SLIDE_BOX.marginX;
+    const available = SLIDE_SIZE.width - SLIDE_BOX.marginX - captionX;
+    const MIN_CAPTION_WIDTH = 5.5;
+    const captionW = slide.figureBox
+      ? Math.min(available, Math.max(slide.figureBox.w, MIN_CAPTION_WIDTH))
+      : SLIDE_SIZE.width - SLIDE_BOX.marginX * 2;
+
+    s.addText(slide.figureCaption, {
+      x: captionX,
+      y,
+      w: captionW,
+      h: 0.4,
+      fontSize: 11,
+      color: THEME.muted,
+      fontFace: FONT,
+      align: 'center',
+      valign: 'top',
+      wrap: true,
+    });
+  }
+
+  // 右侧要点（可选）：图文页也允许带几条说明，复用要点页的角标逻辑
+  if (slide.bullets.length > 0) {
+    const colX = SLIDE_BOX.marginX + (SLIDE_SIZE.width - SLIDE_BOX.marginX * 2) * 0.66;
+    const colW = SLIDE_SIZE.width - SLIDE_BOX.marginX - colX;
+
+    slide.bullets.forEach((b, i) => {
+      const runs: PptxGenJS.TextProps[] = [
+        { text: b.text, options: { fontSize: 14, color: THEME.text, fontFace: FONT } },
+      ];
+      if (b.citationIndex !== null) {
+        runs.push({
+          text: ` [${b.citationIndex}]`,
+          options: {
+            fontSize: 10,
+            color: THEME.citation,
+            fontFace: FONT,
+            superscript: true,
+          },
+        });
+      }
+
+      s.addText(runs, {
+        x: colX,
+        y: SLIDE_BOX.bodyTop + i * 0.9,
+        w: colW,
+        h: 0.85,
+        fontSize: 14,
+        color: THEME.text,
+        fontFace: FONT,
+        valign: 'top',
+        fit: 'none',
+        wrap: true,
+      });
+    });
+  }
 }
 
 /** 资料来源页：编号 → 文档名 + 页码 + 片段 */

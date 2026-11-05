@@ -469,3 +469,157 @@ describe('migrateBackup：v4 → v5', () => {
     expect(decks[0].pages).toEqual([]);
   });
 });
+
+/**
+ * v5 → v6（P4 图文页）。
+ *
+ * 这一版加了两个字段：Source.fileStored 与 SlideOutlinePage.figure。
+ * 风险不在「字段缺失会崩」，而在**补了不该补的值**：
+ *   - 给旧资料伪造 fileStored=true，界面会亮出「插入原文页」按钮，
+ *     点下去才发现根本没存字节 —— 用户会认为软件在骗人
+ *   - 给旧页补一个空的 figure 对象，会被当成「有图但图坏了」，
+ *     预览位置出现一个空框
+ * 所以下面两条断言盯的都是「没伪造」。
+ */
+describe('migrateBackup：v5 → v6', () => {
+  /** 构造一份 P4 早期（已能导出 PPT，但还没有图文页）的 v5 备份 */
+  function makeV5Backup(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      format: 'openleaner-library',
+      schemaVersion: 5,
+      exportedAt: ts,
+      meta: { id: 'library', name: 'P4 早期的库', createdAt: ts, updatedAt: ts, schemaVersion: 5 },
+      settings: { locale: 'zh-CN', questionLanguage: 'zh', onboarded: true },
+      courses: [],
+      sources: [
+        {
+          id: 'src_1',
+          title: '数据结构',
+          fileName: 'ds.pdf',
+          kind: 'pdf',
+          courseId: null,
+          pageCount: 50,
+          byteSize: 1024,
+          textStatus: 'ready',
+          segmentCount: 50,
+          createdAt: ts,
+          updatedAt: ts,
+        },
+      ],
+      sourceSegments: [],
+      knowledgePoints: [],
+      generationRuns: [],
+      decks: [],
+      questions: [],
+      answerRecords: [],
+      slideDecks: [
+        {
+          id: 'slide_1',
+          title: '数据结构复习',
+          courseId: null,
+          sourceId: 'src_1',
+          status: 'ready',
+          pages: [
+            { id: 'sp1', layout: 'title', title: '数据结构复习', subtitle: null, bullets: [] },
+            {
+              id: 'sp2',
+              layout: 'bullets',
+              title: '第一章',
+              subtitle: null,
+              bullets: [{ id: 'sb1', text: '要点', citationIndex: null }],
+            },
+          ],
+          citations: [],
+          exports: [],
+          createdAt: ts,
+          updatedAt: ts,
+        },
+      ],
+      backends: [],
+      ...overrides,
+    };
+  }
+
+  it('版本号升到当前', () => {
+    const migrated = migrateBackup(makeV5Backup() as unknown as LibraryBackup);
+    expect(migrated.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
+  });
+
+  it('旧资料标 fileStored=false（没存过字节，不能对外声称能插原文页）', () => {
+    const migrated = migrateBackup(makeV5Backup() as unknown as LibraryBackup);
+    expect(migrated.sources[0].fileStored).toBe(false);
+  });
+
+  it('已经标了 fileStored=true 的保留（不同应用版本之间不要互相覆盖）', () => {
+    const backup = makeV5Backup({
+      sources: [
+        {
+          id: 'src_1',
+          title: '数据结构',
+          fileName: 'ds.pdf',
+          kind: 'pdf',
+          courseId: null,
+          pageCount: 50,
+          byteSize: 1024,
+          textStatus: 'ready',
+          segmentCount: 50,
+          fileStored: true,
+          createdAt: ts,
+          updatedAt: ts,
+        },
+      ],
+    });
+    const migrated = migrateBackup(backup as unknown as LibraryBackup);
+    expect(migrated.sources[0].fileStored).toBe(true);
+  });
+
+  it('旧页面补 figure=null，不补空对象', () => {
+    const migrated = migrateBackup(makeV5Backup() as unknown as LibraryBackup);
+    const pages = migrated.slideDecks[0].pages;
+
+    expect(pages).toHaveLength(2);
+    for (const page of pages) {
+      expect(page.figure).toBeNull();
+    }
+  });
+
+  it('原有的页内容与角度不被迁移破坏', () => {
+    const migrated = migrateBackup(makeV5Backup() as unknown as LibraryBackup);
+    const pages = migrated.slideDecks[0].pages;
+
+    expect(pages[0].layout).toBe('title');
+    expect(pages[1].bullets).toHaveLength(1);
+    expect(pages[1].bullets[0].text).toBe('要点');
+  });
+
+  it('slideDecks 非数组时退化为空数组而不是抛错', () => {
+    const migrated = migrateBackup(makeV5Backup({ slideDecks: null }) as unknown as LibraryBackup);
+    expect(migrated.slideDecks).toEqual([]);
+  });
+
+  it('v5 备份能真正导入学习库', async () => {
+    const storage = new MemoryStorage();
+    const service = new LibraryService(storage);
+    await service.create('目标');
+
+    const meta = await service.importBackup(makeV5Backup());
+    expect(meta.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
+
+    const decks = await storage.getAll('slideDecks');
+    expect(decks).toHaveLength(1);
+    expect(decks[0].pages).toHaveLength(2);
+    expect(decks[0].pages[1].figure).toBeNull();
+
+    const sources = await storage.getAll('sources');
+    expect(sources[0].fileStored).toBe(false);
+  });
+
+  it('v1 备份能一路升到 v6，且资料不会被伪造 fileStored', () => {
+    const migrated = migrateBackup(makeV1Backup() as unknown as LibraryBackup);
+
+    expect(migrated.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
+    for (const s of migrated.sources) {
+      expect(s.fileStored).toBe(false);
+    }
+  });
+});

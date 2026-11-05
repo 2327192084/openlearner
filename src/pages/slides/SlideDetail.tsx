@@ -10,6 +10,7 @@ import {
   deckBulletStats,
   describeError,
   editedAfterLastExport,
+  figurePageCount,
   formatTime,
   hintFrom,
   lastExport,
@@ -201,6 +202,7 @@ export function SlideDetail({ deckId, onBack, onChanged }: SlideDetailProps) {
   const stale = editedAfterLastExport(current);
   const latest = lastExport(current);
   const noCitation = bulletStats.withoutCitation;
+  const figures = figurePageCount(current);
 
   return (
     <div className="page page__stack sl-detail">
@@ -260,6 +262,10 @@ export function SlideDetail({ deckId, onBack, onChanged }: SlideDetailProps) {
             <span className="sl-detail__number-label">条带出处</span>
           </div>
           <div className="sl-detail__number">
+            <span className="sl-detail__number-value">{figures}</span>
+            <span className="sl-detail__number-label">页原文截图</span>
+          </div>
+          <div className="sl-detail__number">
             <span className="sl-detail__number-value">{plan.length}</span>
             <span className="sl-detail__number-label">页导出</span>
           </div>
@@ -292,6 +298,7 @@ export function SlideDetail({ deckId, onBack, onChanged }: SlideDetailProps) {
         <h3 className="page__section-title">大纲</h3>
         <p className="page__muted sl-detail__section-note">
           左边选页，右边改内容。每个字段失焦即保存。封面页固定在第一页，不能删除也不能移动。
+          想放原文那一页的图，用左边的「插入原文页」把它截进来。
         </p>
         <SlideOutline
           deck={current}

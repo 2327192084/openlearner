@@ -389,6 +389,22 @@ a.sl-tabs__item:hover {
   font-size: var(--fs-sm);
 }
 
+/* 「插入原文页」入口。放在页列表上方，因为它是往列表里加东西的动作，
+   放在编辑区里会让人以为只影响当前页。 */
+.sl-outline__figure-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-surface-2);
+}
+
+.sl-outline__figure-entry .field__hint {
+  margin-top: 0;
+  line-height: 1.5;
+}
+
 .sl-outline__pages {
   list-style: none;
   margin: 0;
@@ -844,4 +860,152 @@ a.sl-tabs__item:hover {
   font-size: var(--fs-sm);
   color: var(--c-text-3);
   line-height: 1.4;
+}
+
+/* ---------------- 图文页 ---------------- */
+
+/*
+ * 幻灯片上的原文截图。
+ *
+ * 位置与尺寸全部由内联 style 给出（来自 render-plan 的 figureBox，已等比缩放居中），
+ * 这里只管「怎么画」这一层：0.75pt 细边框、不拉伸、白底。
+ * 边框是必需的：原文页截图是白底，幻灯片也是白底，没有边框看起来像飘着的。
+ */
+.sl-card__figure {
+  position: absolute;
+  border-style: solid;
+  object-fit: contain;
+  background: #ffffff;
+}
+
+/* 图注：图片正下方居中、11pt 灰。字号与位置来自内联 style（与导出同一套英寸坐标） */
+.sl-card__figure-caption {
+  position: absolute;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  text-align: center;
+  line-height: 1.4;
+  overflow: hidden;
+}
+
+/* 图文页右侧的要点栏：字号比要点页小（导出里是 14pt），行距也紧一些 */
+.sl-card__bullet--side {
+  line-height: 1.4;
+}
+
+/* 大纲里编辑图文页：缩略图 + 元信息 + 图注 */
+.sl-figure-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+}
+
+.sl-figure-edit__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.sl-figure-edit__preview {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.sl-figure-edit__thumb {
+  width: 180px;
+  max-width: 100%;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.sl-figure-edit__meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  min-width: 0;
+  flex: 1;
+}
+
+/* 「插入原文页」面板 */
+.sl-figure-panel__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: var(--sp-3);
+}
+
+@media (max-width: 720px) {
+  .sl-figure-panel__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.sl-figure-panel__page {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.sl-figure-panel__page .input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sl-figure-panel__rendering {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+}
+
+.sl-figure-panel__preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+}
+
+.sl-figure-panel__thumb {
+  width: 100%;
+  max-width: 460px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.sl-figure-panel__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+}
+
+.sl-figure-panel__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--c-border);
+  font-size: var(--fs-sm);
 }

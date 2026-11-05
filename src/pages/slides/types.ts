@@ -69,17 +69,19 @@ export const LAYOUT_LABEL: Record<string, string> = {
   section: '章节',
   bullets: '要点',
   sources: '资料',
+  figure: '图文',
 };
 
 export function layoutLabel(layout: string): string {
   return LAYOUT_LABEL[layout] ?? layout;
 }
 
-/** 版式徽章的色调：封面用 info、章节用 neutral、要点用 ready、资料用 planned */
+/** 版式徽章的色调：封面用 info、章节用 neutral、要点用 ready、图文用 info、资料用 planned */
 export function layoutTone(layout: string): 'neutral' | 'planned' | 'ready' | 'info' | 'danger' {
   if (layout === 'title') return 'info';
   if (layout === 'section') return 'neutral';
   if (layout === 'bullets') return 'ready';
+  if (layout === 'figure') return 'info';
   return 'planned';
 }
 
@@ -163,13 +165,33 @@ export function editedAfterLastExport(deck: SlideDeck): boolean {
 export function deleteConfirmText(deck: SlideDeck): string {
   const pages = deck.pages.length;
   const exports = deck.exports.length;
+  const figures = deck.pages.filter((p) => p.layout === 'figure').length;
   const lines = [
     `删除「${deck.title}」？`,
     '',
-    `这份大纲共 ${pages} 页${exports > 0 ? `，导出过 ${exports} 次` : ''}。`,
+    `这份大纲共 ${pages} 页${figures > 0 ? `（其中 ${figures} 页是原文截图）` : ''}${exports > 0 ? `，导出过 ${exports} 次` : ''}。`,
     '删除后这份 PPT 和它的导出记录都会从本机移除，此操作不可撤销。',
     '',
     '已导出的 .pptx 文件在下载目录里不受影响，仍然可以打开。',
+    ...(figures > 0
+      ? ['', '原文截图存在 PPT 里，删掉之后要重新从资料里截一次。']
+      : []),
   ];
   return lines.join('\n');
+}
+
+/** 大纲里有几页图文页（原文截图）。用于详情页统计与导出前说明。 */
+export function figurePageCount(deck: SlideDeck): number {
+  return deck.pages.filter((p) => p.layout === 'figure' && p.figure !== null).length;
+}
+
+/**
+ * 图文页的默认图注。
+ *
+ * 用「《资料名》第 N 页」而不是留空：图注是图文页唯一能说明「这张图哪来的」
+ * 的地方，默认值就是这句话本身。用户改不改都行，但默认不能是空的。
+ */
+export function defaultFigureCaption(sourceTitle: string, page: number): string {
+  const title = sourceTitle.trim() || '学习资料';
+  return `《${title}》第 ${page} 页`;
 }

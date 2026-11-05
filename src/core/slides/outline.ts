@@ -151,6 +151,7 @@ export function buildOutline(input: OutlineInput): OutlineResult {
     title: deckTitle,
     subtitle: `${sourceTitle}${points.length > 0 ? ` · ${points.length} 个知识点` : ''}`,
     bullets: [],
+    figure: null,
   });
 
   // ── 正文页 ────────────────────────────────────────────────
@@ -166,6 +167,7 @@ export function buildOutline(input: OutlineInput): OutlineResult {
         title: chapterTitle,
         subtitle: null,
         bullets: [],
+        figure: null,
       });
     }
 
@@ -190,6 +192,7 @@ export function buildOutline(input: OutlineInput): OutlineResult {
         title: i === 0 ? chapterTitle : `${chapterTitle}（续）`,
         subtitle: null,
         bullets: chunk,
+        figure: null,
       });
     });
   }

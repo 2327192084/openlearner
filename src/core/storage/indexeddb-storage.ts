@@ -7,7 +7,14 @@ import type {
 } from './types.ts';
 
 const DB_NAME = 'openleaner';
-const DB_VERSION = 1;
+/**
+ * 库版本。
+ *
+ * 新增分区（比如 v2 的 sourceFiles）必须同时提这个数字 ——
+ * onupgradeneeded 只在版本升高时触发，不提版本的新分区永远不会被建出来，
+ * 而写入时抛的 NotFoundError 只在「往新分区写第一条记录」时才出现。
+ */
+const DB_VERSION = 2;
 
 /**
  * IndexedDB 存储适配器（浏览器与 Electron 渲染进程用）。

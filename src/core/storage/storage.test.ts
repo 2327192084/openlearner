@@ -105,6 +105,7 @@ for (const factory of factories) {
         // 否则测的是一个已经不存在的 Source 形状
         textStatus: 'ready' as const,
         segmentCount: 0,
+        fileStored: false,
         createdAt: ts,
         updatedAt: ts,
       });
@@ -159,6 +160,7 @@ for (const factory of factories) {
         byteSize: 0,
         textStatus: 'ready' as const,
         segmentCount: 0,
+        fileStored: false,
         createdAt: ts,
         updatedAt: ts,
       });

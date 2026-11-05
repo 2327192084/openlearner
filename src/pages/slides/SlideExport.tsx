@@ -6,6 +6,7 @@ import { downloadPptx } from './download.ts';
 import {
   describeError,
   editedAfterLastExport,
+  figurePageCount,
   formatSize,
   formatTime,
   hintFrom,
@@ -45,6 +46,7 @@ export function SlideExport({ deck, onDeck }: SlideExportProps) {
   const onlyCover = deck.pages.length <= 1;
   const stale = editedAfterLastExport(deck);
   const latest = lastExport(deck);
+  const figures = figurePageCount(deck);
 
   const doExport = async () => {
     if (busy) return;
@@ -121,6 +123,7 @@ export function SlideExport({ deck, onDeck }: SlideExportProps) {
             {latest
               ? `共导出过 ${deck.exports.length} 次，最近一次 ${formatTime(latest.exportedAt)}`
               : '还没有导出过'}
+            {figures > 0 ? `　·　含 ${figures} 页原文截图（会作为图片嵌进 .pptx）` : ''}
           </div>
         </div>
 

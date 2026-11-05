@@ -27,6 +27,18 @@ export const STORES = [
    * 阅读器按 sourceId 取需要的段。
    */
   'sourceSegments',
+  /**
+   * 原始文件字节，仅 PDF。
+   *
+   * 存在的唯一理由：图文页要把原文某一页渲染成图片贴进 PPT，
+   * 而 pdfjs 需要拿到原始字节才能渲染。P1 导入时本可以直接丢弃字节
+   * （正文已抽成文本），为了这个功能才留下。
+   *
+   * **刻意不进 BACKUP_STORES**：一份 50 页教材 PDF 二三十 MB，
+   * 备份文件会被撑大十几倍，而备份主要是给用户换机器用的。
+   * 恢复备份后这些资料的 fileStored 就是 false，界面如实关闭图文页。
+   */
+  'sourceFiles',
   'knowledgePoints',
   'generationRuns',
   'decks',
@@ -63,6 +75,7 @@ export type BackupStoreName = (typeof BACKUP_STORES)[number];
 /** 各分区对应的记录类型 */
 export interface StoreRecordMap {
   meta: LibraryMeta;
+  sourceFiles: SourceFileRecord;
   settings: SettingsRecord;
   courses: Course;
   sources: Source;
@@ -75,6 +88,20 @@ export interface StoreRecordMap {
   slideDecks: SlideDeck;
   backends: BackendConfig;
   secrets: SecretRecord;
+}
+
+/**
+ * 一份资料的原始字节。
+ *
+ * 按 sourceId 作主键（id 就是 sourceId），一份资料一条。
+ */
+export interface SourceFileRecord {
+  /** 与 Source.id 相同 */
+  id: string;
+  /** 文件字节。IndexedDB 能直接存 ArrayBuffer，不转 base64（转码会大 33%） */
+  data: ArrayBuffer;
+  byteSize: number;
+  savedAt: string;
 }
 
 /** 一条凭据。key 与 backendId 关联，但不放在 backends 里。 */

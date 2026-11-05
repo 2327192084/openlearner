@@ -36,6 +36,16 @@ export interface SearchHit {
   snippet: string;
 }
 
+/**
+ * 保留原始文件字节的大小上限。
+ *
+ * 超了就不存（fileStored=false），图文页入口在界面上如实关闭。
+ * 为什么不设成「无上限」：IndexedDB 存得下，但备份、重建索引、
+ * 换机器时的写放大都会变慢，而用户对「点了没反应」的容忍度远低于
+ * 「这个功能这份资料用不了，因为文件太大」。
+ */
+export const MAX_STORED_FILE_BYTES = 60 * 1024 * 1024;
+
 /** 按课程分组的资料 */
 export interface CourseGroup {
   course: Course | null;
@@ -117,9 +127,14 @@ export class SourceService {
       byteSize: opts.byteSize ?? data.byteLength,
       textStatus: parsed.textStatus,
       segmentCount: segments.length,
+      fileStored: false,
       createdAt: ts,
       updatedAt: ts,
     };
+
+    // 原始字节只对 PDF 留：图文页要用 pdfjs 重新渲染某一页，
+    // 而 docx/pptx/md 的页面布局由 Office/浏览器实时排版，没有「原页」可渲染。
+    await this.storeOriginalFile(source, data);
 
     // 先写段再写资料：万一中途失败，是「有段没资料」（不可见、可被清理），
     // 而不是「有资料没段」（可见但点开是空的，最糟的用户体验）
@@ -166,6 +181,7 @@ export class SourceService {
       byteSize: data.byteLength,
       textStatus: parsed.textStatus,
       segmentCount: segments.length,
+      fileStored: false,
       createdAt: ts,
       updatedAt: ts,
     };
@@ -174,6 +190,48 @@ export class SourceService {
     await this.storage.put('sources', source);
 
     return source;
+  }
+
+  /**
+   * 保存原始文件字节（仅 PDF，仅限大小上限内）。
+   *
+   * 返回是否真的存下了，调用方据此设置 Source.fileStored。
+   * 存不下不是错误：图文页用不了而已，不该让整次导入失败。
+   */
+  private async storeOriginalFile(source: Source, data: Uint8Array): Promise<boolean> {
+    if (source.kind !== 'pdf') return false;
+    if (data.byteLength > MAX_STORED_FILE_BYTES) return false;
+
+    try {
+      // 复制一份独立 buffer：传进来的 Uint8Array 可能是别人 buffer 的视图，
+      // 直接把它的 .buffer 存进去会连带存下整块内存（甚至超出视图范围的数据）。
+      const copy = new Uint8Array(data.byteLength);
+      copy.set(data);
+      await this.storage.put('sourceFiles', {
+        id: source.id,
+        data: copy.buffer,
+        byteSize: copy.byteLength,
+        savedAt: nowIso(),
+      });
+      source.fileStored = true;
+      return true;
+    } catch {
+      // 配额满之类：降级为「没有原始文件」，导入本身仍然成功
+      source.fileStored = false;
+      return false;
+    }
+  }
+
+  /** 取原始字节，没有就返回 null（旧资料、超限文件、非 PDF 都会是 null） */
+  async getOriginalFile(sourceId: string): Promise<Uint8Array | null> {
+    const rec = await this.storage.get('sourceFiles', sourceId);
+    if (!rec) return null;
+    return new Uint8Array(rec.data);
+  }
+
+  async hasOriginalFile(sourceId: string): Promise<boolean> {
+    const rec = await this.storage.get('sourceFiles', sourceId);
+    return rec !== null;
   }
 
   async list(): Promise<Source[]> {
@@ -244,6 +302,8 @@ export class SourceService {
     for (const seg of segments) {
       await this.storage.remove('sourceSegments', seg.id);
     }
+    // 原始字节也要跟着删，否则删掉资料后几十 MB 还占着配额，用户看不到也清不掉
+    await this.storage.remove('sourceFiles', id);
     await this.storage.remove('sources', id);
   }
 

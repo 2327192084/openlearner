@@ -175,6 +175,45 @@ const migrations: Record<number, Migration> = {
       slideDecks: migratedDecks,
     };
   },
+
+  /**
+   * v5 → v6
+   *
+   * P4 收尾补两件事，都只做加法：
+   *  - Source.fileStored：旧资料的原始字节从来没有存过，一律 false，
+   *    界面据此关闭图文页入口。
+   *  - SlideOutlinePage.figure：旧大纲的页都没有图，一律 null。
+   *
+   * 刻意**不为旧资料伪造 fileStored=true**：那会让用户点开图文页才发现
+   * 「这份资料没有原始文件」，而提示语只能说「请重新导入」——
+   * 一开始就如实标 false，界面直接把入口置灰并写清原因，才是诚实的做法。
+   */
+  5: (backup) => {
+    const sources = Array.isArray(backup.sources) ? (backup.sources as Record<string, unknown>[]) : [];
+    const decks = Array.isArray(backup.slideDecks)
+      ? (backup.slideDecks as Record<string, unknown>[])
+      : [];
+
+    return {
+      ...backup,
+      schemaVersion: 6,
+      sources: sources.map((s) => ({
+        ...s,
+        // 旧库从没存过原始字节，如实标 false
+        fileStored: s.fileStored === true,
+      })),
+      slideDecks: decks.map((d) => ({
+        ...d,
+        pages: Array.isArray(d.pages)
+          ? (d.pages as Record<string, unknown>[]).map((pg) => ({
+              ...pg,
+              // 旧页没有配图，补 null（不是空对象：空对象会被当成「有图但数据坏了」）
+              figure: pg.figure ?? null,
+            }))
+          : [],
+      })),
+    };
+  },
 };
 
 /**

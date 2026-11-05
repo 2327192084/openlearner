@@ -2,6 +2,7 @@ import { newId, nowIso } from '../id.ts';
 import type {
   KnowledgePoint,
   SlideDeck,
+  SlideFigure,
   SlideOutlinePage,
   Source,
 } from '../model.ts';
@@ -218,6 +219,7 @@ export class SlideService {
         title: '新的一页',
         subtitle: null,
         bullets: [],
+        figure: null,
       };
 
       const at = afterPageId ? deck.pages.findIndex((p) => p.id === afterPageId) : -1;
@@ -229,6 +231,86 @@ export class SlideService {
     });
   }
 
+  /**
+   * 加一页图文页：把原文某一页贴进 PPT。
+   *
+   * `figure` 由界面先用 renderSourcePage 渲染好再传进来 ——
+   * 服务层不碰画布，也就能在 Node 里跑单测。
+   */
+  async addFigurePage(
+    id: string,
+    figure: SlideFigure,
+    afterPageId?: string,
+  ): Promise<SlideDeck> {
+    if (!figure.imageData.startsWith('data:image/')) {
+      throw new Error('图片数据无效：需要一个 data URL。请重新选择原文页。');
+    }
+    if (figure.width <= 0 || figure.height <= 0) {
+      throw new Error('图片尺寸无效，无法计算版面。请重新生成图片。');
+    }
+    // 正常页面截图的比例在 1:3 到 3:1 之间；超出两个数量级说明数据坏了
+    const ratio = figure.width / figure.height;
+    if (ratio > 20 || ratio < 1 / 20) {
+      throw new Error(
+        `图片尺寸异常（${figure.width}×${figure.height}），比例不像一页纸。请重新渲染这一页。`,
+      );
+    }
+
+    return this.mutate(id, (deck) => {
+      const page: SlideOutlinePage = {
+        id: newId('sp'),
+        layout: 'figure',
+        // 标题默认取图注去掉书名号的部分，用户可改。
+        // 不给空标题：空标题的页面在大纲列表里是一行空白，认不出是哪一页
+        title: figure.caption.trim() || `第 ${figure.page} 页`,
+        subtitle: null,
+        bullets: [],
+        figure: { ...figure, caption: normalizeBulletText(figure.caption) },
+      };
+
+      const at = afterPageId ? deck.pages.findIndex((p) => p.id === afterPageId) : -1;
+      if (at >= 0) {
+        deck.pages.splice(at + 1, 0, page);
+      } else {
+        // 默认插在封面之后：语义上「这一章的配图」应该紧跟封面/章节页，
+        // 而不是吊在资料来源页前面
+        deck.pages.splice(1, 0, page);
+      }
+    });
+  }
+
+  /** 改图注（图本身不变） */
+  async updateFigureCaption(
+    id: string,
+    pageId: string,
+    caption: string,
+  ): Promise<SlideDeck> {
+    const next = normalizeBulletText(caption);
+    return this.mutate(id, (deck) => {
+      const page = deck.pages.find((p) => p.id === pageId);
+      if (!page) throw new Error('这一页已经不存在了，可能在其他窗口被删除。');
+      if (page.layout !== 'figure' || !page.figure) {
+        throw new Error('这一页不是图文页，没有图注可改。');
+      }
+      page.figure = { ...page.figure, caption: next };
+    });
+  }
+
+  /** 换一张图（同一页换成另一张原文截图） */
+  async replaceFigure(id: string, pageId: string, figure: SlideFigure): Promise<SlideDeck> {
+    if (!figure.imageData.startsWith('data:image/')) {
+      throw new Error('图片数据无效：需要一个 data URL。请重新选择原文页。');
+    }
+    return this.mutate(id, (deck) => {
+      const page = deck.pages.find((p) => p.id === pageId);
+      if (!page) throw new Error('这一页已经不存在了，可能在其他窗口被删除。');
+      if (page.layout !== 'figure') {
+        throw new Error('这一页不是图文页，不能换图。');
+      }
+      page.figure = { ...figure, caption: normalizeBulletText(figure.caption) };
+    });
+  }
+
   /** 手动加一条要点（无角标，用户自己写的内容不该硬安一个出处） */
   async addBullet(id: string, pageId: string, text: string): Promise<SlideDeck> {
     const trimmed = normalizeBulletText(text);
@@ -237,8 +319,8 @@ export class SlideService {
     return this.mutate(id, (deck) => {
       const page = deck.pages.find((p) => p.id === pageId);
       if (!page) throw new Error('这一页已经不存在了，可能在其他窗口被删除。');
-      if (page.layout !== 'bullets') {
-        throw new Error('只有「要点页」能加要点。');
+      if (page.layout !== 'bullets' && page.layout !== 'figure') {
+        throw new Error('只有「要点页」和「图文页」能加要点。');
       }
       page.bullets.push({
         id: newId('sb'),

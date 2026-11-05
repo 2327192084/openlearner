@@ -1,4 +1,4 @@
-import type { SlideBullet, SlideDeck, SlideLayout } from '../model.ts';
+import type { SlideBullet, SlideDeck, SlideFigure, SlideLayout } from '../model.ts';
 import { SLIDE_LIMITS, continuationTitle, foldTitle, normalizeBulletText } from './limits.ts';
 
 /**
@@ -42,6 +42,20 @@ export interface RenderBullet {
   citationIndex: number | null;
 }
 
+/**
+ * 图片在版面上的位置（英寸）。
+ *
+ * 由 render-plan 算好，预览按百分比还原、导出直接喂给 pptxgenjs。
+ * 在这里算而不是各算一次：图片的等比缩放最容易两边不一致 ——
+ * 预览里是 4:3、导出时被拉成 16:9，学生一看就知道图变形了。
+ */
+export interface RenderFigureBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 /** 渲染页 */
 export interface RenderSlide {
   layout: SlideLayout;
@@ -54,6 +68,12 @@ export interface RenderSlide {
   footer: string;
   /** 页码，从 1 开始；封面页也占页码，和 PowerPoint 里看到的一致 */
   pageNumber: number;
+  /** 图文页的图；其他版式恒为 null */
+  figure: SlideFigure | null;
+  /** 图在版面中的位置与尺寸；无图时为 null */
+  figureBox: RenderFigureBox | null;
+  /** 图注（显示在图下方）；无图为 null */
+  figureCaption: string | null;
 }
 
 /**
@@ -82,6 +102,20 @@ export function buildRenderPlan(deck: SlideDeck, sourceTitleFallback = '学习�
       citationLines: [],
       footer: page.layout === 'title' ? '' : sourceTitleFallback,
       pageNumber: slides.length + 1,
+      // 图文页：图存在页里，这里只算它该占多大、放哪
+      figure: page.layout === 'figure' ? page.figure : null,
+      figureBox:
+        page.layout === 'figure' && page.figure
+          ? figureBoxFor(
+              page.figure,
+              page.bullets.length > 0,
+              normalizeBulletText(page.figure.caption).length > 0,
+            )
+          : null,
+      figureCaption:
+        page.layout === 'figure' && page.figure
+          ? normalizeBulletText(page.figure.caption)
+          : null,
     });
   }
 
@@ -117,11 +151,67 @@ export function buildRenderPlan(deck: SlideDeck, sourceTitleFallback = '学习�
         citationLines: lines,
         footer: '',
         pageNumber: slides.length + 1,
+        figure: null,
+        figureBox: null,
+        figureCaption: null,
       });
     });
   }
 
   return slides;
+}
+
+/**
+ * 算出图片在正文区里的位置与尺寸。
+ *
+ * ## 两条规则
+ *
+ * 1. **等比缩放，绝不拉伸**：按图片自身的宽高比缩到框内，取小的那个比例。
+ *    教材页面基本是 A4（1:1.414 竖版），硬塞进 16:9 的横框会被拉扁，
+ *    公式和表格立刻就变形了。
+ * 2. **右边有要点时收窄**：图 + 说明并排比「图占满、说明挤在下面」好读，
+ *    但收窄后仍按同一规则等比缩放，不会变形。
+ */
+function figureBoxFor(
+  figure: SlideFigure,
+  hasBullets: boolean,
+  hasCaption: boolean,
+): RenderFigureBox {
+  const areaX = SLIDE_BOX.marginX;
+  const areaY = SLIDE_BOX.bodyTop;
+  const areaW = SLIDE_SIZE.width - SLIDE_BOX.marginX * 2;
+  const areaH = SLIDE_BOX.bodyHeight;
+
+  // 有要点时右侧留 34% 给文字
+  const maxW = hasBullets ? Math.round(areaW * 0.62 * 100) / 100 : areaW;
+
+  // 图注占的高度要从图片区里扣掉。
+  // 不扣的话图片会撑满 4.55 英寸，图注被挤到页脚边界上贴着图 ——
+  // 真实渲染里就是「图注看起来像图片的一部分」，分不清哪句是原文哪句是说明。
+  const CAPTION_BAND = 0.52;
+  const maxH = hasCaption ? Math.round((areaH - CAPTION_BAND) * 100) / 100 : areaH;
+
+  const imgW = figure.width > 0 ? figure.width : 1;
+  const imgH = figure.height > 0 ? figure.height : 1;
+
+  // 取「按宽缩」和「按高缩」里更小的那个，保证两个方向都不超框
+  const scale = Math.min(maxW / imgW, maxH / imgH);
+
+  // 极端宽高比（比如 100000:1）会让窄的那一边缩到 0.0001 英寸，
+  // 四舍五入后就是 0 —— 导出的图片高度 0，Office 里是一根看不见的线。
+  // 这里兜一个下限：宁可比例略有偏差，也不能产出零面积图片。
+  const MIN_SIDE = 0.05;
+  let w = Math.round(imgW * scale * 100) / 100;
+  let h = Math.round(imgH * scale * 100) / 100;
+  if (w < MIN_SIDE) w = MIN_SIDE;
+  if (h < MIN_SIDE) h = MIN_SIDE;
+
+  return {
+    x: Math.round((areaX + (maxW - w) / 2) * 100) / 100,
+    y: Math.round((areaY + (maxH - h) / 2) * 100) / 100,
+    w,
+    h,
+  };
 }
 
 /**
@@ -147,10 +237,11 @@ export function formatLocation(page: number | null, chapter: string | null): str
 export function planStats(plan: RenderSlide[]) {
   const contentPages = plan.filter((s) => s.layout !== 'sources').length;
   const sourcePages = plan.filter((s) => s.layout === 'sources').length;
+  const figurePages = plan.filter((s) => s.layout === 'figure').length;
   const bullets = plan.reduce((n, s) => n + s.bullets.length, 0);
   const withoutCitation = plan.reduce(
     (n, s) => n + s.bullets.filter((b) => b.citationIndex === null).length,
     0,
   );
-  return { total: plan.length, contentPages, sourcePages, bullets, withoutCitation };
+  return { total: plan.length, contentPages, sourcePages, figurePages, bullets, withoutCitation };
 }

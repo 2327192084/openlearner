@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { SlideCitation, SlideDeck } from '@/core/model.ts';
-import { SLIDE_SIZE } from '@/core/slides/render-plan.ts';
+import { SLIDE_BOX, SLIDE_SIZE } from '@/core/slides/render-plan.ts';
 import type { RenderSlide } from '@/core/slides/render-plan.ts';
 import { SourcePeek } from '../practice/SourcePeek.tsx';
 
@@ -122,6 +122,7 @@ export function SlidePreview({ deck, plan }: SlidePreviewProps) {
 function layoutName(layout: RenderSlide['layout']): string {
   if (layout === 'title') return '封面';
   if (layout === 'section') return '章节';
+  if (layout === 'figure') return '图文';
   if (layout === 'bullets') return '要点';
   return '资料来源';
 }
@@ -210,6 +211,145 @@ function SlideFace({
         >
           {slide.title}
         </div>
+      </div>
+    );
+  }
+
+  /*
+   * 图文页。
+   *
+   * 这里**一点比例都不算**：图片放在哪、多大，全部来自 render-plan 的 `figureBox`
+   * （已按 min(宽比, 高比) 等比缩放在正文区居中，有要点时宽度只占 62%）。
+   * 界面只把英寸换成 cqw。自己再算一遍的话，预览和导出必然会对不上——
+   * 这正是这个阶段最容易出、又最难看出来的 bug。
+   */
+  if (slide.layout === 'figure') {
+    const box = slide.figureBox;
+    const hasFigure = slide.figure !== null && box !== null;
+    // 图注压在页脚上会互相遮住，所以向上夹一层（与导出侧同一套算法）
+    const captionTop = box
+      ? Math.min(box.y + box.h + 0.12, SLIDE_BOX.footerTop - 0.45)
+      : SLIDE_BOX.bodyTop;
+    const colX = SLIDE_BOX.marginX + (SLIDE_SIZE.width - SLIDE_BOX.marginX * 2) * 0.66;
+    const colW = SLIDE_SIZE.width - SLIDE_BOX.marginX - colX;
+
+    return (
+      <div className="sl-card__face">
+        <div
+          className="sl-card__title-text"
+          style={{
+            left: pct(SLIDE_BOX.marginX),
+            top: pct(SLIDE_BOX.titleTop),
+            width: pct(SLIDE_SIZE.width - SLIDE_BOX.marginX * 2),
+            height: pct(SLIDE_BOX.titleHeight),
+            fontSize: fontPt(26),
+            color: THEME.text,
+            justifyContent: 'center',
+          }}
+        >
+          {slide.title}
+        </div>
+
+        <div
+          style={{
+            position: 'absolute',
+            left: pct(SLIDE_BOX.marginX),
+            top: pct(SLIDE_BOX.titleTop + SLIDE_BOX.titleHeight + 0.05),
+            width: pct(SLIDE_SIZE.width - SLIDE_BOX.marginX * 2),
+            height: pct(0.02),
+            background: THEME.rule,
+          }}
+        />
+
+        {hasFigure && box && slide.figure ? (
+          <img
+            className="sl-card__figure"
+            src={slide.figure.imageData}
+            alt={slide.figureCaption ?? `原文第 ${slide.figure.page} 页`}
+            style={{
+              left: pct(box.x),
+              top: pct(box.y),
+              width: pct(box.w),
+              height: pct(box.h),
+              /* 0.75pt 细边框：白底图贴在白底幻灯片上，没有边框会像飘着 */
+              borderWidth: fontPt(0.75),
+              borderColor: THEME.rule,
+            }}
+          />
+        ) : (
+          <div
+            style={{
+              position: 'absolute',
+              left: pct(SLIDE_BOX.marginX),
+              top: pct(SLIDE_BOX.bodyTop),
+              width: pct(SLIDE_SIZE.width - SLIDE_BOX.marginX * 2),
+              height: pct(1),
+              fontSize: fontPt(14),
+              color: THEME.muted,
+            }}
+          >
+            这一页是图文页，但截图数据丢了。回大纲里换一张图。
+          </div>
+        )}
+
+        {slide.figureCaption ? (
+          <div
+            className="sl-card__figure-caption"
+            style={{
+              left: pct(SLIDE_BOX.marginX),
+              top: pct(captionTop),
+              width: pct(SLIDE_SIZE.width - SLIDE_BOX.marginX * 2),
+              height: pct(0.4),
+              fontSize: fontPt(11),
+              color: THEME.muted,
+            }}
+          >
+            {slide.figureCaption}
+          </div>
+        ) : null}
+
+        {slide.bullets.map((bullet, i) => {
+          const citation =
+            bullet.citationIndex === null ? null : citationByIndex.get(bullet.citationIndex) ?? null;
+          return (
+            <div
+              key={`${bullet.text}-${i}`}
+              className="sl-card__bullet sl-card__bullet--side"
+              style={{
+                left: pct(colX),
+                top: pct(SLIDE_BOX.bodyTop + i * 0.9),
+                width: pct(colW),
+                height: pct(0.85),
+                fontSize: fontPt(14),
+                color: THEME.text,
+              }}
+            >
+              <span>{bullet.text}</span>
+              {bullet.citationIndex !== null ? (
+                citation ? (
+                  <button
+                    type="button"
+                    className="sl-card__cite"
+                    style={{ fontSize: fontPt(10), color: THEME.citation }}
+                    onClick={() => onCitation(citation)}
+                    title={`查看出处：《${citation.sourceTitle}》`}
+                  >
+                    [{bullet.citationIndex}]
+                  </button>
+                ) : (
+                  <span
+                    className="sl-card__cite sl-card__cite--missing"
+                    style={{ fontSize: fontPt(10) }}
+                  >
+                    [{bullet.citationIndex}]
+                  </span>
+                )
+              ) : null}
+            </div>
+          );
+        })}
+
+        <SlideFooter slide={slide} />
       </div>
     );
   }
@@ -316,44 +456,53 @@ function SlideFace({
         })
       )}
 
-      {/* 页脚：导出侧条件是 `slide.footer || layout !== 'title'`。
-          这里已经排除了 title 版式，所以条件恒真，直接渲染即可。 */}
-      {(
-        <>
-          <div
-            style={{
-              position: 'absolute',
-              left: pct(0.85),
-              top: pct(6.75),
-              width: pct(8),
-              height: pct(0.4),
-              fontSize: fontPt(9),
-              color: THEME.muted,
-              display: 'flex',
-              alignItems: 'center',
-            }}
-          >
-            {slide.footer}
-          </div>
-          <div
-            style={{
-              position: 'absolute',
-              left: pct(SLIDE_SIZE.width - 0.85 - 1),
-              top: pct(6.75),
-              width: pct(1),
-              height: pct(0.4),
-              fontSize: fontPt(9),
-              color: THEME.muted,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'flex-end',
-            }}
-          >
-            {slide.pageNumber}
-          </div>
-        </>
-      )}
+      <SlideFooter slide={slide} />
     </div>
+  );
+}
+
+/**
+ * 页脚 + 页码。
+ *
+ * 导出侧的条件是 `slide.footer || slide.layout !== 'title'`；封面已经在上面
+ * 单独 return 了，走到这里的一定不是封面，所以条件恒真、直接画。
+ * 抽成组件是因为图文页也要用——两边各写一份迟早会改歪一边。
+ */
+function SlideFooter({ slide }: { slide: RenderSlide }) {
+  return (
+    <>
+      <div
+        style={{
+          position: 'absolute',
+          left: pct(SLIDE_BOX.marginX),
+          top: pct(SLIDE_BOX.footerTop),
+          width: pct(8),
+          height: pct(SLIDE_BOX.footerHeight),
+          fontSize: fontPt(9),
+          color: THEME.muted,
+          display: 'flex',
+          alignItems: 'center',
+        }}
+      >
+        {slide.footer}
+      </div>
+      <div
+        style={{
+          position: 'absolute',
+          left: pct(SLIDE_SIZE.width - SLIDE_BOX.marginX - 1),
+          top: pct(SLIDE_BOX.footerTop),
+          width: pct(1),
+          height: pct(SLIDE_BOX.footerHeight),
+          fontSize: fontPt(9),
+          color: THEME.muted,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+        }}
+      >
+        {slide.pageNumber}
+      </div>
+    </>
   );
 }
 

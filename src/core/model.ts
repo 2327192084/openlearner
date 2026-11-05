@@ -9,7 +9,7 @@
  */
 
 /** 当前学习库结构版本。改动实体结构时递增，并在 migrations.ts 补一段迁移。 */
-export const LIBRARY_SCHEMA_VERSION = 5;
+export const LIBRARY_SCHEMA_VERSION = 6;
 
 /**
  * 位置信息 —— 全项目「点回原文」的唯一依据。
@@ -93,6 +93,14 @@ export interface Source {
   textStatus: SourceTextStatus;
   /** 切分出的段数，列表页直接显示，不必再查 segments */
   segmentCount: number;
+  /**
+   * 原始文件字节是否还在本机（`sourceFiles` 分区）。
+   *
+   * 只有 PDF 会留字节，且仅用于把原文某一页渲染成图片贴进 PPT（图文页）。
+   * 超过大小上限、或非 PDF 的资料为 false —— 界面据此如实关闭图文页入口，
+   * 而不是让用户点了才报错。
+   */
+  fileStored: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -338,7 +346,21 @@ export type SlideLayout =
   /** 要点页：一组要点，每条带引用角标 */
   | 'bullets'
   /** 资料来源页：角标编号 → 文档名 + 页码。固定放在最后 */
-  | 'sources';
+  | 'sources'
+  /**
+   * 图文页：左侧或整幅放原文某一页的截图，配一段说明。
+   *
+   * ## 为什么是「原文页截图」而不是「从教材里抽插图」
+   *
+   * 计划书 P4 要求标题页/要点页/图文页。直觉做法是抽取教材里的插图，
+   * 但我们用 scripts/probe-figures.ts 实测过：文字型教材每页的内嵌位图是 0 张
+   * （章节示意图基本都是矢量绘制），唯一有位图的 scanned.pdf 是整页一张图。
+   * 也就是说「抽插图」这条路在真实教材上抽不到东西。
+   *
+   * 而「把原文那一页渲染成图片」既总能实现，又正好落在本项目的核心卖点上：
+   * 学生拿到的 PPT 里，图和原文是同一页，不会出现「这张图到底哪来的」。
+   */
+  | 'figure';
 
 /**
  * 幻灯片里的一条要点。
@@ -357,6 +379,37 @@ export interface SlideBullet {
   citationIndex: number | null;
 }
 
+/**
+ * 一张原文页截图（图文页用）。
+ *
+ * ## 为什么把图片数据直接存在这里，而不是另开分区放
+ *
+ * 图片是这张幻灯片的正文，不是附件。存成外键的话，备份文件里会留下
+ * 「PPT 说有张图、图却没跟着走」的空壳 —— 换台机器恢复后打开是坏图。
+ * 直接存在页里，PPT 是自包含的：备份、导出、预览三处永远是同一份图。
+ *
+ * 代价是备份会变大。一张 1600px 宽的页面截图约 200~400KB，而图文页是
+ * 用户一页一页手动加的，不会像资料正文那样一次几十万字，所以可以接受。
+ */
+export interface SlideFigure {
+  /** 取自哪份资料 */
+  sourceId: string;
+  /** 资料的第几页（从 1 开始） */
+  page: number;
+  /**
+   * PNG 的 data URL（`data:image/png;base64,...`）。
+   *
+   * 用 data URL 而不是 base64 裸串：pptxgenjs 的 addImage 直接收这个格式，
+   * 浏览器的 <img> 也直接收，两边都不用再做前缀拼接，少一处出错的地方。
+   */
+  imageData: string;
+  /** 图片像素宽高，用于在版面上按比例摆放，避免被拉扁 */
+  width: number;
+  height: number;
+  /** 图注，用户可改。默认「《资料名》第 N 页」 */
+  caption: string;
+}
+
 /** 大纲里的一页。用户可改标题、调顺序、增删页。 */
 export interface SlideOutlinePage {
   id: string;
@@ -365,6 +418,8 @@ export interface SlideOutlinePage {
   /** 副标题，仅 title/section 版式使用 */
   subtitle: string | null;
   bullets: SlideBullet[];
+  /** 图文页的图片；其他版式恒为 null */
+  figure: SlideFigure | null;
 }
 
 /**
