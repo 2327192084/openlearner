@@ -1,0 +1,17 @@
+# 这些是二进制资源，禁止任何换行符转换。
+#
+# 为什么必须显式声明：Windows 上 git 默认 core.autocrlf=true，
+# 会把文本文件的 LF 转成 CRLF。`.wasm.js` 是 Emscripten 胶水代码，
+# 看着像文本，但里面嵌了二进制数据块 —— 被转换后 wasm 加载会失败，
+# 而且报错信息（importScripts failed）完全指不到这个原因。
+#
+# 本次入库时 git 已经提示过
+#   "in the working copy of '...wasm.js', LF will be replaced by CRLF"
+# 实测当前字节未被破坏，但不该靠运气。
+
+*.wasm    binary
+*.wasm.js binary
+*.traineddata.gz binary
+
+# 中文语言包
+public/tesseract/lang/* binary
