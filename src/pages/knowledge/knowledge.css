@@ -45,6 +45,132 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ---------- 后端对比条（P5 第 4 条） ---------- */
+
+/*
+  这排 chip 的作用是**并排比较**，不是单纯的筛选按钮。
+  所以每个 chip 内部是两行：名字一行、数字一行，
+  让各组的「条数 / 可点回 / 待处理」在垂直方向也能对齐着比。
+*/
+.kp-backends {
+  padding: var(--sp-3) var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.kp-backends__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.kp-backends__title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.kp-backends__head .page__muted {
+  line-height: 1.6;
+  max-width: 76ch;
+}
+
+.kp-backends__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.kp-backend-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius);
+  background: var(--c-surface);
+  text-align: left;
+  min-width: 168px;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.kp-backend-chip:hover:not(:disabled) {
+  border-color: var(--c-text-3);
+  background: var(--c-surface-2);
+}
+
+/*
+  选中态用主色边框 + 浅底，不用反色填充：
+  反色会让 chip 里的数字失去对比度，而数字正是这里要比的东西。
+*/
+.kp-backend-chip--active {
+  border-color: var(--c-primary);
+  background: var(--c-primary-soft);
+  box-shadow: 0 0 0 1px var(--c-primary);
+}
+
+.kp-backend-chip__name {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--c-text);
+  word-break: break-word;
+}
+
+/* 「当前」= 整理面板选中的那个后端，点重新整理会写这一组 */
+.kp-backend-chip__current {
+  padding: 0 var(--sp-1);
+  border-radius: var(--radius-sm);
+  background: var(--c-primary);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.6;
+  flex: none;
+}
+
+.kp-backend-chip__stats {
+  font-size: var(--fs-xs);
+  color: var(--c-text-2);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.6;
+}
+
+.kp-backend-chip__stats strong {
+  font-size: var(--fs-sm);
+  color: var(--c-text);
+}
+
+.kp-backend-chip__dot {
+  margin: 0 4px;
+  color: var(--c-text-3);
+}
+
+/* 「全部可点回」——这是好状态，用成功色 */
+.kp-backend-chip__ok {
+  color: var(--c-success);
+  font-weight: 500;
+}
+
+/* 「待处理 N」——这是要注意的状态，与卡片上的橙色同源 */
+.kp-backend-chip__warn {
+  color: var(--c-warning);
+  font-weight: 500;
+}
+
+.kp-backend-chip__muted {
+  color: var(--c-text-3);
+}
+
+/* 列表标题里说明「另有 N 条在其他后端」 */
+.kp-list__scope {
+  color: var(--c-text-3);
+}
+
 /* ---------- 校对区骨架 ---------- */
 
 .kp-work {

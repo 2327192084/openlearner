@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { ANCHOR_STATUS_LABEL, cognitiveLabel, locationLabel, parsePageRange } from './types.ts';
+import {
+  ANCHOR_STATUS_LABEL,
+  backendLabel,
+  cognitiveLabel,
+  defaultBackendFilter,
+  locatedRatio,
+  locationLabel,
+  parsePageRange,
+  sumBackends,
+} from './types.ts';
 import { clampRanges, overlaps, splitParagraphs } from './SliceText.tsx';
 import type { KnowledgePoint } from '@/core/model.ts';
+import type { KnowledgeBackendSummary } from '@/core/knowledge/service.ts';
+import { MANUAL_BACKEND_ID } from '@/core/knowledge/service.ts';
 
 /**
  * 知识点页的纯函数测试。
@@ -168,5 +179,82 @@ describe('locationLabel', () => {
         anchors: [{ sourceId: 's1', page: 12, chapter: '第三章', charStart: 0, charEnd: 5 }],
       }),
     ).toBe('第三章 · 第 12 页');
+  });
+});
+
+/* ==========================================================================
+   按后端分组（P5 第 4 条）
+   ========================================================================== */
+
+function summary(
+  backendId: string,
+  count: number,
+  located = count,
+  unlocated = 0,
+  waived = 0,
+): KnowledgeBackendSummary {
+  return { backendId, count, located, unlocated, waived, lastAt: '2026-01-01T00:00:00.000Z' };
+}
+
+describe('sumBackends', () => {
+  it('把各分组合计起来', () => {
+    const total = sumBackends([summary('mock', 12, 10, 2), summary('backend_a', 8, 8)]);
+    expect(total).toEqual({ count: 20, located: 18, unlocated: 2, waived: 0 });
+  });
+
+  it('空列表得到全 0，而不是 undefined', () => {
+    expect(sumBackends([])).toEqual({ count: 0, located: 0, unlocated: 0, waived: 0 });
+  });
+
+  it('合计与各分组同源：逐组相加必须等于总数', () => {
+    const groups = [summary('a', 3, 2, 1), summary('b', 5, 5), summary(MANUAL_BACKEND_ID, 2, 0, 0, 2)];
+    const total = sumBackends(groups);
+    expect(total.count).toBe(groups.reduce((n, g) => n + g.count, 0));
+    expect(total.located).toBe(groups.reduce((n, g) => n + g.located, 0));
+    expect(total.waived).toBe(2);
+  });
+});
+
+describe('backendLabel', () => {
+  it('手工录入组显示「手工录入」，不是 id 也不是空串', () => {
+    expect(backendLabel(MANUAL_BACKEND_ID, {})).toBe('手工录入');
+  });
+
+  it('配置还在时用配置里的名字', () => {
+    expect(backendLabel('backend_abc', { backend_abc: '智谱 GLM' })).toBe('智谱 GLM');
+  });
+
+  it('配置已删时明确说「未知后端（id）」，不能留空', () => {
+    const label = backendLabel('backend_gone', {});
+    expect(label).not.toBe('');
+    expect(label).toContain('未知后端');
+    expect(label).toContain('backend_gone');
+  });
+
+  it('映射到空字符串时也走「未知后端」，不显示空白', () => {
+    expect(backendLabel('backend_x', { backend_x: '   ' })).toContain('未知后端');
+  });
+});
+
+describe('defaultBackendFilter', () => {
+  it('只有 1 个后端时不筛（一个选项的筛选器只是噪音）', () => {
+    expect(defaultBackendFilter([summary('mock', 10)])).toBeNull();
+    expect(defaultBackendFilter([])).toBeNull();
+  });
+
+  it('≥2 个后端时默认选条数最多的那组', () => {
+    expect(defaultBackendFilter([summary('mock', 12), summary('backend_a', 8)])).toBe('mock');
+  });
+});
+
+describe('locatedRatio', () => {
+  it('分母是总数，不是「已定位+待处理」', () => {
+    expect(locatedRatio(summary('a', 4, 4, 0, 0))).toBe('100%');
+    expect(locatedRatio(summary('a', 4, 2, 0, 2))).toBe('50%');
+    expect(locatedRatio(summary('a', 10, 7, 3, 0))).toBe('70%');
+  });
+
+  it('空组显示「—」而不是 NaN%', () => {
+    expect(locatedRatio(summary('a', 0, 0))).toBe('—');
   });
 });

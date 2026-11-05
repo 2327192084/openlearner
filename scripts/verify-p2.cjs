@@ -405,6 +405,113 @@ async function main() {
           : ''),
     );
 
+    // ---------- 6b. 多后端结果并存与对比（P5 第 4 条） ----------
+    /**
+     * 这一段验的是一件很容易做砸的事：同一份资料用两个后端各整理一份，
+     * 两份都要在库里、界面上要能分开看、还要能合起来看总数。
+     *
+     * 为什么要往库里直接塞第二个后端的数据，而不是真跑两遍：
+     * 第二个后端得是真模型（要花钱、要网络），验收脚本不能依赖它。
+     * 但「并存 + 分组 + 对比」这套逻辑在前端，塞数据完全能验到。
+     * 真正「换后端不抹掉上一个」的服务层行为，已在 verify-p5 里用
+     * 示例后端 + 假响应真实验过一遍。
+     */
+    const compareState = await cdp.eval(`(async () => {
+      ${DB_HELPER}
+      const db = await openDb();
+      const srcs = await readAll(db, 'sources');
+      const points = await readAll(db, 'knowledgePoints');
+      db.close();
+      if (!srcs.length || !points.length) return { ok: false, why: '准备数据不足' };
+
+      const sourceId = srcs[0].id;
+      const copies = points.filter(p => p.sourceId === sourceId).slice(0, 3).map((p, i) => ({
+        ...p,
+        id: 'kp_other_' + i,
+        backendId: 'backend_other_for_compare',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }));
+
+      const db2 = await openDb();
+      await new Promise((res, rej) => {
+        const tx = db2.transaction('knowledgePoints', 'readwrite');
+        for (const c of copies) tx.objectStore('knowledgePoints').put(c);
+        tx.oncomplete = () => res(true);
+        tx.onerror = () => rej(tx.error);
+      });
+      const all = await readAll(db2, 'knowledgePoints');
+      db2.close();
+
+      const byBackend = {};
+      for (const p of all.filter(p => p.sourceId === sourceId)) {
+        const key = p.backendId ?? '__manual__';
+        byBackend[key] = (byBackend[key] ?? 0) + 1;
+      }
+      return { ok: true, added: copies.length, byBackend, total: all.filter(p => p.sourceId === sourceId).length };
+    })()`);
+
+    record(
+      '准备：往同一份资料里加了第二个后端的结果',
+      compareState.ok && compareState.added > 0,
+      compareState.ok
+        ? `加 ${compareState.added} 条，现在按后端分组 ${JSON.stringify(compareState.byBackend)}`
+        : compareState.why,
+    );
+
+    // 重新进页面，让界面按新数据重新拉一遍（模拟用户换后端后再打开）
+    await cdp.eval(`location.hash = '#/sources'`);
+    await sleep(1200);
+    await cdp.eval(`location.hash = '#/knowledge'`);
+    await sleep(2500);
+
+    const compareUi = await cdp.eval(`(() => {
+      const text = document.querySelector('.shell__content')?.innerText ?? '';
+      /** 对比条：多个后端时才出现，用 chip 列出每组（类名 kp-backends，别按语义猜 compare） */
+      const bar = document.querySelector('.kp-backends');
+      const chips = bar ? [...bar.querySelectorAll('.kp-backends__chips button')] : [];
+      const chipText = chips.map(c => (c.innerText || '').replace(/\\s+/g, ' ').trim()).filter(Boolean);
+      const barText = bar ? bar.innerText : '';
+      return {
+        hasBar: !!bar,
+        chipText: chipText.slice(0, 8),
+        hasAllOption: /全部/.test(bar ? bar.innerText : ''),
+        showsMockName: /示例后端/.test(barText),
+        // 只有「mock 显示成未知后端」才是缺陷。
+        // 别的后端显示成「未知后端（id）」是正确的 —— 配置删了但知识点还在，
+        // 这是正常状态。写成「界面一律不许出现未知后端」会把正确行为判成失败。
+        mockAsUnknown: /未知后端[（(]\s*mock\s*[）)]/.test(text),
+        barText: barText.replace(/\s+/g, ' ').slice(0, 200),
+        showsUnknownName: /未知后端/.test(text),
+        text: text.slice(0, 600),
+      };
+    })()`);
+
+    record(
+      '**同一份资料有多个后端结果时，界面上出现对比条**',
+      compareUi.hasBar,
+      compareUi.hasBar ? `chip=${JSON.stringify(compareUi.chipText)}` : compareUi.text.slice(0, 100).replace(/\n/g, ' '),
+    );
+    record(
+      '对比条能为每个后端各列一项，并且有「全部」可合看',
+      compareUi.hasBar && compareUi.chipText.length >= 2 && compareUi.hasAllOption,
+      `chip 数=${compareUi.chipText.length}，含全部=${compareUi.hasAllOption}`,
+    );
+    /**
+     * 示例后端的名字必须显示成人话。
+     *
+     * `mock` 不是一条 BackendConfig，不在 BackendService.list() 里，
+     * 所以「按配置查名字」的写法会把它显示成「未知后端（mock）」——
+     * 而它恰好是用户最常用的那个后端，看着就像数据坏了。
+     */
+    record(
+      '**示例后端显示为「示例后端」而不是「未知后端（mock）」**',
+      compareUi.showsMockName && !compareUi.mockAsUnknown,
+      compareUi.showsMockName
+        ? `对比条：${compareUi.barText}`
+        : `界面文本：${compareUi.text.slice(0, 120).split(String.fromCharCode(10)).join(' ')}`,
+    );
+
     // ---------- 7. 编辑知识点并持久化 ----------
     const edited = await cdp.eval(`(async () => {
       ${DB_HELPER}

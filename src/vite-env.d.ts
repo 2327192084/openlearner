@@ -29,6 +29,22 @@ interface OpenLeanerBridge {
     readonly electron: string;
     readonly chrome: string;
   };
+  /**
+   * 模型 API 代理（仅桌面端）。
+   *
+   * 桌面端页面从 `file://` 加载，浏览器 CORS 会挡住大多数服务商；
+   * 主进程发请求没有同源策略，所以由它转发。
+   * 浏览器里没有这个方法，调用前必须判空 —— `createChatFetch()` 负责这件事。
+   */
+  readonly chat?: (request: {
+    url: string;
+    apiKey: string;
+    body: string;
+    timeoutMs?: number;
+  }) => Promise<
+    | { ok: true; status: number; text: string }
+    | { ok: false; kind: string; message: string }
+  >;
 }
 
 interface Window {

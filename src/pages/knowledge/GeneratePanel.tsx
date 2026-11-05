@@ -35,10 +35,17 @@ export function GeneratePanel({
   onRunningChange,
   onLiveUpdate,
   onRunFinished,
+  onBackendChange,
 }: {
   source: Source;
   segments: SourceSegment[];
-  /** 这份资料已存在的知识点条数。>0 时重新整理会先清空，必须先告知用户 */
+  /**
+   * 这份资料里**当前选中后端**已产出的条数。
+   *
+   * P5 起「重新整理」只清同一个后端的结果（换后端不抹掉前一份），
+   * 所以这个数必须按后端算，不能传这份资料的总条数 ——
+   * 否则用户看到「已有 20 条」，点了重新整理却只清掉 12 条，界面在说谎。
+   */
   existingCount: number;
   onGenerated: () => void | Promise<void>;
   /** 让父组件知道「正在跑」，从而不渲染过期的列表 */
@@ -54,6 +61,14 @@ export function GeneratePanel({
   onLiveUpdate?: () => void;
   /** 把结束的 run 交回父组件，用于「上次整理」那一行回顾 */
   onRunFinished?: (run: GenerationRun) => void;
+  /**
+   * 把当前选中的后端 id 报给父组件。
+   *
+   * 父组件要用它做两件事：在对比条上标「当前」（说明重新整理会写哪一组），
+   * 以及按后端统计出 existingCount。后端选择的状态住在本组件里，
+   * 不报上去父组件就只能猜。
+   */
+  onBackendChange?: (backendId: string) => void;
 }) {
   const { knowledge, backends: backendService } = useServices();
 
@@ -66,6 +81,18 @@ export function GeneratePanel({
    */
   const backendChoice = useOrganizeBackend(backendService);
   const backend = backendChoice.backend;
+
+  /**
+   * 把选中的后端 id 报给父组件。
+   *
+   * 报 `backendChoice.selected`（用户的原始选择）而不是 `backend.id`：
+   * 选中的后端配置被删掉后，hook 会退回假后端实例，两者会不一致；
+   * 而 core 落库用的是**实例** id，所以这里报的是实例 id（即真正会写进库的那个），
+   * 父组件的「当前后端已有 N 条」才对得上。
+   */
+  useEffect(() => {
+    onBackendChange?.(backend.id);
+  }, [backend.id, onBackendChange]);
 
   const [fromDraft, setFromDraft] = useState('');
   const [toDraft, setToDraft] = useState('');
@@ -393,11 +420,16 @@ export function GeneratePanel({
           会阻塞整个页面（无头验收脚本直接卡死），页内 modal 又会把
           「点重新整理 → 点停止」这条验收路径切断。
           所以改成按钮上方的常驻提示，措辞明确、位置在按钮旁边。
+
+          P5 起措辞要精确到「这个后端」：core 只清同一个后端的结果，
+          换后端不会抹掉前一份。说成「清掉所有 N 条」会让人不敢试第二个后端，
+          而那正是第 4 条要鼓励的事。
         */}
         {existingCount > 0 && !running ? (
           <div className="kp-replace-hint">
-            重新整理会先清掉这份资料现有的 <strong>{existingCount} 条</strong>知识点
-            （含手工改过的表述、认知层级、指认的位置），再生成新的。资料原文不受影响。
+            当前后端已有 <strong>{existingCount} 条</strong>知识点，重新整理会先清空这一份
+            （含手工改过的表述、认知层级、指认的位置），再生成新的。
+            资料原文和其他后端的结果都不受影响。
           </div>
         ) : null}
 

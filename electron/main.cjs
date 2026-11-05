@@ -12,7 +12,7 @@
 //     preload 里已经预留了位置和注释（见 preload.cjs）。
 // ==========================================================================
 
-const { app, BrowserWindow, Menu, shell, dialog, session } = require('electron');
+const { app, BrowserWindow, Menu, shell, dialog, session, ipcMain } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
@@ -335,6 +335,182 @@ function buildMenu() {
 }
 
 // --------------------------------------------------------------------------
+// 模型 API 代理（解决桌面端跨源限制）
+// --------------------------------------------------------------------------
+//
+// ## 为什么需要这个
+//
+// 打包后的页面从 `file://` 加载。在这种 origin 下，浏览器对 fetch 执行
+// 标准跨源检查：请求会带上 `Origin: null`，并先发 OPTIONS 预检。
+// DeepSeek 等少数服务商放行了任意 origin，但在浏览器里能用 ≠ 在桌面端能用 ——
+// 智谱、通义、硅基流动、火山方舟、多数自建中转站都不放行，
+// 结果就是「在网页版好好的，装成桌面版就一律 Failed to fetch」。
+//
+// 而 Electron 主进程里的 net/fetch 是 Node 侧发出的请求，**没有同源策略**，
+// 所以把请求交给主进程转发，桌面端就能像网页端一样调用任何 OpenAI 兼容服务。
+//
+// ## 安全边界（重要）
+//
+// 这个通道如果做成「随便帮我请求任何一个 URL」，就等于给渲染进程开了一个
+// 无限制的出网代理：一旦有 XSS 或恶意插件，攻击者可以借它访问内网地址
+// （127.0.0.1、192.168.*、云厂商元数据 169.254.169.254 等）。
+//
+// 所以这里做三件事：
+//   1. **只允许 https**，且主机名不得是本机/内网/链路本地地址
+//   2. **只允许 POST** 且路径必须是 `/chat/completions` 结尾
+//      —— 本应用调用模型的唯一形状，不接受任意路径
+//   3. **有超时、有响应体上限**，避免一个坏端点把主进程拖死或撑爆内存
+//
+// Key 只在这个函数的栈里出现，不写日志、不进任何返回值的元数据。
+
+/** 本机回环地址。允许用它连本地模型服务（Ollama / LM Studio 等） */
+function isLoopbackHost(hostname) {
+  const host = String(hostname || '').toLowerCase();
+  if (!host) return false;
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  if (host === '[::1]' || host === '::1') return true;
+  return /^127\./.test(host);
+}
+
+/**
+ * 内网地址。一律拒绝。
+ *
+ * 这不是「过分谨慎」：这个通道一旦能访问任意内网地址，就等于给渲染进程
+ * 开了一个内网扫描器（路由器管理页、NAS、云厂商元数据 169.254.169.254
+ * 上甚至可以读到临时凭据）。而本项目的正常用途里没有「访问内网模型服务」
+ * 这一项 —— 本地模型走的是回环地址，由 isLoopbackHost 单独放行。
+ */
+function isPrivateHost(hostname) {
+  const host = String(hostname || '').toLowerCase();
+  if (!host) return true;
+  if (/^10\./.test(host)) return true;
+  if (/^192\.168\./.test(host)) return true;
+  if (/^169\.254\./.test(host)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
+  if (host === '[::]' || host === '::') return true;
+  // IPv6 唯一本地地址段（fc00::/7）与链路本地（fe80::/10）
+  if (/^\[?f[cd][0-9a-f]{2}:/.test(host)) return true;
+  if (/^\[?fe80:/.test(host)) return true;
+  return false;
+}
+
+/** 单次响应体上限：对话补全的 JSON 正常在几百 KB 内，8MB 足够宽松 */
+const MAX_PROXY_BYTES = 8 * 1024 * 1024;
+/** 与渲染进程的 120s 超时对齐 */
+const PROXY_TIMEOUT_MS = 120_000;
+
+function registerChatProxy() {
+  /**
+   * 参数校验一律在主进程做。
+   * 渲染进程传来的东西不可信 —— 即使当前页面是我们自己的代码，
+   * 这条边界也不该依赖「上游一定是善意的」。
+   */
+  ipcMain.handle('openleaner:chat-completion', async (_event, payload) => {
+    const body = payload && typeof payload === 'object' ? payload : {};
+    const url = typeof body.url === 'string' ? body.url : '';
+    const apiKey = typeof body.apiKey === 'string' ? body.apiKey : '';
+    const requestBody = typeof body.body === 'string' ? body.body : '';
+    const timeoutMs =
+      Number.isFinite(body.timeoutMs) && body.timeoutMs > 0
+        ? Math.min(body.timeoutMs, PROXY_TIMEOUT_MS)
+        : PROXY_TIMEOUT_MS;
+
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      // 只回结构化结果，不 throw —— 渲染进程要能把这句话显示给用户
+      return { ok: false, kind: 'invalid-url', message: '接口地址不是合法的 URL' };
+    }
+
+    /**
+     * 协议策略：
+     *   - https：允许（外部服务商的正规形态）
+     *   - http + 回环地址：允许（本地模型服务常常只跑 http，没有证书）
+     *   - 其余（http + 任意公网域名）：拒绝 —— 明文传 Key 等于把 Key 送出去
+     */
+    const loopback = isLoopbackHost(parsed.hostname);
+    if (parsed.protocol === 'http:') {
+      if (!loopback) {
+        return {
+          ok: false,
+          kind: 'invalid-url',
+          message: 'http 只允许连本机地址。外部服务请用 https —— 明文传输会让 Key 泄露',
+        };
+      }
+    } else if (parsed.protocol !== 'https:') {
+      return { ok: false, kind: 'invalid-url', message: '接口地址必须是 https' };
+    }
+
+    if (!loopback && isPrivateHost(parsed.hostname)) {
+      return {
+        ok: false,
+        kind: 'forbidden-host',
+        message: `不允许访问内网地址（${parsed.hostname}）`,
+      };
+    }
+    if (!parsed.pathname.endsWith('/chat/completions')) {
+      return {
+        ok: false,
+        kind: 'invalid-path',
+        message: '只允许调用 /chat/completions',
+      };
+    }
+    if (!apiKey || !requestBody) {
+      return { ok: false, kind: 'invalid-request', message: '请求缺少凭据或请求体' };
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(parsed.toString(), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: requestBody,
+        signal: controller.signal,
+        // Node 侧 fetch 没有浏览器 CORS，但也不该跟随到别的域
+        redirect: 'error',
+      });
+
+      // 分块读，边读边判上限，避免先整块读进内存再判断
+      const reader = response.body?.getReader();
+      const chunks = [];
+      let size = 0;
+      if (reader) {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > MAX_PROXY_BYTES) {
+            await reader.cancel().catch(() => {});
+            return { ok: false, kind: 'too-large', message: '响应体过大，已中断' };
+          }
+          chunks.push(value);
+        }
+      }
+
+      const text = Buffer.concat(chunks.map((c) => Buffer.from(c))).toString('utf8');
+      // 状态码与响应体原样交回渲染进程，由它统一做错误分类
+      // （分类逻辑只有一份，不在这里重复一遍，否则两处会不一致）
+      return { ok: true, status: response.status, text };
+    } catch (err) {
+      if (controller.signal.aborted) {
+        return { ok: false, kind: 'timeout', message: '请求超时' };
+      }
+      const raw = err instanceof Error ? err.message : String(err);
+      // 不把原始错误里的 URL 参数 / 头部带出去，只说连不上
+      return { ok: false, kind: 'network', message: `连不上该地址（${raw.slice(0, 120)}）` };
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+}
+
+// --------------------------------------------------------------------------
 // 建窗
 // --------------------------------------------------------------------------
 
@@ -472,6 +648,7 @@ if (!gotTheLock) {
     });
 
     buildMenu();
+    registerChatProxy();
     createWindow();
 
     // macOS：点 Dock 图标且没有窗口时重新开一个

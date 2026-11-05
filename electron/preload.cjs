@@ -32,7 +32,7 @@
 //      不要在这个 .cjs 文件里写 TypeScript 语法 —— 它不经过 tsc 编译。
 // ==========================================================================
 
-const { contextBridge } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 // --------------------------------------------------------------------------
 // 运行环境信息：只读、无副作用。
@@ -92,13 +92,20 @@ const openleanerApi = Object.freeze({
     chrome: readVersion('chrome'),
   }),
 
-  // ------------------------------------------------------------------------
-  // P1 预留位（现在故意留空，避免页面误以为「还没有就是坏了」）
-  // ------------------------------------------------------------------------
-  // files: {
-  //   importMaterial: (options) => ipcRenderer.invoke('openleaner:import-material', options),
-  //   exportDeck: (options) => ipcRenderer.invoke('openleaner:export-deck', options),
-  // },
+  /**
+   * 模型 API 代理。
+   *
+   * 桌面端页面从 `file://` 加载，浏览器 CORS 会把大多数服务商挡在门外
+   * （DeepSeek 放行任意 origin，智谱/通义/中转站基本不放行）。
+   * 主进程发请求没有同源策略，所以走这里转发。
+   *
+   * 只暴露这一个语义化方法，不暴露通用 invoke ——
+   * 通用 invoke 等于把整个 IPC 面交给页面。
+   *
+   * 参数与返回值都是纯数据（字符串进、字符串出），
+   * 这样渲染进程不需要为 IPC 单独做序列化，core 层也能直接注入这个函数当 fetchImpl。
+   */
+  chat: (request) => ipcRenderer.invoke('openleaner:chat-completion', request),
 });
 
 // contextIsolation 打开时用 contextBridge；这里加一道保险，

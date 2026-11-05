@@ -1,4 +1,7 @@
 import type { AnchorStatus, KnowledgePoint, Source } from '@/core/model.ts';
+import type { KnowledgeBackendSummary } from '@/core/knowledge/service.ts';
+import { MANUAL_BACKEND_ID } from '@/core/knowledge/service.ts';
+import { MockBackend } from '@/core/knowledge/mock-backend.ts';
 
 /**
  * 知识点页（P2）共用的小类型与展示映射。
@@ -97,6 +100,88 @@ export function locationLabel(point: KnowledgePoint): string {
 export function pageCountLabel(source: Source): string {
   if (source.pageCount === null) return `${source.segmentCount} 段`;
   return `${source.pageCount} 页 · ${source.segmentCount} 段`;
+}
+
+/* ==========================================================================
+   按后端分组（P5 第 4 条：不同后端结果并存对比）
+   ========================================================================== */
+
+/** 多组统计的合计。用于「全部」chip 与资料卡片上的总数 */
+export interface BackendTotals {
+  count: number;
+  located: number;
+  unlocated: number;
+  waived: number;
+}
+
+/**
+ * 把各后端的分组合计起来。
+ *
+ * 为什么不直接数 points.length：列表是**筛选后**的，筛到某一组时
+ * 用它当总数会让「这份资料有多少条」随 chip 变化，看起来像数据在丢。
+ * 合计与各分组同源，两处数字永远一致。
+ */
+export function sumBackends(summaries: KnowledgeBackendSummary[]): BackendTotals {
+  return summaries.reduce<BackendTotals>(
+    (acc, s) => {
+      acc.count += s.count;
+      acc.located += s.located;
+      acc.unlocated += s.unlocated;
+      acc.waived += s.waived;
+      return acc;
+    },
+    { count: 0, located: 0, unlocated: 0, waived: 0 },
+  );
+}
+
+/**
+ * backendId → 可读名字。
+ *
+ * 四种情况必须分开处理，缺一个 chip 就会显示成空白或一串 id：
+ *   - 手工录入：core 用 MANUAL_BACKEND_ID 归组，它不对应任何后端配置
+ *   - 示例后端：id 是 `'mock'`，但它**不是**一条 BackendConfig，
+ *     不在 BackendService.list() 里 —— 早先这里漏了它，
+ *     结果用得最多的示例后端显示成「未知后端（mock）」，看着像配置坏了
+ *   - 配置还在：用设置页里那份 label
+ *   - **配置已删**：明确说「未知后端（id）」。后端删了但它产出的知识点
+ *     还在库里，这是正常状态，不是错误 —— 留空才会让人以为界面坏了
+ */
+export function backendLabel(backendId: string, labels: Record<string, string>): string {
+  if (backendId === MANUAL_BACKEND_ID) return '手工录入';
+
+  // 示例后端优先于映射表：它永远不在映射表里，先查表会一路掉到最后那个分支
+  const mock = new MockBackend();
+  if (backendId === mock.id) return mock.label;
+
+  const known = labels[backendId];
+  if (known && known.trim()) return known;
+  return `未知后端（${backendId}）`;
+}
+
+/**
+ * 进入一份资料时该默认选哪一组。
+ *
+ * 只有一个后端时不筛 —— 一个选项的筛选器只是噪音，占掉一整行却永远只有一个状态。
+ * 有多个时选**条数最多**的那组：多数情况下用户想先看产得最全的那一份。
+ * （core 的 listBackends 已按条数降序排，这里不重复排序，只做取值决策。）
+ */
+export function defaultBackendFilter(
+  summaries: KnowledgeBackendSummary[],
+): string | null {
+  if (summaries.length < 2) return null;
+  return summaries[0]?.backendId ?? null;
+}
+
+/**
+ * 「可点回原文」的比例。
+ *
+ * 分母用 count 而不是 located+unlocated：`waived` 是人工确认过
+ * 「这条本来没有出处」，把它算进「点不回去」会让认真校对过的后端
+ * 看起来比没校对过的还差 —— 那正好鼓励了错误的行为。
+ */
+export function locatedRatio(summary: KnowledgeBackendSummary): string {
+  if (summary.count === 0) return '—';
+  return `${Math.round((summary.located / summary.count) * 100)}%`;
 }
 
 export interface ParsedPageRange {

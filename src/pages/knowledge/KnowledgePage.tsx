@@ -10,10 +10,19 @@ import {
 import { useServices } from '@/app/services-context.ts';
 import { TEXT_STATUS_LABEL } from '../sources/format.ts';
 import type { GenerationRun, KnowledgePoint, Source, SourceSegment } from '@/core/model.ts';
+import type { KnowledgeBackendSummary } from '@/core/knowledge/service.ts';
+import { BackendCompare } from './BackendCompare.tsx';
 import { GeneratePanel } from './GeneratePanel.tsx';
 import { KnowledgeCard } from './KnowledgeCard.tsx';
 import { SourcePane } from './SourcePane.tsx';
-import { describeError, formatCount, pageCountLabel } from './types.ts';
+import {
+  backendLabel,
+  describeError,
+  defaultBackendFilter,
+  formatCount,
+  pageCountLabel,
+  sumBackends,
+} from './types.ts';
 import type { Flash, Load } from './types.ts';
 import './knowledge.css';
 
@@ -39,7 +48,7 @@ import './knowledge.css';
 type LastRun = GenerationRun;
 
 export function KnowledgePage() {
-  const { sources: sourceService, knowledge } = useServices();
+  const { sources: sourceService, knowledge, backends: backendService } = useServices();
 
   // ---- 资料列表 ----
   const [sourcesState, setSourcesState] = useState<Load<Source[]>>({ kind: 'loading' });
@@ -48,6 +57,30 @@ export function KnowledgePage() {
   // ---- 选中资料的正文与知识点 ----
   const [segmentsState, setSegmentsState] = useState<Load<SourceSegment[]>>({ kind: 'loading' });
   const [pointsState, setPointsState] = useState<Load<KnowledgePoint[]>>({ kind: 'loading' });
+
+  /**
+   * 按后端分组的统计（P5 第 4 条）。
+   *
+   * 与 pointsState 分开存：pointsState 是「当前筛选后的列表」，
+   * 而 chips 上要显示的是**全部后端**的数字。混在一个 state 里，
+   * 一旦筛选到某一组，其他组的 chip 就会跟着消失。
+   */
+  const [backendsState, setBackendsState] = useState<Load<KnowledgeBackendSummary[]>>({
+    kind: 'loading',
+  });
+
+  /** 当前筛选到的后端；null = 全部。默认取条数最多的那组 */
+  const [backendFilter, setBackendFilter] = useState<string | null>(null);
+
+  /**
+   * backendId → 可读名字。
+   *
+   * 为什么要有这份映射：库里存的是 `backend_xxxx` 这种 id，直接显示是乱码级的体验。
+   * 数据来源是设置页的后端配置列表（BackendService），与整理面板同源。
+   * **映射不到时不能返回空串** —— 后端配置可能已经被删掉了，
+   * 而它产出的知识点还在库里，空白 chip 会让人以为界面坏了。
+   */
+  const [backendLabels, setBackendLabels] = useState<Record<string, string>>({});
 
   /**
    * 页内提示条。
@@ -66,6 +99,16 @@ export function KnowledgePage() {
   const [generateOpen, setGenerateOpen] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [lastRun, setLastRun] = useState<LastRun | null>(null);
+
+  /**
+   * 整理面板当前选中的后端 id。
+   *
+   * 父组件需要它做两件事：
+   *   - 在对比条上标「当前」，说明点重新整理会写哪一组；
+   *   - 算出「当前后端已有 N 条」——core 只清这一个后端的结果，
+   *     拿总条数去说会夸大影响范围（20 条里其实只清 12 条）。
+   */
+  const [currentBackendId, setCurrentBackendId] = useState('mock');
 
   const articleRef = useRef<HTMLDivElement | null>(null);
 
@@ -110,16 +153,67 @@ export function KnowledgePage() {
     [sources, selectedId],
   );
 
-  /** 只拉知识点，不重拉正文（卡片里的编辑/删除只需刷新这一半） */
+  /**
+   * 当前生效的筛选，同步镜像。
+   *
+   * 用 ref 而不是把 backendFilter 放进依赖：放进去的话，用户点一下 chip
+   * 就会重建 reloadPoints → 重建 loadForSource → 触发整个资料重载，
+   * 左栏被重置回第 1 页、当前选中的知识点被清空。
+   * 切后端只是在看另一批条目，不该让阅读位置丢掉。
+   */
+  const filterRef = useRef<string | null>(null);
+  /** 已经为哪份资料挑过「默认组」。换资料时重置，同资料内不要反复抢用户的筛选 */
+  const filterInitFor = useRef<string | null>(null);
+
+  /**
+   * 读分组统计 + 按当前筛选取条目。
+   *
+   * 顺序不能反：默认筛选是「条数最多的那组」，那个决定依赖统计结果，
+   * 所以必须先把统计拿到手，再决定取哪一份。
+   */
+  const loadPoints = useCallback(
+    async (sourceId: string) => {
+      const summaries = await knowledge.listBackends(sourceId);
+      if (selectedIdRef.current !== sourceId) return;
+      setBackendsState({ kind: 'ready', data: summaries });
+
+      /*
+       * 决定筛选：
+       *  - 首次进入这份资料：≥2 个后端时默认选条数最多的那组（lead 的要求），
+       *    只有 1 个后端时不筛 —— 一个选项的筛选器只是噪音。
+       *  - 之后：用户选什么就是什么。
+       *  - 但如果选的那组已经不存在了（重新整理把它清空了），退回「全部」，
+       *    绝不让界面停在一个空列表上。
+       */
+      let filter = filterRef.current;
+      if (filterInitFor.current !== sourceId) {
+        filterInitFor.current = sourceId;
+        filter = defaultBackendFilter(summaries);
+        filterRef.current = filter;
+        setBackendFilter(filter);
+      } else if (filter !== null && !summaries.some((s) => s.backendId === filter)) {
+        filter = null;
+        filterRef.current = null;
+        setBackendFilter(null);
+      }
+
+      const list = await knowledge.listBySourceAndBackend(sourceId, filter);
+      if (selectedIdRef.current !== sourceId) return;
+      setPointsState({ kind: 'ready', data: list });
+      setActivePointId((prev) => (prev && list.some((p) => p.id === prev) ? prev : null));
+    },
+    [knowledge],
+  );
+
+  /** 刷新当前资料的知识点（卡片写动作、生成结束后用） */
   const reloadPoints = useCallback(async () => {
     if (!selectedId) {
       setPointsState({ kind: 'ready', data: [] });
+      setBackendsState({ kind: 'ready', data: [] });
       return;
     }
     try {
-      const list = await knowledge.listBySource(selectedId);
-      setPointsState({ kind: 'ready', data: list });
-      setActivePointId((prev) => (prev && list.some((p) => p.id === prev) ? prev : null));
+      await loadPoints(selectedId);
     } catch (err) {
       setPointsState({
         kind: 'error',
@@ -127,20 +221,56 @@ export function KnowledgePage() {
         hint: '知识点没有改动。刷新页面重试；如果反复失败，可能是本地存储异常。',
       });
     }
-  }, [knowledge, selectedId]);
+  }, [selectedId, loadPoints]);
+
+  /**
+   * 切换后端筛选：只换列表，不动正文与阅读位置。
+   *
+   * 直接调 listBySourceAndBackend 而不是走 reloadPoints，
+   * 是为了跳过「重新读统计 + 重挑默认组」那一段 —— 用户正在手动选，
+   * 不该被自动逻辑再改回去。
+   */
+  const handleFilterSelect = useCallback(
+    async (backendId: string | null) => {
+      filterRef.current = backendId;
+      setBackendFilter(backendId);
+      setActivePointId(null);
+      if (!selectedId) return;
+
+      setPointsState({ kind: 'loading' });
+      try {
+        const list = await knowledge.listBySourceAndBackend(selectedId, backendId);
+        if (selectedIdRef.current !== selectedId) return;
+        setPointsState({ kind: 'ready', data: list });
+      } catch (err) {
+        setPointsState({
+          kind: 'error',
+          message: describeError(err),
+          hint: '切换后端没有成功，原来的列表已失效。点「全部」重试；若仍失败，刷新页面。',
+        });
+      }
+    },
+    [knowledge, selectedId],
+  );
 
   /** 切换资料时正文与知识点一起重载 */
   const loadForSource = useCallback(async () => {
     if (!selectedId) {
       setSegmentsState({ kind: 'ready', data: [] });
       setPointsState({ kind: 'ready', data: [] });
+      setBackendsState({ kind: 'ready', data: [] });
       return;
     }
     setSegmentsState({ kind: 'loading' });
     setPointsState({ kind: 'loading' });
+    setBackendsState({ kind: 'loading' });
     setActivePointId(null);
     setSegmentIndex(0);
     setLastRun(null);
+    // 换资料 = 换一份完全不同的结果，旧资料的筛选与「已挑过默认组」的标记都作废
+    filterRef.current = null;
+    filterInitFor.current = null;
+    setBackendFilter(null);
 
     /**
      * 从库里读「上次整理」的记录，而不是只靠内存。
@@ -159,6 +289,24 @@ export function KnowledgePage() {
       }
     })();
 
+    /**
+     * 后端 id → 名字的映射表。
+     *
+     * 读失败不挡住主流程：chips 会退化成「未知后端（id）」，
+     * 比让整页报错好 —— 分组统计本身仍然可用。
+     */
+    void (async () => {
+      try {
+        const rows = await backendService.list();
+        if (selectedIdRef.current !== selectedId) return;
+        const map: Record<string, string> = {};
+        for (const row of rows) map[row.id] = row.label || row.provider || row.id;
+        setBackendLabels(map);
+      } catch {
+        /* 保持上一次的映射；没有映射时界面会显示「未知后端（id）」 */
+      }
+    })();
+
     try {
       const segments = await sourceService.getSegments(selectedId);
       setSegmentsState({ kind: 'ready', data: segments });
@@ -171,7 +319,7 @@ export function KnowledgePage() {
     }
 
     await reloadPoints();
-  }, [selectedId, sourceService, reloadPoints]);
+  }, [selectedId, sourceService, backendService, reloadPoints]);
 
   useEffect(() => {
     void loadForSource();
@@ -185,7 +333,51 @@ export function KnowledgePage() {
     [points, activePointId],
   );
 
-  // ---- 统计 ----
+  /**
+   * 规范化后的筛选值。
+   *
+   * `backendFilter` 只会被自动修成「全部」，但用户也可能手点「全部」。
+   * 这里再兜一层：如果筛选指向的组在统计里不存在（比如刚被重新整理清掉），
+   * 一律按「全部」处理 —— 绝不让界面停在「筛一个空组」的状态。
+   */
+  const activeBackendFilter = useMemo(() => {
+    if (backendFilter === null) return null;
+    if (backendsState.kind !== 'ready') return backendFilter;
+    return backendsState.data.some((s) => s.backendId === backendFilter) ? backendFilter : null;
+  }, [backendFilter, backendsState]);
+
+  const backendSummaries = backendsState.kind === 'ready' ? backendsState.data : [];
+
+  /**
+   * 当前整理后端已产出的条数。
+   *
+   * 从分组统计里取，不用 points.length：points 是「当前筛选后的列表」，
+   * 用户筛到别的后端时，它跟「整理面板要写的那个后端」完全无关。
+   * 取不到（该后端还没产出过）就是 0 —— 0 条时不会显示「会清空」的提示。
+   */
+  const currentBackendCount = useMemo(
+    () => backendSummaries.find((s) => s.backendId === currentBackendId)?.count ?? 0,
+    [backendSummaries, currentBackendId],
+  );
+
+  /**
+   * backendId → 可读名字。
+   *
+   * 三种情况分别处理（缺一个都会让 chip 显示成空白或乱码）：
+   *   - 手工录入：core 用 MANUAL_BACKEND_ID 归组，显示「手工录入」
+   *   - 配置还在：用设置页里那份 label
+   *   - 配置已删：**明确说「未知后端（id）」**，不能留空
+   *     —— 后端删了但它产出的知识点还在库里，这是正常状态，不是错误
+   */
+  const backendLabelOf = useCallback(
+    (backendId: string): string => backendLabel(backendId, backendLabels),
+    [backendLabels],
+  );
+  /**
+   * 当前**列表里**的统计（受后端筛选影响）。
+   *
+   * 只用于列表标题与「待处理」提醒 —— 那些都是针对「你现在看到的这批」说的。
+   */
   const stats = useMemo(() => {
     let located = 0;
     let unlocated = 0;
@@ -197,6 +389,15 @@ export function KnowledgePage() {
     }
     return { located, unlocated, waived, total: points.length };
   }, [points]);
+
+  /**
+   * 这份资料**全部后端合计**的统计。
+   *
+   * 资料选择卡片上说的是「这份资料有多少知识点」，与当前筛到哪个后端无关。
+   * 用筛选后的 stats 去说会让数字随 chip 变化，用户会以为数据在丢。
+   * 数据源与对比条同一份（summaries），两处数字永远一致。
+   */
+  const sourceTotals = useMemo(() => sumBackends(backendSummaries), [backendSummaries]);
 
   /**
    * 选中一条知识点：把它命中的那一段切到左栏。
@@ -226,9 +427,24 @@ export function KnowledgePage() {
     return sel.toString().trim();
   }, []);
 
+  /**
+   * 整理结束后：切到刚跑的那个后端，再刷新列表。
+   *
+   * 不切会有个很难解释的场面：面板说「整理完成：产出 12 条」，
+   * 右边列表却还是另一个后端的 10 条 —— 用户会以为生成失败了。
+   * 刚跑完就看刚产出的那一份，是这里唯一合理的默认。
+   *
+   * 失败时也切：core 是逐条落库的，异常前产出的条目已经在这个后端名下，
+   * 让用户看见它们比让它们藏在筛选后面有用。
+   */
   const handleGenerated = useCallback(async () => {
+    if (filterRef.current !== currentBackendId) {
+      filterRef.current = currentBackendId;
+      setBackendFilter(currentBackendId);
+      setActivePointId(null);
+    }
     await reloadPoints();
-  }, [reloadPoints]);
+  }, [reloadPoints, currentBackendId]);
 
   /**
    * 卡片里每个写动作的结果都汇报到这里。
@@ -293,6 +509,12 @@ export function KnowledgePage() {
         </div>
         <div className="page__head-side">
           <Badge tone="neutral">P2</Badge>
+          {/*
+            多后端并存对比是 P5 第 4 条加进来的能力。
+            标出来是为了不让人以为「换后端整理一次就把前一份覆盖了」——
+            它只覆盖同一个后端的那一份。
+          */}
+          <Badge tone="info">P5 多后端对比</Badge>
           <Badge tone="ready">可用</Badge>
         </div>
       </header>
@@ -355,21 +577,22 @@ export function KnowledgePage() {
                   ) : null}
                   {pointsState.kind === 'ready' ? (
                     <>
-                      <Badge tone="ready">{stats.located} 条已定位</Badge>
-                      {stats.unlocated > 0 ? (
-                        <Badge tone="planned">{stats.unlocated} 条待处理</Badge>
+                      <Badge tone="ready">{sourceTotals.located} 条已定位</Badge>
+                      {sourceTotals.unlocated > 0 ? (
+                        <Badge tone="planned">{sourceTotals.unlocated} 条待处理</Badge>
                       ) : null}
-                      {stats.waived > 0 ? (
-                        <Badge tone="neutral">{stats.waived} 条无出处</Badge>
+                      {sourceTotals.waived > 0 ? (
+                        <Badge tone="neutral">{sourceTotals.waived} 条无出处</Badge>
                       ) : null}
                     </>
                   ) : null}
                 </div>
                 {/* 「N 条已定位 / M 条待处理」再给一行完整文字，避免只看徽标数错 */}
-                {pointsState.kind === 'ready' && stats.total > 0 ? (
+                {pointsState.kind === 'ready' && sourceTotals.count > 0 ? (
                   <div className="kp-picker__count">
-                    共 {stats.total} 条：{stats.located} 条已定位 / {stats.unlocated} 条待处理
-                    {stats.waived > 0 ? ` / ${stats.waived} 条无出处` : ''}
+                    共 {sourceTotals.count} 条：{sourceTotals.located} 条已定位 /{' '}
+                    {sourceTotals.unlocated} 条待处理
+                    {sourceTotals.waived > 0 ? ` / ${sourceTotals.waived} 条无出处` : ''}
                   </div>
                 ) : null}
               </div>
@@ -377,6 +600,22 @@ export function KnowledgePage() {
           </div>
         </section>
       )}
+
+      {/*
+        ---------- 后端对比条（P5 第 4 条） ----------
+        只在「这份资料有 ≥2 个后端的结果」时才出现。
+        一个选项的筛选器只是噪音：它占一整行，却永远只有一个状态。
+        统计加载失败时也不显示 —— 没有可靠数字的对比条会误导人。
+      */}
+      {selectedSource && backendSummaries.length >= 2 ? (
+        <BackendCompare
+          summaries={backendSummaries}
+          selected={activeBackendFilter}
+          onSelect={(id) => void handleFilterSelect(id)}
+          labelOf={backendLabelOf}
+          currentBackendId={currentBackendId}
+        />
+      ) : null}
 
       {selectedSource ? (
         <>
@@ -398,14 +637,28 @@ export function KnowledgePage() {
               onRetry={() => void reloadPoints()}
             />
           ) : points.length === 0 ? (
+            /*
+              空列表分两种，文案必须不同 —— 否则用户会去重新整理一份其实已经有的结果：
+                - 筛选到某个后端但它一条都没有（本次唯一能到这里的筛选场景是组被清空）
+                - 这份资料真的还没有任何知识点
+            */
             <div className="card">
               <EmptyState
                 title={
-                  generating ? '正在整理，知识点会逐条出现在这里' : '这份资料还没有知识点'
+                  generating
+                    ? '正在整理，知识点会逐条出现在这里'
+                    : activeBackendFilter !== null
+                      ? `「${backendLabelOf(activeBackendFilter)}」这一组还没有知识点`
+                      : '这份资料还没有知识点'
                 }
                 description={
                   generating ? (
                     <>整理过程中产出的条目会立刻落库，进度在下方「AI 整理」里可以看到。</>
+                  ) : activeBackendFilter !== null ? (
+                    <>
+                      这份资料的其他后端有结果，但这一组是空的——可能是它刚被重新整理清空了。
+                      点「全部」看看所有结果，或选另一个后端。
+                    </>
                   ) : (
                     <>
                       在下方「AI 整理」里确认页码范围与预计用量，然后点「开始整理」。
@@ -414,7 +667,15 @@ export function KnowledgePage() {
                   )
                 }
                 actions={
-                  !generating && !generateOpen ? (
+                  activeBackendFilter !== null && !generating ? (
+                    <button
+                      type="button"
+                      className="btn btn--primary"
+                      onClick={() => void handleFilterSelect(null)}
+                    >
+                      看全部结果
+                    </button>
+                  ) : !generating && !generateOpen ? (
                     <button
                       type="button"
                       className="btn btn--primary"
@@ -473,7 +734,16 @@ export function KnowledgePage() {
                 <div className="kp-work__right">
                   <div className="kp-list__head">
                     <span className="page__muted">
-                      共 {stats.total} 条 · {stats.located} 条已定位
+                      {/* 筛选时把范围说清楚：否则用户会以为知识点变少了 */}
+                      {activeBackendFilter === null
+                        ? `共 ${stats.total} 条 · ${stats.located} 条可点回原文`
+                        : `${backendLabelOf(activeBackendFilter)}：${stats.total} 条 · ${stats.located} 条可点回原文`}
+                      {activeBackendFilter !== null && sourceTotals.count > stats.total ? (
+                        <span className="kp-list__scope">
+                          {' '}
+                          （这份资料另有 {sourceTotals.count - stats.total} 条在其他后端，点「全部」可一起看）
+                        </span>
+                      ) : null}
                     </span>
                     {lastRun ? <RunSummary run={lastRun} /> : null}
                   </div>                  <ul className="kp-list">
@@ -500,8 +770,10 @@ export function KnowledgePage() {
               <div>
                 <div className="kp-generate-wrap__title">
                   AI 整理
-                  {points.length > 0 ? (
-                    <span className="page__muted">（已有 {points.length} 条，重新整理会先清空）</span>
+                  {currentBackendCount > 0 ? (
+                    <span className="page__muted">
+                      （当前后端已有 {currentBackendCount} 条，重新整理会先清空这一份）
+                    </span>
                   ) : null}
                 </div>
                 <div className="page__muted">
@@ -536,11 +808,12 @@ export function KnowledgePage() {
                 key={selectedSource.id}
                 source={selectedSource}
                 segments={segments}
-                existingCount={points.length}
+                existingCount={currentBackendCount}
                 onGenerated={handleGenerated}
                 onRunningChange={handleRunningChange}
                 onLiveUpdate={handleLiveUpdate}
                 onRunFinished={handleRunFinished}
+                onBackendChange={setCurrentBackendId}
               />
             </div>
           </section>

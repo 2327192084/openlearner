@@ -30,6 +30,7 @@
  */
 
 import { findPreset, normalizeBaseUrl, resolveCompat } from './presets.ts';
+import { readChatBridge, resolveChatFetch } from './electron-fetch.ts';
 
 /** 调用失败的原因分类。界面上据此给不同的下一步建议。 */
 export type ApiErrorCode =
@@ -286,7 +287,17 @@ export async function chatCompletion(options: ChatOptions): Promise<ChatResult> 
   const onExternalAbort = () => controller.abort();
   signal?.addEventListener('abort', onExternalAbort, { once: true });
 
-  const doFetch = fetchImpl ?? fetch;
+  /**
+   * fetch 的选择顺序：
+   *   1. 调用方注入的（测试用假 fetch，绝不能绕开）
+   *   2. 桌面端的主进程代理（绕开 file:// 下的 CORS 限制）
+   *   3. 原生 fetch
+   *
+   * 第 2 条是桌面端能正常使用多家服务商的前提：`file://` 页面发出的请求
+   * 只有 DeepSeek 这类放行任意 origin 的服务商才收，其余一律 Failed to fetch。
+   * 详见 electron-fetch.ts 的说明。
+   */
+  const doFetch = fetchImpl ?? resolveChatFetch(readChatBridge());
   const root = normalizeBaseUrl(resolvedBaseUrl) || DEFAULT_BASE_URL;
   const url = `${root}/chat/completions`;
 
