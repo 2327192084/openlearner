@@ -4,7 +4,9 @@ import type {
   SlideCitation,
   SlideDeck,
   SlideFigure,
+  SlideImageRecord,
   SlideOutlinePage,
+  SlideOverlay,
   Source,
 } from '../model.ts';
 import type { StorageAdapter } from '../storage/types.ts';
@@ -13,6 +15,7 @@ import { ApiError } from '../ai/chat-client.ts';
 import { SLIDE_LIMITS, chunkBullets, normalizeBulletText } from './limits.ts';
 import { buildCoverPage, buildOutline } from './outline.ts';
 import { applyAiOutline } from './ai-outline.ts';
+import { resolveTheme } from './theme.ts';
 import { assembleTemplate, planTemplate } from './template.ts';
 import type { TemplateContentItem } from './template.ts';
 import type { OutlineBackend, OutlineInputPoint } from './backend-types.ts';
@@ -65,6 +68,8 @@ export interface CreateDeckInput {
   instruction?: string;
   /** 取消信号（用户在生成中途点了停止） */
   signal?: AbortSignal;
+  /** 配色主题 id（见 theme.ts）。不传用默认主题 */
+  theme?: string;
 }
 
 export interface CreateDeckResult {
@@ -127,7 +132,29 @@ export class SlideService {
   async getPlan(id: string): Promise<RenderSlide[]> {
     const deck = await this.get(id);
     if (!deck) return [];
-    return buildRenderPlan(deck, deck.title);
+    return buildRenderPlan(deck, deck.title, { images: await this.imagesOf(deck) });
+  }
+
+  /**
+   * 收集这份 PPT 用到的图片。
+   *
+   * 只读被 overlay 引用到的那些，不是把整个 slideImages 分区全拉出来 ——
+   * 库里可能存着几百张图，而这一份 PPT 只用了两张。
+   */
+  private async imagesOf(deck: SlideDeck): Promise<Map<string, SlideImageRecord>> {
+    const ids = new Set<string>();
+    for (const page of deck.pages) {
+      for (const ov of page.overlays ?? []) {
+        if (ov.kind === 'image' && ov.imageId) ids.add(ov.imageId);
+      }
+    }
+
+    const map = new Map<string, SlideImageRecord>();
+    for (const id of ids) {
+      const img = await this.storage.get('slideImages', id);
+      if (img) map.set(id, img);
+    }
+    return map;
   }
 
   // -------------------------------------------------------------------------
@@ -252,6 +279,8 @@ export class SlideService {
       title: deckTitle,
       courseId: input.courseId ?? source?.courseId ?? null,
       sourceId: input.sourceId || null,
+      // 未知 id 退回默认：宁可配色退化，也不让整份 PPT 建不出来
+      theme: resolveTheme(input.theme).id,
       status: 'outline',
       pages,
       citations,
@@ -480,6 +509,100 @@ export class SlideService {
   async updateTitle(id: string, title: string): Promise<SlideDeck> {
     return this.mutate(id, (deck) => {
       deck.title = title.trim() || deck.title;
+    });
+  }
+
+  /**
+   * 换配色主题。
+   *
+   * 刻意**不动内容**：换的是渲染时取的那套色值，页面结构、要点、
+   * 角标全部原样保留。所以这个操作可以随便点，不会弄丢已写好的东西。
+   *
+   * 未知 id 退回默认而不是抛错：用户从别处粘一个 id 过来、
+   * 或者备份来自装了更多主题的版本，都不该让这份 PPT 打不开。
+   */
+  async setTheme(id: string, themeId: string): Promise<SlideDeck> {
+    return this.mutate(id, (deck) => {
+      deck.theme = resolveTheme(themeId).id;
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // 叠加内容（自由摆放的图片 / 文本框）
+  // -------------------------------------------------------------------------
+
+  /**
+   * 保存一张图片并返回它的 id。
+   *
+   * 图片单独存 `slideImages` 分区，页面里只留 id。同一张图被多页引用时
+   * 只存一份 —— 内嵌进 deck 会让记录成倍变大，IndexedDB 单条有大小风险。
+   */
+  async addImage(input: {
+    imageData: string;
+    width: number;
+    height: number;
+  }): Promise<string> {
+    const id = newId('img');
+    await this.storage.put('slideImages', {
+      id,
+      imageData: input.imageData,
+      width: input.width,
+      height: input.height,
+      byteSize: input.imageData.length,
+      createdAt: nowIso(),
+    });
+    return id;
+  }
+
+  /** 取一张图片；不存在时返回 null（渲染层据此跳过，不画坏图） */
+  async getImage(id: string): Promise<SlideImageRecord | null> {
+    return this.storage.get('slideImages', id);
+  }
+
+  /**
+   * 往某一页加一块叠加内容。
+   *
+   * 坐标一律 0~1 比例，不是像素 —— 见 model.ts 里 SlideOverlay 的注释。
+   */
+  async addOverlay(
+    id: string,
+    pageId: string,
+    overlay: Omit<SlideOverlay, 'id' | 'z'> & { z?: number },
+  ): Promise<SlideDeck> {
+    return this.mutate(id, (deck) => {
+      const page = deck.pages.find((p) => p.id === pageId);
+      if (!page) return;
+      const list = page.overlays ?? (page.overlays = []);
+      list.push({
+        ...overlay,
+        id: newId('ov'),
+        // 不指定就放到最上层：用户刚加的东西应该在看得见的地方
+        z: overlay.z ?? list.length,
+      });
+    });
+  }
+
+  /** 移动/缩放一块叠加内容 */
+  async updateOverlay(
+    id: string,
+    pageId: string,
+    overlayId: string,
+    patch: Partial<Pick<SlideOverlay, 'x' | 'y' | 'w' | 'h' | 'z' | 'text' | 'fontSize' | 'color'>>,
+  ): Promise<SlideDeck> {
+    return this.mutate(id, (deck) => {
+      const page = deck.pages.find((p) => p.id === pageId);
+      const ov = page?.overlays?.find((o) => o.id === overlayId);
+      if (!ov) return;
+      Object.assign(ov, patch);
+    });
+  }
+
+  /** 删掉一块叠加内容 */
+  async removeOverlay(id: string, pageId: string, overlayId: string): Promise<SlideDeck> {
+    return this.mutate(id, (deck) => {
+      const page = deck.pages.find((p) => p.id === pageId);
+      if (!page?.overlays) return;
+      page.overlays = page.overlays.filter((o) => o.id !== overlayId);
     });
   }
 
@@ -747,7 +870,17 @@ export class SlideService {
     // 序号 = 已有导出次数 + 1。第 1 次导出是「第1版」
     const ordinal = deck.exports.length + 1;
     const at = new Date();
-    const result = await exportToPptx(deck, ordinal, options);
+    /**
+     * 图片必须在导出时读好传进去。
+     *
+     * 不传的话叠加的图片会被静默跳过（render-plan 取不到图就跳过该项），
+     * 结果就是「预览里有图、导出的文件里没有」—— 又是一个只有
+     * 真打开文件才发现的缺陷。
+     */
+    const result = await exportToPptx(deck, ordinal, {
+      ...options,
+      images: await this.imagesOf(deck),
+    });
     const fileName = normalizeFileName(result.fileName) || buildFileName(deck.title, ordinal, at);
 
     const recordId = newId('export');

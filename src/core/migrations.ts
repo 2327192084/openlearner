@@ -262,6 +262,35 @@ const migrations: Record<number, Migration> = {
       }),
     };
   },
+
+  /**
+   * v8 → v9
+   *
+   * v9 两件新东西，都只做加法：
+   *  - `slideImages` 分区：用户插入 PPT 的图片。旧库没有，补空数组。
+   *  - `SlideDeck.theme`：配色主题 id。旧 PPT 一律按默认主题，
+   *    与它们当初导出的样子一致（默认主题就是原本写死的那套配色）。
+   *  - `SlideOutlinePage.overlays`：自由摆放的叠加内容。旧页没有，不补字段，
+   *    渲染层把 undefined 当「没有叠加内容」，等价于空数组。
+   *
+   * 刻意**不伪造 theme**：给旧 PPT 标上别的主题，会让人打开一份
+   * 自己记得是深蓝的课件发现变成墨绿，而且不知道为什么会变。
+   */
+  8: (backup) => {
+    const decks = Array.isArray(backup.slideDecks)
+      ? (backup.slideDecks as Record<string, unknown>[])
+      : [];
+
+    return {
+      ...backup,
+      schemaVersion: 9,
+      slideDecks: decks.map((d) => ({
+        ...d,
+        theme: typeof d.theme === 'string' ? d.theme : 'business-blue',
+      })),
+      slideImages: [],
+    };
+  },
 };
 
 /**

@@ -9,7 +9,7 @@
  */
 
 /** 当前学习库结构版本。改动实体结构时递增，并在 migrations.ts 补一段迁移。 */
-export const LIBRARY_SCHEMA_VERSION = 8;
+export const LIBRARY_SCHEMA_VERSION = 9;
 
 /**
  * 位置信息 —— 全项目「点回原文」的唯一依据。
@@ -449,6 +449,63 @@ export interface SlideFigure {
   caption: string;
 }
 
+/**
+ * 叠在页面上的一块自由摆放内容（图片 / 文本框）。
+ *
+ * ## 为什么坐标存比例而不是像素
+ *
+ * 用户在预览里拖拽，拿到的是像素；导出用 pptxgenjs，要的是英寸。
+ * 如果直接把像素存进库，换一个屏幕尺寸（或换台机器）再打开，
+ * 图就会跑到别的位置 —— 存的时候是「距左 320px」，
+ * 而 320px 在 1440 宽的屏和 900 宽的屏上不是同一个比例。
+ *
+ * 所以这里一律存 **0~1 的相对比例**，由渲染层各自乘回自己的单位：
+ * 预览 × 容器宽度、导出 × SLIDE_SIZE.width。这样两边必然一致，
+ * 也就守住了「预览 = 导出」这条底线。
+ */
+export interface SlideOverlay {
+  id: string;
+  kind: 'image' | 'text';
+  /**
+   * 图片记录 id（指向 slideImages 分区）。kind='image' 时必填。
+   *
+   * 存 id 而不是内嵌 base64：同样一张图在 50 页里用两次，
+   * 内嵌会让 deck 记录大 100 倍，而 IndexedDB 单条记录是有大小风险的。
+   */
+  imageId?: string;
+  /** 文字内容。kind='text' 时必填 */
+  text?: string;
+  /** 位置与尺寸，全部是相对版面的比例（0~1）。x/y 是左上角 */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** 叠放顺序，大的在上层。同值时按数组顺序 */
+  z: number;
+  /** 文字的字号（磅）。仅 kind='text' */
+  fontSize?: number;
+  /** 文字颜色（不带 # 的十六进制）。不填用主题正文色 */
+  color?: string;
+}
+
+/**
+ * 一张用户插入的图片。
+ *
+ * 与 `SlideFigure`（原文页截图）分开存：那个是「资料某页的渲染结果」，
+ * 由系统生成且与 sourceId/page 绑定；这个是用户从自己电脑里选的文件，
+ * 系统对它一无所知。混用会让「重新渲染原文页」的逻辑误伤用户自己的图。
+ */
+export interface SlideImageRecord {
+  id: string;
+  /** `data:image/png;base64,...` 整串 */
+  imageData: string;
+  /** 像素宽高，用于按原比例摆放 */
+  width: number;
+  height: number;
+  byteSize: number;
+  createdAt: string;
+}
+
 /** 大纲里的一页。用户可改标题、调顺序、增删页。 */
 export interface SlideOutlinePage {
   id: string;
@@ -459,6 +516,16 @@ export interface SlideOutlinePage {
   bullets: SlideBullet[];
   /** 图文页的图片；其他版式恒为 null */
   figure: SlideFigure | null;
+  /**
+   * 用户自由摆放的叠加内容（图片、文本框）。
+   *
+   * 与 `figure` 的区别：figure 是「这一页的主要配图」，参与版式排版；
+   * overlays 是叠在成品页面之上的东西，不参与段落排版，
+   * 所以它可以是 0 个、也可以是好几个。
+   *
+   * 旧数据没有这个字段时为 undefined，按「没有叠加内容」处理。
+   */
+  overlays?: SlideOverlay[];
 }
 
 /**
@@ -510,6 +577,16 @@ export interface SlideDeck {
   courseId: string | null;
   /** 生成用的资料（可空：也支持手工建的空 PPT） */
   sourceId: string | null;
+  /**
+   * 配色主题 id（见 core/slides/theme.ts）。
+   *
+   * 存 id 而不是存一份色值：色值是渲染层的知识，存进数据会让
+   * 「改一套配色」变成「迁移所有历史 PPT」。id 找不到时渲染层
+   * 退回默认主题，所以旧备份不会因为配色名对不上而打不开。
+   *
+   * 旧数据没有这个字段时为 undefined，按默认主题处理。
+   */
+  theme?: string;
   /** 大纲 / 已确认 */
   status: 'outline' | 'ready';
   /** 大纲页。顺序即幻灯片顺序 */
@@ -628,6 +705,13 @@ export interface LibraryBackup {
   /** 作答记录。跟题一起备份，否则恢复后错题本全空 */
   answerRecords: AnswerRecord[];
   slideDecks: SlideDeck[];
+  /**
+   * 用户插入到 PPT 里的图片。
+   *
+   * 进备份：这些是用户从自己电脑里选的文件，丢了就找不回来，
+   * 和 sourceFiles（能从原 PDF 重新渲染）性质不同。
+   */
+  slideImages: SlideImageRecord[];
   backends: BackendConfig[];
   /**
    * 用量统计。跟库一起备份：换机器后账单不该归零。

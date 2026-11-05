@@ -7,6 +7,7 @@ import type {
   Question,
   SettingsRecord,
   SlideDeck,
+  SlideImageRecord,
   Source,
   SourceSegment,
   GenerationRun,
@@ -46,6 +47,17 @@ export const STORES = [
   'questions',
   'answerRecords',
   'slideDecks',
+  /**
+   * 用户插入到 PPT 里的图片。
+   *
+   * 单独一个分区而不是内嵌进 slideDecks：同一张图可能被用在多页，
+   * 内嵌会让 deck 记录成倍变大，而 IndexedDB 单条记录有大小风险。
+   * 页面里只存 id（见 SlideOverlay.imageId）。
+   *
+   * **进备份**：这些是用户自己找来的图，换机器后丢了就找不回来，
+   * 与 sourceFiles（可从原文件重新渲染）性质不同。
+   */
+  'slideImages',
   'backends',
   /**
    * 用量统计（按天 + 后端 + 用途聚合）。
@@ -76,6 +88,8 @@ export const BACKUP_STORES = [
   'questions',
   'answerRecords',
   'slideDecks',
+  /** 用户插入的图片。进备份：这些图用户找不回来，与可从原文件重渲染的 sourceFiles 不同 */
+  'slideImages',
   'backends',
   /** 用量统计。进备份：换机器后账单不该归零。只有数字，不含 Key 与请求内容 */
   'usageRecords',
@@ -97,6 +111,7 @@ export interface StoreRecordMap {
   questions: Question;
   answerRecords: AnswerRecord;
   slideDecks: SlideDeck;
+  slideImages: SlideImageRecord;
   backends: BackendConfig;
   usageRecords: UsageRecord;
   secrets: SecretRecord;

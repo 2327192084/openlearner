@@ -2,6 +2,8 @@ import { useState } from 'react';
 import type { SlideCitation, SlideDeck } from '@/core/model.ts';
 import { SLIDE_BOX, SLIDE_SIZE } from '@/core/slides/render-plan.ts';
 import type { RenderSlide } from '@/core/slides/render-plan.ts';
+import { cssColor, resolveTheme } from '@/core/slides/theme.ts';
+import type { SlideTheme } from '@/core/slides/theme.ts';
 import { SourcePeek } from '../practice/SourcePeek.tsx';
 
 /**
@@ -36,19 +38,6 @@ function fontPt(pt: number): string {
   return `${(pt / 72 / W) * 100}cqw`;
 }
 
-/** 导出侧使用的主色（与 pptx-export.ts 的 THEME 保持一致，改一处要两边同步） */
-const THEME = {
-  text: '#1A1A1A',
-  muted: '#6B7280',
-  accent: '#1E5FAA',
-  citation: '#8A6D3B',
-  rule: '#D8DEE8',
-  bg: '#FFFFFF',
-  titleBg: '#0F2A4A',
-  titleText: '#FFFFFF',
-  subtitle: '#A8C0DC',
-};
-
 /** 与 pptx-export.ts 的 renderBullets 相同的行距常量（英寸） */
 const BULLET_ROW_H = 0.86;
 const BULLET_TEXT_H = 0.8;
@@ -62,6 +51,15 @@ export interface SlidePreviewProps {
 export function SlidePreview({ deck, plan }: SlidePreviewProps) {
   // 点角标时展开的那条出处；用 citation index 而不是位置，重排后仍然指得对
   const [peek, setPeek] = useState<SlideCitation | null>(null);
+
+  /**
+   * 主题：与导出侧同一个来源（core/slides/theme.ts）。
+   *
+   * 这里**不做任何自己的配色计算** —— 预览的颜色必须和导出的 .pptx
+   * 完全一致，两边各写一套就会变成「预览深蓝、导出黑色」，
+   * 而这类缺陷只有真的打开文件看才发现。
+   */
+  const t = resolveTheme(deck.theme);
 
   if (plan.length === 0) {
     return (
@@ -105,7 +103,12 @@ export function SlidePreview({ deck, plan }: SlidePreviewProps) {
         {plan.map((slide) => (
           <figure className="sl-preview__item" key={`${slide.pageNumber}-${slide.layout}-${slide.title}`}>
             <div className="sl-card" data-slide-preview data-page-number={slide.pageNumber}>
-              <SlideFace slide={slide} citationByIndex={citationByIndex} onCitation={setPeek} />
+              <SlideFace
+                slide={slide}
+                theme={t}
+                citationByIndex={citationByIndex}
+                onCitation={setPeek}
+              />
             </div>
             <figcaption className="sl-preview__caption">
               第 {slide.pageNumber} 页 · {layoutName(slide.layout)}
@@ -130,16 +133,19 @@ function layoutName(layout: RenderSlide['layout']): string {
 /** 一张幻灯片。尺寸全部由 SLIDE_SIZE / SLIDE_BOX 换算而来。 */
 function SlideFace({
   slide,
+  theme: t,
   citationByIndex,
   onCitation,
 }: {
   slide: RenderSlide;
+  /** 主题由父组件解析后传下来：预览与导出共用同一份配色 */
+  theme: SlideTheme;
   citationByIndex: Map<number, SlideCitation>;
   onCitation: (c: SlideCitation) => void;
 }) {
   if (slide.layout === 'title') {
     return (
-      <div className="sl-card__face sl-card__face--title" style={{ background: THEME.titleBg }}>
+      <div className="sl-card__face sl-card__face--title" style={{ background: cssColor(t.colors.titleBg) }}>
         <div
           className="sl-card__title-text"
           style={{
@@ -148,7 +154,7 @@ function SlideFace({
             width: pct(SLIDE_SIZE.width - 2.2),
             height: pct(1.7),
             fontSize: fontPt(40),
-            color: THEME.titleText,
+            color: cssColor(t.colors.titleText),
             justifyContent: 'flex-end',
           }}
         >
@@ -162,7 +168,7 @@ function SlideFace({
             top: pct(4.25),
             width: pct(1.6),
             height: pct(0.045),
-            background: THEME.accent,
+            background: cssColor(t.colors.accent),
           }}
         />
         {slide.subtitle ? (
@@ -174,7 +180,7 @@ function SlideFace({
               width: pct(SLIDE_SIZE.width - 2.2),
               height: pct(0.7),
               fontSize: fontPt(16),
-              color: THEME.subtitle,
+              color: cssColor(t.colors.subtitle),
             }}
           >
             {slide.subtitle}
@@ -194,7 +200,7 @@ function SlideFace({
             top: 0,
             width: pct(0.14),
             height: '100%',
-            background: THEME.accent,
+            background: cssColor(t.colors.accent),
           }}
         />
         <div
@@ -205,7 +211,7 @@ function SlideFace({
             width: pct(SLIDE_SIZE.width - 2.2),
             height: pct(1.6),
             fontSize: fontPt(32),
-            color: THEME.text,
+            color: cssColor(t.colors.text),
             justifyContent: 'center',
           }}
         >
@@ -243,7 +249,7 @@ function SlideFace({
             width: pct(SLIDE_SIZE.width - SLIDE_BOX.marginX * 2),
             height: pct(SLIDE_BOX.titleHeight),
             fontSize: fontPt(26),
-            color: THEME.text,
+            color: cssColor(t.colors.text),
             justifyContent: 'center',
           }}
         >
@@ -257,7 +263,7 @@ function SlideFace({
             top: pct(SLIDE_BOX.titleTop + SLIDE_BOX.titleHeight + 0.05),
             width: pct(SLIDE_SIZE.width - SLIDE_BOX.marginX * 2),
             height: pct(0.02),
-            background: THEME.rule,
+            background: cssColor(t.colors.rule),
           }}
         />
 
@@ -273,7 +279,7 @@ function SlideFace({
               height: pct(box.h),
               /* 0.75pt 细边框：白底图贴在白底幻灯片上，没有边框会像飘着 */
               borderWidth: fontPt(0.75),
-              borderColor: THEME.rule,
+              borderColor: cssColor(t.colors.rule),
             }}
           />
         ) : (
@@ -285,7 +291,7 @@ function SlideFace({
               width: pct(SLIDE_SIZE.width - SLIDE_BOX.marginX * 2),
               height: pct(1),
               fontSize: fontPt(14),
-              color: THEME.muted,
+              color: cssColor(t.colors.muted),
             }}
           >
             这一页是图文页，但截图数据丢了。回大纲里换一张图。
@@ -301,7 +307,7 @@ function SlideFace({
               width: pct(SLIDE_SIZE.width - SLIDE_BOX.marginX * 2),
               height: pct(0.4),
               fontSize: fontPt(11),
-              color: THEME.muted,
+              color: cssColor(t.colors.muted),
             }}
           >
             {slide.figureCaption}
@@ -321,7 +327,7 @@ function SlideFace({
                 width: pct(colW),
                 height: pct(0.85),
                 fontSize: fontPt(14),
-                color: THEME.text,
+                color: cssColor(t.colors.text),
               }}
             >
               <span>{bullet.text}</span>
@@ -330,7 +336,7 @@ function SlideFace({
                   <button
                     type="button"
                     className="sl-card__cite"
-                    style={{ fontSize: fontPt(10), color: THEME.citation }}
+                    style={{ fontSize: fontPt(10), color: cssColor(t.colors.citation) }}
                     onClick={() => onCitation(citation)}
                     title={`查看出处：《${citation.sourceTitle}》`}
                   >
@@ -349,7 +355,7 @@ function SlideFace({
           );
         })}
 
-        <SlideFooter slide={slide} />
+        <SlideFooter slide={slide} theme={t} />
       </div>
     );
   }
@@ -367,7 +373,7 @@ function SlideFace({
           width: pct(SLIDE_SIZE.width - 0.85 * 2),
           height: pct(0.95),
           fontSize: fontPt(26),
-          color: THEME.text,
+          color: cssColor(t.colors.text),
           justifyContent: 'center',
         }}
       >
@@ -382,7 +388,7 @@ function SlideFace({
           top: pct(0.55 + 0.95 + 0.05),
           width: pct(SLIDE_SIZE.width - 0.85 * 2),
           height: pct(0.02),
-          background: THEME.rule,
+          background: cssColor(t.colors.rule),
         }}
       />
 
@@ -394,7 +400,7 @@ function SlideFace({
               left: pct(0.85),
               top: pct(1.75),
               fontSize: fontPt(14),
-              color: THEME.muted,
+              color: cssColor(t.colors.muted),
             }}
           >
             本次内容没有可列出的原文出处。
@@ -410,7 +416,7 @@ function SlideFace({
                 width: pct(SLIDE_SIZE.width - 0.85 * 2),
                 height: pct(0.4),
                 fontSize: fontPt(12),
-                color: THEME.text,
+                color: cssColor(t.colors.text),
               }}
             >
               {line}
@@ -430,7 +436,7 @@ function SlideFace({
                 width: pct(SLIDE_SIZE.width - 0.85 * 2),
                 height: pct(BULLET_TEXT_H),
                 fontSize: fontPt(18),
-                color: THEME.text,
+                color: cssColor(t.colors.text),
               }}
             >
               <span>{bullet.text}</span>
@@ -439,7 +445,7 @@ function SlideFace({
                   <button
                     type="button"
                     className="sl-card__cite"
-                    style={{ fontSize: fontPt(12), color: THEME.citation }}
+                    style={{ fontSize: fontPt(12), color: cssColor(t.colors.citation) }}
                     onClick={() => onCitation(citation)}
                     title={`查看出处：《${citation.sourceTitle}》`}
                   >
@@ -456,7 +462,14 @@ function SlideFace({
         })
       )}
 
-      <SlideFooter slide={slide} />
+      {/*
+        叠加内容画在最上层 = 盖住这一页的所有正文。
+        顺序与导出侧一致（pptx-export 也是在版式之后画 overlay），
+        两边顺序不同会出现「预览里图在前面、导出后图被文字盖住」。
+      */}
+      <SlideOverlays slide={slide} theme={t} />
+
+      <SlideFooter slide={slide} theme={t} />
     </div>
   );
 }
@@ -468,7 +481,60 @@ function SlideFace({
  * 单独 return 了，走到这里的一定不是封面，所以条件恒真、直接画。
  * 抽成组件是因为图文页也要用——两边各写一份迟早会改歪一边。
  */
-function SlideFooter({ slide }: { slide: RenderSlide }) {
+/**
+ * 叠加内容（用户自由摆放的图片 / 文本框）。
+ *
+ * 位置来自 render-plan 算好的**英寸**值，这里只按容器宽度还原成 cqw。
+ * 和导出侧用同一份英寸数，所以预览里在哪、导出来也在哪。
+ */
+function SlideOverlays({ slide, theme: t }: { slide: RenderSlide; theme: SlideTheme }) {
+  if (slide.overlays.length === 0) return null;
+
+  return (
+    <>
+      {slide.overlays.map((ov) => {
+        const box = {
+          position: 'absolute' as const,
+          left: pct(ov.x),
+          top: pct(ov.y),
+          width: pct(ov.w),
+          height: pct(ov.h),
+        };
+
+        if (ov.kind === 'image') {
+          if (!ov.imageData) return null;
+          return (
+            <img
+              key={ov.id}
+              src={ov.imageData}
+              alt=""
+              style={{ ...box, objectFit: 'contain' }}
+            />
+          );
+        }
+
+        if (!ov.text) return null;
+        return (
+          <div
+            key={ov.id}
+            style={{
+              ...box,
+              fontSize: fontPt(ov.fontSize),
+              color: cssColor(ov.color ?? t.colors.text),
+              lineHeight: 1.35,
+              whiteSpace: 'pre-wrap',
+              overflow: 'hidden',
+            }}
+          >
+            {ov.text}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function SlideFooter({ slide, theme: t }: { slide: RenderSlide; theme: SlideTheme }) {
   return (
     <>
       <div
@@ -479,7 +545,7 @@ function SlideFooter({ slide }: { slide: RenderSlide }) {
           width: pct(8),
           height: pct(SLIDE_BOX.footerHeight),
           fontSize: fontPt(9),
-          color: THEME.muted,
+          color: cssColor(t.colors.muted),
           display: 'flex',
           alignItems: 'center',
         }}
@@ -494,7 +560,7 @@ function SlideFooter({ slide }: { slide: RenderSlide }) {
           width: pct(1),
           height: pct(SLIDE_BOX.footerHeight),
           fontSize: fontPt(9),
-          color: THEME.muted,
+          color: cssColor(t.colors.muted),
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'flex-end',

@@ -3,6 +3,7 @@ import type { KnowledgePoint, SlideDeck, Source } from '@/core/model.ts';
 import { useServices } from '@/app/services-context.ts';
 import { Badge, Notice } from '@/components/states.tsx';
 import { sourceTitleMap } from '@/core/slides/service.ts';
+import { DEFAULT_THEME_ID, THEMES, resolveTheme } from '@/core/slides/theme.ts';
 import { describeError, hintFrom } from './types.ts';
 import { useOutlineBackend } from './use-outline-backend.ts';
 
@@ -50,6 +51,8 @@ export function SlideGenerate({ onCreated, onCancel }: SlideGenerateProps) {
    * 这个分叉在 SlideService 里判定，界面只管把原文传下去。
    */
   const [instruction, setInstruction] = useState('');
+  /** 配色主题 id。换主题不影响内容，只是渲染取色不同 */
+  const [theme, setTheme] = useState(DEFAULT_THEME_ID);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<{ message: string; hint: string } | null>(null);
 
@@ -178,6 +181,7 @@ export function SlideGenerate({ onCreated, onCancel }: SlideGenerateProps) {
         ...(outlineBackend.backend ? { backend: outlineBackend.backend } : {}),
         // 空字符串会让 core 判成自由模式，所以只有真有内容才传
         ...(instruction.trim() ? { instruction: instruction.trim() } : {}),
+        theme,
       });
 
       /**
@@ -296,6 +300,37 @@ export function SlideGenerate({ onCreated, onCancel }: SlideGenerateProps) {
             {instruction.trim()
               ? '会按你的要求让模型自己安排页面结构，版式可能每次都不同。'
               : '留空会用固定版式：封面 → 各章节页 → 要点页 → 总结页，每次结构一致。'}
+          </div>
+        </div>
+
+        {/*
+          配色主题。
+
+          选的是「风格」而不是具体色值：让用户自己调颜色，多数人会调出
+          对比度不足的组合（浅灰字配白底），投影到教室墙上根本看不清。
+          预设都经过对比度检查，先给稳的选择；自定义留到后续版本。
+        */}
+        <div className="field">
+          <label className="field__label" htmlFor="sl-gen-theme">
+            配色风格
+          </label>
+          <select
+            id="sl-gen-theme"
+            className="select"
+            value={theme}
+            onChange={(event) => setTheme(event.target.value)}
+            disabled={running}
+          >
+            {THEMES.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+          <div className="field__hint">
+            {resolveTheme(theme).note}
+            <br />
+            生成后还能在详情页随时换，不会影响已写好的内容。
           </div>
         </div>
 

@@ -1,4 +1,11 @@
-import type { SlideBullet, SlideDeck, SlideFigure, SlideLayout } from '../model.ts';
+import type {
+  SlideBullet,
+  SlideDeck,
+  SlideFigure,
+  SlideImageRecord,
+  SlideLayout,
+  SlideOverlay,
+} from '../model.ts';
 import { SLIDE_LIMITS, continuationTitle, foldTitle, normalizeBulletText } from './limits.ts';
 
 /**
@@ -74,6 +81,90 @@ export interface RenderSlide {
   figureBox: RenderFigureBox | null;
   /** 图注（显示在图下方）；无图为 null */
   figureCaption: string | null;
+  /**
+   * 叠加内容（自由摆放的图片 / 文本框），按 z 升序 = 由底到顶。
+   *
+   * 位置已经从 0~1 比例换算成**英寸**，预览再按百分比还原。
+   * 在这里换算而不是让两边各算：图片位置最容易两边不一致
+   * （预览里在右下、导出跑到左上），换一处必然漏另一处。
+   */
+  overlays: RenderOverlayBox[];
+}
+
+/** 一块叠加内容在版面中的绝对位置（英寸） */
+export interface RenderOverlayBox {
+  id: string;
+  kind: 'image' | 'text';
+  /** 图片的 data URL（已从 slideImages 取好）；kind='text' 时为 null */
+  imageData: string | null;
+  text: string | null;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  fontSize: number;
+  /** 不带 # 的十六进制；null 表示用主题正文色 */
+  color: string | null;
+}
+
+/**
+ * 把叠加内容的**比例坐标**换算成**英寸**。
+ *
+ * 这是「预览 = 导出」的关键一步：
+ * 位置在数据里一直是 0~1，到这里才乘上真实版面尺寸。
+ * 预览拿到英寸后按容器宽度还原成百分比，导出直接喂给 pptxgenjs，
+ * 两边算出来的像素位置必然一致，不会因为窗口大小不同而错位。
+ *
+ * 换算不了的项直接跳过而不是画在 0,0：
+ *  - kind='image' 但取不到图（图片被删了）→ 画上去是一块空白框，
+ *    比不画更让人困惑；
+ *  - 文字为空 → 没有可显示的内容。
+ */
+function overlaysOf(
+  overlays: SlideOverlay[] | undefined,
+  images: Map<string, SlideImageRecord>,
+): RenderOverlayBox[] {
+  if (!overlays || overlays.length === 0) return [];
+
+  const out: RenderOverlayBox[] = [];
+
+  // 按 z 升序 = 先画的在底层
+  for (const ov of [...overlays].sort((a, b) => a.z - b.z)) {
+    if (ov.kind === 'image') {
+      const img = ov.imageId ? images.get(ov.imageId) : undefined;
+      if (!img) continue;
+      out.push({
+        id: ov.id,
+        kind: 'image',
+        imageData: img.imageData,
+        text: null,
+        x: ov.x * SLIDE_SIZE.width,
+        y: ov.y * SLIDE_SIZE.height,
+        w: ov.w * SLIDE_SIZE.width,
+        h: ov.h * SLIDE_SIZE.height,
+        fontSize: 0,
+        color: null,
+      });
+      continue;
+    }
+
+    const text = ov.text?.trim();
+    if (!text) continue;
+    out.push({
+      id: ov.id,
+      kind: 'text',
+      imageData: null,
+      text,
+      x: ov.x * SLIDE_SIZE.width,
+      y: ov.y * SLIDE_SIZE.height,
+      w: ov.w * SLIDE_SIZE.width,
+      h: ov.h * SLIDE_SIZE.height,
+      fontSize: ov.fontSize ?? 18,
+      color: ov.color ?? null,
+    });
+  }
+
+  return out;
 }
 
 /**
@@ -92,9 +183,20 @@ export interface RenderSlide {
 export function buildRenderPlan(
   deck: SlideDeck,
   sourceTitleFallback = '学习资料',
-  options: { includeSources?: boolean } = {},
+  options: {
+    includeSources?: boolean;
+    /**
+     * 图片查找表（id → 记录），叠加内容里的 imageId 从这里取 data URL。
+     *
+     * 由调用方（SlideService.getPlan）预先读好传进来，而不是在这里
+     * 异步查存储：这个函数是纯同步的，预览和导出都直接调它，
+     * 变成异步会波及两边所有调用点。
+     */
+    images?: Map<string, SlideImageRecord>;
+  } = {},
 ): RenderSlide[] {
   const includeSources = options.includeSources !== false;
+  const images = options.images ?? new Map<string, SlideImageRecord>();
   const slides: RenderSlide[] = [];
 
   // ── 正文页（封面 / 章节 / 要点） ──────────────────────────
@@ -126,6 +228,7 @@ export function buildRenderPlan(
         page.layout === 'figure' && page.figure
           ? normalizeBulletText(page.figure.caption)
           : null,
+      overlays: overlaysOf(page.overlays, images),
     });
   }
 
@@ -164,6 +267,8 @@ export function buildRenderPlan(
         figure: null,
         figureBox: null,
         figureCaption: null,
+        // 资料来源页是派生页，用户不能在它上面叠加内容
+        overlays: [],
       });
     });
   }

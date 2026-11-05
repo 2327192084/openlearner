@@ -115,7 +115,12 @@ const DB_HELPER = `
   });
 `;
 
-/** 解压 pptx，返回 { slideCount, texts[], hasMedia } */
+/**
+ * 解压 pptx，返回 { slideCount, texts[], hasMedia, rawXml }。
+ *
+ * `rawXml` 是全部 slide XML 拼起来的原文，用来查**颜色**这类
+ * 不出现在 <a:t> 文字里的东西（换主题时必须能验证导出真的换了色）。
+ */
 async function inspectPptx(file) {
   const buf = fs.readFileSync(file);
   const zip = await JSZip.loadAsync(buf);
@@ -129,8 +134,10 @@ async function inspectPptx(file) {
     });
 
   const texts = [];
+  const xmlParts = [];
   for (const name of slideNames) {
     const xml = await zip.file(name).async('string');
+    xmlParts.push(xml);
     const runs = xml.match(/<a:t>([^<]*)<\/a:t>/g) ?? [];
     texts.push(
       runs
@@ -146,7 +153,13 @@ async function inspectPptx(file) {
     (n) => n.startsWith('ppt/media/') && !zip.files[n].dir,
   );
 
-  return { slideCount: slideNames.length, texts, hasMedia, bytes: buf.length };
+  return {
+    slideCount: slideNames.length,
+    texts,
+    hasMedia,
+    bytes: buf.length,
+    rawXml: xmlParts.join('\n'),
+  };
 }
 
 /** 等下载目录里出现新的 pptx */
@@ -882,6 +895,115 @@ async function main() {
       edited.ok && JSON.stringify(afterEdit).includes('P4 验收改过的标题'),
       edited.ok ? `标题/页标题已更新` : edited.why,
     );
+
+    // ---------- 9.5 换配色主题：内容不变、导出颜色真的变 ----------
+    /**
+     * 守两件事：
+     *  1. 换主题**不动内容**（页面、要点、角标一条不少）；
+     *  2. 导出的 .pptx 里颜色**真的换了**，而不是只在界面上看起来变了。
+     *
+     * 第 2 条是关键：主题最容易出现的失败是「预览变了、导出没变」，
+     * 也就是这个项目一直在防的「预览 ≠ 导出」。
+     */
+    const beforeTheme = await cdp.eval(`(async () => {
+      ${DB_HELPER}
+      const db = await openDb();
+      const ds = await readAll(db, 'slideDecks');
+      db.close();
+      const d = ds[0];
+      return { theme: d.theme, pages: JSON.stringify(d.pages) };
+    })()`);
+
+    const themeSwitched = await cdp.eval(`(async () => {
+      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+      // 详情页的配色下拉
+      const sel = document.querySelector('#sl-detail-theme');
+      if (!sel) return { ok: false, why: '找不到配色下拉框' };
+
+      const opt = [...sel.options].find(o => o.value === 'dark-slate');
+      if (!opt) return { ok: false, why: '下拉框里没有 dark-slate 这个主题' };
+
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+      setter.call(sel, 'dark-slate');
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      await sleep(1500);
+      return { ok: true, options: [...sel.options].map(o => o.value) };
+    })()`);
+
+    record(
+      '详情页提供配色风格选择',
+      themeSwitched.ok && (themeSwitched.options ?? []).length >= 2,
+      themeSwitched.ok ? `可选主题 ${themeSwitched.options.length} 套` : themeSwitched.why,
+    );
+
+    const afterTheme = await cdp.eval(`(async () => {
+      ${DB_HELPER}
+      const db = await openDb();
+      const ds = await readAll(db, 'slideDecks');
+      db.close();
+      const d = ds[0];
+      return { theme: d.theme, pages: JSON.stringify(d.pages) };
+    })()`);
+
+    record(
+      '换主题后库里的 theme 变了',
+      afterTheme.theme === 'dark-slate',
+      `theme: ${beforeTheme.theme} → ${afterTheme.theme}`,
+    );
+
+    record(
+      '换主题不改动任何内容',
+      afterTheme.pages === beforeTheme.pages,
+      afterTheme.pages === beforeTheme.pages ? '页面内容逐字节一致' : '内容被改动了',
+    );
+
+    // 用新主题再导一次，检查真的换了颜色
+    const beforeThemed = fs.readdirSync(DOWNLOAD_DIR);
+    await cdp.eval(`(async () => {
+      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+      const label = [...document.querySelectorAll('label')].find(l =>
+        /资料来源/.test(l.textContent || ''));
+      const box = label?.querySelector('input[type=checkbox]');
+      if (box && !box.checked) { box.click(); await sleep(200); }
+      const btn = [...document.querySelectorAll('button')].find(b =>
+        /导出/.test(b.textContent || '') && !b.disabled);
+      if (btn) btn.click();
+      await sleep(4000);
+    })()`);
+
+    const themedFile = await waitForDownload(beforeThemed);
+    if (!themedFile) {
+      record('换主题后导出的 pptx 颜色真的变了', false, '没有下载到文件');
+    } else {
+      const themedInfo = await inspectPptx(themedFile);
+      const xml = themedInfo.rawXml ?? '';
+      /**
+       * 查**背景**是否换成了深色主题的色值。
+       *
+       * 不能笼统地找 "还有没有 FFFFFF"：深色主题的封面标题文字
+       * 本来就是白色的（深底白字），那是正确的，不是没换主题。
+       * 一开始我就是这么写的，结果把正确行为判成了失败 ——
+       * 断言写错和代码写错一样会骗人，所以这里改查 <p:bg> 节点。
+       */
+      const backgrounds = [...xml.matchAll(/<p:bg>[\s\S]*?<\/p:bg>/g)].map((m) =>
+        (m[0].match(/srgbClr val="([0-9A-Fa-f]{6})"/) ?? [])[1],
+      );
+      const darkBg = backgrounds.filter((c) => c === '1B2027' || c === '0D1117').length;
+      const whiteBg = backgrounds.filter((c) => c === 'FFFFFF').length;
+
+      record(
+        '**换主题后导出的 pptx 背景色真的变了**',
+        darkBg > 0 && whiteBg === 0,
+        `深色背景页 ${darkBg} / 白色背景页 ${whiteBg}（共 ${backgrounds.length} 页）`,
+      );
+
+      // 标题文字应当仍是白色（深底白字），这条防止把「标题看不清」当成换成功
+      record(
+        '深色主题下封面标题仍是白字（深底白字才读得清）',
+        /srgbClr val="FFFFFF"/i.test(xml),
+        /srgbClr val="FFFFFF"/i.test(xml) ? '标题文字为白色' : '标题文字不是白色，可能看不清',
+      );
+    }
 
     // ---------- 10. 无 console 错误 ----------
     record(

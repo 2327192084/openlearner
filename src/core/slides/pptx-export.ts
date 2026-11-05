@@ -1,11 +1,12 @@
 import PptxGenJS from 'pptxgenjs';
-import type { SlideDeck } from '../model.ts';
+import type { SlideDeck, SlideImageRecord } from '../model.ts';
 import {
   buildRenderPlan,
   SLIDE_BOX,
   SLIDE_SIZE,
   type RenderSlide,
 } from './render-plan.ts';
+import { resolveTheme, type SlideTheme } from './theme.ts';
 
 /** 自定义画布名，与 pptxgenjs 内置预设区分开，避免被同名预设覆盖。 */
 const LAYOUT_NAME = 'OPENLEARNER_16x9';
@@ -24,20 +25,7 @@ const LAYOUT_NAME = 'OPENLEARNER_16x9';
  * render-plan.ts 里，预览和导出共用同一份。
  */
 
-/** 配色。深色文字 + 一个主色，避免花哨 */
-const THEME = {
-  text: '1A1A1A',
-  muted: '6B7280',
-  accent: '1E5FAA',
-  citation: '8A6D3B',
-  rule: 'D8DEE8',
-  bg: 'FFFFFF',
-  titleBg: '0F2A4A',
-  titleText: 'FFFFFF',
-} as const;
-
-/** 字体。中文优先思源/雅黑，回退到系统默认 */
-const FONT = 'Microsoft YaHei';
+/** 配色与字体统一来自 theme.ts —— 预览和导出共用同一份，不再各写一套 */
 
 export interface ExportResult {
   /** pptx 二进制 */
@@ -58,7 +46,11 @@ export interface ExportResult {
 export async function exportToPptx(
   deck: SlideDeck,
   ordinal = 1,
-  options: { includeSources?: boolean } = {},
+  options: {
+    includeSources?: boolean;
+    /** 叠加内容用到的图片（id → 记录），由调用方读好传进来 */
+    images?: Map<string, SlideImageRecord>;
+  } = {},
 ): Promise<ExportResult> {
   const plan = buildRenderPlan(deck, deck.title, options);
   if (plan.length === 0) {
@@ -86,6 +78,9 @@ export async function exportToPptx(
   pptx.author = 'OpenLeaner';
   pptx.title = deck.title;
 
+  // 主题对这个 deck 全局生效；resolveTheme 对未知 id 退回默认，不抛错
+  t = resolveTheme(deck.theme);
+
   for (const slide of plan) {
     renderSlide(pptx, slide);
   }
@@ -101,10 +96,58 @@ export async function exportToPptx(
   };
 }
 
+/**
+ * 当前渲染用的主题。
+ *
+ * 用模块级变量而不是给 6 个渲染函数都加一个 t 参数：那些函数是
+ * 「同一页的不同画法」，主题对它们是全局的，逐层传参会把每个签名
+ * 都搞得很难看，而漏传一个的后果正好是「某一页没跟着换主题」。
+ *
+ * 安全性：exportToPptx 是唯一入口，它在开始时赋值、结束时清空，
+ * 且 pptxgenjs 的渲染是同步的，不存在两次导出交错的情况。
+ */
+let t: SlideTheme = resolveTheme(null);
+
+/**
+ * 画叠加内容（用户自由摆放的图片 / 文本框）。
+ *
+ * 坐标在 render-plan 里已经从 0~1 比例换算成英寸，这里直接用，
+ * **不再做任何位置计算** —— 预览用的是同一份英寸值，
+ * 两边各算一次就会错位。
+ */
+function renderOverlays(slide: RenderSlide, s: PptxSlide): void {
+  for (const ov of slide.overlays) {
+    if (ov.kind === 'image') {
+      if (!ov.imageData) continue;
+      s.addImage({
+        data: ov.imageData,
+        x: ov.x,
+        y: ov.y,
+        w: ov.w,
+        h: ov.h,
+      });
+      continue;
+    }
+
+    if (!ov.text) continue;
+    s.addText(ov.text, {
+      x: ov.x,
+      y: ov.y,
+      w: ov.w,
+      h: ov.h,
+      fontSize: ov.fontSize,
+      color: ov.color ?? t.colors.text,
+      fontFace: t.font,
+      // 文本框里的换行按用户输入保留，不自动压成一行
+      valign: 'top',
+    });
+  }
+}
+
 /** 按版式渲染一页 */
 function renderSlide(pptx: PptxGenJS, slide: RenderSlide): void {
   const s = pptx.addSlide();
-  s.background = { color: THEME.bg };
+  s.background = { color: t.colors.bg };
 
   switch (slide.layout) {
     case 'title':
@@ -124,6 +167,14 @@ function renderSlide(pptx: PptxGenJS, slide: RenderSlide): void {
       break;
   }
 
+  /**
+   * 叠加内容画在最后 = 盖在这一页所有内容之上。
+   *
+   * 顺序很重要：先画版式再画 overlay，用户插入的图才不会被正文压住。
+   * 反过来会让人以为「加了图但看不见」，然后反复加。
+   */
+  renderOverlays(slide, s);
+
   // 页脚：资料名 + 页码（封面页不显示，和正规幻灯片一致）
   if (slide.footer || slide.layout !== 'title') {
     if (slide.footer) {
@@ -133,8 +184,8 @@ function renderSlide(pptx: PptxGenJS, slide: RenderSlide): void {
         w: 8,
         h: SLIDE_BOX.footerHeight,
         fontSize: 9,
-        color: THEME.muted,
-        fontFace: FONT,
+        color: t.colors.muted,
+        fontFace: t.font,
         valign: 'middle',
       });
     }
@@ -144,8 +195,8 @@ function renderSlide(pptx: PptxGenJS, slide: RenderSlide): void {
       w: 1,
       h: SLIDE_BOX.footerHeight,
       fontSize: 9,
-      color: THEME.muted,
-      fontFace: FONT,
+      color: t.colors.muted,
+      fontFace: t.font,
       align: 'right',
       valign: 'middle',
     });
@@ -156,7 +207,7 @@ type PptxSlide = ReturnType<PptxGenJS['addSlide']>;
 
 /** 封面页：深色底 + 大标题 + 副标题 */
 function renderTitle(slide: RenderSlide, s: PptxSlide): void {
-  s.background = { color: THEME.titleBg };
+  s.background = { color: t.colors.titleBg };
   s.addText(slide.title, {
     x: 1.1,
     y: 2.5,
@@ -164,8 +215,8 @@ function renderTitle(slide: RenderSlide, s: PptxSlide): void {
     h: 1.7,
     fontSize: 40,
     bold: true,
-    color: THEME.titleText,
-    fontFace: FONT,
+    color: t.colors.titleText,
+    fontFace: t.font,
     valign: 'bottom',
   });
   if (slide.subtitle) {
@@ -175,8 +226,8 @@ function renderTitle(slide: RenderSlide, s: PptxSlide): void {
       w: SLIDE_SIZE.width - 2.2,
       h: 0.7,
       fontSize: 16,
-      color: 'A8C0DC',
-      fontFace: FONT,
+      color: t.colors.subtitle,
+      fontFace: t.font,
       valign: 'top',
     });
   }
@@ -186,8 +237,8 @@ function renderTitle(slide: RenderSlide, s: PptxSlide): void {
     y: 4.25,
     w: 1.6,
     h: 0.045,
-    fill: { color: THEME.accent },
-    line: { color: THEME.accent, width: 0 },
+    fill: { color: t.colors.accent },
+    line: { color: t.colors.accent, width: 0 },
   });
 }
 
@@ -198,8 +249,8 @@ function renderSection(slide: RenderSlide, s: PptxSlide): void {
     y: 0,
     w: 0.14,
     h: SLIDE_SIZE.height,
-    fill: { color: THEME.accent },
-    line: { color: THEME.accent, width: 0 },
+    fill: { color: t.colors.accent },
+    line: { color: t.colors.accent, width: 0 },
   });
   s.addText(slide.title, {
     x: 1.1,
@@ -208,8 +259,8 @@ function renderSection(slide: RenderSlide, s: PptxSlide): void {
     h: 1.6,
     fontSize: 32,
     bold: true,
-    color: THEME.text,
-    fontFace: FONT,
+    color: t.colors.text,
+    fontFace: t.font,
     valign: 'middle',
   });
 }
@@ -223,8 +274,8 @@ function renderBullets(slide: RenderSlide, s: PptxSlide): void {
     h: SLIDE_BOX.titleHeight,
     fontSize: 26,
     bold: true,
-    color: THEME.text,
-    fontFace: FONT,
+    color: t.colors.text,
+    fontFace: t.font,
     valign: 'middle',
   });
 
@@ -233,8 +284,8 @@ function renderBullets(slide: RenderSlide, s: PptxSlide): void {
     y: SLIDE_BOX.titleTop + SLIDE_BOX.titleHeight + 0.05,
     w: SLIDE_SIZE.width - SLIDE_BOX.marginX * 2,
     h: 0.02,
-    fill: { color: THEME.rule },
-    line: { color: THEME.rule, width: 0 },
+    fill: { color: t.colors.rule },
+    line: { color: t.colors.rule, width: 0 },
   });
 
   /**
@@ -246,15 +297,15 @@ function renderBullets(slide: RenderSlide, s: PptxSlide): void {
    */
   const rows = slide.bullets.map((b) => {
     const runs: PptxGenJS.TextProps[] = [
-      { text: b.text, options: { fontSize: 18, color: THEME.text, fontFace: FONT } },
+      { text: b.text, options: { fontSize: 18, color: t.colors.text, fontFace: t.font } },
     ];
     if (b.citationIndex !== null) {
       runs.push({
         text: ` [${b.citationIndex}]`,
         options: {
           fontSize: 12,
-          color: THEME.citation,
-          fontFace: FONT,
+          color: t.colors.citation,
+          fontFace: t.font,
           superscript: true,
         },
       });
@@ -281,8 +332,8 @@ function renderBullets(slide: RenderSlide, s: PptxSlide): void {
       w: SLIDE_SIZE.width - SLIDE_BOX.marginX * 2,
       h: 0.8,
       fontSize: 18,
-      color: THEME.text,
-      fontFace: FONT,
+      color: t.colors.text,
+      fontFace: t.font,
       valign: 'top',
       // 单条要点内部自动换行，不缩字号：缩了不同页字号不一致，翻页会跳
       fit: 'none',
@@ -305,8 +356,8 @@ function renderFigure(slide: RenderSlide, s: PptxSlide): void {
     h: SLIDE_BOX.titleHeight,
     fontSize: 26,
     bold: true,
-    color: THEME.text,
-    fontFace: FONT,
+    color: t.colors.text,
+    fontFace: t.font,
     valign: 'middle',
   });
 
@@ -315,8 +366,8 @@ function renderFigure(slide: RenderSlide, s: PptxSlide): void {
     y: SLIDE_BOX.titleTop + SLIDE_BOX.titleHeight + 0.05,
     w: SLIDE_SIZE.width - SLIDE_BOX.marginX * 2,
     h: 0.02,
-    fill: { color: THEME.rule },
-    line: { color: THEME.rule, width: 0 },
+    fill: { color: t.colors.rule },
+    line: { color: t.colors.rule, width: 0 },
   });
 
   if (slide.figure && slide.figureBox) {
@@ -338,7 +389,7 @@ function renderFigure(slide: RenderSlide, s: PptxSlide): void {
       w: box.w,
       h: box.h,
       fill: { type: 'none' },
-      line: { color: THEME.rule, width: 0.75 },
+      line: { color: t.colors.rule, width: 0.75 },
     });
   }
 
@@ -371,8 +422,8 @@ function renderFigure(slide: RenderSlide, s: PptxSlide): void {
       w: captionW,
       h: 0.4,
       fontSize: 11,
-      color: THEME.muted,
-      fontFace: FONT,
+      color: t.colors.muted,
+      fontFace: t.font,
       align: 'center',
       valign: 'top',
       wrap: true,
@@ -386,15 +437,15 @@ function renderFigure(slide: RenderSlide, s: PptxSlide): void {
 
     slide.bullets.forEach((b, i) => {
       const runs: PptxGenJS.TextProps[] = [
-        { text: b.text, options: { fontSize: 14, color: THEME.text, fontFace: FONT } },
+        { text: b.text, options: { fontSize: 14, color: t.colors.text, fontFace: t.font } },
       ];
       if (b.citationIndex !== null) {
         runs.push({
           text: ` [${b.citationIndex}]`,
           options: {
             fontSize: 10,
-            color: THEME.citation,
-            fontFace: FONT,
+            color: t.colors.citation,
+            fontFace: t.font,
             superscript: true,
           },
         });
@@ -406,8 +457,8 @@ function renderFigure(slide: RenderSlide, s: PptxSlide): void {
         w: colW,
         h: 0.85,
         fontSize: 14,
-        color: THEME.text,
-        fontFace: FONT,
+        color: t.colors.text,
+        fontFace: t.font,
         valign: 'top',
         fit: 'none',
         wrap: true,
@@ -425,8 +476,8 @@ function renderSources(slide: RenderSlide, s: PptxSlide): void {
     h: SLIDE_BOX.titleHeight,
     fontSize: 26,
     bold: true,
-    color: THEME.text,
-    fontFace: FONT,
+    color: t.colors.text,
+    fontFace: t.font,
     valign: 'middle',
   });
 
@@ -435,8 +486,8 @@ function renderSources(slide: RenderSlide, s: PptxSlide): void {
     y: SLIDE_BOX.titleTop + SLIDE_BOX.titleHeight + 0.05,
     w: SLIDE_SIZE.width - SLIDE_BOX.marginX * 2,
     h: 0.02,
-    fill: { color: THEME.rule },
-    line: { color: THEME.rule, width: 0 },
+    fill: { color: t.colors.rule },
+    line: { color: t.colors.rule, width: 0 },
   });
 
   if (slide.citationLines.length === 0) {
@@ -446,8 +497,8 @@ function renderSources(slide: RenderSlide, s: PptxSlide): void {
       w: SLIDE_SIZE.width - SLIDE_BOX.marginX * 2,
       h: 0.6,
       fontSize: 14,
-      color: THEME.muted,
-      fontFace: FONT,
+      color: t.colors.muted,
+      fontFace: t.font,
     });
     return;
   }
@@ -459,8 +510,8 @@ function renderSources(slide: RenderSlide, s: PptxSlide): void {
       w: SLIDE_SIZE.width - SLIDE_BOX.marginX * 2,
       h: 0.4,
       fontSize: 12,
-      color: THEME.text,
-      fontFace: FONT,
+      color: t.colors.text,
+      fontFace: t.font,
       valign: 'middle',
       wrap: false,
     });

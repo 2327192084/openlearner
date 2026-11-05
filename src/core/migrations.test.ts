@@ -676,7 +676,7 @@ describe('migrateBackup：v6 → v7', () => {
     const migrated = migrateBackup(makeV6Backup() as unknown as LibraryBackup);
     expect(migrated.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
     // v8 摘掉 capabilities.webSearch，但 v6 备份照样要能一路升上来
-    expect(LIBRARY_SCHEMA_VERSION).toBe(8);
+    expect(LIBRARY_SCHEMA_VERSION).toBe(9);
   });
 
   it('补出空的 usageRecords 分区', () => {
@@ -758,10 +758,10 @@ describe('migrateBackup：v6 → v7', () => {
     expect(rows[0].tokens).toBe(500);
   });
 
-  it('v1 备份能一路升到 v8', () => {
+  it('v1 备份能一路升到 v9', () => {
     const migrated = migrateBackup(makeV1Backup() as unknown as LibraryBackup);
 
-    expect(migrated.schemaVersion).toBe(8);
+    expect(migrated.schemaVersion).toBe(9);
     expect(migrated.usageRecords).toEqual([]);
   });
 });
@@ -806,7 +806,7 @@ describe('migrateBackup：v7 → v8（摘掉「联网检索」假开关）', () 
 
   it('版本号升到 8', () => {
     const migrated = migrateBackup(makeV7Backup() as unknown as LibraryBackup);
-    expect(migrated.schemaVersion).toBe(8);
+    expect(migrated.schemaVersion).toBe(9);
   });
 
   it('capabilities 里的 webSearch 被删掉，而不是留成 false', () => {
@@ -856,12 +856,12 @@ describe('migrateBackup：v7 → v8（摘掉「联网检索」假开关）', () 
     expect('webSearch' in (backends[0]!.capabilities as Record<string, unknown>)).toBe(false);
   });
 
-  it('v6 备份一路升到 v8 时也不会留下 webSearch', () => {
+  it('v6 备份一路升到 v9 时也不会留下 webSearch', () => {
     // v6 里还没有 usageRecords，必须同时走 v6→v7 与 v7→v8 两步
     const migrated = migrateBackup(
       makeV7Backup({ schemaVersion: 6, usageRecords: undefined }) as unknown as LibraryBackup,
     );
-    expect(migrated.schemaVersion).toBe(8);
+    expect(migrated.schemaVersion).toBe(9);
     expect(migrated.usageRecords).toEqual([]);
 
     const caps = migrated.backends[0]!.capabilities as Record<string, unknown>;

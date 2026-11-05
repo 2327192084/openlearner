@@ -118,6 +118,8 @@ export class LibraryService {
       questions: snapshot.questions,
       answerRecords: snapshot.answerRecords,
       slideDecks: snapshot.slideDecks,
+      // 用户插入的 PPT 图片跟着走：这些图用户找不回来，不导出等于丢
+      slideImages: snapshot.slideImages,
       backends: snapshot.backends,
       // 用量统计跟着走：换机器后账单不该归零（只有数字，不含 Key 与请求内容）
       usageRecords: snapshot.usageRecords,

@@ -6,6 +6,7 @@ import { Badge, ErrorState, LoadingState, Notice } from '@/components/states.tsx
 import { SlideExport } from './SlideExport.tsx';
 import { SlideOutline } from './SlideOutline.tsx';
 import { SlidePreview } from './SlidePreview.tsx';
+import { DEFAULT_THEME_ID, THEMES, resolveTheme } from '@/core/slides/theme.ts';
 import {
   deckBulletStats,
   describeError,
@@ -314,6 +315,42 @@ export function SlideDetail({ deckId, onBack, onChanged }: SlideDetailProps) {
         <p className="page__muted sl-detail__section-note">
           这里按导出的同一份渲染计划画出来，页数就是导出后的页数。点角标看原文。
         </p>
+
+        {/*
+          换配色。
+
+          放在预览正上方：换主题的效果只能看预览，放在这里才能边点边看。
+          这个操作只改渲染取色，不动任何内容，所以随便点不会丢东西。
+        */}
+        <div className="field">
+          <label className="field__label" htmlFor="sl-detail-theme">
+            配色风格
+          </label>
+          <select
+            id="sl-detail-theme"
+            className="select"
+            value={current.theme ?? DEFAULT_THEME_ID}
+            onChange={(event) => {
+              void (async () => {
+                const next = await slides.setTheme(current.id, event.target.value);
+                void applyDeck(next);
+                onChanged();
+              })();
+            }}
+          >
+            {THEMES.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+          <div className="field__hint">
+            {resolveTheme(current.theme).note}
+            <br />
+            换风格不会影响已经写好的内容，导出时按这里选的配色生成。
+          </div>
+        </div>
+
         <SlidePreview deck={current} plan={plan} />
       </section>
 
