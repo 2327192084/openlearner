@@ -270,3 +270,62 @@ describe('ModelBackend 端到端（假 fetch）：换服务商后请求体仍然
     expect(seen.body.model).toBe('qwen-plus');
   });
 });
+
+/**
+ * 多模态（看图）请求体。
+ *
+ * 这组测试守的是一件很容易「看起来做了、实际没做」的事：
+ * 界面上有「看图识公式」的能力勾选，就必须真的把图发出去。
+ * 早先这个能力只是个勾选框，core 里一次都没读过 —— 用户勾上之后
+ * 扫描件依然无法处理，而且没有任何报错。
+ */
+describe('多模态：图片要真的被发出去', () => {
+  const TINY = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==';
+
+  it('不传图片时 content 是纯字符串（兼容面最大）', async () => {
+    const { impl, seen } = captureFetch(okReply('好的'));
+    await chatCompletion({ ...BASE_OPTS, fetchImpl: impl });
+
+    const content = seen.body.messages[1].content;
+    expect(typeof content).toBe('string');
+    expect(content).toBe('usr');
+  });
+
+  it('***** 传了图片就必须进请求体，不能只存在参数里 *****', async () => {
+    const { impl, seen } = captureFetch(okReply('好的'));
+    await chatCompletion({ ...BASE_OPTS, fetchImpl: impl, images: [{ dataUrl: TINY }] });
+
+    const content = seen.body.messages[1].content;
+    expect(Array.isArray(content)).toBe(true);
+    // 文字块在前：先说清楚要模型干什么，再看图
+    expect(content[0]).toMatchObject({ type: 'text', text: 'usr' });
+    expect(content[1]).toMatchObject({
+      type: 'image_url',
+      image_url: { url: TINY },
+    });
+  });
+
+  it('多张图片按顺序全部发出', async () => {
+    const { impl, seen } = captureFetch(okReply('好的'));
+    await chatCompletion({
+      ...BASE_OPTS,
+      fetchImpl: impl,
+      images: [{ dataUrl: TINY }, { dataUrl: TINY, detail: 'high' }],
+    });
+
+    const content = seen.body.messages[1].content;
+    expect(content).toHaveLength(3);
+    // 第二张带了 detail，必须透传 —— high 是让模型不要把图缩小，
+    // 小字号公式缩了就认不出来
+    expect(content[2].image_url).toMatchObject({ url: TINY, detail: 'high' });
+    // 第一张没指定 detail 时不该凭空塞一个
+    expect(content[1].image_url).not.toHaveProperty('detail');
+  });
+
+  it('系统提示词始终是字符串（不跟着变数组）', async () => {
+    const { impl, seen } = captureFetch(okReply('好的'));
+    await chatCompletion({ ...BASE_OPTS, fetchImpl: impl, images: [{ dataUrl: TINY }] });
+
+    expect(typeof seen.body.messages[0].content).toBe('string');
+  });
+});

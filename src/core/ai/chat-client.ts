@@ -133,6 +133,20 @@ export interface ChatResult {
   model: string;
 }
 
+/** 一张随请求发送的图片（多模态模型） */
+export interface ChatImage {
+  /**
+   * `data:image/png;base64,...` 形式的整串。
+   *
+   * 只接受 data URL 而不是裸 base64：调用方常常直接从 canvas 的
+   * toDataURL() 拿到结果，把前缀切掉再交进来容易出错，
+   * 而且两个字符串在日志里看起来一样，错了很难发现。
+   */
+  dataUrl: string;
+  /** 给模型的提示，如「这是教材第 12 页」 */
+  detail?: 'auto' | 'low' | 'high';
+}
+
 export interface ChatOptions {
   apiKey: string;
   /** 接口基址。会被 normalizeBaseUrl 归一（去掉误粘的 /chat/completions 尾巴）。 */
@@ -140,6 +154,17 @@ export interface ChatOptions {
   model: string;
   systemPrompt: string;
   userPrompt: string;
+  /**
+   * 随本条消息一起发送的图片（看图识公式 / 扫描件识别用）。
+   *
+   * 按 OpenAI 的多模态消息形状发：
+   * `content: [{type:'text',...}, {type:'image_url', image_url:{url}},...]`
+   * 这是主流兼容服务（智谱、通义、OpenAI、多数中转）的通行写法。
+   *
+   * 不传时仍然发纯字符串 content —— 纯文本请求的兼容面最大，
+   * 有些服务对数组形式的 content 支持不全，能不用就不用。
+   */
+  images?: ChatImage[];
   /**
    * 服务商标识（BackendConfig.provider）。
    *
@@ -230,6 +255,31 @@ function extractContent(parsed: {
 }
 
 /**
+ * 组装 user 消息的 content。
+ *
+ * 没有图片时返回**纯字符串** —— 纯文本请求的兼容面最大，有些服务对
+ * 数组形式的 content 支持不全，能不用就不用。
+ *
+ * 有图片时返回 OpenAI 多模态数组。文字块放最前：
+ * 多数模型是按顺序看的，先说「这是什么页码、要你干什么」，
+ * 再看图，比先甩一张图再补说明更准。
+ */
+function buildUserContent(text: string, images?: ChatImage[]): string | Record<string, unknown>[] {
+  if (!images || images.length === 0) return text;
+
+  return [
+    { type: 'text', text },
+    ...images.map((img) => ({
+      type: 'image_url',
+      image_url: {
+        url: img.dataUrl,
+        ...(img.detail ? { detail: img.detail } : {}),
+      },
+    })),
+  ];
+}
+
+/**
  * 发一次对话补全请求。
  *
  * 统一在这里处理：超时、取消、HTTP 错误分类、JSON 解析。
@@ -242,6 +292,7 @@ export async function chatCompletion(options: ChatOptions): Promise<ChatResult> 
     model,
     systemPrompt,
     userPrompt,
+    images,
     provider,
     jsonMode = false,
     temperature = 0.2,
@@ -317,7 +368,7 @@ export async function chatCompletion(options: ChatOptions): Promise<ChatResult> 
         model,
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
+          { role: 'user', content: buildUserContent(userPrompt, images) },
         ],
         temperature,
         ...(maxTokens ? { max_tokens: maxTokens } : {}),
