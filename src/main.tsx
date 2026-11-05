@@ -38,7 +38,7 @@ function Bootstrap() {
     const usage = new UsageService(storage);
     const knowledge = new KnowledgeService(storage, sources, usage);
     const decks = new DeckService(storage, usage);
-    const slides = new SlideService(storage);
+    const slides = new SlideService(storage, usage);
 
     library
       .init()

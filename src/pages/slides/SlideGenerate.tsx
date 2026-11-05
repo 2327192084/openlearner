@@ -4,6 +4,7 @@ import { useServices } from '@/app/services-context.ts';
 import { Badge, Notice } from '@/components/states.tsx';
 import { sourceTitleMap } from '@/core/slides/service.ts';
 import { describeError, hintFrom } from './types.ts';
+import { useOutlineBackend } from './use-outline-backend.ts';
 
 /**
  * 生成大纲面板：选资料 → 勾选知识点 → 生成。
@@ -30,7 +31,9 @@ export function isUsablePoint(point: KnowledgePoint): boolean {
 }
 
 export function SlideGenerate({ onCreated, onCancel }: SlideGenerateProps) {
-  const { slides, sources: sourceService, knowledge } = useServices();
+  const { slides, sources: sourceService, knowledge, backends } = useServices();
+
+  const outlineBackend = useOutlineBackend(backends);
 
   const [sourcesList, setSourcesList] = useState<Source[]>([]);
   const [sourcesError, setSourcesError] = useState<{ message: string; hint: string } | null>(null);
@@ -133,6 +136,13 @@ export function SlideGenerate({ onCreated, onCancel }: SlideGenerateProps) {
   };
 
   const blockedReason = (() => {
+    /**
+     * 后端检查放在最前面。
+     *
+     * 这个功能必须用 AI，没有后端时后面无论选得多整齐都生成不了。
+     * 先说这件事，用户才不会花时间选完资料才被拦住。
+     */
+    if (outlineBackend.blockedReason) return outlineBackend.blockedReason;
     if (sourcesList.length === 0) return '这份学习库里还没有资料。先去资料库导入一份教材。';
     if (points === null) return '正在读取这份资料的知识点…';
     if (points.length === 0) return '这份资料还没有生成知识点。先去「知识点」页从这份资料生成一批。';
@@ -156,7 +166,26 @@ export function SlideGenerate({ onCreated, onCancel }: SlideGenerateProps) {
         title: title.trim() === '' ? undefined : title.trim(),
         sourceTitles: sourceTitleMap(sourcesList),
         ...(currentSource?.courseId ? { courseId: currentSource.courseId } : {}),
+        // 有可用后端就必须走 AI —— 这是这个功能的定位，不是可选项
+        ...(outlineBackend.backend ? { backend: outlineBackend.backend } : {}),
       });
+
+      /**
+       * AI 失败但回退成功了。
+       *
+       * 此时大纲是确定性算法排出来的（要点是知识点原文），
+       * 和用户期待的「AI 生成的课件」不是一回事。必须当场说清楚，
+       * 否则用户会照着一份没被 AI 处理过的大纲去导出 PPT。
+       */
+      if (!result.usedAi && result.aiFailure) {
+        setError({
+          message: `这次没能用上 AI：${result.aiFailure}`,
+          hint:
+            '已经用原始知识点排出了一份可编辑的大纲，你可以先用着。' +
+            '想重试 AI 生成，换个后端或稍后再点一次「生成大纲」。',
+        });
+      }
+
       onCreated(result.deck);
     } catch (err) {
       setError({
@@ -344,6 +373,40 @@ export function SlideGenerate({ onCreated, onCancel }: SlideGenerateProps) {
             </details>
           ) : null}
         </div>
+
+        {/*
+          后端选择器。
+
+          放在生成按钮前面且没有「离线」选项：这个功能必须用 AI 生成课件，
+          产品定位如此。没有配置后端时这里会显示明确的下一步指引，
+          而不是给一个点了也没动静的按钮。
+        */}
+        {outlineBackend.options.length > 0 ? (
+          <div className="field">
+            <label className="field__label" htmlFor="sl-gen-backend">
+              用哪个 AI 后端生成
+            </label>
+            <select
+              id="sl-gen-backend"
+              className="select"
+              value={outlineBackend.selected}
+              onChange={(e) => outlineBackend.select(e.target.value)}
+              disabled={running}
+            >
+              {outlineBackend.options.map((o) => (
+                <option key={o.key} value={o.key} disabled={!o.available}>
+                  {o.label}
+                  {o.available ? '' : `（${o.reason ?? '不可用'}）`}
+                </option>
+              ))}
+            </select>
+            <div className="field__hint">
+              {outlineBackend.activeNote}
+              {outlineBackend.activeNote ? <br /> : null}
+              大纲由模型根据你选中的知识点重新组织，每条要点仍会标回它依据的原文页码。
+            </div>
+          </div>
+        ) : null}
 
         {error ? (
           <Notice tone="danger" title="这次生成没有完成">

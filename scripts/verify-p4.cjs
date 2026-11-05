@@ -333,7 +333,156 @@ async function main() {
       slidesPageReady.isPlaceholder ? '仍是占位页' : '有生成按钮',
     );
 
+    // ---------- 3.5 准备：配一个 AI 后端 ----------
+    /**
+     * PPT 大纲现在是**必须用 AI 生成**的（产品定位如此）。
+     * 没有配置后端时，「生成大纲」按钮会被禁用并给出指引 ——
+     * 这是正确行为，但验收必须先满足这个前提才能继续往下走。
+     *
+     * 这里配一个假 Key 的后端，并用 CDP 拦截发往模型服务的请求、
+     * 返回一份结构正确的大纲。这样验证的是「AI 生成整条链路」
+     * （请求真的发出去了、返回真的被用上了），而不花钱、不需要真 Key。
+     */
+    await cdp.send('Fetch.enable', {
+      patterns: [{ urlPattern: '*api.deepseek.com*', requestStage: 'Request' }],
+    });
+
+    let aiCalled = 0;
+    /** 假响应要引用的知识点 id，先读库填进来（下面赋值） */
+    let aiPointIds = [];
+
+    cdp.ws.addEventListener('message', (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (msg.method !== 'Fetch.requestPaused') return;
+      if ((msg.params.request.method ?? '').toUpperCase() === 'OPTIONS') {
+        void cdp
+          .send('Fetch.fulfillRequest', {
+            requestId: msg.params.requestId,
+            responseCode: 204,
+            responseHeaders: [
+              { name: 'access-control-allow-origin', value: '*' },
+              { name: 'access-control-allow-headers', value: '*' },
+              { name: 'access-control-allow-methods', value: 'POST,GET,OPTIONS' },
+            ],
+          })
+          .catch(() => {});
+        return;
+      }
+
+      aiCalled += 1;
+
+      /**
+       * 返回的大纲要点必须带 fromPointId，否则会被当成
+       * 「查不到知识点的要点」丢弃，验收就测不到正常链路了。
+       *
+       * 这里用 AI 改写过的文字（而不是知识点原文），正好验证
+       * 「AI 改写要点后角标仍指向原页码」这件事 —— 这是本轮改动
+       * 最容易静默出错的地方。
+       */
+      const payload = {
+        pages: [
+          {
+            title: '数据结构的研究对象',
+            subtitle: null,
+            bullets: aiPointIds.slice(0, 2).map((p, i) => ({
+              text: `（AI 改写）第 ${i + 1} 条：${String(p.statement).slice(0, 20)}…`,
+              fromPointId: p.id,
+            })),
+          },
+        ],
+      };
+
+      void cdp
+        .send('Fetch.fulfillRequest', {
+          requestId: msg.params.requestId,
+          responseCode: 200,
+          responseHeaders: [
+            { name: 'content-type', value: 'application/json' },
+            { name: 'access-control-allow-origin', value: '*' },
+          ],
+          body: Buffer.from(
+            JSON.stringify({
+              choices: [{ message: { content: JSON.stringify(payload) } }],
+              usage: { prompt_tokens: 500, completion_tokens: 120, total_tokens: 620 },
+              model: 'deepseek-chat',
+            }),
+          ).toString('base64'),
+        })
+        .catch(() => {});
+    });
+
+    // 先从库里读真实知识点 id —— 假响应必须引用真实存在的 id
+    aiPointIds = await cdp.eval(`(async () => {
+      ${DB_HELPER}
+      const db = await openDb();
+      const points = await readAll(db, 'knowledgePoints');
+      db.close();
+      return points.slice(0, 2).map(p => ({ id: p.id, statement: p.statement }));
+    })()`);
+
+    if (!Array.isArray(aiPointIds) || aiPointIds.length === 0) {
+      record('准备：能读到知识点 id（AI 大纲的角标依据）', false, '库里没有知识点');
+    } else {
+      record(
+        '准备：能读到知识点 id（AI 大纲的角标依据）',
+        true,
+        `${aiPointIds.length} 条，首条 id=${aiPointIds[0].id}`,
+      );
+    }
+
+    // 配置后端（假 Key，请求会被上面拦掉）
+    await cdp.eval(`location.hash = '#/settings'`);
+    await sleep(1800);
+    await cdp.eval(`(async () => {
+      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+      const add = [...document.querySelectorAll('button')].find(b => b.textContent.includes('添加后端'));
+      if (add) { add.click(); await sleep(700); }
+
+      const setVal = (sel, v) => {
+        const el = document.querySelector(sel);
+        if (!el) return false;
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+        setter.call(el, v);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      };
+
+      setVal('#bf-label', 'P4 验收后端');
+      setVal('#bf-key', 'sk-p4-acceptance-fake-key');
+
+      const submit = [...document.querySelectorAll('.backend-form button')].find(b => b.textContent.includes('保存'));
+      if (submit) { submit.click(); await sleep(1200); }
+    })()`);
+
+    const backendReady = await cdp.eval(`(async () => {
+      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+      ${DB_HELPER}
+      const db = await openDb();
+      const backends = await readAll(db, 'backends');
+      const secrets = await readAll(db, 'secrets');
+      db.close();
+      return {
+        count: backends.length,
+        label: backends[0]?.label,
+        hasKey: secrets.some(s => s.value),
+      };
+    })()`);
+
+    record(
+      '准备：PPT 生成所需的 AI 后端已配置',
+      backendReady.count > 0 && backendReady.hasKey,
+      `${backendReady.count} 个后端 / 有凭据=${backendReady.hasKey}`,
+    );
+
     // ---------- 4. 生成大纲 ----------
+    /**
+     * 上一步在设置页配了后端，必须先回到 PPT 页。
+     * 不切回去的话，下面的「选资料/勾选知识点」都是在设置页的 DOM 上找元素，
+     * 一个都找不到，然后静默地什么都没生成。
+     */
+    await cdp.eval(`location.hash = '#/slides'`);
+    await sleep(2200);
+
     // 通过界面操作：选资料 → 选知识点 → 生成
     const created = await cdp.eval(`(async () => {
       const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -383,6 +532,12 @@ async function main() {
         status: d.status,
         pageCount: (d.pages || []).length,
         layouts: (d.pages || []).map(p => p.layout),
+        // 页标题与要点内容：用来验证「内容真的是 AI 生成的」
+        pages: (d.pages || []).map(p => ({
+          layout: p.layout,
+          title: p.title,
+          bullets: (p.bullets || []).map(b => ({ text: b.text, citationIndex: b.citationIndex })),
+        })),
         citations: (d.citations || []).length,
         exports: (d.exports || []).length,
         bulletsWithoutCitation: (d.pages || []).reduce((n, p) =>
@@ -401,6 +556,39 @@ async function main() {
       '从知识点生成 PPT 大纲',
       deck.pageCount > 1,
       `《${deck.title}》共 ${deck.pageCount} 页，${deck.citations} 条引用`,
+    );
+
+    // ---------- 4.5 AI 真的被调用了（本轮改动的核心） ----------
+    /**
+     * 断言两件事，缺一不可：
+     *  1. 请求真的发出去了 —— 否则「用 AI 生成」只是一句文案；
+     *  2. 页标题与要点文字来自模型返回，而不是确定性算法拼的
+     *     （确定性版本会给「未分章」这类标题、要点是知识点原文）。
+     */
+    record(
+      '**生成大纲真的发起了 AI 请求**',
+      aiCalled > 0,
+      aiCalled > 0 ? `拦截到 ${aiCalled} 次模型请求` : '一次请求都没发出，说明走的还是离线拼装',
+    );
+
+    const aiPage = (deck.pages || []).find((p) => p.layout === 'bullets');
+    record(
+      '**页标题来自 AI，不是「未分章」这类占位标题**',
+      aiPage?.title === '数据结构的研究对象',
+      `实际页标题：${aiPage?.title ?? '(没有正文页)'}`,
+    );
+
+    const aiBullet = (aiPage?.bullets || [])[0];
+    record(
+      '**要点文字来自 AI 改写（不是知识点原文照搬）**',
+      typeof aiBullet?.text === 'string' && aiBullet.text.includes('（AI 改写）'),
+      `首条要点：${String(aiBullet?.text ?? '').slice(0, 40)}`,
+    );
+
+    record(
+      'AI 改写要点后，角标仍然挂上了（不是 null）',
+      typeof aiBullet?.citationIndex === 'number',
+      `citationIndex=${aiBullet?.citationIndex}`,
     );
 
     record(

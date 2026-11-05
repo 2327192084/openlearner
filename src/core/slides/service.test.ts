@@ -3,6 +3,7 @@ import { MemoryStorage } from '../storage/memory-storage.ts';
 import type { KnowledgePoint, SourceLocation } from '../model.ts';
 import { SlideService } from './service.ts';
 import { buildFileName } from './pptx-export.ts';
+import { UsageService } from '../usage.ts';
 
 /**
  * SlideService 的测试。
@@ -472,5 +473,279 @@ describe('buildFileName', () => {
     const name = buildFileName('长'.repeat(200), 1, at);
 
     expect(name.length).toBeLessThan(100);
+  });
+});
+
+describe('SlideService：AI 生成大纲', () => {
+  let storage: MemoryStorage;
+  let slides: SlideService;
+
+  beforeEach(() => {
+    storage = new MemoryStorage();
+    slides = new SlideService(storage);
+  });
+
+  /** 假的大纲后端：按给定结果返回 */
+  function fakeBackend(opts: {
+    pages?: { title: string | null; bullets: { text: string; fromPointId: string }[] }[];
+    fail?: Error;
+    tokens?: number | null;
+  }) {
+    return {
+      id: 'fake',
+      label: '假后端',
+      isMock: true,
+      provider: 'test',
+      estimateTokens: () => 100,
+      generate: async () => {
+        if (opts.fail) throw opts.fail;
+        return {
+          // subtitle 缺省补 null：模型没给副标题是正常情况
+          pages: (opts.pages ?? []).map((p) => ({ subtitle: null, ...p })),
+          actualTokens: opts.tokens ?? 42,
+        };
+      },
+    };
+  }
+
+  it('走 AI 时用模型给的页标题，不再是「未分章」', async () => {
+    const points = makePoints(3);
+    const { deck, usedAi } = await slides.createFromPoints({
+      sourceId: 'src-a',
+      points,
+      title: '期末复习',
+      backend: fakeBackend({
+        pages: [
+          {
+            title: '线性表的基本概念',
+            bullets: [
+              { text: '线性表是有限序列', fromPointId: points[0]!.id },
+              { text: '每个元素有唯一前驱', fromPointId: points[1]!.id },
+            ],
+          },
+        ],
+      }),
+    });
+
+    expect(usedAi).toBe(true);
+    // 封面 + 1 页正文
+    expect(deck.pages).toHaveLength(2);
+    expect(deck.pages[0]!.layout).toBe('title');
+    expect(deck.pages[1]!.title).toBe('线性表的基本概念');
+  });
+
+  it('AI 改写的要点文字保留，角标仍指向原页码', async () => {
+    const points = [makePoint({ id: 'k0', statement: '原文表述' })];
+    const { deck, usedAi } = await slides.createFromPoints({
+      sourceId: 'src-a',
+      points,
+      backend: fakeBackend({
+        pages: [
+          { title: '页', bullets: [{ text: '这是 AI 改写过的表述', fromPointId: 'k0' }] },
+        ],
+      }),
+    });
+
+    expect(usedAi).toBe(true);
+    const bullet = deck.pages[1]!.bullets[0]!;
+    expect(bullet.text).toBe('这是 AI 改写过的表述');
+    expect(bullet.citationIndex).toBe(1);
+    // makePoint 的锚点是第 3 页
+    expect(deck.citations[0]!.page).toBe(3);
+  });
+
+  it('AI 请求失败时回退到确定性大纲，并如实报 aiFailure', async () => {
+    const { deck, usedAi, aiFailure } = await slides.createFromPoints({
+      sourceId: 'src-a',
+      points: makePoints(3),
+      backend: fakeBackend({ fail: new Error('网络断了') }),
+    });
+
+    // 回退成功：大纲还是有的，用户不至于一个字都拿不到
+    expect(deck.pages.length).toBeGreaterThan(1);
+    // 但必须说清这次没用上 AI
+    expect(usedAi).toBe(false);
+    expect(aiFailure).toContain('网络断了');
+  });
+
+  it('AI 返回空大纲时回退，不说成成功', async () => {
+    const { deck, usedAi, aiFailure } = await slides.createFromPoints({
+      sourceId: 'src-a',
+      points: makePoints(2),
+      backend: fakeBackend({ pages: [] }),
+    });
+
+    expect(deck.pages.length).toBeGreaterThan(1);
+    expect(usedAi).toBe(false);
+    expect(aiFailure).toBeTruthy();
+  });
+
+  it('AI 给的要点全都查不到知识点时回退（不产出空 PPT）', async () => {
+    const { deck, usedAi } = await slides.createFromPoints({
+      sourceId: 'src-a',
+      points: makePoints(2),
+      backend: fakeBackend({
+        pages: [{ title: '页', bullets: [{ text: 'x', fromPointId: '不存在的id' }] }],
+      }),
+    });
+
+    expect(usedAi).toBe(false);
+    // 回退后仍有内容页
+    expect(deck.pages.length).toBeGreaterThan(1);
+  });
+
+  it('不传 backend 时走确定性大纲，usedAi 为 false', async () => {
+    const { deck, usedAi } = await slides.createFromPoints({
+      sourceId: 'src-a',
+      points: makePoints(2),
+    });
+
+    expect(usedAi).toBe(false);
+    expect(deck.pages.length).toBeGreaterThan(1);
+  });
+
+  it('AI 的 token 用量被带回来（供用量统计记录）', async () => {
+    const points = makePoints(1);
+    const { tokens } = await slides.createFromPoints({
+      sourceId: 'src-a',
+      points,
+      backend: fakeBackend({
+        pages: [{ title: '页', bullets: [{ text: 'x', fromPointId: points[0]!.id }] }],
+        tokens: 777,
+      }),
+    });
+
+    expect(tokens).toBe(777);
+  });
+
+  it('AI 版与回退版的封面结构一致', async () => {
+    const points = makePoints(3);
+
+    const ai = await slides.createFromPoints({
+      sourceId: 'src-a',
+      points,
+      title: 'T',
+      backend: fakeBackend({
+        pages: [{ title: '页', bullets: [{ text: 'x', fromPointId: points[0]!.id }] }],
+      }),
+    });
+
+    const fallback = await slides.createFromPoints({
+      sourceId: 'src-a',
+      points,
+      title: 'T',
+    });
+
+    const aiCover = ai.deck.pages[0]!;
+    const fbCover = fallback.deck.pages[0]!;
+    expect(aiCover.layout).toBe(fbCover.layout);
+    expect(aiCover.title).toBe(fbCover.title);
+    expect(aiCover.subtitle).toBe(fbCover.subtitle);
+  });
+});
+
+describe('SlideService：AI 用量记账', () => {
+  it('走真后端时把 token 记进用量统计（kind=slides）', async () => {
+    const storage = new MemoryStorage();
+    const usage = new UsageService(storage);
+    const slides = new SlideService(storage, usage);
+
+    const points = [makePoint({ id: 'k0' })];
+    await slides.createFromPoints({
+      sourceId: 'src-a',
+      points,
+      backend: {
+        id: 'model:deepseek',
+        label: 'DeepSeek',
+        isMock: false,
+        provider: 'deepseek',
+        estimateTokens: () => 100,
+        generate: async () => ({
+          pages: [
+            { title: '页', subtitle: null, bullets: [{ text: 'x', fromPointId: 'k0' }] },
+          ],
+          actualTokens: 555,
+        }),
+      },
+    });
+
+    const rows = await storage.getAll('usageRecords');
+    expect(rows).toHaveLength(1);
+    // 记成 'slides' 而不是混进 'organize'/'questions'：
+    // 用户要知道钱花在哪一环
+    expect(rows[0]!.kind).toBe('slides');
+    expect(rows[0]!.tokens).toBe(555);
+    expect(rows[0]!.provider).toBe('deepseek');
+  });
+
+  it('假后端不记账（它不花钱，记进来会让真实花费看起来更多）', async () => {
+    const storage = new MemoryStorage();
+    const usage = new UsageService(storage);
+    const slides = new SlideService(storage, usage);
+
+    const points = [makePoint({ id: 'k0' })];
+    await slides.createFromPoints({
+      sourceId: 'src-a',
+      points,
+      backend: {
+        id: 'mock',
+        label: '假后端',
+        isMock: true,
+        estimateTokens: () => 100,
+        generate: async () => ({
+          pages: [
+            { title: '页', subtitle: null, bullets: [{ text: 'x', fromPointId: 'k0' }] },
+          ],
+          actualTokens: 999,
+        }),
+      },
+    });
+
+    expect(await storage.getAll('usageRecords')).toHaveLength(0);
+  });
+
+  it('服务端没返回 token 时不记账（不猜一个数字出来）', async () => {
+    const storage = new MemoryStorage();
+    const usage = new UsageService(storage);
+    const slides = new SlideService(storage, usage);
+
+    const points = [makePoint({ id: 'k0' })];
+    await slides.createFromPoints({
+      sourceId: 'src-a',
+      points,
+      backend: {
+        id: 'model:x',
+        label: 'X',
+        isMock: false,
+        provider: 'deepseek',
+        estimateTokens: () => 100,
+        generate: async () => ({
+          pages: [
+            { title: '页', subtitle: null, bullets: [{ text: 'x', fromPointId: 'k0' }] },
+          ],
+          actualTokens: null,
+        }),
+      },
+    });
+
+    expect(await storage.getAll('usageRecords')).toHaveLength(0);
+  });
+
+  it('PPT 用量与整理/出题分开统计，不会互相串账', async () => {
+    const storage = new MemoryStorage();
+    const usage = new UsageService(storage);
+
+    await usage.record({ backendId: 'b1', provider: 'deepseek', kind: 'organize', tokens: 100 });
+    await usage.record({ backendId: 'b1', provider: 'deepseek', kind: 'questions', tokens: 200 });
+    await usage.record({ backendId: 'b1', provider: 'deepseek', kind: 'slides', tokens: 300 });
+
+    const byBackend = await usage.byBackend();
+    const row = byBackend.find((r) => r.backendId === 'b1')!;
+
+    expect(row.organizeTokens).toBe(100);
+    expect(row.questionsTokens).toBe(200);
+    // 早先的 if/else 会把 slides 记进 questions，这里守住它
+    expect(row.slidesTokens).toBe(300);
+    expect(row.tokens).toBe(600);
   });
 });

@@ -1,14 +1,19 @@
 import { newId, nowIso } from '../id.ts';
 import type {
   KnowledgePoint,
+  SlideCitation,
   SlideDeck,
   SlideFigure,
   SlideOutlinePage,
   Source,
 } from '../model.ts';
 import type { StorageAdapter } from '../storage/types.ts';
+import type { UsageService } from '../usage.ts';
+import { ApiError } from '../ai/chat-client.ts';
 import { SLIDE_LIMITS, chunkBullets, normalizeBulletText } from './limits.ts';
-import { buildOutline } from './outline.ts';
+import { buildCoverPage, buildOutline } from './outline.ts';
+import { applyAiOutline } from './ai-outline.ts';
+import type { OutlineBackend, OutlineInputPoint } from './backend-types.ts';
 import { buildRenderPlan, planStats, type RenderSlide } from './render-plan.ts';
 import { buildFileName, exportToPptx } from './pptx-export.ts';
 
@@ -34,6 +39,19 @@ export interface CreateDeckInput {
   courseId?: string | null;
   /** 其他资料的标题（sourceId → title），跨资料引用时用 */
   sourceTitles?: Map<string, string>;
+  /**
+   * AI 大纲后端。
+   *
+   * 不传时退回确定性算法（`buildOutline`）。这条回退路径**不是**给
+   * 「离线也能用」准备的 —— 产品定位是必须接 AI。它只在模型请求失败时
+   * 兜底，并把 `usedAi=false` 如实报给界面，让用户知道这次没用上模型，
+   * 而不是让他以为看到的是 AI 产出的东西。
+   */
+  backend?: OutlineBackend;
+  /** 生成语言，默认 zh */
+  language?: 'zh' | 'en';
+  /** 取消信号（用户在生成中途点了停止） */
+  signal?: AbortSignal;
 }
 
 export interface CreateDeckResult {
@@ -42,6 +60,15 @@ export interface CreateDeckResult {
   bulletsWithoutCitation: number;
   /** 有多少条知识点因为正文为空被跳过 */
   skippedPoints: number;
+  /** 这次大纲是否真的由 AI 生成 */
+  usedAi: boolean;
+  /**
+   * 回退原因。`usedAi=false` 且有值时为失败详情，
+   * 界面要如实显示「这次没用上 AI」，不能静默降级。
+   */
+  aiFailure?: string;
+  /** 实际 token 用量（AI 生成时有值） */
+  tokens: number | null;
 }
 
 export interface ExportOutcome {
@@ -53,7 +80,14 @@ export interface ExportOutcome {
 }
 
 export class SlideService {
-  constructor(private readonly storage: StorageAdapter) {}
+  /**
+   * @param storage 存储层
+   * @param usage 用量统计。可选：单元测试里不关心记账时可以不传
+   */
+  constructor(
+    private readonly storage: StorageAdapter,
+    private readonly usage?: UsageService,
+  ) {}
 
   // -------------------------------------------------------------------------
   // 读
@@ -98,31 +132,92 @@ export class SlideService {
       sourceTitles.set(source.id, source.title);
     }
 
-    const outline = buildOutline({
-      points: input.points,
-      sourceTitle,
-      title: input.title,
-      sourceTitles,
-    });
+    const deckTitle = (input.title ?? '').trim() || `${sourceTitle} · 学习 PPT`;
 
-    if (outline.pages.length <= 1) {
-      // 只有封面 = 一条可用内容都没有
-      throw new Error(
-        outline.skippedPoints > 0
-          ? '选中的知识点正文都是空的，无法排成幻灯片。请先检查知识点内容。'
-          : '没有可排成幻灯片的内容。请先选中带正文的知识点。',
-      );
+    // ── 先试 AI ───────────────────────────────────────────────
+    let pages: SlideOutlinePage[] | null = null;
+    let citations: SlideCitation[] | null = null;
+    let bulletsWithoutCitation = 0;
+    let skippedPoints = 0;
+    let tokens: number | null = null;
+    let aiFailure: string | undefined;
+    /** AI 是否真的产出了大纲（决定 usedAi，不能只看有没有传 backend） */
+    let aiProduced = false;
+
+    if (input.backend) {
+      try {
+        const aiResult = await this.generateWithAi(input, {
+          deckTitle,
+          sourceTitle,
+          sourceTitles,
+        });
+        if (aiResult) {
+          pages = aiResult.pages;
+          citations = aiResult.citations;
+          bulletsWithoutCitation = aiResult.bulletsWithoutCitation;
+          tokens = aiResult.tokens;
+          skippedPoints = aiResult.droppedBullets;
+          aiProduced = true;
+        } else {
+          aiFailure = '模型返回的大纲是空的（可能内容太少，或返回格式不对）';
+        }
+      } catch (err) {
+        // 用户主动停止不算失败，直接往上抛
+        if (err instanceof ApiError && err.code === 'aborted') throw err;
+        if (input.signal?.aborted) throw err;
+        aiFailure = err instanceof Error ? err.message : String(err);
+      }
+    }
+
+    /**
+     * AI 没成功 → 退回确定性大纲。
+     *
+     * 这条回退**不是**「离线也能用」的功能：产品定位是必须接 AI。
+     * 它存在的理由是「请求失败不该让用户一个字的产出都拿不到」。
+     * 调用方会拿到 usedAi=false 与 aiFailure，界面必须如实告知，
+     * 不能让人以为看到的是 AI 生成的东西。
+     */
+    if (!pages) {
+      const fallback = buildOutline({
+        points: input.points,
+        sourceTitle,
+        title: input.title,
+        sourceTitles,
+      });
+
+      if (fallback.pages.length <= 1) {
+        throw new Error(
+          fallback.skippedPoints > 0
+            ? '选中的知识点正文都是空的，无法排成幻灯片。请先检查知识点内容。'
+            : '没有可排成幻灯片的内容。请先选中带正文的知识点。',
+        );
+      }
+
+      pages = fallback.pages;
+      citations = fallback.citations;
+      bulletsWithoutCitation = fallback.bulletsWithoutCitation;
+      skippedPoints = fallback.skippedPoints;
     }
 
     const ts = nowIso();
+
+    /**
+     * 到这里 pages/citations 必然已赋值：
+     * 上面两条分支覆盖了「AI 成功」与「回退成功」，
+     * 而回退失败会提前 throw。这里的断言只是把这件事告诉类型系统。
+     */
+    if (!pages || !citations) {
+      throw new Error('大纲生成失败：没有得到任何页面。请重试一次。');
+    }
+
     const deck: SlideDeck = {
       id: newId('slide'),
-      title: (input.title ?? '').trim() || `${sourceTitle} · 学习 PPT`,
+      title: deckTitle,
       courseId: input.courseId ?? source?.courseId ?? null,
       sourceId: input.sourceId || null,
       status: 'outline',
-      pages: outline.pages,
-      citations: outline.citations,
+      pages,
+      citations,
       exports: [],
       createdAt: ts,
       updatedAt: ts,
@@ -130,10 +225,118 @@ export class SlideService {
 
     await this.storage.put('slideDecks', deck);
 
+    /**
+     * 记账。放在 deck 落库之后，理由同 KnowledgeService / DeckService：
+     * 先把用户的数据存好，再记这笔钱。
+     *
+     * 只在真后端上记 —— 假后端不花钱。`tokens` 为 null 说明服务端没返回
+     * usage，那就不记（不猜一个数字出来）。
+     */
+    if (this.usage && input.backend && !input.backend.isMock && tokens) {
+      await this.usage.record({
+        backendId: input.backend.id,
+        provider: input.backend.provider ?? 'unknown',
+        kind: 'slides',
+        tokens,
+      });
+    }
+
     return {
       deck,
-      bulletsWithoutCitation: outline.bulletsWithoutCitation,
-      skippedPoints: outline.skippedPoints,
+      bulletsWithoutCitation,
+      skippedPoints,
+      usedAi: aiProduced,
+      ...(aiFailure ? { aiFailure } : {}),
+      tokens,
+    };
+  }
+
+  /**
+   * 走 AI 生成大纲正文页（不含封面）。
+   *
+   * 返回 null 表示「AI 没有产出可用内容」，由调用方回退。
+   * 抛错表示请求本身失败，同样由调用方回退并记录原因。
+   */
+  private async generateWithAi(
+    input: CreateDeckInput,
+    ctx: { deckTitle: string; sourceTitle: string; sourceTitles: Map<string, string> },
+  ): Promise<{
+    pages: SlideOutlinePage[];
+    citations: SlideCitation[];
+    bulletsWithoutCitation: number;
+    droppedBullets: number;
+    tokens: number | null;
+  } | null> {
+    const backend = input.backend;
+    if (!backend) return null;
+
+    /**
+     * 只把「有正文」的知识点送给模型。
+     *
+     * 空 statement 的条目送给模型只会浪费 token，还会让它以为
+     * 这里有个需要补全的空位，进而开始编内容。
+     */
+    const usable = input.points.filter((p) => p.statement?.trim());
+    if (usable.length === 0) return null;
+
+    const language = input.language ?? 'zh';
+
+    const aiPoints: OutlineInputPoint[] = usable.map((p) => ({
+      id: p.id,
+      statement: p.statement,
+      quotes: p.quotes,
+      chapter: p.chapter,
+      page: p.anchors[0]?.page ?? null,
+      cognitiveLevel: p.cognitiveLevel,
+    }));
+
+    /**
+     * 期望页数：按每页最多 5 条要点估，再给一点余量。
+     *
+     * 上限不是硬要求 —— 提示词里写的是「最多 N 页，内容少就少给」，
+     * 因为逼模型凑页数会直接导致它编内容。
+     */
+    const maxPages = Math.max(1, Math.ceil(usable.length / 5) + 2);
+
+    const result = await backend.generate(aiPoints, {
+      title: ctx.deckTitle,
+      sourceTitle: ctx.sourceTitle,
+      maxPages,
+      language,
+      signal: input.signal ?? new AbortController().signal,
+    });
+
+    if (result.pages.length === 0) return null;
+
+    const applied = applyAiOutline({
+      pages: result.pages,
+      points: usable,
+      sourceTitle: ctx.sourceTitle,
+      sourceTitles: ctx.sourceTitles,
+      deckTitle: ctx.deckTitle,
+    });
+
+    /**
+     * AI 一页都没能落地（全部要点都查不到知识点）→ 当作失败回退。
+     *
+     * 这种情况比返回空更值得警惕：说明模型没按约定的 id 输出，
+     * 与其给用户一份空 PPT，不如用确定性大纲兜底并说明原因。
+     */
+    if (applied.pages.length === 0) return null;
+
+    // 封面统一由这里加，保证 AI 版与回退版结构一致
+    const cover = buildCoverPage({
+      deckTitle: ctx.deckTitle,
+      sourceTitle: ctx.sourceTitle,
+      pointCount: usable.length,
+    });
+
+    return {
+      pages: [cover, ...applied.pages],
+      citations: applied.citations,
+      bulletsWithoutCitation: applied.bulletsWithoutCitation,
+      droppedBullets: applied.droppedBullets,
+      tokens: result.actualTokens,
     };
   }
 

@@ -217,8 +217,14 @@ export interface UsageRecord {
   backendId: string;
   /** 服务商标识，便于界面上按「智谱/DeepSeek」汇总而不必回查后端配置 */
   provider: string;
-  /** 消耗在什么地方 */
-  kind: 'organize' | 'questions';
+  /**
+   * 消耗在什么地方。
+   *
+   * `organize` 整理知识点、`questions` 出题、`slides` 生成 PPT 大纲。
+   * 三者必须分开记：用户需要知道钱花在哪一环，
+   * 混成一个数就只剩「这个月花了多少」，没法判断值不值。
+   */
+  kind: 'organize' | 'questions' | 'slides';
   /** 累计调用次数，让「几次请求花了这么多」有据可依 */
   calls: number;
   /** 累计 token。服务端没返回 usage 时不计入（不猜） */

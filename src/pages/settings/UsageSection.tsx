@@ -199,6 +199,9 @@ function UsageBody({
                   <span>{Math.round(share * 100)}%</span>
                   <span>整理 {b.organizeTokens.toLocaleString('zh-CN')}</span>
                   <span>出题 {b.questionsTokens.toLocaleString('zh-CN')}</span>
+                  {b.slidesTokens > 0 ? (
+                    <span>PPT {b.slidesTokens.toLocaleString('zh-CN')}</span>
+                  ) : null}
                   <span>{b.calls} 次请求</span>
                   <span>约 {formatCost(estimateCostCny(b.tokens, b.provider))}</span>
                 </div>

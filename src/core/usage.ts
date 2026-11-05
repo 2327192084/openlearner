@@ -65,6 +65,8 @@ export interface UsageByBackend {
   calls: number;
   organizeTokens: number;
   questionsTokens: number;
+  /** 生成 PPT 大纲的 token（与整理/出题分开，便于判断钱花在哪一环） */
+  slidesTokens: number;
   lastAt: string;
 }
 
@@ -131,12 +133,21 @@ export class UsageService {
         calls: 0,
         organizeTokens: 0,
         questionsTokens: 0,
+        slidesTokens: 0,
         lastAt: r.lastAt,
       };
       cur.tokens += r.tokens;
       cur.calls += r.calls;
+      /**
+       * 按用途分流，必须是穷举而不是 if/else。
+       *
+       * 早先是 `else cur.questionsTokens += ...`，加进 'slides' 之后
+       * 生成 PPT 的钱会被算到「出题」名下 —— 数字没错，归属错了，
+       * 而这种错很难被发现（总数对得上，用户不会去核对分项）。
+       */
       if (r.kind === 'organize') cur.organizeTokens += r.tokens;
-      else cur.questionsTokens += r.tokens;
+      else if (r.kind === 'questions') cur.questionsTokens += r.tokens;
+      else if (r.kind === 'slides') cur.slidesTokens += r.tokens;
       // 记录里 lastAt 是一切写入的时间，取最晚的那条
       if (r.lastAt > cur.lastAt) cur.lastAt = r.lastAt;
       map.set(r.backendId, cur);

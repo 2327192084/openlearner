@@ -49,6 +49,29 @@ export interface OutlineResult {
 }
 
 /**
+ * 造封面页。
+ *
+ * 抽出来是因为现在有两条生成路径（AI 与确定性回退），
+ * 封面必须长得一模一样 —— 否则用户在两条路径之间切换时，
+ * 会看到封面副标题的写法突然变了，像是两个不同的功能做的。
+ */
+export function buildCoverPage(input: {
+  deckTitle: string;
+  sourceTitle: string;
+  pointCount: number;
+}): SlideOutlinePage {
+  const sourceTitle = input.sourceTitle.trim() || '学习资料';
+  return {
+    id: newId('sp'),
+    layout: 'title',
+    title: input.deckTitle,
+    subtitle: `${sourceTitle}${input.pointCount > 0 ? ` · ${input.pointCount} 个知识点` : ''}`,
+    bullets: [],
+    figure: null,
+  };
+}
+
+/**
  * 生成大纲。
  *
  * 结构顺序：
@@ -145,14 +168,7 @@ export function buildOutline(input: OutlineInput): OutlineResult {
   }
 
   // ── 封面 ──────────────────────────────────────────────────
-  pages.push({
-    id: newId('sp'),
-    layout: 'title',
-    title: deckTitle,
-    subtitle: `${sourceTitle}${points.length > 0 ? ` · ${points.length} 个知识点` : ''}`,
-    bullets: [],
-    figure: null,
-  });
+  pages.push(buildCoverPage({ deckTitle, sourceTitle, pointCount: points.length }));
 
   // ── 正文页 ────────────────────────────────────────────────
   const needSectionPages = groups.length >= 2;
