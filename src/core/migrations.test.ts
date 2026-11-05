@@ -675,7 +675,8 @@ describe('migrateBackup：v6 → v7', () => {
   it('版本号升到当前', () => {
     const migrated = migrateBackup(makeV6Backup() as unknown as LibraryBackup);
     expect(migrated.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
-    expect(LIBRARY_SCHEMA_VERSION).toBe(7);
+    // v8 摘掉 capabilities.webSearch，但 v6 备份照样要能一路升上来
+    expect(LIBRARY_SCHEMA_VERSION).toBe(8);
   });
 
   it('补出空的 usageRecords 分区', () => {
@@ -757,10 +758,114 @@ describe('migrateBackup：v6 → v7', () => {
     expect(rows[0].tokens).toBe(500);
   });
 
-  it('v1 备份能一路升到 v7', () => {
+  it('v1 备份能一路升到 v8', () => {
     const migrated = migrateBackup(makeV1Backup() as unknown as LibraryBackup);
 
-    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.schemaVersion).toBe(8);
     expect(migrated.usageRecords).toEqual([]);
+  });
+});
+
+describe('migrateBackup：v7 → v8（摘掉「联网检索」假开关）', () => {
+  /** 构造一份 v7 备份：后端能力里还带着 webSearch */
+  function makeV7Backup(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      format: 'openleaner-library',
+      schemaVersion: 7,
+      exportedAt: '2026-11-05T00:00:00.000Z',
+      meta: { id: 'meta', name: 'P5 时期的库', schemaVersion: 7, createdAt: '', updatedAt: '' },
+      settings: { id: 'settings', locale: 'zh-CN', questionLanguage: 'zh', onboarded: true },
+      courses: [],
+      sources: [],
+      sourceSegments: [],
+      knowledgePoints: [],
+      generationRuns: [],
+      decks: [],
+      questions: [],
+      answerRecords: [],
+      slideDecks: [],
+      usageRecords: [],
+      backends: [
+        {
+          id: 'backend_1',
+          label: '智谱 GLM',
+          kind: 'direct-api',
+          provider: 'zhipu',
+          baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+          model: 'glm-4-flash',
+          capabilities: { textOrganize: true, visionFormula: true, webSearch: false },
+          status: 'ready',
+          isDefault: true,
+          createdAt: '',
+          updatedAt: '',
+        },
+      ],
+      ...overrides,
+    };
+  }
+
+  it('版本号升到 8', () => {
+    const migrated = migrateBackup(makeV7Backup() as unknown as LibraryBackup);
+    expect(migrated.schemaVersion).toBe(8);
+  });
+
+  it('capabilities 里的 webSearch 被删掉，而不是留成 false', () => {
+    const migrated = migrateBackup(makeV7Backup() as unknown as LibraryBackup);
+    const caps = migrated.backends[0]!.capabilities as Record<string, unknown>;
+
+    // 留一个 false 会让下一个人以为「接上就能用」，于是又做一遍没人读的界面
+    expect('webSearch' in caps).toBe(false);
+  });
+
+  it('其余能力与后端配置一条不少', () => {
+    const migrated = migrateBackup(makeV7Backup() as unknown as LibraryBackup);
+    const backend = migrated.backends[0]!;
+
+    expect(backend.capabilities.textOrganize).toBe(true);
+    expect(backend.capabilities.visionFormula).toBe(true);
+    expect(backend.label).toBe('智谱 GLM');
+    expect(backend.provider).toBe('zhipu');
+    expect(backend.model).toBe('glm-4-flash');
+    expect(backend.isDefault).toBe(true);
+  });
+
+  it('capabilities 缺失或不是对象时不抛错', () => {
+    const migrated = migrateBackup(
+      makeV7Backup({
+        backends: [{ id: 'b', label: 'x', capabilities: null }],
+      }) as unknown as LibraryBackup,
+    );
+    expect(migrated.backends[0]!.capabilities).toEqual({});
+  });
+
+  it('backends 非数组时退化为空数组', () => {
+    const migrated = migrateBackup(makeV7Backup({ backends: null }) as unknown as LibraryBackup);
+    expect(migrated.backends).toEqual([]);
+  });
+
+  it('v7 备份能真正导入学习库', async () => {
+    const storage = new MemoryStorage();
+    const service = new LibraryService(storage);
+    await service.create('目标');
+
+    const meta = await service.importBackup(makeV7Backup() as unknown as LibraryBackup);
+    expect(meta.name).toBe('P5 时期的库');
+
+    const backends = await storage.getAll('backends');
+    expect(backends).toHaveLength(1);
+    expect('webSearch' in (backends[0]!.capabilities as Record<string, unknown>)).toBe(false);
+  });
+
+  it('v6 备份一路升到 v8 时也不会留下 webSearch', () => {
+    // v6 里还没有 usageRecords，必须同时走 v6→v7 与 v7→v8 两步
+    const migrated = migrateBackup(
+      makeV7Backup({ schemaVersion: 6, usageRecords: undefined }) as unknown as LibraryBackup,
+    );
+    expect(migrated.schemaVersion).toBe(8);
+    expect(migrated.usageRecords).toEqual([]);
+
+    const caps = migrated.backends[0]!.capabilities as Record<string, unknown>;
+    expect('webSearch' in caps).toBe(false);
+    expect(caps.textOrganize).toBe(true);
   });
 });

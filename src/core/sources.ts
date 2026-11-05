@@ -37,6 +37,21 @@ export interface SearchHit {
 }
 
 /**
+ * 整篇替换分段时，调用方给的一段正文。
+ *
+ * 刻意**不含 id / index / charCount**：这三项由 writeSegments 推导，
+ * 调用方只需说清「这一段的正文是什么、对应哪一页」。
+ */
+export interface WriteSegmentInput {
+  /** 页码，从 1 开始 */
+  page: number;
+  /** 所属章节，没有则 null */
+  chapter?: string | null;
+  /** 正文 */
+  text: string;
+}
+
+/**
  * 保留原始文件字节的大小上限。
  *
  * 超了就不存（fileStored=false），图文页入口在界面上如实关闭。
@@ -360,6 +375,71 @@ export class SourceService {
     };
     await this.storage.put('sources', next);
     return next;
+  }
+
+  /**
+   * 整篇替换分段（OCR 写回用）。
+   *
+   * ## 为什么不放在 OcrService 里自己写
+   *
+   * 分段的几项不变量 —— `id` 怎么来的、`index` 从 1 连续、`charCount`
+   * 等于正文长度、资料的 `segmentCount` 跟着变、`updatedAt` 刷新 ——
+   * 都由 sources 独占维护。OCR 若绕过这里直接写 `sourceSegments`，
+   * 就是同一套规矩的第二个维护点，迟早不一致（而 `segmentCount`
+   * 一旦对不上，列表页的「N 段」和点开看到的段数会不一样）。
+   *
+   * ## 为什么必须先删旧段
+   *
+   * 扫描件原本是「每页一段、正文为空」。OCR 之后页数可能变（生成更多段），
+   * 只 `putMany` 新段会留下旧段里那些空记录，用户点开原文会看到
+   * 前几页是空的、后面突然有字。所以删干净再写。
+   *
+   * 顺序是**先删后写**，和 `remove()` 一致：最坏是「有资料没段」，
+   * 界面会显示 0 段、可以重跑一次 OCR；反过来则是脏数据被当成正常。
+   */
+  async writeSegments(
+    sourceId: string,
+    segments: readonly WriteSegmentInput[],
+    textStatus: Source['textStatus'],
+  ): Promise<{ source: Source; segments: SourceSegment[] } | null> {
+    const existing = await this.storage.get('sources', sourceId);
+    if (!existing) return null;
+
+    const ts = nowIso();
+
+    /**
+     * 按数组顺序重新编号，而不是信任调用方给的 index。
+     *
+     * OCR 是按页顺序产出的，只要顺序对，编号就该由这里决定 ——
+     * 让调用方自己填 `index: pageNo` 会在「跳过空白页」时留下空洞。
+     */
+    const next: SourceSegment[] = segments.map((seg, i) => ({
+      id: newId('seg'),
+      sourceId,
+      index: i + 1,
+      page: seg.page,
+      chapter: seg.chapter ?? null,
+      text: seg.text,
+      charCount: seg.text.length,
+    }));
+
+    // 先删旧段：只覆盖不删除会留下超出新段数的空段
+    const old = await this.getSegments(sourceId);
+    for (const seg of old) {
+      await this.storage.remove('sourceSegments', seg.id);
+    }
+
+    await this.storage.putMany('sourceSegments', next);
+
+    const source: Source = {
+      ...existing,
+      textStatus,
+      segmentCount: next.length,
+      updatedAt: ts,
+    };
+    await this.storage.put('sources', source);
+
+    return { source, segments: next };
   }
 
   /**

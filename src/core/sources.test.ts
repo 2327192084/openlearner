@@ -424,3 +424,164 @@ describe('导入的原子性', () => {
     expect(await storage.getAll('sourceSegments')).toHaveLength(0);
   });
 });
+
+describe('writeSegments：OCR 写回的入口', () => {
+  let storage: MemoryStorage;
+  let svc: SourceService;
+
+  beforeEach(() => {
+    storage = new MemoryStorage();
+    svc = new SourceService(storage);
+  });
+
+  /** 造一份带原始文件的扫描件（正文为空） */
+  async function seedScanned(pageCount: number): Promise<string> {
+    const ts = new Date().toISOString();
+    await storage.put('sources', {
+      id: 'src_scan',
+      title: '扫描件',
+      fileName: 'a.pdf',
+      kind: 'pdf' as const,
+      courseId: null,
+      pageCount,
+      byteSize: 10,
+      textStatus: 'no-text-layer' as const,
+      segmentCount: pageCount,
+      fileStored: true,
+      createdAt: ts,
+      updatedAt: ts,
+    });
+    await storage.putMany(
+      'sourceSegments',
+      Array.from({ length: pageCount }, (_, i) => ({
+        id: `old_${i + 1}`,
+        sourceId: 'src_scan',
+        index: i + 1,
+        page: i + 1,
+        chapter: null,
+        text: '',
+        charCount: 0,
+      })),
+    );
+    return 'src_scan';
+  }
+
+  it('整篇替换：旧的空段一条不留', async () => {
+    const id = await seedScanned(3);
+
+    const out = await svc.writeSegments(
+      id,
+      [
+        { page: 1, text: '第一页正文' },
+        { page: 2, text: '第二页正文' },
+        { page: 3, text: '第三页正文' },
+      ],
+      'ready',
+    );
+
+    expect(out).not.toBeNull();
+    const all = await storage.getAll('sourceSegments');
+    expect(all).toHaveLength(3);
+    expect(all.some((s) => s.id.startsWith('old_'))).toBe(false);
+  });
+
+  it('新段数比旧段少时不留下多余的段', async () => {
+    const id = await seedScanned(5);
+
+    // OCR 只认出了 2 页有字
+    await svc.writeSegments(id, [{ page: 1, text: '甲' }, { page: 4, text: '乙' }], 'ready');
+
+    const all = await storage.getAll('sourceSegments');
+    // 若只 putMany 不删除，另外 3 条空段会留下来，用户点开原文会看到前几页是空的
+    expect(all).toHaveLength(2);
+    expect(all.map((s) => s.page).sort()).toEqual([1, 4]);
+  });
+
+  it('index 连续从 1 开始，不受传入页码影响', async () => {
+    const id = await seedScanned(10);
+
+    // 跳着传页码（只识别了第 3、7、8 页）
+    await svc.writeSegments(
+      id,
+      [{ page: 3, text: 'a' }, { page: 7, text: 'b' }, { page: 8, text: 'c' }],
+      'ready',
+    );
+
+    const segs = await svc.getSegments(id);
+    // index 由 writeSegments 重新编号：不能留空洞，否则翻页会跳
+    expect(segs.map((s) => s.index)).toEqual([1, 2, 3]);
+    expect(segs.map((s) => s.page)).toEqual([3, 7, 8]);
+  });
+
+  it('charCount 跟着正文长度算，不信任调用方', async () => {
+    const id = await seedScanned(1);
+    await svc.writeSegments(id, [{ page: 1, text: '一二三四五' }], 'ready');
+
+    const segs = await svc.getSegments(id);
+    expect(segs[0]!.charCount).toBe(5);
+  });
+
+  it('资料的 segmentCount 与 textStatus 一起更新', async () => {
+    const id = await seedScanned(4);
+
+    const out = await svc.writeSegments(
+      id,
+      [{ page: 1, text: '甲' }, { page: 2, text: '乙' }],
+      'ready',
+    );
+
+    expect(out!.source.segmentCount).toBe(2);
+    expect(out!.source.textStatus).toBe('ready');
+
+    // 落库的也要是 SP：不能只改返回值
+    const stored = await svc.get(id);
+    expect(stored!.segmentCount).toBe(2);
+    expect(stored!.textStatus).toBe('ready');
+  });
+
+  it('chapter 缺省补 null 而不是 undefined（JSON 往返后要还在）', async () => {
+    const id = await seedScanned(1);
+    await svc.writeSegments(id, [{ page: 1, text: '甲' }], 'ready');
+
+    const segs = await svc.getSegments(id);
+    expect(segs[0]!.chapter).toBeNull();
+    expect(JSON.parse(JSON.stringify(segs[0]))).toHaveProperty('chapter', null);
+  });
+
+  it('每段拿到新的 id，不复用旧段 id', async () => {
+    const id = await seedScanned(2);
+    await svc.writeSegments(id, [{ page: 1, text: '甲' }, { page: 2, text: '乙' }], 'ready');
+
+    const segs = await svc.getSegments(id);
+    expect(segs.every((s) => !s.id.startsWith('old_'))).toBe(true);
+    // id 各不相同
+    expect(new Set(segs.map((s) => s.id)).size).toBe(2);
+  });
+
+  it('资料不存在时返回 null，不写任何东西', async () => {
+    expect(await svc.writeSegments('nope', [{ page: 1, text: 'x' }], 'ready')).toBeNull();
+    expect(await storage.getAll('sourceSegments')).toHaveLength(0);
+  });
+
+  it('写回后全文搜索能命中识别出的文字', async () => {
+    const id = await seedScanned(2);
+    await svc.writeSegments(
+      id,
+      [{ page: 1, text: '线性表是由有限个数据元素构成的序列' }],
+      'ready',
+    );
+
+    // 这是整条链路的真实目的：扫描件要变得能搜索、能出题
+    const hits = await svc.search(id, '线性表');
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.page).toBe(1);
+  });
+
+  it('空数组写回会清空分段并把段数记为 0（而不是留着旧段）', async () => {
+    const id = await seedScanned(3);
+    const out = await svc.writeSegments(id, [], 'no-text-layer');
+
+    expect(out!.source.segmentCount).toBe(0);
+    expect(await svc.getSegments(id)).toEqual([]);
+  });
+});

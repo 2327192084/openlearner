@@ -199,7 +199,6 @@ export function BackendSection({
                     <div className="backend-item__caps">
                       <Capability on={item.capabilities.textOrganize} label="文字整理" />
                       <Capability on={item.capabilities.visionFormula} label="看图识公式" />
-                      <Capability on={item.capabilities.webSearch} label="联网检索" />
                       <span className="backend-item__sep">·</span>
                       <span className="page__muted">
                         {item.hasCredential ? `凭据 ${item.credentialHint}` : '未保存凭据'}
@@ -577,17 +576,11 @@ function BackendForm({
             />
             看图识公式
           </label>
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={draft.capabilities.webSearch}
-              onChange={(e) => setCap('webSearch', e.target.checked)}
-            />
-            联网检索
-          </label>
         </div>
         <div className="field__hint">
           如实勾选。界面会在调用前告知能力，勾了但实际不支持会让用户在生成中途卡住。
+          「看图识公式」需要这个后端填的是多模态模型（如智谱 glm-4v、通义
+          qwen-vl-max、OpenAI gpt-4o），普通对话模型看不了图。
         </div>
       </fieldset>
 

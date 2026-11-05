@@ -230,6 +230,38 @@ const migrations: Record<number, Migration> = {
     schemaVersion: 7,
     usageRecords: [],
   }),
+
+  /**
+   * v7 → v8
+   *
+   * v8 从 `BackendConfig.capabilities` 里摘掉了 `webSearch`（联网检索）。
+   *
+   * 原因：它从来没有被读取过。OpenAI 兼容接口没有统一的联网检索写法
+   * （智谱有 web_search 工具、DeepSeek 没有，各家形状都不一样），
+   * 所以设置页那个勾选框点了也不会有任何事发生 —— 假开关比没有开关更糟。
+   *
+   * 这里**删字段而不是留空值**：留一个 `webSearch: false` 会让下一个人
+   * 以为「接上就能用」，于是又照着它做一遍没人读的界面。
+   * 删掉才是真正的「摘掉」。
+   */
+  7: (backup) => {
+    const backends = Array.isArray(backup.backends)
+      ? (backup.backends as Record<string, unknown>[])
+      : [];
+
+    return {
+      ...backup,
+      schemaVersion: 8,
+      backends: backends.map((b) => {
+        const caps =
+          b.capabilities && typeof b.capabilities === 'object'
+            ? { ...(b.capabilities as Record<string, unknown>) }
+            : {};
+        delete caps.webSearch;
+        return { ...b, capabilities: caps };
+      }),
+    };
+  },
 };
 
 /**

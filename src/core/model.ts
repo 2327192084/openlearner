@@ -9,7 +9,7 @@
  */
 
 /** 当前学习库结构版本。改动实体结构时递增，并在 migrations.ts 补一段迁移。 */
-export const LIBRARY_SCHEMA_VERSION = 7;
+export const LIBRARY_SCHEMA_VERSION = 8;
 
 /**
  * 位置信息 —— 全项目「点回原文」的唯一依据。
@@ -534,11 +534,23 @@ export interface BackendConfig {
   baseUrl: string;
   /** 默认模型名 */
   model: string;
-  /** 该后端自报支持的能力（P5 要求调用前就告知） */
+  /**
+   * 该后端自报支持的能力（P5 要求调用前就告知）。
+   *
+   * 每一项都必须有代码真的去读它，否则就是假开关。
+   * `visionFormula` 由 `OcrService`（src/core/ocr/）读取 —— 勾上它，
+   * 扫描件才会真的逐页送进多模态模型识别。
+   *
+   * 早先这里还有第三项 `webSearch`（联网检索）。它从来没有被读取过：
+   * OpenAI 兼容接口没有统一的联网检索写法（各家形状都不同），
+   * 所以那个勾选框点了也不会有任何事发生。已按「假控件要么变成真功能、
+   * 要么摘掉」的原则移除，不留一个永远没人读的字段。
+   */
   capabilities: {
+    /** 文字整理：把有文本层的资料整理成知识点 */
     textOrganize: boolean;
+    /** 看图识公式：把扫描件逐页渲染后交给多模态模型识别 */
     visionFormula: boolean;
-    webSearch: boolean;
   };
   /** 当前可用状态（P5 要求调用前告知，不做「点了才发现不能用」） */
   status: 'ready' | 'unconfigured' | 'needs-login' | 'expired';

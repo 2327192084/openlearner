@@ -42,7 +42,7 @@ export const DEFAULT_BACKEND_DRAFT: BackendDraft = {
   provider: 'deepseek',
   baseUrl: 'https://api.deepseek.com',
   model: 'deepseek-chat',
-  capabilities: { textOrganize: true, visionFormula: false, webSearch: false },
+  capabilities: { textOrganize: true, visionFormula: false },
 };
 
 /**
