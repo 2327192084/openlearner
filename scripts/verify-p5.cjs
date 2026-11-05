@@ -354,10 +354,18 @@ async function main() {
       await new Promise(r => setTimeout(r, 800));
 
       const keyInput = document.querySelector('#bf-key');
+      const kindSelect = document.querySelector('#bf-kind');
+      const kindOptions = kindSelect
+        ? [...kindSelect.options].map(o => ({ value: o.value, text: o.textContent.trim() }))
+        : [];
+      const hintText = [...document.querySelectorAll('.backend-form .field__hint')]
+        .map(n => n.textContent).join(' ');
       return {
         ok: true,
         formOpen: !!document.querySelector('.backend-form'),
         keyIsPassword: keyInput?.type === 'password',
+        kindOptions,
+        hintText,
       };
     })()`);
 
@@ -365,6 +373,27 @@ async function main() {
       '设置页可打开添加后端表单，且 Key 输入是 password',
       addBackend.ok && addBackend.formOpen && addBackend.keyIsPassword,
       addBackend.ok ? '' : addBackend.why,
+    );
+
+    /**
+     * 新建后端时不能出现「agent 应用接入」这个选项。
+     *
+     * 它不是「暂未实现」那么轻 —— 选中它以后接口地址和模型输入框会被禁用，
+     * 状态恒为「需登录」，而界面上又没有任何登录入口。用户会以为
+     * 「登录一下 WorkBuddy 就能用」，实际上这条路从头到尾走不通。
+     *
+     * agent 平台的正解是把平台给的 OpenAI 兼容端点填进「模型 API 直连 + 自定义」，
+     * 所以第二条断言还要检查表单说明里写了这件事，否则用户想不到。
+     */
+    record(
+      '**新建表单不提供走不通的「agent 应用接入」选项**',
+      addBackend.ok && !(addBackend.kindOptions ?? []).some((o) => o.value === 'agent-app'),
+      `实际选项=${JSON.stringify((addBackend.kindOptions ?? []).map((o) => o.text))}`,
+    );
+    record(
+      '表单说明写清了 agent 平台该怎么接（填兼容端点到「自定义」）',
+      addBackend.ok && /OpenAI 兼容/.test(addBackend.hintText ?? '') && /agent/i.test(addBackend.hintText ?? ''),
+      `说明：${(addBackend.hintText ?? '').slice(0, 100).replace(/\s+/g, ' ')}`,
     );
 
     // ---------- 3. 填入假 Key 并保存 ----------

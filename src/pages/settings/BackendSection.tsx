@@ -460,12 +460,33 @@ function BackendForm({
             onChange={(e) => setField('kind', e.target.value as BackendDraft['kind'])}
           >
             <option value="direct-api">模型 API 直连（填自己的 Key）</option>
-            <option value="agent-app">agent 应用接入（登录第三方平台）</option>
+            {/*
+              agent-app 只在编辑一个**历史上已经存在**的 agent-app 后端时才出现。
+
+              原因：这个类型当前没有任何可用实现 —— deriveStatus 对它恒返回
+              needs-login，表单还会把接口地址和模型都禁用掉。把它摆在新建表单里，
+              用户选中的就是一条走不通的路：看起来像「登录一下就能用」，
+              实际上永远用不了，也说不清该去哪登录。
+
+              agent 平台（WorkBuddy 等）目前的正确接法是把平台提供的
+              OpenAI 兼容端点填进「模型 API 直连 + 自定义」，见下面的说明。
+              保留这个选项只是为了让老数据能被正常打开、改名、删除。
+            */}
+            {initial?.kind === 'agent-app' ? (
+              <option value="agent-app">agent 应用接入（登录第三方平台）</option>
+            ) : null}
           </select>
           <div className="field__hint">
-            {draft.kind === 'direct-api'
-              ? '填自己的 Key，任何 OpenAI 兼容服务都能用。agent 平台给的自定义端点也选这个。'
-              : '需要先在第三方平台登录。目前还没有做自动对接，建议先用「模型 API 直连」。'}
+            {draft.kind === 'direct-api' ? (
+              <>
+                填自己的 Key，任何 <strong>OpenAI 兼容</strong>服务都能用。
+                <br />
+                agent 平台（WorkBuddy、各类助手）通常提供一个自定义模型端点，把它的地址和 Key
+                填到这里、服务商选「自定义」即可。
+              </>
+            ) : (
+              '这个接入方式还没有做自动登录对接，状态会一直是「需登录」，暂时不能用。建议改用「模型 API 直连」，把平台的兼容端点填进去。'
+            )}
           </div>
         </div>
 
