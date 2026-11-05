@@ -1164,6 +1164,61 @@ async function main() {
       );
     }
 
+    /**
+     * 超大图必须被拒绝，且不留在库里。
+     *
+     * 用 9MB 的假图（上限 8MB）。这条守的是「拦在写入口」：
+     * 如果只拦界面，别处（以后的粘贴、批量导入）一进来就绕过了。
+     */
+    const bigFileRejected = await cdp.eval(`(async () => {
+      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+      const input = document.querySelector('input[type=file][accept*="image"]');
+      if (!input) return { ok: false, why: '找不到图片输入框' };
+
+      // 造一个 9MB 的假 PNG（内容不重要，只看大小判断）
+      const bytes = new Uint8Array(9 * 1024 * 1024);
+      const file = new File([bytes], 'big.png', { type: 'image/png' });
+
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      Object.defineProperty(input, 'files', { value: dt.files, configurable: true });
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+
+      await sleep(1500);
+      const body = document.body.innerText || '';
+      return {
+        ok: true,
+        sawSizeWarning: /超过|MB/.test(body),
+        stillShowButton: [...document.querySelectorAll('button')].some(b =>
+          b.textContent.trim() === '插入图片'),
+      };
+    })()`);
+
+    record(
+      '**超大图片被拒绝，并给出可操作提示**',
+      bigFileRejected.ok && bigFileRejected.sawSizeWarning,
+      bigFileRejected.ok
+        ? bigFileRejected.sawSizeWarning
+          ? '界面提示了大小超限'
+          : '没有看到大小提示'
+        : bigFileRejected.why,
+    );
+
+    // 被拒的图不能留在库里
+    const imagesAfterBig = await cdp.eval(`(async () => {
+      ${DB_HELPER}
+      const db = await openDb();
+      const imgs = await readAll(db, 'slideImages');
+      db.close();
+      return imgs.map(i => i.byteSize || 0);
+    })()`);
+
+    record(
+      '被拒绝的图片没有进库',
+      Array.isArray(imagesAfterBig) && imagesAfterBig.every((n) => n <= 8 * 1024 * 1024),
+      `${imagesAfterBig.length} 张图，最大 ${Math.max(0, ...imagesAfterBig)} 字节`,
+    );
+
     // ---------- 10. 无 console 错误 ----------
     record(
       'P4 全流程无 console 错误 / 未捕获异常',

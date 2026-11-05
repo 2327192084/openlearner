@@ -11,6 +11,7 @@ import {
   type ResizeHandle,
 } from '@/core/slides/overlay-geometry.ts';
 import { useServices } from '@/app/services-context.ts';
+import { MAX_SLIDE_IMAGE_BYTES, SlideImageTooLargeError } from '@/core/slides/service.ts';
 import { Badge, Notice } from '@/components/states.tsx';
 import { describeError, hintFrom } from './types.ts';
 
@@ -72,10 +73,18 @@ export function OverlayEditor({ deck, pageId, slide, onDeck }: OverlayEditorProp
         const next = await fn();
         onDeck(next);
       } catch (err) {
-        setError({
-          message: describeError(err),
-          hint: hintFrom(err, '这次操作没保存成功。刷新页面确认一下内容还在不在，然后重试。'),
-        });
+        /**
+         * 图片超限单独处理：它自带 hint（怎么压缩），
+         * 用通用文案会把这个最需要具体指引的失败说成「保存失败」。
+         */
+        if (err instanceof SlideImageTooLargeError) {
+          setError({ message: err.message, hint: err.hint });
+        } else {
+          setError({
+            message: describeError(err),
+            hint: hintFrom(err, '这次操作没保存成功。刷新页面确认一下内容还在不在，然后重试。'),
+          });
+        }
       } finally {
         setBusy(false);
       }
@@ -88,6 +97,26 @@ export function OverlayEditor({ deck, pageId, slide, onDeck }: OverlayEditorProp
 
   const insertImage = async (file: File) => {
     if (!pageId) return;
+
+    /**
+     * 先按文件大小拦一道。
+     *
+     * 用户选了一张 40MB 的图时，读成 data URL 本身就要几百毫秒、
+     * 占几十 MB 内存；等写库时才拒绝，会有明显的卡顿再报错，
+     * 而且那段 base64 已经在内存里了。先拦，连读都不读。
+     */
+    if (file.size > MAX_SLIDE_IMAGE_BYTES) {
+      setError({
+        message: `这个文件 ${(file.size / (1024 * 1024)).toFixed(1)} MB，超过了 ${
+          MAX_SLIDE_IMAGE_BYTES / (1024 * 1024)
+        } MB 的上限`,
+        hint:
+          '截图或照片通常不必这么大。可以先压缩再插进来；' +
+          'Windows 自带的「画图」打开后另存为 PNG 就能小很多。',
+      });
+      return;
+    }
+
     const image = await readImageFile(file);
     await run(async () => {
       const imageId = await slides.addImage({

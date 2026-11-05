@@ -36,6 +36,59 @@ import { buildFileName, exportToPptx } from './pptx-export.ts';
  * 让人在便宜的环节改，别在贵的环节返工。
  */
 
+/**
+ * 单张插图的大小上限。
+ *
+ * 为什么是 8MB 而不是更大：
+ *  - 一张 2000px 宽的教材截图 PNG 约 1~3MB，8MB 对正常用途够宽裕；
+ *  - 图片是**进备份**的（用户找不回来，必须带走）。50 张 8MB 的图
+ *    就是 400MB 的备份文件，而备份是给换机器用的，太大根本传不动；
+ *  - IndexedDB 单条记录过大时，某些浏览器会在配额边缘抛 QuotaExceeded，
+ *    而且往往发生在写入一批数据的中途，清理起来很麻烦。
+ */
+export const MAX_SLIDE_IMAGE_BYTES = 8 * 1024 * 1024;
+
+/**
+ * 图片超出上限。
+ *
+ * 单独一个错误类型，是为了让界面能识别它并给出**可操作**的建议
+ * （换图/压缩），而不是把所有失败都说成「保存失败」。
+ */
+export class SlideImageTooLargeError extends Error {
+  readonly hint: string;
+  constructor(readonly byteSize: number) {
+    const mb = (byteSize / (1024 * 1024)).toFixed(1);
+    const limitMb = Math.round(MAX_SLIDE_IMAGE_BYTES / (1024 * 1024));
+    super(`这张图片 ${mb} MB，超过了 ${limitMb} MB 的上限`);
+    this.name = 'SlideImageTooLargeError';
+    this.hint =
+      `截图或照片通常不必这么大。可以先压缩到 ${limitMb}MB 以内再插进来；` +
+      'Windows 自带的「画图」打开后另存为 PNG 就能小很多，' +
+      '或者用微信/QQ 发一次给自己，它也会自动压缩。';
+  }
+}
+
+/**
+ * data URL 的实际字节数。
+ *
+ * 不能直接用 `input.imageData.length`：那是 base64 **字符**数，
+ * 比真实字节多约 33%。拿字符数当字节数会把上限算松 1/3，
+ * 也可能让「刚好卡在边界」的图被误判成超限。
+ *
+ * 算法：去掉 `data:...;base64,` 前缀，剩下的 base64 字符数 × 3/4，
+ * 再减去末尾填充（'=' 的个数）。
+ */
+export function estimateDataUrlBytes(dataUrl: string): number {
+  const comma = dataUrl.indexOf(',');
+  if (comma < 0) return 0;
+
+  const payload = dataUrl.slice(comma + 1);
+  if (payload.length === 0) return 0;
+
+  const padding = payload.endsWith('==') ? 2 : payload.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((payload.length * 3) / 4) - padding);
+}
+
 export interface CreateDeckInput {
   title?: string;
   sourceId: string;
@@ -142,15 +195,8 @@ export class SlideService {
    * 库里可能存着几百张图，而这一份 PPT 只用了两张。
    */
   private async imagesOf(deck: SlideDeck): Promise<Map<string, SlideImageRecord>> {
-    const ids = new Set<string>();
-    for (const page of deck.pages) {
-      for (const ov of page.overlays ?? []) {
-        if (ov.kind === 'image' && ov.imageId) ids.add(ov.imageId);
-      }
-    }
-
     const map = new Map<string, SlideImageRecord>();
-    for (const id of ids) {
+    for (const id of collectImageIds(deck)) {
       const img = await this.storage.get('slideImages', id);
       if (img) map.set(id, img);
     }
@@ -536,19 +582,35 @@ export class SlideService {
    *
    * 图片单独存 `slideImages` 分区，页面里只留 id。同一张图被多页引用时
    * 只存一份 —— 内嵌进 deck 会让记录成倍变大，IndexedDB 单条有大小风险。
+   *
+   * ## 为什么在这里拦大小
+   *
+   * 拦在写入口而不是拦在界面：界面有好几个入口（拖拽编辑器、以后的
+   * 粘贴、批量导入），每个都写一遍判断迟早漏一个，而漏掉的那个
+   * 会直接把几十 MB 塞进 IndexedDB。写入之后才发现要清理，
+   * 还要处理「已经进库了但删不干净」的麻烦。
+   *
+   * 超限时抛错而不是静默缩小：静默压缩会让用户以为原图存进去了，
+   * 导出后才发现糊了。宁可当场拒绝并说明怎么处理。
    */
   async addImage(input: {
     imageData: string;
     width: number;
     height: number;
   }): Promise<string> {
+    const byteSize = estimateDataUrlBytes(input.imageData);
+
+    if (byteSize > MAX_SLIDE_IMAGE_BYTES) {
+      throw new SlideImageTooLargeError(byteSize);
+    }
+
     const id = newId('img');
     await this.storage.put('slideImages', {
       id,
       imageData: input.imageData,
       width: input.width,
       height: input.height,
-      byteSize: input.imageData.length,
+      byteSize,
       createdAt: nowIso(),
     });
     return id;
@@ -598,12 +660,35 @@ export class SlideService {
   }
 
   /** 删掉一块叠加内容 */
+  /**
+   * 删掉一块叠加内容。
+   *
+   * 如果删的是图片、且这张图不再被任何页引用，就把它从 `slideImages`
+   * 里也删掉 —— 否则用户反复「插入 → 删掉」，库里会堆一串没人引用的图，
+   * 而且它们还会跟着进备份。
+   *
+   * 顺序：先改 deck（落库），再删图。反过来的话中途失败会留下
+   * 「页面上还有这块、图却没了」，那是可见的空框。
+   */
   async removeOverlay(id: string, pageId: string, overlayId: string): Promise<SlideDeck> {
-    return this.mutate(id, (deck) => {
+    const target = (await this.get(id))?.pages
+      .find((p) => p.id === pageId)
+      ?.overlays?.find((o) => o.id === overlayId);
+
+    const next = await this.mutate(id, (deck) => {
       const page = deck.pages.find((p) => p.id === pageId);
       if (!page?.overlays) return;
       page.overlays = page.overlays.filter((o) => o.id !== overlayId);
     });
+
+    // deck 已落库，现在安全地清理不再被引用的图
+    if (target?.kind === 'image' && target.imageId) {
+      if (!collectImageIds(next).has(target.imageId)) {
+        await this.storage.remove('slideImages', target.imageId);
+      }
+    }
+
+    return next;
   }
 
   async updatePageTitle(id: string, pageId: string, title: string): Promise<SlideDeck> {
@@ -921,8 +1006,28 @@ export class SlideService {
     return n;
   }
 
+  /**
+   * 删除整份 PPT，并清理它引用的图片。
+   *
+   * ## 为什么必须一起清理
+   *
+   * 图片单独存在 `slideImages` 里，delete 掉 deck 之后那些图就成了
+   * 没人引用的孤儿：界面上再也看不到它们，却永远占着空间，
+   * 而且**还会跟着进备份**——用户的备份文件会因为这个越变越大，
+   * 而他找不到原因（PPT 已经删了）。
+   *
+   * 顺序是**先删 deck 再删图**：反过来的话，中途失败会留下
+   * 「deck 还在、图没了」，那是可见的坏数据（页面上的图变成空框）。
+   * 先删 deck 则最坏是「deck 没了、图还在」，用户看不见，下次清理还能扫到。
+   */
   async remove(id: string): Promise<void> {
+    const deck = await this.get(id);
     await this.storage.remove('slideDecks', id);
+
+    if (!deck) return;
+    for (const imageId of collectImageIds(deck)) {
+      await this.storage.remove('slideImages', imageId);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -948,6 +1053,22 @@ export class SlideService {
  */
 function normalizeFileName(name: string): string {
   return name.replace(/[\\/:*?"<>|]/g, '_').trim();
+}
+
+/**
+ * 收集一份 PPT 引用到的全部图片 id。
+ *
+ * 抽成函数是因为删除 PPT、删单块 overlay 都要用它，
+ * 两处各写一遍「遍历 pages → overlays → imageId」迟早漏一处。
+ */
+export function collectImageIds(deck: SlideDeck): Set<string> {
+  const ids = new Set<string>();
+  for (const page of deck.pages) {
+    for (const ov of page.overlays ?? []) {
+      if (ov.kind === 'image' && ov.imageId) ids.add(ov.imageId);
+    }
+  }
+  return ids;
 }
 
 /**
