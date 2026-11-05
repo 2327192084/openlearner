@@ -1,6 +1,5 @@
 import { newId, nowIso } from '../id.ts';
 import type {
-  KnowledgePoint,
   SlideCitation,
   SlideDeck,
   SlideFigure,
@@ -16,6 +15,7 @@ import { SLIDE_LIMITS, chunkBullets, normalizeBulletText } from './limits.ts';
 import { buildCoverPage, buildOutline } from './outline.ts';
 import { applyAiOutline } from './ai-outline.ts';
 import { resolveTheme } from './theme.ts';
+import type { SourceChunk } from './source-chunk.ts';
 import { assembleTemplate, planTemplate } from './template.ts';
 import type { TemplateContentItem } from './template.ts';
 import type { OutlineBackend, OutlineInputPoint } from './backend-types.ts';
@@ -92,8 +92,13 @@ export function estimateDataUrlBytes(dataUrl: string): number {
 export interface CreateDeckInput {
   title?: string;
   sourceId: string;
-  /** 要写进 PPT 的知识点，需调用方按原文顺序传 */
-  points: KnowledgePoint[];
+  /**
+   * 本次参与生成的原文段落（调用方按页码范围切好再传）。
+   *
+   * PPT 从**资料原文**生成，不再从知识点出发 —— 与知识点那一栏
+   * 用同一套取材方式（选资料 + 页码范围）。
+   */
+  chunks: SourceChunk[];
   courseId?: string | null;
   /** 其他资料的标题（sourceId → title），跨资料引用时用 */
   sourceTitles?: Map<string, string>;
@@ -208,14 +213,15 @@ export class SlideService {
   // -------------------------------------------------------------------------
 
   /**
-   * 从知识点生成一份 PPT 的大纲。
+   * 从资料原文生成一份 PPT 的大纲。
    *
-   * 不做「先建空 PPT 再往里塞」两步走：用户从知识点页点「生成学习 PPT」时，
+   * 不做「先建空 PPT 再往里塞」两步走：用户点「生成学习 PPT」时，
    * 期望的是「拿到一份能改的大纲」，而不是「库里多了一个空壳」。
    */
-  async createFromPoints(input: CreateDeckInput): Promise<CreateDeckResult> {
-    if (input.points.length === 0) {
-      throw new Error('没有选中的知识点。请先在「知识点」页生成或勾选一些知识点。');
+  async createFromSource(input: CreateDeckInput): Promise<CreateDeckResult> {
+    const usable = input.chunks.filter((c) => c.text.trim());
+    if (usable.length === 0) {
+      throw new Error('选定的范围里没有可用的正文。换一份资料或放宽页码范围再试。');
     }
 
     const source = input.sourceId ? await this.storage.get('sources', input.sourceId) : null;
@@ -289,18 +295,15 @@ export class SlideService {
      */
     if (!pages) {
       const fallback = buildOutline({
-        points: input.points,
+        chunks: usable,
         sourceTitle,
         title: input.title,
         sourceTitles,
+        sourceId: input.sourceId,
       });
 
       if (fallback.pages.length <= 1) {
-        throw new Error(
-          fallback.skippedPoints > 0
-            ? '选中的知识点正文都是空的，无法排成幻灯片。请先检查知识点内容。'
-            : '没有可排成幻灯片的内容。请先选中带正文的知识点。',
-        );
+        throw new Error('选定的范围里没有可排成幻灯片的内容。换一段原文再试。');
       }
 
       pages = fallback.pages;
@@ -382,11 +385,11 @@ export class SlideService {
     const backend = input.backend;
     if (!backend) return null;
 
-    const usable = input.points.filter((p) => p.statement?.trim());
+    const usable = input.chunks.filter((c) => c.text.trim());
     if (usable.length === 0) return null;
 
     const language = input.language ?? 'zh';
-    const aiPoints = usable.map((p) => toAiPoint(p));
+    const aiPoints = usable.map((c) => toAiChunk(c));
 
     /**
      * 后端没实现 generateForTemplate 时退回自由模式。
@@ -410,16 +413,17 @@ export class SlideService {
 
     if (result.items.length === 0) return null;
 
-    // 角标：与自由模式同一套规则，位置从知识点 anchors 继承
+    // 角标：与自由模式同一套规则，页码从段落继承
     const { citations, citationOf, bulletsWithoutCitation } = buildCitations(
       usable,
       ctx.sourceTitle,
       ctx.sourceTitles,
+      input.sourceId,
     );
 
     const content = new Map<string, TemplateContentItem>();
     let droppedBullets = 0;
-    const knownIds = new Set(usable.map((p) => p.id));
+    const knownIds = new Set(usable.map((c) => c.segmentId));
 
     for (const item of result.items) {
       if (!knownIds.has(item.fromPointId)) {
@@ -484,19 +488,12 @@ export class SlideService {
      * 空 statement 的条目送给模型只会浪费 token，还会让它以为
      * 这里有个需要补全的空位，进而开始编内容。
      */
-    const usable = input.points.filter((p) => p.statement?.trim());
+    const usable = input.chunks.filter((c) => c.text.trim());
     if (usable.length === 0) return null;
 
     const language = input.language ?? 'zh';
 
-    const aiPoints: OutlineInputPoint[] = usable.map((p) => ({
-      id: p.id,
-      statement: p.statement,
-      quotes: p.quotes,
-      chapter: p.chapter,
-      page: p.anchors[0]?.page ?? null,
-      cognitiveLevel: p.cognitiveLevel,
-    }));
+    const aiPoints: OutlineInputPoint[] = usable.map((c) => toAiChunk(c));
 
     /**
      * 期望页数：按每页最多 5 条要点估，再给一点余量。
@@ -518,9 +515,10 @@ export class SlideService {
 
     const applied = applyAiOutline({
       pages: result.pages,
-      points: usable,
+      chunks: usable,
       sourceTitle: ctx.sourceTitle,
       sourceTitles: ctx.sourceTitles,
+      sourceId: input.sourceId,
       deckTitle: ctx.deckTitle,
     });
 
@@ -537,6 +535,9 @@ export class SlideService {
       deckTitle: ctx.deckTitle,
       sourceTitle: ctx.sourceTitle,
       pointCount: usable.length,
+      // 与 template.ts / outline.ts 一致：三条路径的封面写法必须相同，
+      // 否则用户在模式之间切换会看到副标题从「段原文」变成「页」
+      unit: '段原文',
     });
 
     return {
@@ -1096,67 +1097,64 @@ export type { RenderSlide };
  * 两种生成模式（固定模板 / 自由）共用，保证送给模型的信息一致 ——
  * 否则两条路径产出的内容风格会不一样，用户换模式时会觉得像两个功能。
  */
-function toAiPoint(p: KnowledgePoint): OutlineInputPoint {
+function toAiChunk(c: SourceChunk): OutlineInputPoint {
   return {
-    id: p.id,
-    statement: p.statement,
-    quotes: p.quotes,
-    chapter: p.chapter,
-    page: p.anchors[0]?.page ?? null,
-    cognitiveLevel: p.cognitiveLevel,
+    id: c.segmentId,
+    page: c.page,
+    chapter: c.chapter,
+    text: c.text,
   };
 }
 
 /**
- * 建角标表，并返回「知识点 → 角标编号」的查询函数。
+ * 建角标表，并返回「段落 → 角标编号」的查询函数。
  *
- * 这是整个 PPT 功能最要紧的一段：位置只从知识点已验证的 anchors 继承，
+ * 这是整个 PPT 功能最要紧的一段：页码只从段落继承，
  * 绝不在这里推算。两种生成模式共用它，避免各写一份而走样。
+ *
+ * 与「从知识点继承」相比更可靠：不再要求知识点定位成功，
+ * 只要段落有页码（解析器切出来的，几乎总有）角标就成立。
  */
 function buildCitations(
-  points: KnowledgePoint[],
+  chunks: SourceChunk[],
   sourceTitle: string,
   sourceTitles: Map<string, string>,
+  sourceId: string | undefined,
 ): {
   citations: SlideCitation[];
-  citationOf: (point: KnowledgePoint) => number | null;
+  citationOf: (chunk: SourceChunk) => number | null;
   bulletsWithoutCitation: number;
 } {
   const citations: SlideCitation[] = [];
-  const byPoint = new Map<string, number>();
+  const byChunk = new Map<string, number>();
   let bulletsWithoutCitation = 0;
 
-  const citationOf = (point: KnowledgePoint): number | null => {
-    const existing = byPoint.get(point.id);
+  const citationOf = (chunk: SourceChunk): number | null => {
+    const existing = byChunk.get(chunk.segmentId);
     if (existing !== undefined) return existing;
 
-    // 定位失败/被豁免 → 不建角标（不给假角标）
-    if (point.anchorStatus !== 'located') {
-      bulletsWithoutCitation += 1;
-      return null;
-    }
-    const anchor = point.anchors[0];
-    if (!anchor) {
+    // 段落缺页码 → 不建角标（不给假角标）
+    if (!Number.isFinite(chunk.page) || chunk.page <= 0) {
       bulletsWithoutCitation += 1;
       return null;
     }
 
     const citation: SlideCitation = {
       index: citations.length + 1,
-      knowledgePointId: point.id,
-      sourceId: anchor.sourceId || point.sourceId || '',
-      sourceTitle: sourceTitles.get(anchor.sourceId) ?? sourceTitle,
-      page: anchor.page ?? null,
-      chapter: anchor.chapter ?? point.chapter,
-      quote: point.quotes[0] ?? '',
+      segmentId: chunk.segmentId,
+      sourceId: sourceId ?? '',
+      sourceTitle: sourceTitles.get(sourceId ?? '') ?? sourceTitle,
+      page: chunk.page,
+      chapter: chunk.chapter,
+      quote: chunk.text.replace(/\s+/g, ' ').slice(0, 120),
     };
     citations.push(citation);
-    byPoint.set(point.id, citation.index);
+    byChunk.set(chunk.segmentId, citation.index);
     return citation.index;
   };
 
-  // 预先为所有知识点建号，顺序按传入顺序（= 原文页码顺序）
-  for (const p of points) citationOf(p);
+  // 预先为所有段落建号，顺序按传入顺序（= 原文页码顺序）
+  for (const c of chunks) citationOf(c);
 
   return { citations, citationOf, bulletsWithoutCitation };
 }

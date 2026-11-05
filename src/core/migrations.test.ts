@@ -676,7 +676,7 @@ describe('migrateBackup：v6 → v7', () => {
     const migrated = migrateBackup(makeV6Backup() as unknown as LibraryBackup);
     expect(migrated.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
     // v8 摘掉 capabilities.webSearch，但 v6 备份照样要能一路升上来
-    expect(LIBRARY_SCHEMA_VERSION).toBe(9);
+    expect(LIBRARY_SCHEMA_VERSION).toBe(10);
   });
 
   it('补出空的 usageRecords 分区', () => {
@@ -758,10 +758,10 @@ describe('migrateBackup：v6 → v7', () => {
     expect(rows[0].tokens).toBe(500);
   });
 
-  it('v1 备份能一路升到 v9', () => {
+  it('v1 备份能一路升到 v10', () => {
     const migrated = migrateBackup(makeV1Backup() as unknown as LibraryBackup);
 
-    expect(migrated.schemaVersion).toBe(9);
+    expect(migrated.schemaVersion).toBe(10);
     expect(migrated.usageRecords).toEqual([]);
   });
 });
@@ -804,9 +804,9 @@ describe('migrateBackup：v7 → v8（摘掉「联网检索」假开关）', () 
     };
   }
 
-  it('版本号升到 8', () => {
+  it('版本号升到当前', () => {
     const migrated = migrateBackup(makeV7Backup() as unknown as LibraryBackup);
-    expect(migrated.schemaVersion).toBe(9);
+    expect(migrated.schemaVersion).toBe(10);
   });
 
   it('capabilities 里的 webSearch 被删掉，而不是留成 false', () => {
@@ -856,16 +856,143 @@ describe('migrateBackup：v7 → v8（摘掉「联网检索」假开关）', () 
     expect('webSearch' in (backends[0]!.capabilities as Record<string, unknown>)).toBe(false);
   });
 
-  it('v6 备份一路升到 v9 时也不会留下 webSearch', () => {
+  it('v6 备份一路升到 v10 时也不会留下 webSearch', () => {
     // v6 里还没有 usageRecords，必须同时走 v6→v7 与 v7→v8 两步
     const migrated = migrateBackup(
       makeV7Backup({ schemaVersion: 6, usageRecords: undefined }) as unknown as LibraryBackup,
     );
-    expect(migrated.schemaVersion).toBe(9);
+    expect(migrated.schemaVersion).toBe(10);
     expect(migrated.usageRecords).toEqual([]);
 
     const caps = migrated.backends[0]!.capabilities as Record<string, unknown>;
     expect('webSearch' in caps).toBe(false);
     expect(caps.textOrganize).toBe(true);
+  });
+});
+
+describe('migrateBackup：v9 → v10（PPT 出处从知识点换成原文段落）', () => {
+  /** 构造一份 v9 备份：PPT 角标还带着 knowledgePointId */
+  function makeV9Backup(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      format: 'openleaner-library',
+      schemaVersion: 9,
+      exportedAt: '2026-11-05T00:00:00.000Z',
+      meta: { id: 'meta', name: 'v9 库', schemaVersion: 9, createdAt: '', updatedAt: '' },
+      settings: { id: 'settings', locale: 'zh-CN', questionLanguage: 'zh', onboarded: true },
+      courses: [],
+      sources: [],
+      sourceSegments: [],
+      knowledgePoints: [],
+      generationRuns: [],
+      decks: [],
+      questions: [],
+      answerRecords: [],
+      backends: [],
+      usageRecords: [],
+      slideImages: [],
+      slideDecks: [
+        {
+          id: 'slide_1',
+          title: '旧 PPT',
+          courseId: null,
+          sourceId: 'src_1',
+          theme: 'business-blue',
+          status: 'ready',
+          pages: [
+            { id: 'p1', layout: 'title', title: 'T', subtitle: null, bullets: [], figure: null },
+            {
+              id: 'p2',
+              layout: 'bullets',
+              title: '页',
+              subtitle: null,
+              bullets: [{ id: 'b1', text: '要点 [1]', citationIndex: 1 }],
+              figure: null,
+            },
+          ],
+          citations: [
+            {
+              index: 1,
+              knowledgePointId: 'kp_1',
+              sourceId: 'src_1',
+              sourceTitle: '数据结构',
+              page: 3,
+              chapter: '第一章',
+              quote: '旧引用片段',
+            },
+          ],
+          exports: [],
+          createdAt: '',
+          updatedAt: '',
+        },
+      ],
+      ...overrides,
+    };
+  }
+
+  it('版本号升到 10', () => {
+    const migrated = migrateBackup(makeV9Backup() as unknown as LibraryBackup);
+    expect(migrated.schemaVersion).toBe(10);
+  });
+
+  it('给旧角标补 segmentId 字段', () => {
+    const migrated = migrateBackup(makeV9Backup() as unknown as LibraryBackup);
+    const citation = migrated.slideDecks[0]!.citations[0]!;
+    expect(typeof citation.segmentId).toBe('string');
+  });
+
+  it('不编造 segmentId（旧数据里没有真段落，填空串而不是瞎指定一段）', () => {
+    const migrated = migrateBackup(makeV9Backup() as unknown as LibraryBackup);
+    // 硬塞一个真 segmentId 会让人点回原文时落到无关正文上，比没有更糟
+    expect(migrated.slideDecks[0]!.citations[0]!.segmentId).toBe('');
+  });
+
+  it('保留 knowledgePointId（那是旧数据里唯一真实的溯源信息）', () => {
+    const migrated = migrateBackup(makeV9Backup() as unknown as LibraryBackup);
+    expect(migrated.slideDecks[0]!.citations[0]!.knowledgePointId).toBe('kp_1');
+  });
+
+  it('页面内容与页码一条不少', () => {
+    const migrated = migrateBackup(makeV9Backup() as unknown as LibraryBackup);
+    const deck = migrated.slideDecks[0]!;
+    expect(deck.pages).toHaveLength(2);
+    expect(deck.citations[0]!.page).toBe(3);
+    expect(deck.title).toBe('旧 PPT');
+  });
+
+  it('已经是新格式的角标不被覆盖', () => {
+    const backup = makeV9Backup({
+      slideDecks: [
+        {
+          id: 'slide_2',
+          title: '新 PPT',
+          citations: [{ index: 1, segmentId: 'seg_real', sourceId: 's', sourceTitle: 'x', page: 1, chapter: null, quote: 'q' }],
+          pages: [],
+          exports: [],
+        },
+      ],
+    });
+    const migrated = migrateBackup(backup as unknown as LibraryBackup);
+    expect(migrated.slideDecks[0]!.citations[0]!.segmentId).toBe('seg_real');
+  });
+
+  it('citations 缺失或非数组时不抛错', () => {
+    const backup = makeV9Backup({
+      slideDecks: [{ id: 'slide_3', title: 'x', pages: [], exports: [] }],
+    });
+    const migrated = migrateBackup(backup as unknown as LibraryBackup);
+    expect(migrated.slideDecks[0]!.citations).toEqual([]);
+  });
+
+  it('v9 备份能真正导入学习库', async () => {
+    const storage = new MemoryStorage();
+    const service = new LibraryService(storage);
+    await service.create('目标');
+
+    const meta = await service.importBackup(makeV9Backup() as unknown as LibraryBackup);
+    expect(meta.name).toBe('v9 库');
+
+    const decks = await storage.getAll('slideDecks');
+    expect(decks).toHaveLength(1);
+    expect(decks[0]!.citations[0]!.segmentId).toBe('');
   });
 });

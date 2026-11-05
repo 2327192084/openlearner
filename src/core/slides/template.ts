@@ -1,4 +1,5 @@
-import type { KnowledgePoint, SlideBullet, SlideOutlinePage } from '../model.ts';
+import type { SlideBullet, SlideOutlinePage } from '../model.ts';
+import type { SourceChunk } from './source-chunk.ts';
 import { newId } from '../id.ts';
 import { SLIDE_LIMITS, splitLongText } from './limits.ts';
 import { buildCoverPage } from './outline.ts';
@@ -30,7 +31,7 @@ import { buildCoverPage } from './outline.ts';
 export interface TemplateChapter {
   /** 章节名（没有章节名时为「主要内容」） */
   name: string;
-  points: KnowledgePoint[];
+  chunks: SourceChunk[];
 }
 
 /** 模板结构 */
@@ -45,22 +46,21 @@ export interface TemplatePlan {
  *
  * 顺序不按字母序：知识点已按页码排好，第一次出现的位置就是它在教材里的位置。
  */
-export function planTemplate(points: KnowledgePoint[]): TemplatePlan {
+export function planTemplate(chunks: SourceChunk[]): TemplatePlan {
   const groups: TemplateChapter[] = [];
   const index = new Map<string, number>();
 
-  for (const point of points) {
-    const statement = point.statement?.trim() ?? '';
-    if (statement.length === 0) continue;
+  for (const chunk of chunks) {
+    if (!chunk.text.trim()) continue;
 
-    const name = point.chapter?.trim() || '主要内容';
+    const name = chunk.chapter?.trim() || '主要内容';
     let at = index.get(name);
     if (at === undefined) {
       at = groups.length;
       index.set(name, at);
-      groups.push({ name, points: [] });
+      groups.push({ name, chunks: [] });
     }
-    groups[at]!.points.push(point);
+    groups[at]!.chunks.push(chunk);
   }
 
   return {
@@ -100,7 +100,7 @@ export interface AssembleTemplateInput {
   deckTitle: string;
   sourceTitle: string;
   /** 知识点 → 角标编号（由调用方按已建好的 citations 提供） */
-  citationOf: (point: KnowledgePoint) => number | null;
+  citationOf: (chunk: SourceChunk) => number | null;
 }
 
 /**
@@ -116,7 +116,8 @@ export function assembleTemplate(input: AssembleTemplateInput): SlideOutlinePage
     buildCoverPage({
       deckTitle,
       sourceTitle,
-      pointCount: plan.chapters.reduce((n, c) => n + c.points.length, 0),
+      pointCount: plan.chapters.reduce((n, c) => n + c.chunks.length, 0),
+      unit: '段原文',
     }),
   ];
 
@@ -142,20 +143,20 @@ export function assembleTemplate(input: AssembleTemplateInput): SlideOutlinePage
     const bullets: SlideBullet[] = [];
     let pageTitle = chapter.name;
 
-    for (const point of chapter.points) {
-      const item = content.get(point.id);
+    for (const chunk of chapter.chunks) {
+      const item = content.get(chunk.segmentId);
       /**
-       * AI 没给这条知识点写内容 → 跳过。
+       * AI 没给这段原文写内容 → 跳过。
        *
-       * 不回退成知识点原文：默认模板的定位是「模型组织过的课件」，
-       * 混进原文会让同一页里出现两种语气，读者一眼看出来。
+       * 不回退成原文：默认模板的定位是「模型组织过的课件」，
+       * 混进未加工的原文会让同一页里出现两种语气，读者一眼看出来。
        * 宁可少一条，也不制造这种不一致。
        */
       if (!item) continue;
 
       if (item.title && bullets.length === 0) pageTitle = item.title;
 
-      const citationIndex = citationOf(point);
+      const citationIndex = citationOf(chunk);
       for (const text of splitLongText(item.bullet)) {
         bullets.push({ id: newId('sb'), text, citationIndex });
       }

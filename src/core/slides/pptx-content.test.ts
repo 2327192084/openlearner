@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import JSZip from 'jszip';
 import { MemoryStorage } from '../storage/memory-storage.ts';
-import type { KnowledgePoint, SourceLocation } from '../model.ts';
+import type { SourceChunk } from './source-chunk.ts';
 import { SlideService } from './service.ts';
 
 /**
@@ -21,28 +21,14 @@ import { SlideService } from './service.ts';
  *   - 是文本 run 而非图片
  */
 
-function makePoint(over: Partial<KnowledgePoint> & { id: string }): KnowledgePoint {
-  const anchor: SourceLocation = {
-    sourceId: 'src-a',
-    page: 3,
-    chapter: '第一章',
-    charStart: 0,
-    charEnd: 20,
-  };
+function makePoint(over: Partial<SourceChunk> & { id: string }): SourceChunk {
   return {
-    sourceId: 'src-a',
-    statement: over.statement ?? `知识点 ${over.id} 的内容。`,
-    quotes: over.quotes ?? [`知识点 ${over.id} 的原文`],
-    anchors: over.anchors ?? [anchor],
-    anchorStatus: over.anchorStatus ?? 'located',
+    segmentId: over.segmentId ?? over.id,
+    text: over.text ?? `第 ${over.id} 段的内容。`,
+    page: over.page ?? 3,
     chapter: over.chapter ?? '第一章',
-    level: 1,
-    tags: [],
-    backendId: 'mock',
-    createdAt: '2026-01-01T00:00:00.000Z',
-    updatedAt: '2026-01-01T00:00:00.000Z',
     ...over,
-  } as KnowledgePoint;
+  } as SourceChunk;
 }
 
 /** 解开 pptx，返回每页 XML 文本 */
@@ -81,9 +67,9 @@ describe('导出的 pptx 内容真实可读', () => {
   it('解压后页数与导出的 slideCount 一致', async () => {
     const slides = new SlideService(new MemoryStorage());
     const points = Array.from({ length: 6 }, (_, i) =>
-      makePoint({ id: `k${i}`, statement: `第 ${i} 条要点内容。` }),
+      makePoint({ id: `k${i}`, text: `第 ${i} 条要点内容。` }),
     );
-    const { deck } = await slides.createFromPoints({ sourceId: 'src-a', points });
+    const { deck } = await slides.createFromSource({ sourceId: 'src-a', chunks: points });
     const out = await slides.export(deck.id);
 
     const xmls = await readSlides(out.buffer);
@@ -93,10 +79,10 @@ describe('导出的 pptx 内容真实可读', () => {
   it('要点文字真的写进了 slide xml（不是空文件）', async () => {
     const slides = new SlideService(new MemoryStorage());
     const points = [
-      makePoint({ id: 'k1', statement: '采样定理要求采样频率大于两倍最高频率。' }),
-      makePoint({ id: 'k2', statement: '线性系统满足叠加性与齐次性。' }),
+      makePoint({ id: 'k1', text: '采样定理要求采样频率大于两倍最高频率。' }),
+      makePoint({ id: 'k2', text: '线性系统满足叠加性与齐次性。' }),
     ];
-    const { deck } = await slides.createFromPoints({ sourceId: 'src-a', points });
+    const { deck } = await slides.createFromSource({ sourceId: 'src-a', chunks: points });
     const out = await slides.export(deck.id);
 
     const all = (await readSlides(out.buffer)).map(extractText).join('\n');
@@ -107,9 +93,9 @@ describe('导出的 pptx 内容真实可读', () => {
 
   it('角标 [n] 真的渲染进了 slide xml', async () => {
     const slides = new SlideService(new MemoryStorage());
-    const { deck } = await slides.createFromPoints({
+    const { deck } = await slides.createFromSource({
       sourceId: 'src-a',
-      points: Array.from({ length: 3 }, (_, i) => makePoint({ id: `k${i}` })),
+      chunks: Array.from({ length: 3 }, (_, i) => makePoint({ id: `k${i}` })),
     });
     const out = await slides.export(deck.id);
 
@@ -122,9 +108,9 @@ describe('导出的 pptx 内容真实可读', () => {
 
   it('角标用上标（baseline 属性）而不是普通文字', async () => {
     const slides = new SlideService(new MemoryStorage());
-    const { deck } = await slides.createFromPoints({
+    const { deck } = await slides.createFromSource({
       sourceId: 'src-a',
-      points: [makePoint({ id: 'k1' })],
+      chunks: [makePoint({ id: 'k1' })],
     });
     const out = await slides.export(deck.id);
 
@@ -136,12 +122,9 @@ describe('导出的 pptx 内容真实可读', () => {
   it('资料来源页列出文档名与页码', async () => {
     const slides = new SlideService(new MemoryStorage());
     const points = [
-      makePoint({
-        id: 'k1',
-        anchors: [{ sourceId: 'src-a', page: 88, chapter: '第五章', charStart: 0, charEnd: 9 }],
-      }),
+      makePoint({ id: 'k1', page: 88, chapter: '第五章' }),
     ];
-    const { deck } = await slides.createFromPoints({ sourceId: 'src-a', points });
+    const { deck } = await slides.createFromSource({ sourceId: 'src-a', chunks: points });
     const out = await slides.export(deck.id);
 
     const all = (await readSlides(out.buffer)).map(extractText).join('\n');
@@ -153,9 +136,9 @@ describe('导出的 pptx 内容真实可读', () => {
 
   it('不含图片（证明是可编辑文本，不是截图拼贴）', async () => {
     const slides = new SlideService(new MemoryStorage());
-    const { deck } = await slides.createFromPoints({
+    const { deck } = await slides.createFromSource({
       sourceId: 'src-a',
-      points: Array.from({ length: 5 }, (_, i) => makePoint({ id: `k${i}` })),
+      chunks: Array.from({ length: 5 }, (_, i) => makePoint({ id: `k${i}` })),
     });
     const out = await slides.export(deck.id);
 
@@ -173,9 +156,9 @@ describe('导出的 pptx 内容真实可读', () => {
 
   it('中文不乱码（UTF-8 正确写入）', async () => {
     const slides = new SlideService(new MemoryStorage());
-    const { deck } = await slides.createFromPoints({
+    const { deck } = await slides.createFromSource({
       sourceId: 'src-a',
-      points: [makePoint({ id: 'k1', statement: '傅里叶变换与拉普拉斯变换的关系。' })],
+      chunks: [makePoint({ id: 'k1', text: '傅里叶变换与拉普拉斯变换的关系。' })],
     });
     const out = await slides.export(deck.id);
 
@@ -190,11 +173,11 @@ describe('导出的 pptx 内容真实可读', () => {
     const points = Array.from({ length: 200 }, (_, i) =>
       makePoint({
         id: `k${i}`,
-        statement: `第 ${i} 条知识点，说明一个具体概念。`,
+        text: `第 ${i} 条知识点，说明一个具体概念。`,
         chapter: `第${Math.floor(i / 20) + 1}章`,
       }),
     );
-    const { deck } = await slides.createFromPoints({ sourceId: 'src-a', points });
+    const { deck } = await slides.createFromSource({ sourceId: 'src-a', chunks: points });
     const out = await slides.export(deck.id);
 
     const xmls = await readSlides(out.buffer);
@@ -261,9 +244,9 @@ describe('画布尺寸与形状边界', () => {
 
   it('画布是标准宽屏 13.333 × 7.5 英寸，不是 pptxgenjs 的 10 × 5.625 预设', async () => {
     const slides = new SlideService(new MemoryStorage());
-    const { deck } = await slides.createFromPoints({
+    const { deck } = await slides.createFromSource({
       sourceId: 'src-a',
-      points: [makePoint({ id: 'k1' })],
+      chunks: [makePoint({ id: 'k1' })],
     });
     const out = await slides.export(deck.id);
 
@@ -282,11 +265,11 @@ describe('画布尺寸与形状边界', () => {
     const points = Array.from({ length: 12 }, (_, i) =>
       makePoint({
         id: `k${i}`,
-        statement: `第 ${i} 条要点，用来撑出足够多的形状以覆盖各种版式。`,
+        text: `第 ${i} 条要点，用来撑出足够多的形状以覆盖各种版式。`,
         chapter: i < 6 ? '第一章' : '第二章',
       }),
     );
-    const { deck } = await slides.createFromPoints({ sourceId: 'src-a', points });
+    const { deck } = await slides.createFromSource({ sourceId: 'src-a', chunks: points });
     const out = await slides.export(deck.id);
 
     const { cx: pageW, cy: pageH } = await readSlideSize(out.buffer);
@@ -345,12 +328,12 @@ describe('一条要点只占一个段落（叠字回归）', () => {
       makePoint({
         id: 'k1',
         // 复刻真实场景：PDF 抽出的段落带着章节标题行的换行
-        statement:
+        text:
           '第一章 数据结构绪论\n数据结构研究的是数据元素之间的关系以及在这些关系上的操作。',
       }),
-      makePoint({ id: 'k2', statement: '线性表是最常用的数据结构之一。' }),
+      makePoint({ id: 'k2', text: '线性表是最常用的数据结构之一。' }),
     ];
-    const { deck } = await slides.createFromPoints({ sourceId: 'src-a', points });
+    const { deck } = await slides.createFromSource({ sourceId: 'src-a', chunks: points });
     const out = await slides.export(deck.id);
     const xmls = await readSlides(out.buffer);
 
@@ -377,9 +360,9 @@ describe('一条要点只占一个段落（叠字回归）', () => {
 
   it('要点文本进库前就归一了空白（不靠渲染时补救）', async () => {
     const slides = new SlideService(new MemoryStorage());
-    const { deck } = await slides.createFromPoints({
+    const { deck } = await slides.createFromSource({
       sourceId: 'src-a',
-      points: [makePoint({ id: 'k1', statement: '短句。' })],
+      chunks: [makePoint({ id: 'k1', text: '短句。' })],
     });
 
     const page = deck.pages.find((p) => p.layout === 'bullets');

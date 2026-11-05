@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { KnowledgePoint, SlideCitation } from '../model.ts';
+import type { SlideCitation } from '../model.ts';
+import type { SourceChunk } from './source-chunk.ts';
 import { assembleTemplate, planTemplate } from './template.ts';
 import type { TemplateContentItem } from './template.ts';
 import { buildRenderPlan } from './render-plan.ts';
@@ -13,36 +14,29 @@ import type { SlideDeck } from '../model.ts';
  * 用户就没法照着它准备讲课，也没法比较两次生成的差别。
  */
 
-function point(id: string, chapter: string | null, page = 1): KnowledgePoint {
+function point(id: string, chapter: string | null, page = 1): SourceChunk {
   return {
-    id,
-    statement: `知识点 ${id}`,
-    quotes: [`引用 ${id}`],
-    cognitiveLevel: 'understand',
-    tags: [],
+    segmentId: id,
+    text: `第 ${id} 段正文内容。`,
+    page,
     chapter,
-    sourceId: 'src_1',
-    origin: 'material',
-    anchors: [{ sourceId: 'src_1', page, charStart: 0, charEnd: 5, chapter }],
-    anchorStatus: 'located',
-    backendId: null,
-    approved: true,
-    createdAt: '',
-    updatedAt: '',
-  } as KnowledgePoint;
+  };
 }
 
-/** 给每条知识点造一份 AI 内容 */
-function contentFor(points: KnowledgePoint[]): Map<string, TemplateContentItem> {
+/** 给每段造一份 AI 内容 */
+function contentFor(points: SourceChunk[]): Map<string, TemplateContentItem> {
   return new Map(
-    points.map((p) => [p.id, { fromPointId: p.id, title: `${p.chapter} 要点`, bullet: `讲解 ${p.id}` }]),
+    points.map((p) => [
+      p.segmentId,
+      { fromPointId: p.segmentId, title: `${p.chapter} 要点`, bullet: `讲解 ${p.segmentId}` },
+    ]),
   );
 }
 
-/** 角标函数：用知识点顺序当编号 */
-function citationOf(points: KnowledgePoint[]) {
-  const map = new Map(points.map((p, i) => [p.id, i + 1]));
-  return (p: KnowledgePoint) => map.get(p.id) ?? null;
+/** 角标函数：用段落顺序当编号 */
+function citationOf(points: SourceChunk[]) {
+  const map = new Map(points.map((p, i) => [p.segmentId, i + 1]));
+  return (p: SourceChunk) => map.get(p.segmentId) ?? null;
 }
 
 describe('planTemplate：章节分组', () => {
@@ -52,8 +46,8 @@ describe('planTemplate：章节分组', () => {
 
     expect(plan.chapters.map((c) => c.name)).toEqual(['第一章', '第二章']);
     // 同一章的知识点归到一起，不按输入顺序拆散
-    expect(plan.chapters[0]!.points.map((p) => p.id)).toEqual(['a', 'c']);
-    expect(plan.chapters[1]!.points.map((p) => p.id)).toEqual(['b']);
+    expect(plan.chapters[0]!.chunks.map((p) => p.segmentId)).toEqual(['a', 'c']);
+    expect(plan.chapters[1]!.chunks.map((p) => p.segmentId)).toEqual(['b']);
   });
 
   it('没有章节名的归到「主要内容」', () => {
@@ -72,10 +66,10 @@ describe('planTemplate：章节分组', () => {
     expect(plan.needsSectionPages).toBe(true);
   });
 
-  it('空 statement 的知识点被跳过', () => {
-    const empty = { ...point('x', '第一章'), statement: '   ' } as KnowledgePoint;
+  it('空正文的段落被跳过', () => {
+    const empty = { ...point('x', '第一章'), text: '   ' } as SourceChunk;
     const plan = planTemplate([point('a', '第一章'), empty]);
-    expect(plan.chapters[0]!.points).toHaveLength(1);
+    expect(plan.chapters[0]!.chunks).toHaveLength(1);
   });
 });
 
@@ -222,7 +216,7 @@ describe('render-plan：资料来源页开关', () => {
     const citations: SlideCitation[] = [
       {
         index: 1,
-        knowledgePointId: 'k1',
+        segmentId: 'seg_1',
         sourceId: 'src_1',
         sourceTitle: '数据结构',
         page: 3,

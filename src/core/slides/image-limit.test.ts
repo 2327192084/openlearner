@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryStorage } from '../storage/memory-storage.ts';
-import type { KnowledgePoint } from '../model.ts';
+import type { SourceChunk } from './source-chunk.ts';
 import {
   MAX_SLIDE_IMAGE_BYTES,
   SlideImageTooLargeError,
@@ -18,23 +18,13 @@ import {
  *     孤儿会永远占空间，还会跟着进备份，而用户找不到原因。
  */
 
-function makePoint(id: string): KnowledgePoint {
+function makeChunk(id: string): SourceChunk {
   return {
-    id,
-    statement: `知识点 ${id}`,
-    quotes: [`引用 ${id}`],
-    cognitiveLevel: 'understand',
-    tags: [],
+    segmentId: id,
+    text: `第 ${id} 段的正文内容，便于区分。`,
+    page: 1,
     chapter: '第一章',
-    sourceId: 'src_1',
-    origin: 'material',
-    anchors: [{ sourceId: 'src_1', page: 1, charStart: 0, charEnd: 5, chapter: '第一章' }],
-    anchorStatus: 'located',
-    backendId: null,
-    approved: true,
-    createdAt: '',
-    updatedAt: '',
-  } as KnowledgePoint;
+  };
 }
 
 /** 造一张指定字节数的假 data URL */
@@ -147,9 +137,9 @@ describe('图片垃圾回收', () => {
   });
 
   async function deckWithImage() {
-    const { deck } = await slides.createFromPoints({
+    const { deck } = await slides.createFromSource({
       sourceId: 'src_1',
-      points: [makePoint('k0')],
+      chunks: [makeChunk('k0')],
     });
     const imageId = await slides.addImage({
       imageData: fakeImage(10_000),

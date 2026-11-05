@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryStorage } from '../storage/memory-storage.ts';
-import type { KnowledgePoint, SlideDeck } from '../model.ts';
+import type { SlideDeck } from '../model.ts';
+import type { SourceChunk } from './source-chunk.ts';
 import { SlideService } from './service.ts';
 import { DEFAULT_THEME_ID, THEMES, resolveTheme, cssColor } from './theme.ts';
 import { buildRenderPlan } from './render-plan.ts';
@@ -14,23 +15,13 @@ import { buildRenderPlan } from './render-plan.ts';
  *  - 图片：取不到的图要跳过，不能画出空白框。
  */
 
-function makePoint(id: string): KnowledgePoint {
+function makeChunk(id: string): SourceChunk {
   return {
-    id,
-    statement: `知识点 ${id}`,
-    quotes: [`引用 ${id}`],
-    cognitiveLevel: 'understand',
-    tags: [],
+    segmentId: id,
+    text: `第 ${id} 段的正文内容，便于区分。`,
+    page: 1,
     chapter: '第一章',
-    sourceId: 'src_1',
-    origin: 'material',
-    anchors: [{ sourceId: 'src_1', page: 2, charStart: 0, charEnd: 5, chapter: '第一章' }],
-    anchorStatus: 'located',
-    backendId: null,
-    approved: true,
-    createdAt: '',
-    updatedAt: '',
-  } as KnowledgePoint;
+  };
 }
 
 describe('theme：预设与解析', () => {
@@ -94,17 +85,17 @@ describe('SlideService：主题', () => {
   });
 
   async function makeDeck(): Promise<SlideDeck> {
-    const { deck } = await slides.createFromPoints({
+    const { deck } = await slides.createFromSource({
       sourceId: 'src_1',
-      points: [makePoint('k0')],
+      chunks: [makeChunk('k0')],
     });
     return deck;
   }
 
   it('生成时能指定主题', async () => {
-    const { deck } = await slides.createFromPoints({
+    const { deck } = await slides.createFromSource({
       sourceId: 'src_1',
-      points: [makePoint('k0')],
+      chunks: [makeChunk('k0')],
       theme: 'dark-slate',
     });
     expect(deck.theme).toBe('dark-slate');
@@ -116,9 +107,9 @@ describe('SlideService：主题', () => {
   });
 
   it('未知主题在生成时被归一到默认（不写进库）', async () => {
-    const { deck } = await slides.createFromPoints({
+    const { deck } = await slides.createFromSource({
       sourceId: 'src_1',
-      points: [makePoint('k0')],
+      chunks: [makeChunk('k0')],
       theme: '瞎填的',
     });
     expect(deck.theme).toBe(DEFAULT_THEME_ID);
@@ -150,9 +141,9 @@ describe('SlideService：叠加内容', () => {
   beforeEach(async () => {
     storage = new MemoryStorage();
     slides = new SlideService(storage);
-    const created = await slides.createFromPoints({
+    const created = await slides.createFromSource({
       sourceId: 'src_1',
-      points: [makePoint('k0')],
+      chunks: [makeChunk('k0')],
     });
     deck = created.deck;
   });
@@ -244,9 +235,9 @@ describe('SlideService：图片分区', () => {
 
   it('图片存在独立分区，不进 deck 记录（避免 deck 膨胀）', async () => {
     const id = await slides.addImage({ imageData: TINY, width: 10, height: 10 });
-    const { deck } = await slides.createFromPoints({
+    const { deck } = await slides.createFromSource({
       sourceId: 'src_1',
-      points: [makePoint('k0')],
+      chunks: [makeChunk('k0')],
     });
     await slides.addOverlay(deck.id, deck.pages[1]!.id, {
       kind: 'image',
@@ -264,9 +255,9 @@ describe('SlideService：图片分区', () => {
   });
 
   it('取不到的图不会画进渲染计划（不产生空白框）', async () => {
-    const { deck } = await slides.createFromPoints({
+    const { deck } = await slides.createFromSource({
       sourceId: 'src_1',
-      points: [makePoint('k0')],
+      chunks: [makeChunk('k0')],
     });
     await slides.addOverlay(deck.id, deck.pages[1]!.id, {
       kind: 'image',

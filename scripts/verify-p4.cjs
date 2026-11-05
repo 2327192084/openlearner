@@ -440,13 +440,17 @@ async function main() {
     aiPointIds = await cdp.eval(`(async () => {
       ${DB_HELPER}
       const db = await openDb();
-      const points = await readAll(db, 'knowledgePoints');
+      const segs = await readAll(db, 'sourceSegments');
       db.close();
-      return points.slice(0, 2).map(p => ({ id: p.id, statement: p.statement }));
+      // PPT 现在从原文段落生成，出处 id 是段 id
+      return segs
+        .filter(s => (s.text || '').trim().length > 0)
+        .slice(0, 2)
+        .map(s => ({ id: s.id, statement: s.text }));
     })()`);
 
     if (!Array.isArray(aiPointIds) || aiPointIds.length === 0) {
-      record('准备：能读到知识点 id（AI 大纲的角标依据）', false, '库里没有知识点');
+      record('准备：能读到段落 id（AI 大纲的角标依据）', false, '库里没有正文段落');
     } else {
       record(
         '准备：能读到知识点 id（AI 大纲的角标依据）',
@@ -528,16 +532,7 @@ async function main() {
         }
       }
 
-      // 勾选知识点（全选按钮优先）
-      const selectAll = [...document.querySelectorAll('button')].find(b => /全选/.test(b.textContent || ''));
-      if (selectAll) { selectAll.click(); await sleep(400); }
-      else {
-        const boxes = [...document.querySelectorAll('input[type=checkbox]')];
-        for (const b of boxes.slice(0, 20)) {
-          if (!b.checked) { b.click(); }
-        }
-        await sleep(500);
-      }
+      // 页码范围留空 = 用整份资料。这里刻意不填，验证默认路径。
 
       // 点生成
       clickText(/生成.*大纲|生成学习\\s*PPT|开始生成/);
@@ -639,38 +634,45 @@ async function main() {
     );
 
     // ---------- 5. 角标出处核对（计划书：抽查 3 个角标能跳回正确原文） ----------
+    /**
+     * PPT 现在从**资料原文**生成，角标直接指向段落（segmentId）。
+     * 所以核对变成：角标的页码 = 那段原文的页码，且引用片段真的是那段正文。
+     *
+     * 这比原来从知识点继承更直接：少一跳，也不再依赖「知识点定位成功」。
+     */
     const anchorCheck = await cdp.eval(`(async () => {
       ${DB_HELPER}
       const db = await openDb();
       const ds = await readAll(db, 'slideDecks');
-      const ks = await readAll(db, 'knowledgePoints');
       const segs = await readAll(db, 'sourceSegments');
       db.close();
 
       const d = ds[0];
-      const byPoint = new Map(ks.map(k => [k.id, k]));
+      const bySeg = new Map(segs.map(s => [s.id, s]));
       const checks = [];
 
       for (const c of (d.citations || []).slice(0, 3)) {
-        const k = byPoint.get(c.knowledgePointId);
-        if (!k) { checks.push({ ok: false, why: '角标指向的知识点不存在' }); continue; }
+        if (!c.segmentId) { checks.push({ ok: false, why: '角标没有 segmentId' }); continue; }
+        const seg = bySeg.get(c.segmentId);
+        if (!seg) { checks.push({ ok: false, why: '角标指向的段落不存在' }); continue; }
 
-        const a = (k.anchors || [])[0];
-        if (!a) { checks.push({ ok: false, why: '知识点没有锚点' }); continue; }
-
-        // 三个条件：页码一致、原文真的在该页、引用片段能在页面正文里找到
-        const samePage = a.page === c.page;
-        const seg = segs.find(s => s.sourceId === a.sourceId && s.page === a.page);
-        const pageText = seg ? seg.text : '';
-        const quoteInPage = c.quote ? pageText.includes(c.quote.slice(0, 12)) : false;
+        // 两个条件：页码一致、引用片段能在该段正文里找到
+        const samePage = seg.page === c.page;
+        // 两边都压平空白再比：quote 存的是压平的，原文里有换行
+        const flat = (seg.text || '').replace(/\\s+/g, ' ');
+        const quoteInPage = c.quote ? flat.includes(c.quote.slice(0, 12)) : false;
 
         checks.push({
-          ok: samePage,
+          ok: samePage && quoteInPage,
           index: c.index,
           page: c.page,
-          anchorPage: a.page,
+          anchorPage: seg.page,
           quoteInPage,
           quoteLen: (c.quote || '').length,
+          // 诊断用：看清楚两边到底是什么
+          quoteHead: (c.quote || '').slice(0, 24),
+          segHead: flat.slice(0, 24),
+          segMissing: !seg,
         });
       }
       return checks;
@@ -681,10 +683,15 @@ async function main() {
       anchorCheck.length > 0 &&
       anchorCheck.every((c) => c.ok === true);
     record(
-      '抽查 3 个角标：页码与知识点锚点一致',
+      '**抽查 3 个角标：页码与原文段落一致**',
       anchorOk,
       Array.isArray(anchorCheck)
-        ? anchorCheck.map((c) => `[${c.index}] 页 ${c.page}=${c.anchorPage}`).join(' ')
+        ? anchorCheck
+            .map(
+              (c) =>
+                `[${c.index}] 页 ${c.page}=${c.anchorPage} quote="${c.quoteHead}" seg="${c.segHead}"`,
+            )
+            .join(' | ')
         : '无法读取',
     );
 
@@ -692,7 +699,7 @@ async function main() {
       ? anchorCheck.filter((c) => c.quoteInPage).length
       : 0;
     record(
-      '角标引用的原文片段确实出现在该页正文里',
+      '**角标引用的片段确实出自那段原文**',
       quoteInPageCount > 0,
       `${quoteInPageCount}/${anchorCheck.length} 条能在该页正文中找到`,
     );

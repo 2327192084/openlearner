@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import type { KnowledgePoint } from '../model.ts';
 import { applyAiOutline } from './ai-outline.ts';
 import {
   ModelOutlineBackend,
@@ -7,51 +6,22 @@ import {
   buildOutlineUserPrompt,
   parseOutlinePages,
 } from './outline-backend.ts';
+import { chunk, chunks } from '../../test/chunks.ts';
 
 /**
  * AI 大纲的测试。
  *
- * 这组测试守的是本轮改动最容易出错的地方：**AI 改写了要点文字，
- * 角标还必须指回那条知识点当初被定位到的真实页码**。
+ * 这组守的是最容易出错的地方：**AI 改写了要点文字，
+ * 角标还必须指回那段原文的真实页码**。
  *
  * 出错的形态很隐蔽：页面上有一句漂亮的讲解，旁边挂着一个 [3]，
  * 点过去却在第 7 页找不到这段话。所有自动验收都会通过
  * （文字有、角标有、页数对），只有人真的点一下才发现。
  */
 
-/** 造一条已定位的知识点 */
-function located(id: string, statement: string, page: number): KnowledgePoint {
-  return {
-    id,
-    statement,
-    quotes: [`原文片段 ${id}`],
-    cognitiveLevel: 'understand',
-    tags: [],
-    chapter: '第一章',
-    sourceId: 'src_1',
-    // 知识点来自资料（不是联网检索来的）
-    origin: 'material',
-    anchors: [{ sourceId: 'src_1', page, charStart: 0, charEnd: 10, chapter: '第一章' }],
-    anchorStatus: 'located',
-    backendId: null,
-    approved: true,
-    createdAt: '',
-    updatedAt: '',
-  } as KnowledgePoint;
-}
-
-/** 造一条未定位的知识点 */
-function unlocated(id: string, statement: string): KnowledgePoint {
-  return {
-    ...located(id, statement, 1),
-    anchors: [],
-    anchorStatus: 'unlocated',
-  } as KnowledgePoint;
-}
-
 describe('applyAiOutline：角标必须指回真实页码', () => {
-  it('AI 改写过的要点，角标仍指向该知识点的真实页码', () => {
-    const points = [located('k1', '线性表是有限序列', 3)];
+  it('AI 改写过的要点，角标仍指向那段原文的页码', () => {
+    const source = [chunk('s1', '线性表是有限序列', 3, '第一章')];
 
     const result = applyAiOutline({
       pages: [
@@ -59,11 +29,12 @@ describe('applyAiOutline：角标必须指回真实页码', () => {
           title: '线性表入门',
           subtitle: null,
           // 文字被 AI 改写过了，不再是原文
-          bullets: [{ text: '线性表本质上是一个有限序列', fromPointId: 'k1' }],
+          bullets: [{ text: '线性表本质上是一个有限序列', fromPointId: 's1' }],
         },
       ],
-      points,
+      chunks: source,
       sourceTitle: '数据结构',
+      sourceId: 'src_1',
       deckTitle: '数据结构 · 复习',
     });
 
@@ -73,37 +44,35 @@ describe('applyAiOutline：角标必须指回真实页码', () => {
     // 关键：角标不是 null，且指向第 3 页
     expect(bullet.citationIndex).toBe(1);
     expect(result.citations[0]!.page).toBe(3);
-    expect(result.citations[0]!.knowledgePointId).toBe('k1');
+    expect(result.citations[0]!.segmentId).toBe('s1');
   });
 
-  it('页码从知识点 anchors 原样继承，不重新推算', () => {
-    const points = [located('k1', '甲', 42)];
+  it('页码从段落原样继承，不重新推算', () => {
     const result = applyAiOutline({
-      pages: [{ title: '页', subtitle: null, bullets: [{ text: '乙', fromPointId: 'k1' }] }],
-      points,
+      pages: [{ title: '页', subtitle: null, bullets: [{ text: '乙', fromPointId: 's1' }] }],
+      chunks: [chunk('s1', '甲', 42)],
       sourceTitle: 'S',
       deckTitle: 'D',
     });
 
-    // 42 这个数字只存在于 anchors 里，没有任何其他来源能"算"出来
+    // 42 只存在于段落里，没有任何其他来源能"算"出来
     expect(result.citations[0]!.page).toBe(42);
   });
 
-  it('同一条知识点被拆成多条要点，共用一个角标编号', () => {
-    const points = [located('k1', '甲', 5)];
+  it('同一段被拆成多条要点，共用一个角标编号', () => {
     const result = applyAiOutline({
       pages: [
         {
           title: '页',
           subtitle: null,
           bullets: [
-            { text: '要点一', fromPointId: 'k1' },
-            { text: '要点二', fromPointId: 'k1' },
-            { text: '要点三', fromPointId: 'k1' },
+            { text: '要点一', fromPointId: 's1' },
+            { text: '要点二', fromPointId: 's1' },
+            { text: '要点三', fromPointId: 's1' },
           ],
         },
       ],
-      points,
+      chunks: [chunk('s1', '甲', 5)],
       sourceTitle: 'S',
       deckTitle: 'D',
     });
@@ -115,21 +84,20 @@ describe('applyAiOutline：角标必须指回真实页码', () => {
     expect(result.citations).toHaveLength(1);
   });
 
-  it('多条知识点各自独立编号', () => {
-    const points = [located('k1', '甲', 1), located('k2', '乙', 2), located('k3', '丙', 3)];
+  it('多段各自独立编号', () => {
     const result = applyAiOutline({
       pages: [
         {
           title: '页',
           subtitle: null,
           bullets: [
-            { text: 'a', fromPointId: 'k2' },
-            { text: 'b', fromPointId: 'k1' },
-            { text: 'c', fromPointId: 'k3' },
+            { text: 'a', fromPointId: 's2' },
+            { text: 'b', fromPointId: 's1' },
+            { text: 'c', fromPointId: 's3' },
           ],
         },
       ],
-      points,
+      chunks: [chunk('s1', '甲', 1), chunk('s2', '乙', 2), chunk('s3', '丙', 3)],
       sourceTitle: 'S',
       deckTitle: 'D',
     });
@@ -137,14 +105,13 @@ describe('applyAiOutline：角标必须指回真实页码', () => {
     // 编号按出现顺序，从 1 开始连续
     const indexes = result.pages[0]!.bullets.map((b) => b.citationIndex);
     expect(indexes).toEqual([1, 2, 3]);
-    expect(result.citations.map((c) => c.knowledgePointId)).toEqual(['k2', 'k1', 'k3']);
+    expect(result.citations.map((c) => c.segmentId)).toEqual(['s2', 's1', 's3']);
   });
 
-  it('未定位的知识点：要点保留，但不给假角标', () => {
-    const points = [unlocated('k1', '甲')];
+  it('段落缺页码时：要点保留，但不给假角标', () => {
     const result = applyAiOutline({
-      pages: [{ title: '页', subtitle: null, bullets: [{ text: '要点', fromPointId: 'k1' }] }],
-      points,
+      pages: [{ title: '页', subtitle: null, bullets: [{ text: '要点', fromPointId: 's1' }] }],
+      chunks: [chunk('s1', '甲', 0)],
       sourceTitle: 'S',
       deckTitle: 'D',
     });
@@ -157,19 +124,18 @@ describe('applyAiOutline：角标必须指回真实页码', () => {
   });
 
   it('模型编了一个不存在的 id：那条要点被丢弃并计数', () => {
-    const points = [located('k1', '甲', 1)];
     const result = applyAiOutline({
       pages: [
         {
           title: '页',
           subtitle: null,
           bullets: [
-            { text: '真的', fromPointId: 'k1' },
-            { text: '编的', fromPointId: 'k999' },
+            { text: '真的', fromPointId: 's1' },
+            { text: '编的', fromPointId: 's999' },
           ],
         },
       ],
-      points,
+      chunks: [chunk('s1', '甲', 1)],
       sourceTitle: 'S',
       deckTitle: 'D',
     });
@@ -180,13 +146,12 @@ describe('applyAiOutline：角标必须指回真实页码', () => {
   });
 
   it('一页里全部要点都查不到 id 时整页丢弃', () => {
-    const points = [located('k1', '甲', 1)];
     const result = applyAiOutline({
       pages: [
         { title: '坏页', subtitle: null, bullets: [{ text: 'x', fromPointId: 'nope' }] },
-        { title: '好页', subtitle: null, bullets: [{ text: 'y', fromPointId: 'k1' }] },
+        { title: '好页', subtitle: null, bullets: [{ text: 'y', fromPointId: 's1' }] },
       ],
-      points,
+      chunks: [chunk('s1', '甲', 1)],
       sourceTitle: 'S',
       deckTitle: 'D',
     });
@@ -196,10 +161,15 @@ describe('applyAiOutline：角标必须指回真实页码', () => {
   });
 
   it('AI 给的页标题被保留（不再出现「未分章」「（续）」）', () => {
-    const points = [located('k1', '甲', 1)];
     const result = applyAiOutline({
-      pages: [{ title: '线性表的定义与特点', subtitle: '本节要点', bullets: [{ text: 'x', fromPointId: 'k1' }] }],
-      points,
+      pages: [
+        {
+          title: '线性表的定义与特点',
+          subtitle: '本节要点',
+          bullets: [{ text: 'x', fromPointId: 's1' }],
+        },
+      ],
+      chunks: [chunk('s1', '甲', 1)],
       sourceTitle: 'S',
       deckTitle: 'D',
     });
@@ -209,10 +179,9 @@ describe('applyAiOutline：角标必须指回真实页码', () => {
   });
 
   it('AI 没给标题时用兜底文案，不留空字符串', () => {
-    const points = [located('k1', '甲', 1)];
     const result = applyAiOutline({
-      pages: [{ title: null, subtitle: null, bullets: [{ text: 'x', fromPointId: 'k1' }] }],
-      points,
+      pages: [{ title: null, subtitle: null, bullets: [{ text: 'x', fromPointId: 's1' }] }],
+      chunks: [chunk('s1', '甲', 1)],
       sourceTitle: 'S',
       deckTitle: 'D',
     });
@@ -222,11 +191,10 @@ describe('applyAiOutline：角标必须指回真实页码', () => {
   });
 
   it('超长要点仍按标点拆开，拆出的多条共用角标', () => {
-    const points = [located('k1', '甲', 1)];
     const long = '这是第一句话，' + '内容'.repeat(60) + '。这是第二句话，' + '内容'.repeat(60) + '。';
     const result = applyAiOutline({
-      pages: [{ title: '页', subtitle: null, bullets: [{ text: long, fromPointId: 'k1' }] }],
-      points,
+      pages: [{ title: '页', subtitle: null, bullets: [{ text: long, fromPointId: 's1' }] }],
+      chunks: [chunk('s1', '甲', 1)],
       sourceTitle: 'S',
       deckTitle: 'D',
     });
@@ -241,25 +209,23 @@ describe('parseOutlinePages：模型返回的清洗', () => {
   it('正常 JSON 能解析', () => {
     const pages = parseOutlinePages(
       JSON.stringify({
-        pages: [
-          { title: '页一', bullets: [{ text: '要点', fromPointId: 'k1' }] },
-        ],
+        pages: [{ title: '页一', bullets: [{ text: '要点', fromPointId: 's1' }] }],
       }),
     );
     expect(pages).toHaveLength(1);
-    expect(pages[0]!.bullets[0]!.fromPointId).toBe('k1');
+    expect(pages[0]!.bullets[0]!.fromPointId).toBe('s1');
   });
 
   it('带代码围栏也能解析', () => {
     const pages = parseOutlinePages(
-      '```json\n{"pages":[{"title":"T","bullets":[{"text":"x","fromPointId":"k1"}]}]}\n```',
+      '```json\n{"pages":[{"title":"T","bullets":[{"text":"x","fromPointId":"s1"}]}]}\n```',
     );
     expect(pages).toHaveLength(1);
   });
 
   it('前后有废话时抠出 JSON', () => {
     const pages = parseOutlinePages(
-      '好的，下面是结果：\n{"pages":[{"title":"T","bullets":[{"text":"x","fromPointId":"k1"}]}]}\n希望有帮助。',
+      '好的，下面是结果：\n{"pages":[{"title":"T","bullets":[{"text":"x","fromPointId":"s1"}]}]}\n希望有帮助。',
     );
     expect(pages).toHaveLength(1);
   });
@@ -267,7 +233,9 @@ describe('parseOutlinePages：模型返回的清洗', () => {
   it('没有 fromPointId 的要点被丢弃（否则点不回原文）', () => {
     const pages = parseOutlinePages(
       JSON.stringify({
-        pages: [{ title: 'T', bullets: [{ text: '有出处', fromPointId: 'k1' }, { text: '没出处' }] }],
+        pages: [
+          { title: 'T', bullets: [{ text: '有出处', fromPointId: 's1' }, { text: '没出处' }] },
+        ],
       }),
     );
     expect(pages[0]!.bullets).toHaveLength(1);
@@ -276,23 +244,22 @@ describe('parseOutlinePages：模型返回的清洗', () => {
 
   it('没有 text 的要点被丢弃', () => {
     const pages = parseOutlinePages(
-      JSON.stringify({ pages: [{ title: 'T', bullets: [{ fromPointId: 'k1' }] }] }),
+      JSON.stringify({ pages: [{ title: 'T', bullets: [{ fromPointId: 's1' }] }] }),
     );
-    // 整页没有有效要点 → 整页丢掉
     expect(pages).toHaveLength(0);
   });
 
   it('空标题变成 null 而不是空字符串', () => {
     const pages = parseOutlinePages(
       JSON.stringify({
-        pages: [{ title: '   ', bullets: [{ text: 'x', fromPointId: 'k1' }] }],
+        pages: [{ title: '   ', bullets: [{ text: 'x', fromPointId: 's1' }] }],
       }),
     );
     expect(pages[0]!.title).toBeNull();
   });
 
   it('单页要点超过 5 条时截断', () => {
-    const bullets = Array.from({ length: 12 }, (_, i) => ({ text: `b${i}`, fromPointId: 'k1' }));
+    const bullets = Array.from({ length: 12 }, (_, i) => ({ text: `b${i}`, fromPointId: 's1' }));
     const pages = parseOutlinePages(JSON.stringify({ pages: [{ title: 'T', bullets }] }));
     expect(pages[0]!.bullets).toHaveLength(5);
   });
@@ -319,15 +286,8 @@ describe('ModelOutlineBackend：请求形状', () => {
     return { impl, seen };
   }
 
-  const points = [
-    {
-      id: 'k1',
-      statement: '线性表是有限序列',
-      quotes: ['原文'],
-      chapter: '第一章',
-      page: 3,
-      cognitiveLevel: 'understand' as const,
-    },
+  const aiInput = [
+    { id: 's1', page: 3, chapter: '第一章', text: '线性表是有限序列' },
   ];
 
   it('开启 JSON 模式且温度低', async () => {
@@ -336,7 +296,7 @@ describe('ModelOutlineBackend：请求形状', () => {
     });
     const backend = new ModelOutlineBackend({ apiKey: 'k', provider: 'deepseek', fetchImpl: impl });
 
-    await backend.generate(points, {
+    await backend.generate(aiInput, {
       title: 'T',
       sourceTitle: 'S',
       maxPages: 5,
@@ -350,19 +310,21 @@ describe('ModelOutlineBackend：请求形状', () => {
 
   it('系统提示词里明确要求不要输出页码', () => {
     const system = buildOutlineSystemPrompt('zh');
-    // 位置由程序负责，模型给页码只会造成「知识点说第 3 页、PPT 说第 5 页」
+    // 位置由程序负责，模型给页码只会造成「原文说第 3 页、PPT 说第 5 页」
     expect(system).toMatch(/绝对不要输出页码/);
   });
 
-  it('用户提示词里带上知识点 id 与格式说明', () => {
-    const prompt = buildOutlineUserPrompt(points, {
+  it('用户提示词里带上段落 id 与正文', () => {
+    const prompt = buildOutlineUserPrompt(aiInput, {
       title: 'T',
       sourceTitle: 'S',
       maxPages: 5,
       language: 'zh',
     });
     expect(prompt).toContain('fromPointId');
-    expect(prompt).toContain('k1');
+    expect(prompt).toContain('s1');
+    // 原文正文必须真的传进去，否则模型无从总结
+    expect(prompt).toContain('线性表是有限序列');
   });
 
   it('返回 token 用量', async () => {
@@ -372,7 +334,7 @@ describe('ModelOutlineBackend：请求形状', () => {
     });
     const backend = new ModelOutlineBackend({ apiKey: 'k', provider: 'deepseek', fetchImpl: impl });
 
-    const result = await backend.generate(points, {
+    const result = await backend.generate(aiInput, {
       title: 'T',
       sourceTitle: 'S',
       maxPages: 5,
@@ -383,12 +345,15 @@ describe('ModelOutlineBackend：请求形状', () => {
     expect(result.actualTokens).toBe(150);
   });
 
-  it('估算用量随知识点数量增长', () => {
+  it('估算用量随段落数量增长', () => {
     const backend = new ModelOutlineBackend({ apiKey: 'k', provider: 'deepseek' });
     const opts = { title: 'T', sourceTitle: 'S', maxPages: 5, language: 'zh' as const };
 
-    const one = backend.estimateTokens(points, opts);
-    const many = backend.estimateTokens([...points, ...points, ...points], opts);
+    const one = backend.estimateTokens(aiInput, opts);
+    const many = backend.estimateTokens(
+      chunks(6).map((c) => ({ id: c.segmentId, page: c.page, chapter: c.chapter, text: c.text })),
+      opts,
+    );
     expect(many).toBeGreaterThan(one);
   });
 });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { KnowledgePoint, SlideDeck, Source } from '@/core/model.ts';
+import type { SlideDeck, Source, SourceSegment } from '@/core/model.ts';
 import { useServices } from '@/app/services-context.ts';
-import { Badge, Notice } from '@/components/states.tsx';
+import { Notice } from '@/components/states.tsx';
 import { sourceTitleMap } from '@/core/slides/service.ts';
 import { DEFAULT_THEME_ID, THEMES, resolveTheme } from '@/core/slides/theme.ts';
 import { describeError, hintFrom } from './types.ts';
@@ -27,21 +27,36 @@ export interface SlideGenerateProps {
 }
 
 /** 一条知识点能不能进大纲：已定位 + 至少一个锚点。 */
-export function isUsablePoint(point: KnowledgePoint): boolean {
-  return point.anchorStatus === 'located' && point.anchors.length > 0;
+/** 一段原文能不能进 PPT：有正文就行（页码由解析器保证） */
+export function isUsableSegment(segment: SourceSegment): boolean {
+  return segment.text.trim().length > 0;
+}
+
+/** 按页码范围过滤，语义与知识点那一栏一致 */
+export function applyPageRange(
+  segments: SourceSegment[],
+  range: { from: number; to: number } | null,
+): SourceSegment[] {
+  if (!range) return segments;
+  const from = Math.min(range.from, range.to);
+  const to = Math.max(range.from, range.to);
+  return segments.filter((s) => s.page >= from && s.page <= to);
 }
 
 export function SlideGenerate({ onCreated, onCancel }: SlideGenerateProps) {
-  const { slides, sources: sourceService, knowledge, backends } = useServices();
+  const { slides, sources: sourceService, backends } = useServices();
 
   const outlineBackend = useOutlineBackend(backends);
 
   const [sourcesList, setSourcesList] = useState<Source[]>([]);
   const [sourcesError, setSourcesError] = useState<{ message: string; hint: string } | null>(null);
   const [sourceId, setSourceId] = useState<string | null>(null);
-  const [points, setPoints] = useState<KnowledgePoint[] | null>(null);
+  /** 这份资料的全部段落（未按页码范围过滤） */
+  const [segments, setSegments] = useState<SourceSegment[] | null>(null);
   const [pointsError, setPointsError] = useState<{ message: string; hint: string } | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  /** 页码范围输入（两个都空 = 整份资料） */
+  const [fromDraft, setFromDraft] = useState('');
+  const [toDraft, setToDraft] = useState('');
   const [title, setTitle] = useState('');
   /**
    * 用户对这份 PPT 的额外要求。
@@ -86,65 +101,62 @@ export function SlideGenerate({ onCreated, onCancel }: SlideGenerateProps) {
 
   useEffect(() => {
     if (!sourceId) {
-      setPoints([]);
+      setSegments([]);
       return;
     }
     let alive = true;
-    setPoints(null);
+    setSegments(null);
     setPointsError(null);
-    setSelected(new Set());
-    knowledge
-      .listBySource(sourceId)
+
+    /**
+     * 读资料正文。
+     *
+     * 与知识点那一栏取的是同一份东西（sourceSegments），
+     * 只是这里不过 AI、直接交给 PPT 后端。
+     */
+    sourceService
+      .getSegments(sourceId)
       .then((list) => {
         if (!alive || sourceIdRef.current !== sourceId) return;
-        setPoints(list);
-        // 默认全选可用项：多数情况用户想要的正是「这份资料的全部知识点」
-        setSelected(new Set(list.filter(isUsablePoint).map((p) => p.id)));
+        setSegments(list);
       })
       .catch((err: unknown) => {
         if (!alive || sourceIdRef.current !== sourceId) return;
-        setPoints([]);
+        setSegments([]);
         setPointsError({
           message: describeError(err),
-          hint: '知识点没有改动。换一份资料再切回来通常就能读到；若仍失败，可能是本地存储异常。',
+          hint: '读不到这份资料的正文。刷新页面重试；如果这份资料是扫描件，先用「看图识公式」识别一遍。',
         });
       });
+
     return () => {
       alive = false;
     };
-  }, [knowledge, sourceId]);
+  }, [sourceService, sourceId]);
 
-  const usable = useMemo(() => (points ?? []).filter(isUsablePoint), [points]);
-  const unusable = useMemo(() => (points ?? []).filter((p) => !isUsablePoint(p)), [points]);
-  const unlocated = useMemo(
-    () => (points ?? []).filter((p) => p.anchorStatus !== 'located'),
-    [points],
-  );
-  const emptyStatement = useMemo(
-    () => usable.filter((p) => p.statement.trim() === '').length,
-    [usable],
+  /** 页码范围：两个都填才生效，填反了自动纠正 */
+  const range = useMemo(() => {
+    const from = Number(fromDraft.trim());
+    const to = Number(toDraft.trim());
+    if (!fromDraft.trim() || !toDraft.trim()) return null;
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
+    if (from < 1 || to < 1) return null;
+    return { from, to };
+  }, [fromDraft, toDraft]);
+
+  /** 页码范围是否只填了一头（要提示用户，否则会误以为生效了） */
+  const rangeHalfFilled =
+    (fromDraft.trim() !== '' || toDraft.trim() !== '') && range === null;
+
+  /** 按页码范围筛出来的段落 */
+  const scoped = useMemo(
+    () => applyPageRange(segments ?? [], range),
+    [segments, range],
   );
 
-  const chosen = useMemo(() => usable.filter((p) => selected.has(p.id)), [usable, selected]);
+  const usable = useMemo(() => scoped.filter(isUsableSegment), [scoped]);
+
   const currentSource = sourcesList.find((s) => s.id === sourceId) ?? null;
-
-  const allSelected = usable.length > 0 && selected.size === usable.length;
-
-  const toggle = (id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const toggleAll = () => {
-    // 始终是「选中全部」，不做勾反：
-    // 自动化验收脚本会点文案含「全选」的按钮，若这里做切换，
-    // 默认已全选时一点就会全部取消，反而生不出大纲。
-    setSelected(new Set(usable.map((p) => p.id)));
-  };
 
   const blockedReason = (() => {
     /**
@@ -155,12 +167,13 @@ export function SlideGenerate({ onCreated, onCancel }: SlideGenerateProps) {
      */
     if (outlineBackend.blockedReason) return outlineBackend.blockedReason;
     if (sourcesList.length === 0) return '这份学习库里还没有资料。先去资料库导入一份教材。';
-    if (points === null) return '正在读取这份资料的知识点…';
-    if (points.length === 0) return '这份资料还没有生成知识点。先去「知识点」页从这份资料生成一批。';
-    if (usable.length === 0) {
-      return `这份资料的 ${points.length} 条知识点都没有定位到原文，排成幻灯片也带不出角标。先去「知识点」页把它们定位到原文。`;
+    if (segments === null) return '正在读取这份资料的正文…';
+    if (segments.length === 0) return '这份资料还没有正文，可能是扫描件。先用「看图识公式」识别，或换一份电子版。';
+    if (rangeHalfFilled) return '页码范围要两头都填才生效（起始页和结束页）。两个都留空表示用整份资料。';
+    if (scoped.length === 0) {
+      return `第 ${range!.from}–${range!.to} 页里没有内容。这份资料共 ${segments.length} 段，换一个范围再试。`;
     }
-    if (chosen.length === 0) return '一条都没选。至少勾选一条知识点才能生成大纲。';
+    if (usable.length === 0) return '选定的范围里没有可用的正文。换一个页码范围再试。';
     return null;
   })();
 
@@ -171,9 +184,14 @@ export function SlideGenerate({ onCreated, onCancel }: SlideGenerateProps) {
     setRunning(true);
     setError(null);
     try {
-      const result = await slides.createFromPoints({
+      const result = await slides.createFromSource({
         sourceId: sourceId ?? '',
-        points: chosen,
+        chunks: usable.map((seg) => ({
+          segmentId: seg.id,
+          page: seg.page,
+          chapter: seg.chapter,
+          text: seg.text,
+        })),
         title: title.trim() === '' ? undefined : title.trim(),
         sourceTitles: sourceTitleMap(sourcesList),
         ...(currentSource?.courseId ? { courseId: currentSource.courseId } : {}),
@@ -343,105 +361,49 @@ export function SlideGenerate({ onCreated, onCancel }: SlideGenerateProps) {
           </Notice>
         ) : null}
 
-        <div className="sl-gen__points">
-          <div className="sl-gen__points-head">
-            <strong>可用知识点</strong>
-            <Badge tone={usable.length > 0 ? 'ready' : 'danger'}>
-              已定位 {usable.length} / {points?.length ?? 0} 条
-            </Badge>
-            {points !== null && usable.length > 0 ? (
-              <>
-                <button
-                  type="button"
-                  className="btn btn--ghost btn--sm"
-                  onClick={toggleAll}
-                  disabled={running}
-                >
-                  全选
-                </button>
-                {allSelected ? (
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--sm"
-                    onClick={() => setSelected(new Set())}
-                    disabled={running}
-                  >
-                    清空
-                  </button>
-                ) : null}
-              </>
-            ) : null}
+        <div className="field">
+          <span className="field__label">页码范围</span>
+          <div className="kp-range">
+            <input
+              className="input"
+              type="number"
+              min={1}
+              inputMode="numeric"
+              placeholder="起始页（可留空）"
+              aria-label="起始页"
+              value={fromDraft}
+              onChange={(e) => setFromDraft(e.target.value)}
+              disabled={running}
+            />
+            <span className="kp-range__sep">至</span>
+            <input
+              className="input"
+              type="number"
+              min={1}
+              inputMode="numeric"
+              placeholder="结束页（可留空）"
+              aria-label="结束页"
+              value={toDraft}
+              onChange={(e) => setToDraft(e.target.value)}
+              disabled={running}
+            />
           </div>
-
-          <div className="sl-gen__points-hint">
-            {points === null ? '正在读取…' : null}
-            {points !== null && points.length === 0
-              ? '这份资料还没有知识点。先去「知识点」页从这份资料生成一批。'
-              : null}
-            {points !== null && points.length > 0 ? (
-              <>
-                已选 <strong>{chosen.length}</strong> 条，会排成约{' '}
-                {Math.max(1, Math.ceil(chosen.length / 5))} 页正文（每页最多 5 条）。
-              </>
-            ) : null}
+          <div className="field__hint">
+            两个都留空表示用整份资料。只做其中几页时两头都要填。
           </div>
-
-          {unlocated.length > 0 ? (
-            <div className="notice notice--warning">
-              <div className="notice__title">
-                还有 {unlocated.length} 条知识点没有定位到原文，不会被选中
-              </div>
-              <div className="notice__body">
-                这些知识点缺少原文位置，即使排进幻灯片也带不出角标，学生点不回原文。它们已经自动排除在外
-                {emptyStatement > 0 ? `；另外有 ${emptyStatement} 条正文是空的，会被跳过` : ''}。
-                想要它们进 PPT，先去「知识点」页把位置补上。
-              </div>
-            </div>
+          {rangeHalfFilled ? (
+            <div className="field__error">页码范围要两头都填才生效。</div>
           ) : null}
+        </div>
 
-          {points !== null && usable.length > 0 ? (
-            <ul className="sl-gen__list">
-              {usable.map((point) => {
-                const checked = selected.has(point.id);
-                const anchor = point.anchors[0];
-                return (
-                  <li key={point.id}>
-                    <label className={`sl-gen__point${checked ? ' sl-gen__point--on' : ''}`}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={running}
-                        onChange={() => toggle(point.id)}
-                      />
-                      <span className="sl-gen__point-body">
-                        <span className="sl-gen__point-text">{point.statement}</span>
-                        <span className="sl-gen__point-meta">
-                          {point.chapter ? `${point.chapter} · ` : ''}
-                          {anchor?.page !== undefined ? `第 ${anchor.page} 页` : '有锚点但没记页码'}
-                          {point.quotes.length > 0 ? ` · 引用 ${point.quotes[0].slice(0, 24)}…` : ''}
-                        </span>
-                      </span>
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : null}
-
-          {unusable.length > 0 && usable.length > 0 ? (
-            <details className="sl-gen__unusable">
-              <summary>查看被排除的 {unusable.length} 条知识点</summary>
-              <ul>
-                {unusable.map((point) => (
-                  <li key={point.id}>
-                    {point.statement}
-                    <span className="page__muted">
-                      （{point.anchorStatus === 'waived' ? '已标记为不需要出处' : '没有定位'}）
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </details>
+        <div className="sl-gen__points-hint">
+          {segments === null ? '正在读取正文…' : null}
+          {segments !== null && segments.length > 0 ? (
+            <>
+              {range ? `第 ${Math.min(range.from, range.to)}–${Math.max(range.from, range.to)} 页` : '整份资料'}
+              ：共 <strong>{usable.length}</strong> 段正文，会排成约{' '}
+              {Math.max(1, Math.ceil(usable.length / 5))} 页正文（每页最多 5 条）。
+            </>
           ) : null}
         </div>
 
@@ -492,7 +454,7 @@ export function SlideGenerate({ onCreated, onCancel }: SlideGenerateProps) {
           <div>
             <div className="sl-gen__estimate-label">本次会生成</div>
             <div className="sl-gen__estimate-value">
-              {chosen.length} 条要点 · 约 {Math.max(1, Math.ceil(chosen.length / 5)) + 1} 页（含封面）
+              {usable.length} 段原文 · 约 {Math.max(1, Math.ceil(usable.length / 5)) + 1} 页（含封面）
             </div>
           </div>
           <div className="page__row">

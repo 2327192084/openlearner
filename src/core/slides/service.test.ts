@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryStorage } from '../storage/memory-storage.ts';
-import type { KnowledgePoint, SourceLocation } from '../model.ts';
+import type { SourceChunk } from './source-chunk.ts';
 import { SlideService } from './service.ts';
 import { buildFileName } from './pptx-export.ts';
 import { UsageService } from '../usage.ts';
@@ -14,33 +14,19 @@ import { UsageService } from '../usage.ts';
  *      这种缺号，读者会以为 PPT 丢了两条引用
  */
 
-function makePoint(over: Partial<KnowledgePoint> & { id: string }): KnowledgePoint {
-  const anchor: SourceLocation = {
-    sourceId: 'src-a',
-    page: 3,
-    chapter: '第一章',
-    charStart: 0,
-    charEnd: 20,
-  };
+function makePoint(over: Partial<SourceChunk> & { id: string }): SourceChunk {
   return {
-    sourceId: 'src-a',
-    statement: over.statement ?? `知识点 ${over.id} 的表述内容。`,
-    quotes: over.quotes ?? [`知识点 ${over.id} 的原文引用`],
-    anchors: over.anchors ?? [anchor],
-    anchorStatus: over.anchorStatus ?? 'located',
+    segmentId: over.segmentId ?? over.id,
+    text: over.text ?? `第 ${over.id} 段正文内容，各不相同。`,
+    page: over.page ?? 3,
     chapter: over.chapter ?? '第一章',
-    cognitiveLevel: over.cognitiveLevel ?? 'understand',
-    tags: over.tags ?? [],
-    backendId: over.backendId ?? 'mock',
-    createdAt: '2026-01-01T00:00:00.000Z',
-    updatedAt: '2026-01-01T00:00:00.000Z',
     ...over,
-  } as KnowledgePoint;
+  } as SourceChunk;
 }
 
-function makePoints(n: number, chapter = '第一章'): KnowledgePoint[] {
+function makePoints(n: number, chapter = '第一章'): SourceChunk[] {
   return Array.from({ length: n }, (_, i) =>
-    makePoint({ id: `k${i}`, statement: `第 ${i} 条知识点，内容各不相同，便于区分。`, chapter }),
+    makePoint({ id: `k${i}`, text: `第 ${i} 段正文，内容各不相同，便于区分。`, chapter }),
   );
 }
 
@@ -53,10 +39,10 @@ describe('SlideService：创建', () => {
     slides = new SlideService(storage);
   });
 
-  it('从知识点创建，落库并返回大纲', async () => {
-    const { deck } = await slides.createFromPoints({
+  it('从资料原文创建，落库并返回大纲', async () => {
+    const { deck } = await slides.createFromSource({
       sourceId: 'src-a',
-      points: makePoints(3),
+      chunks: makePoints(3),
       title: '期末复习',
     });
 
@@ -70,55 +56,53 @@ describe('SlideService：创建', () => {
     expect(stored!.id).toBe(deck.id);
   });
 
-  it('没有知识点时明确报错，不建空壳', async () => {
+  it('没有正文时明确报错，不建空壳', async () => {
     await expect(
-      slides.createFromPoints({ sourceId: 'src-a', points: [] }),
-    ).rejects.toThrow(/没有选中的知识点/);
+      slides.createFromSource({ sourceId: 'src-a', chunks: [] }),
+    ).rejects.toThrow(/没有可用的正文/);
 
     // 关键：库里不能留下一个空 PPT
     expect(await slides.list()).toHaveLength(0);
   });
 
-  it('知识点正文全空时报错并说明原因', async () => {
+  it('正文全空时报错并说明原因', async () => {
     await expect(
-      slides.createFromPoints({
+      slides.createFromSource({
         sourceId: 'src-a',
-        points: [makePoint({ id: 'k1', statement: '   ' })],
+        chunks: [makePoint({ id: 'k1', text: '   ' })],
       }),
-    ).rejects.toThrow(/正文都是空的/);
+    ).rejects.toThrow(/没有可用的正文/);
 
     expect(await slides.list()).toHaveLength(0);
   });
 
   it('资料不存在时用兜底标题，不抛错', async () => {
-    const { deck } = await slides.createFromPoints({
+    const { deck } = await slides.createFromSource({
       sourceId: 'not-exist',
-      points: makePoints(1),
+      chunks: makePoints(1),
     });
-    // 不因为查不到资料就拒绝生成：用户可能已经删了资料但知识点还在
+    // 不因为查不到资料就拒绝生成：正文已经传来了，标题退化成兜底即可
     expect(deck.pages.length).toBeGreaterThan(1);
   });
 
   it('返回无角标要点数，界面据此如实提示', async () => {
-    const points = [
-      makePoint({ id: 'k1' }),
-      makePoint({ id: 'k2', anchorStatus: 'unlocated', anchors: [] }),
-    ];
-    const r = await slides.createFromPoints({ sourceId: 'src-a', points });
+    // 第二段页码为 0 → 建不出角标
+    const chunks = [makePoint({ id: 'k1' }), makePoint({ id: 'k2', page: 0 })];
+    const r = await slides.createFromSource({ sourceId: 'src-a', chunks });
 
     expect(r.bulletsWithoutCitation).toBe(1);
     expect(r.deck.citations).toHaveLength(1);
   });
 
   it('countBulletsWithoutCitation 与创建时的统计一致', async () => {
-    const points = [
+    const chunks = [
       makePoint({ id: 'k1' }),
-      makePoint({ id: 'k2', anchorStatus: 'unlocated', anchors: [] }),
-      makePoint({ id: 'k3', anchorStatus: 'unlocated', anchors: [] }),
+      makePoint({ id: 'k2', page: 0 }),
+      makePoint({ id: 'k3', page: 0 }),
     ];
-    const { deck, bulletsWithoutCitation } = await slides.createFromPoints({
+    const { deck, bulletsWithoutCitation } = await slides.createFromSource({
       sourceId: 'src-a',
-      points,
+      chunks,
     });
 
     expect(await slides.countBulletsWithoutCitation(deck.id)).toBe(bulletsWithoutCitation);
@@ -133,7 +117,7 @@ describe('SlideService：大纲编辑', () => {
   beforeEach(async () => {
     storage = new MemoryStorage();
     slides = new SlideService(storage);
-    const r = await slides.createFromPoints({ sourceId: 'src-a', points: makePoints(4) });
+    const r = await slides.createFromSource({ sourceId: 'src-a', chunks: makePoints(4) });
     deckId = r.deck.id;
   });
 
@@ -198,9 +182,9 @@ describe('SlideService：大纲编辑', () => {
   });
 
   it('普通页可以上移下移', async () => {
-    const d0 = await slides.createFromPoints({
+    const d0 = await slides.createFromSource({
       sourceId: 'src-a',
-      points: makePoints(12), // 需要多页才有得移
+      chunks: makePoints(12), // 需要多页才有得移
     });
     const initial = d0.deck.pages.map((p) => p.id);
     // 取第一个非封面的页
@@ -258,9 +242,9 @@ describe('SlideService：角标重排', () => {
   });
 
   it('删掉一个要点后，角标编号连续不留空号', async () => {
-    const { deck } = await slides.createFromPoints({
+    const { deck } = await slides.createFromSource({
       sourceId: 'src-a',
-      points: makePoints(3),
+      chunks: makePoints(3),
     });
     const page = deck.pages.find((p) => p.bullets.length === 3)!;
     expect(deck.citations.map((c) => c.index)).toEqual([1, 2, 3]);
@@ -277,7 +261,7 @@ describe('SlideService：角标重排', () => {
   it('删页后该页独占的角标被移除，编号重排', async () => {
     // 造两页、每页一条独占要点
     const points = makePoints(10);
-    const { deck } = await slides.createFromPoints({ sourceId: 'src-a', points });
+    const { deck } = await slides.createFromSource({ sourceId: 'src-a', chunks: points });
 
     const bulletPages = deck.pages.filter((p) => p.layout === 'bullets');
     expect(bulletPages.length).toBeGreaterThan(1);
@@ -308,7 +292,7 @@ describe('SlideService：角标重排', () => {
   });
 
   it('重排后所有要点仍指向存在的引用', async () => {
-    const { deck } = await slides.createFromPoints({ sourceId: 'src-a', points: makePoints(8) });
+    const { deck } = await slides.createFromSource({ sourceId: 'src-a', chunks: makePoints(8) });
     const page = deck.pages.find((p) => p.layout === 'bullets')!;
 
     const d = await slides.removeBullet(deck.id, page.id, page.bullets[0].id);
@@ -335,7 +319,7 @@ describe('SlideService：导出', () => {
   });
 
   it('导出产出可解析的 pptx 字节', async () => {
-    const { deck } = await slides.createFromPoints({ sourceId: 'src-a', points: makePoints(3) });
+    const { deck } = await slides.createFromSource({ sourceId: 'src-a', chunks: makePoints(3) });
     const out = await slides.export(deck.id);
 
     expect(out.buffer.byteLength).toBeGreaterThan(5000);
@@ -347,7 +331,7 @@ describe('SlideService：导出', () => {
   });
 
   it('导出的页数与 getPlan 的长度一致（预览=导出）', async () => {
-    const { deck } = await slides.createFromPoints({ sourceId: 'src-a', points: makePoints(20) });
+    const { deck } = await slides.createFromSource({ sourceId: 'src-a', chunks: makePoints(20) });
     const plan = await slides.getPlan(deck.id);
     const out = await slides.export(deck.id);
 
@@ -355,7 +339,7 @@ describe('SlideService：导出', () => {
   });
 
   it('stats 报的页数与实际导出页数一致', async () => {
-    const { deck } = await slides.createFromPoints({ sourceId: 'src-a', points: makePoints(15) });
+    const { deck } = await slides.createFromSource({ sourceId: 'src-a', chunks: makePoints(15) });
     const stats = await slides.stats(deck.id);
     const out = await slides.export(deck.id);
 
@@ -363,7 +347,7 @@ describe('SlideService：导出', () => {
   });
 
   it('每次导出都追加记录，文件名带版本号不覆盖', async () => {
-    const { deck } = await slides.createFromPoints({ sourceId: 'src-a', points: makePoints(3) });
+    const { deck } = await slides.createFromSource({ sourceId: 'src-a', chunks: makePoints(3) });
 
     const e1 = await slides.export(deck.id);
     const e2 = await slides.export(deck.id);
@@ -380,7 +364,7 @@ describe('SlideService：导出', () => {
   });
 
   it('导出记录存了页数与字节数，便于界面如实显示', async () => {
-    const { deck } = await slides.createFromPoints({ sourceId: 'src-a', points: makePoints(3) });
+    const { deck } = await slides.createFromSource({ sourceId: 'src-a', chunks: makePoints(3) });
     await slides.export(deck.id);
 
     const rec = (await slides.get(deck.id))!.exports[0];
@@ -390,7 +374,7 @@ describe('SlideService：导出', () => {
   });
 
   it('只有封面时拒绝导出并说明原因', async () => {
-    const { deck } = await slides.createFromPoints({ sourceId: 'src-a', points: makePoints(1) });
+    const { deck } = await slides.createFromSource({ sourceId: 'src-a', chunks: makePoints(1) });
     // 手工把正文页全删掉，只留封面
     const d = (await slides.get(deck.id))!;
     for (const p of d.pages.filter((x) => x.layout !== 'title')) {
@@ -411,7 +395,7 @@ describe('SlideService：确认与删除', () => {
   it('confirm 把 outline 改成 ready', async () => {
     const storage = new MemoryStorage();
     const slides = new SlideService(storage);
-    const { deck } = await slides.createFromPoints({ sourceId: 'src-a', points: makePoints(2) });
+    const { deck } = await slides.createFromSource({ sourceId: 'src-a', chunks: makePoints(2) });
 
     expect(deck.status).toBe('outline');
     const d = await slides.confirm(deck.id);
@@ -421,7 +405,7 @@ describe('SlideService：确认与删除', () => {
   it('删除后 list 里不再出现', async () => {
     const storage = new MemoryStorage();
     const slides = new SlideService(storage);
-    const { deck } = await slides.createFromPoints({ sourceId: 'src-a', points: makePoints(2) });
+    const { deck } = await slides.createFromSource({ sourceId: 'src-a', chunks: makePoints(2) });
 
     await slides.remove(deck.id);
     expect(await slides.get(deck.id)).toBeNull();
@@ -431,8 +415,8 @@ describe('SlideService：确认与删除', () => {
   it('list 按更新时间倒序（最近改的在前）', async () => {
     const storage = new MemoryStorage();
     const slides = new SlideService(storage);
-    const a = await slides.createFromPoints({ sourceId: 'src-a', points: makePoints(1), title: 'A' });
-    const b = await slides.createFromPoints({ sourceId: 'src-a', points: makePoints(1), title: 'B' });
+    const a = await slides.createFromSource({ sourceId: 'src-a', chunks: makePoints(1), title: 'A' });
+    const b = await slides.createFromSource({ sourceId: 'src-a', chunks: makePoints(1), title: 'B' });
 
     // 改 A 让它变新
     await new Promise((r) => setTimeout(r, 5));
@@ -510,17 +494,17 @@ describe('SlideService：AI 生成大纲', () => {
 
   it('走 AI 时用模型给的页标题，不再是「未分章」', async () => {
     const points = makePoints(3);
-    const { deck, usedAi } = await slides.createFromPoints({
+    const { deck, usedAi } = await slides.createFromSource({
       sourceId: 'src-a',
-      points,
+      chunks: points,
       title: '期末复习',
       backend: fakeBackend({
         pages: [
           {
             title: '线性表的基本概念',
             bullets: [
-              { text: '线性表是有限序列', fromPointId: points[0]!.id },
-              { text: '每个元素有唯一前驱', fromPointId: points[1]!.id },
+              { text: '线性表是有限序列', fromPointId: points[0]!.segmentId },
+              { text: '每个元素有唯一前驱', fromPointId: points[1]!.segmentId },
             ],
           },
         ],
@@ -535,10 +519,10 @@ describe('SlideService：AI 生成大纲', () => {
   });
 
   it('AI 改写的要点文字保留，角标仍指向原页码', async () => {
-    const points = [makePoint({ id: 'k0', statement: '原文表述' })];
-    const { deck, usedAi } = await slides.createFromPoints({
+    const points = [makePoint({ id: 'k0', text: '原文表述' })];
+    const { deck, usedAi } = await slides.createFromSource({
       sourceId: 'src-a',
-      points,
+      chunks: points,
       backend: fakeBackend({
         pages: [
           { title: '页', bullets: [{ text: '这是 AI 改写过的表述', fromPointId: 'k0' }] },
@@ -555,9 +539,9 @@ describe('SlideService：AI 生成大纲', () => {
   });
 
   it('AI 请求失败时回退到确定性大纲，并如实报 aiFailure', async () => {
-    const { deck, usedAi, aiFailure } = await slides.createFromPoints({
+    const { deck, usedAi, aiFailure } = await slides.createFromSource({
       sourceId: 'src-a',
-      points: makePoints(3),
+      chunks: makePoints(3),
       backend: fakeBackend({ fail: new Error('网络断了') }),
     });
 
@@ -569,9 +553,9 @@ describe('SlideService：AI 生成大纲', () => {
   });
 
   it('AI 返回空大纲时回退，不说成成功', async () => {
-    const { deck, usedAi, aiFailure } = await slides.createFromPoints({
+    const { deck, usedAi, aiFailure } = await slides.createFromSource({
       sourceId: 'src-a',
-      points: makePoints(2),
+      chunks: makePoints(2),
       backend: fakeBackend({ pages: [] }),
     });
 
@@ -581,9 +565,9 @@ describe('SlideService：AI 生成大纲', () => {
   });
 
   it('AI 给的要点全都查不到知识点时回退（不产出空 PPT）', async () => {
-    const { deck, usedAi } = await slides.createFromPoints({
+    const { deck, usedAi } = await slides.createFromSource({
       sourceId: 'src-a',
-      points: makePoints(2),
+      chunks: makePoints(2),
       backend: fakeBackend({
         pages: [{ title: '页', bullets: [{ text: 'x', fromPointId: '不存在的id' }] }],
       }),
@@ -595,9 +579,9 @@ describe('SlideService：AI 生成大纲', () => {
   });
 
   it('不传 backend 时走确定性大纲，usedAi 为 false', async () => {
-    const { deck, usedAi } = await slides.createFromPoints({
+    const { deck, usedAi } = await slides.createFromSource({
       sourceId: 'src-a',
-      points: makePoints(2),
+      chunks: makePoints(2),
     });
 
     expect(usedAi).toBe(false);
@@ -606,11 +590,11 @@ describe('SlideService：AI 生成大纲', () => {
 
   it('AI 的 token 用量被带回来（供用量统计记录）', async () => {
     const points = makePoints(1);
-    const { tokens } = await slides.createFromPoints({
+    const { tokens } = await slides.createFromSource({
       sourceId: 'src-a',
-      points,
+      chunks: points,
       backend: fakeBackend({
-        pages: [{ title: '页', bullets: [{ text: 'x', fromPointId: points[0]!.id }] }],
+        pages: [{ title: '页', bullets: [{ text: 'x', fromPointId: points[0]!.segmentId }] }],
         tokens: 777,
       }),
     });
@@ -621,18 +605,18 @@ describe('SlideService：AI 生成大纲', () => {
   it('AI 版与回退版的封面结构一致', async () => {
     const points = makePoints(3);
 
-    const ai = await slides.createFromPoints({
+    const ai = await slides.createFromSource({
       sourceId: 'src-a',
-      points,
+      chunks: points,
       title: 'T',
       backend: fakeBackend({
-        pages: [{ title: '页', bullets: [{ text: 'x', fromPointId: points[0]!.id }] }],
+        pages: [{ title: '页', bullets: [{ text: 'x', fromPointId: points[0]!.segmentId }] }],
       }),
     });
 
-    const fallback = await slides.createFromPoints({
+    const fallback = await slides.createFromSource({
       sourceId: 'src-a',
-      points,
+      chunks: points,
       title: 'T',
     });
 
@@ -651,9 +635,9 @@ describe('SlideService：AI 用量记账', () => {
     const slides = new SlideService(storage, usage);
 
     const points = [makePoint({ id: 'k0' })];
-    await slides.createFromPoints({
+    await slides.createFromSource({
       sourceId: 'src-a',
-      points,
+      chunks: points,
       backend: {
         id: 'model:deepseek',
         label: 'DeepSeek',
@@ -684,9 +668,9 @@ describe('SlideService：AI 用量记账', () => {
     const slides = new SlideService(storage, usage);
 
     const points = [makePoint({ id: 'k0' })];
-    await slides.createFromPoints({
+    await slides.createFromSource({
       sourceId: 'src-a',
-      points,
+      chunks: points,
       backend: {
         id: 'mock',
         label: '假后端',
@@ -710,9 +694,9 @@ describe('SlideService：AI 用量记账', () => {
     const slides = new SlideService(storage, usage);
 
     const points = [makePoint({ id: 'k0' })];
-    await slides.createFromPoints({
+    await slides.createFromSource({
       sourceId: 'src-a',
-      points,
+      chunks: points,
       backend: {
         id: 'model:x',
         label: 'X',
@@ -791,9 +775,9 @@ describe('SlideService：模板模式 vs 自由模式', () => {
 
   it('没有提示词时走固定模板', async () => {
     const track = { template: 0, free: 0 };
-    const { mode } = await slides.createFromPoints({
+    const { mode } = await slides.createFromSource({
       sourceId: 'src-a',
-      points: makePoints(2),
+      chunks: makePoints(2),
       backend: dualBackend(track),
     });
 
@@ -804,9 +788,9 @@ describe('SlideService：模板模式 vs 自由模式', () => {
 
   it('有提示词时走自由模式', async () => {
     const track = { template: 0, free: 0 };
-    const { mode } = await slides.createFromPoints({
+    const { mode } = await slides.createFromSource({
       sourceId: 'src-a',
-      points: makePoints(2),
+      chunks: makePoints(2),
       backend: dualBackend(track),
       instruction: '每页只放 2 条要点',
     });
@@ -818,9 +802,9 @@ describe('SlideService：模板模式 vs 自由模式', () => {
 
   it('只有空白的提示词也算没写（走模板）', async () => {
     const track = { template: 0, free: 0 };
-    const { mode } = await slides.createFromPoints({
+    const { mode } = await slides.createFromSource({
       sourceId: 'src-a',
-      points: makePoints(2),
+      chunks: makePoints(2),
       backend: dualBackend(track),
       instruction: '   \n  ',
     });
@@ -835,9 +819,9 @@ describe('SlideService：模板模式 vs 自由模式', () => {
       makePoint({ id: 'k1', chapter: '第二章' }),
     ];
 
-    const { deck } = await slides.createFromPoints({
+    const { deck } = await slides.createFromSource({
       sourceId: 'src-a',
-      points,
+      chunks: points,
       backend: dualBackend(track),
     });
 
@@ -853,11 +837,11 @@ describe('SlideService：模板模式 vs 自由模式', () => {
 
   it('模板模式的角标仍指向知识点真实页码', async () => {
     const track = { template: 0, free: 0 };
-    const points = [makePoint({ id: 'k0', statement: '甲' })];
+    const points = [makePoint({ id: 'k0', text: '甲' })];
 
-    const { deck } = await slides.createFromPoints({
+    const { deck } = await slides.createFromSource({
       sourceId: 'src-a',
-      points,
+      chunks: points,
       backend: dualBackend(track),
     });
 
@@ -872,9 +856,9 @@ describe('SlideService：模板模式 vs 自由模式', () => {
 
     const build = async () => {
       const track = { template: 0, free: 0 };
-      const { deck } = await slides.createFromPoints({
+      const { deck } = await slides.createFromSource({
         sourceId: 'src-a',
-        points,
+        chunks: points,
         backend: dualBackend(track),
       });
       return deck.pages.map((p) => `${p.layout}:${p.title}`);
@@ -884,9 +868,9 @@ describe('SlideService：模板模式 vs 自由模式', () => {
   });
 
   it('模板模式后端失败时回退，并如实报 aiFailure', async () => {
-    const { usedAi, aiFailure } = await slides.createFromPoints({
+    const { usedAi, aiFailure } = await slides.createFromSource({
       sourceId: 'src-a',
-      points: makePoints(2),
+      chunks: makePoints(2),
       backend: {
         id: 'bad',
         label: '坏的',

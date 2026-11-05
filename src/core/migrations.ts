@@ -291,6 +291,48 @@ const migrations: Record<number, Migration> = {
       slideImages: [],
     };
   },
+
+  /**
+   * v9 → v10
+   *
+   * PPT 的输入源从「知识点」改成「资料原文」，角标的出处也跟着换了：
+   * 旧版 `SlideCitation` 有 `knowledgePointId`，新版是 `segmentId`。
+   *
+   * 迁移只能做到「不让旧备份打不开」：
+   *
+   *  - 旧角标确实来自知识点，硬塞一个 segmentId 是**编造**——
+   *    那会让人点回原文时落到一段无关的正文上，比没有角标更糟。
+   *    所以给空字符串，渲染层会当成「这条出处已失效」而不显示成可点的样子。
+   *  - `knowledgePointId` 保留不删：它是旧数据里唯一真实的溯源信息，
+   *    删掉就真的什么都查不回来了。
+   *
+   * 旧 PPT 的正文内容本身不受影响，只是角标不能再点回原文。
+   * 如果要完整的出处，用新版重新生成一份 —— 这也是改输入源的必然代价。
+   */
+  9: (backup) => {
+    const decks = Array.isArray(backup.slideDecks)
+      ? (backup.slideDecks as Record<string, unknown>[])
+      : [];
+
+    return {
+      ...backup,
+      schemaVersion: 10,
+      slideDecks: decks.map((d) => {
+        const citations = Array.isArray(d.citations)
+          ? (d.citations as Record<string, unknown>[])
+          : [];
+
+        return {
+          ...d,
+          citations: citations.map((c) => ({
+            ...c,
+            // 旧数据没有 segmentId；空串表示「出处已失效」，不编造
+            segmentId: typeof c.segmentId === 'string' ? c.segmentId : '',
+          })),
+        };
+      }),
+    };
+  },
 };
 
 /**

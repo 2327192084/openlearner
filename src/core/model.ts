@@ -9,7 +9,7 @@
  */
 
 /** 当前学习库结构版本。改动实体结构时递增，并在 migrations.ts 补一段迁移。 */
-export const LIBRARY_SCHEMA_VERSION = 9;
+export const LIBRARY_SCHEMA_VERSION = 10;
 
 /**
  * 位置信息 —— 全项目「点回原文」的唯一依据。
@@ -537,7 +537,16 @@ export interface SlideOutlinePage {
 export interface SlideCitation {
   /** 角标编号，从 1 开始。界面显示为 ① 或 [1] */
   index: number;
-  knowledgePointId: string;
+  /**
+   * 出处段落 id（`sourceSegments` 的主键）。
+   *
+   * PPT 现在从**资料原文**生成，出处就是这一段原文；
+   * 页码直接取 `SourceSegment.page`，不再经过知识点。
+   *
+   * 这样一来角标链路少一跳，也不再要求「知识点必须定位成功」——
+   * 段落是解析器切出来的，页码必然准确。
+   */
+  segmentId: string;
   /** 出处资料 */
   sourceId: string;
   sourceTitle: string;
@@ -546,6 +555,13 @@ export interface SlideCitation {
   chapter: string | null;
   /** 被引用的原文片段，资料页显示前 40 字，便于核对 */
   quote: string;
+  /**
+   * 旧字段：旧版本 PPT 的角标来自知识点。
+   *
+   * 保留只为让迁移能把老数据读出来（旧 PPT 打开时不至于报错）。
+   * 新生成的 PPT **不再写这个字段** —— 出处一律用 segmentId。
+   */
+  knowledgePointId?: string;
 }
 
 /**

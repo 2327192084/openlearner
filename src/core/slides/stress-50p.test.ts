@@ -7,7 +7,8 @@ import { findQuoteInText } from '../knowledge/locator.ts';
 import { buildOutline } from './outline.ts';
 import { buildRenderPlan } from './render-plan.ts';
 import { exportToPptx } from './pptx-export.ts';
-import type { KnowledgePoint, SlideDeck } from '../model.ts';
+import type { SlideDeck } from '../model.ts';
+import type { SourceChunk } from './source-chunk.ts';
 import type { ParsedSegment } from '../parsers/types.ts';
 
 /**
@@ -56,16 +57,14 @@ function pageTexts(segments: ParsedSegment[]): string[] {
   return pages.map((p) => byPage.get(p)!.join('\n'));
 }
 
-/** 用真实解析出来的页面文本构造知识点（模拟 P2 的输出） */
-async function makePoints(limit = 120): Promise<KnowledgePoint[]> {
+/** 用真实解析出来的页面文本构造段落（模拟资料入库后的形态） */
+async function makePoints(limit = 120): Promise<SourceChunk[]> {
   const segments = await parseLarge();
   const pages = pageTexts(segments);
-  const points: KnowledgePoint[] = [];
-  const ts = '2026-11-05T00:00:00.000Z';
+  const out: SourceChunk[] = [];
 
-  for (let i = 0; i < pages.length && points.length < limit; i += 1) {
-    // 每页取前 3 段实质文字，模拟整理器每页出 1~3 条知识点。
-    // 50 页 × 3 = 150 条上限，够造 120 条练压力。
+  for (let i = 0; i < pages.length && out.length < limit; i += 1) {
+    // 每页取前 3 段实质文字。50 页 × 3 = 150 段上限，够造 120 段练压力。
     const blocks = pages[i]
       .split(/\n+/)
       .map((s) => s.trim())
@@ -73,39 +72,17 @@ async function makePoints(limit = 120): Promise<KnowledgePoint[]> {
       .slice(0, 3);
 
     blocks.forEach((text, j) => {
-      if (points.length >= limit) return;
-      const quote = text.slice(0, Math.min(40, text.length));
-      const hit = findQuoteInText(text, quote);
-      const seg = segments.find((s) => s.page === i + 1);
-      points.push({
-        id: `kp_${i}_${j}`,
-        sourceId: 'source_large',
-        statement: text,
+      if (out.length >= limit) return;
+      out.push({
+        segmentId: `seg_${i}_${j}`,
+        text,
+        page: i + 1,
         chapter: `第 ${Math.floor(i / 5) + 1} 章`,
-        cognitiveLevel: 'understand',
-        tags: [],
-        anchors: hit
-          ? [
-              {
-                sourceId: 'source_large',
-                page: i + 1,
-                chapter: `第 ${Math.floor(i / 5) + 1} 章`,
-                charStart: hit.start,
-                charEnd: hit.end,
-              },
-            ]
-          : [],
-        quotes: [quote],
-        origin: 'material',
-        anchorStatus: hit ? 'located' : 'unlocated',
-        backendId: null,
-        createdAt: ts,
-        updatedAt: ts,
       });
-      void seg;
     });
   }
-  return points;
+
+  return out;
 }
 
 describe('50 页教材：解析与定位', () => {
@@ -151,25 +128,25 @@ describe('50 页教材：解析与定位', () => {
 describe('50 页教材：大纲与分页（守恒）', () => {
   it('120 条知识点：每条要点都进大纲，一条不丢', async () => {
     const points = await makePoints(120);
-    const outline = buildOutline({ points, sourceTitle: '数据结构综合讲义' });
+    const outline = buildOutline({ chunks: points, sourceTitle: '数据结构综合讲义' });
 
     const bulletTotal = outline.pages.reduce((n, p) => n + p.bullets.length, 0);
     expect(points.length).toBe(120);
     expect(bulletTotal).toBeGreaterThanOrEqual(120);
   });
 
-  it('已定位的知识点全部拿到角标，编号从 1 连续', async () => {
+  it('有页码的段落全部拿到角标，编号从 1 连续', async () => {
     const points = await makePoints(120);
-    const locatedCount = points.filter((p) => p.anchorStatus === 'located').length;
-    const outline = buildOutline({ points, sourceTitle: '数据结构综合讲义' });
+    const withPage = points.filter((p) => Number.isFinite(p.page) && p.page > 0).length;
+    const outline = buildOutline({ chunks: points, sourceTitle: '数据结构综合讲义' });
 
-    expect(outline.citations).toHaveLength(locatedCount);
+    expect(outline.citations).toHaveLength(withPage);
     outline.citations.forEach((c, i) => expect(c.index).toBe(i + 1));
   });
 
   it('没有要点的页不会出现（不产空页）', async () => {
     const points = await makePoints(120);
-    const outline = buildOutline({ points, sourceTitle: '数据结构综合讲义' });
+    const outline = buildOutline({ chunks: points, sourceTitle: '数据结构综合讲义' });
 
     for (const page of outline.pages) {
       if (page.layout === 'bullets') {
@@ -180,7 +157,7 @@ describe('50 页教材：大纲与分页（守恒）', () => {
 
   it('每页要点数不超过上限（超长内容被拆页而非截断）', async () => {
     const points = await makePoints(120);
-    const outline = buildOutline({ points, sourceTitle: '数据结构综合讲义' });
+    const outline = buildOutline({ chunks: points, sourceTitle: '数据结构综合讲义' });
 
     for (const page of outline.pages) {
       expect(page.bullets.length).toBeLessThanOrEqual(5);
@@ -189,20 +166,20 @@ describe('50 页教材：大纲与分页（守恒）', () => {
 
   it('所有知识点文字都还留在大纲里（拆页不丢内容）', async () => {
     const points = await makePoints(60);
-    const outline = buildOutline({ points, sourceTitle: '数据结构综合讲义' });
+    const outline = buildOutline({ chunks: points, sourceTitle: '数据结构综合讲义' });
 
     const allBulletText = outline.pages
       .flatMap((p) => p.bullets.map((b) => b.text))
       .join('');
 
     for (const point of points) {
-      const chars = point.statement.replace(/\s/g, '');
+      const chars = point.text.replace(/\s/g, '');
       // 拆长文本会按标点断开，个别标点会落在切点上被吃掉；
       // 内容主体（汉字）必须全部还在
       const han = [...chars].filter((ch) => /[\u4e00-\u9fa5]/.test(ch));
       const missing = han.filter((ch) => !allBulletText.includes(ch));
       const coveredRatio = (han.length - missing.length) / Math.max(1, han.length);
-      expect(coveredRatio, `知识点 ${point.id} 内容丢失过多`).toBeGreaterThan(0.95);
+      expect(coveredRatio, `段落 ${point.segmentId} 内容丢失过多`).toBeGreaterThan(0.95);
     }
   });
 });
@@ -210,7 +187,7 @@ describe('50 页教材：大纲与分页（守恒）', () => {
 describe('50 页教材：渲染计划与导出', () => {
   async function makeDeck(pointLimit = 60): Promise<SlideDeck> {
     const points = await makePoints(pointLimit);
-    const outline = buildOutline({ points, sourceTitle: '数据结构综合讲义' });
+    const outline = buildOutline({ chunks: points, sourceTitle: '数据结构综合讲义' });
     const ts = '2026-11-05T00:00:00.000Z';
     return {
       id: 'slide_large',
