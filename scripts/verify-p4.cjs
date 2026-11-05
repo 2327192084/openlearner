@@ -1005,6 +1005,165 @@ async function main() {
       );
     }
 
+    // ---------- 9.8 拖拽编辑器：加文本框 → 拖动 → 坐标真的变了 ----------
+    /**
+     * 守三件事：
+     *  1. 能加一块叠加内容；
+     *  2. 用**真实指针事件**拖动之后，库里的比例坐标变了；
+     *  3. 坐标是比例（0~1）而不是像素 —— 存像素的话换屏幕尺寸就错位。
+     *
+     * 用 PointerEvent 而不是直接调 API：这条链路上最容易坏的是
+     * 「DOM 事件 → 比例换算 → 落库」这一段，直接调 API 会绕过它。
+     */
+    // 加一个文本框
+    const addText = await cdp.eval(`(async () => {
+      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+      const btn = [...document.querySelectorAll('button')].find(b =>
+        b.textContent.trim() === '加文本框' && !b.disabled);
+      if (!btn) return { ok: false, why: '找不到「加文本框」按钮' };
+      btn.click();
+      await sleep(1200);
+      return { ok: true };
+    })()`);
+
+    record(
+      '拖拽编辑器提供「加文本框 / 插入图片」入口',
+      addText.ok,
+      addText.ok ? '按钮存在且可点' : addText.why,
+    );
+
+    const afterAdd = await cdp.eval(`(async () => {
+      ${DB_HELPER}
+      const db = await openDb();
+      const ds = await readAll(db, 'slideDecks');
+      db.close();
+      const d = ds[0];
+      for (const p of d.pages || []) {
+        const ovs = p.overlays || [];
+        if (ovs.length > 0) return { box: ovs[0], pageId: p.id, count: ovs.length };
+      }
+      return null;
+    })()`);
+
+    record(
+      '加文本框后落库（overlays 非空）',
+      afterAdd !== null,
+      afterAdd ? `${afterAdd.count} 块，首块 x=${afterAdd.box.x?.toFixed(3)}` : '库里没有 overlays',
+    );
+
+    record(
+      '叠加内容坐标是 0~1 的比例（不是像素）',
+      afterAdd !== null &&
+        afterAdd.box.x >= 0 &&
+        afterAdd.box.x <= 1 &&
+        afterAdd.box.w > 0 &&
+        afterAdd.box.w <= 1,
+      afterAdd ? `x=${afterAdd.box.x} w=${afterAdd.box.w}` : '没有可检查的块',
+    );
+
+    // 真实拖动：按下 → 移动 → 松开
+    const dragged = await cdp.eval(`(async () => {
+      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+      const item = document.querySelector('.sl-stage__item');
+      if (!item) return { ok: false, why: '编辑层里没有可拖的块' };
+
+      const stage = document.querySelector('.sl-stage');
+      if (!stage) return { ok: false, why: '找不到编辑层' };
+
+      const r = stage.getBoundingClientRect();
+
+      const fire = (type, x, y) => {
+        item.dispatchEvent(new PointerEvent(type, {
+          bubbles: true, cancelable: true, pointerId: 1,
+          clientX: x, clientY: y,
+        }));
+      };
+
+      // 按下块中心
+      const ir = item.getBoundingClientRect();
+      const startX = ir.left + ir.width / 2;
+      const startY = ir.top + ir.height / 2;
+      fire('pointerdown', startX, startY);
+      await sleep(120);
+
+      // 往右下拖 15% 版面
+      const dx = r.width * 0.15;
+      const dy = r.height * 0.10;
+      fire('pointermove', startX + dx, startY + dy);
+      await sleep(120);
+      fire('pointerup', startX + dx, startY + dy);
+      await sleep(1400);
+
+      return { ok: true, stageW: Math.round(r.width), stageH: Math.round(r.height) };
+    })()`);
+
+    const afterDrag = await cdp.eval(`(async () => {
+      ${DB_HELPER}
+      const db = await openDb();
+      const ds = await readAll(db, 'slideDecks');
+      db.close();
+      const d = ds[0];
+      for (const p of d.pages || []) {
+        const ovs = p.overlays || [];
+        if (ovs.length > 0) return ovs[0];
+      }
+      return null;
+    })()`);
+
+    if (!dragged.ok) {
+      record('**拖动之后坐标真的变了**', false, dragged.why);
+    } else if (!afterDrag) {
+      record('**拖动之后坐标真的变了**', false, '拖完库里读不到 overlays');
+    } else {
+      const movedX = Math.abs(afterDrag.x - afterAdd.box.x);
+      const movedY = Math.abs(afterDrag.y - afterAdd.box.y);
+      record(
+        '**拖动之后坐标真的变了**',
+        movedX > 0.01 || movedY > 0.01,
+        `Δx=${movedX.toFixed(3)} Δy=${movedY.toFixed(3)}（拖动 15%/10%）`,
+      );
+      record(
+        '拖动的位移量级与指针位移相符（没有被放大或缩小）',
+        Math.abs(movedX - 0.15) < 0.06,
+        `期望约 0.15，实际 ${movedX.toFixed(3)}`,
+      );
+      record(
+        '拖动不改变尺寸（只移动，不缩放）',
+        Math.abs(afterDrag.w - afterAdd.box.w) < 0.001 &&
+          Math.abs(afterDrag.h - afterAdd.box.h) < 0.001,
+        `w ${afterAdd.box.w.toFixed(3)} → ${afterDrag.w.toFixed(3)}`,
+      );
+    }
+
+    /**
+     * 最后一条、也是最重要的一条：叠加内容必须真的进导出文件。
+     *
+     * 前面所有拖拽断言都只证明「数据层对了」。数据对了但导出没画上去，
+     * 用户看到的仍是「我加了批注，导出的 PPT 里没有」。
+     * 所以拖完之后再导一次，直接在 pptx 里找那段文字。
+     */
+    const beforeOverlayExport = fs.readdirSync(DOWNLOAD_DIR);
+    await cdp.eval(`(async () => {
+      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+      const btn = [...document.querySelectorAll('button')].find(b =>
+        /导出/.test(b.textContent || '') && !b.disabled);
+      if (btn) btn.click();
+      await sleep(4000);
+    })()`);
+
+    const overlayFile = await waitForDownload(beforeOverlayExport);
+    if (!overlayFile) {
+      record('**叠加的批注真的出现在导出的 pptx 里**', false, '没有下载到文件');
+    } else {
+      const ovInfo = await inspectPptx(overlayFile);
+      const ovText = ovInfo.texts.join('\n');
+      record(
+        '**叠加的批注真的出现在导出的 pptx 里**',
+        /批注/.test(ovText),
+        /批注/.test(ovText) ? '在导出文件里找到了批注文字' : '导出文件里找不到批注文字',
+      );
+    }
+
     // ---------- 10. 无 console 错误 ----------
     record(
       'P4 全流程无 console 错误 / 未捕获异常',

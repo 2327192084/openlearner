@@ -6,6 +6,7 @@ import { Badge, ErrorState, LoadingState, Notice } from '@/components/states.tsx
 import { SlideExport } from './SlideExport.tsx';
 import { SlideOutline } from './SlideOutline.tsx';
 import { SlidePreview } from './SlidePreview.tsx';
+import { OverlayEditor } from './OverlayEditor.tsx';
 import { DEFAULT_THEME_ID, THEMES, resolveTheme } from '@/core/slides/theme.ts';
 import {
   deckBulletStats,
@@ -49,6 +50,14 @@ export function SlideDetail({ deckId, onBack, onChanged }: SlideDetailProps) {
   const [error, setError] = useState<{ message: string; hint: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
+  /**
+   * 当前选中的页。
+   *
+   * 提到这一层是因为两处都要用它：左边的大纲面板选页，
+   * 右边的预览区要在那一页上做拖拽编辑。各存一份会不同步 ——
+   * 左边选第 3 页、右边却在第 1 页上拖图。
+   */
+  const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
 
   const deck = state.kind === 'ready' ? state.deck : null;
 
@@ -303,6 +312,8 @@ export function SlideDetail({ deckId, onBack, onChanged }: SlideDetailProps) {
         </p>
         <SlideOutline
           deck={current}
+          selectedPageId={selectedPageId}
+          onSelectPage={setSelectedPageId}
           onDeck={(next) => {
             void applyDeck(next);
             onChanged();
@@ -352,6 +363,29 @@ export function SlideDetail({ deckId, onBack, onChanged }: SlideDetailProps) {
         </div>
 
         <SlidePreview deck={current} plan={plan} />
+
+        {/*
+          拖拽编辑。
+
+          放在预览下面而不是嵌进预览里：编辑层需要自己量像素做换算，
+          而预览那层要保持纯展示（它是「导出长什么样」的参照）。
+          混在一起会让两件事互相干扰，也容易让「预览 = 导出」这条线变模糊。
+        */}
+        <h4 className="page__section-title">在页面上自由摆放</h4>
+        <OverlayEditor
+          deck={current}
+          pageId={selectedPageId}
+          slide={
+            selectedPageId
+              ? (plan.find((s) => s.pageNumber === indexOfPage(current, selectedPageId) + 1) ??
+                null)
+              : null
+          }
+          onDeck={(next) => {
+            void applyDeck(next);
+            onChanged();
+          }}
+        />
       </section>
 
       <SlideExport
@@ -363,4 +397,16 @@ export function SlideDetail({ deckId, onBack, onChanged }: SlideDetailProps) {
       />
     </div>
   );
+}
+
+/**
+ * 页 id → 在大纲里的下标（从 0 开始）。
+ *
+ * 注意不能用它去索引渲染计划：计划里还夹着派生出来的「资料来源」页，
+ * 而大纲里没有那一页。所以调用方要拿 index+1 去和 pageNumber 比对时，
+ * 只对正文页成立 —— 这也是为什么编辑层只在有 pageId 时才出现
+ * （资料来源页永远选不中）。
+ */
+function indexOfPage(deck: SlideDeck, pageId: string): number {
+  return deck.pages.findIndex((p) => p.id === pageId);
 }

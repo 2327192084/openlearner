@@ -1009,3 +1009,78 @@ a.sl-tabs__item:hover {
   border-top: 1px solid var(--c-border);
   font-size: var(--fs-sm);
 }
+
+/* ---------------------------------------------------------------------------
+   拖拽编辑层
+
+   这一层只负责画选中框与把手，不画内容（内容由 SlidePreview 画）。
+   所以它是透明的、盖在预览卡片上方，用 aspect-ratio 与卡片同尺寸，
+   内部一律用百分比定位 —— 卡片多大它多大，不会因为窗口缩放而错位。
+--------------------------------------------------------------------------- */
+
+.sl-stage {
+  position: relative;
+  width: 100%;
+  /* aspect-ratio 由行内样式按 SLIDE_SIZE 设定 */
+  border-radius: var(--r-md);
+  background: repeating-linear-gradient(
+    45deg,
+    var(--c-border) 0,
+    var(--c-border) 1px,
+    transparent 1px,
+    transparent 8px
+  );
+  /* 让用户的图不被卡片的圆角裁掉一点点边 */
+  overflow: hidden;
+  touch-action: none; /* 触屏上拖动不要触发页面滚动 */
+}
+
+.sl-stage__item {
+  position: absolute;
+  /* 透明，但要有边框才看得见可拖区域；未选中时几乎不可见 */
+  border: 1px dashed rgba(0, 0, 0, 0.18);
+  border-radius: 4px;
+  cursor: grab;
+  box-sizing: border-box;
+}
+
+.sl-stage__item--selected {
+  border-color: var(--c-primary, #1e5faa);
+  border-width: 2px;
+  border-style: solid;
+  cursor: grabbing;
+  /* 选中后加一层极淡的底色，在深色主题的页面上也能看出选中 */
+  background: rgba(30, 95, 170, 0.08);
+}
+
+/* 四个角的把手 */
+.sl-stage__handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border: 2px solid var(--c-primary, #1e5faa);
+  border-radius: 2px;
+  box-sizing: border-box;
+}
+
+.sl-stage__handle--nw { left: -6px; top: -6px; cursor: nwse-resize; }
+.sl-stage__handle--ne { right: -6px; top: -6px; cursor: nesw-resize; }
+.sl-stage__handle--sw { left: -6px; bottom: -6px; cursor: nesw-resize; }
+.sl-stage__handle--se { right: -6px; bottom: -6px; cursor: nwse-resize; }
+
+/* 取不到图时的提醒角标 */
+.sl-stage__warn {
+  position: absolute;
+  right: -8px;
+  top: -8px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--c-danger, #c0392b);
+  color: #fff;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+  font-weight: 600;
+}

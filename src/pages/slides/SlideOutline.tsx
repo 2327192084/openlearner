@@ -30,11 +30,24 @@ export interface SlideOutlineProps {
   deck: SlideDeck;
   /** 任何一次写操作成功后，把最新的 deck 交给上层（上层据此刷新预览与导出区） */
   onDeck: (deck: SlideDeck) => void;
+  /**
+   * 当前选中的页 id（受控）。
+   *
+   * 从内部 state 提到上层，是因为预览区的拖拽编辑器也要知道
+   * 「用户正在编辑哪一页」—— 两处各存一份选中态，就会出现
+   * 左边选第 3 页、右边在第 1 页上拖图的情况。
+   */
+  selectedPageId: string | null;
+  onSelectPage: (id: string | null) => void;
 }
 
-export function SlideOutline({ deck, onDeck }: SlideOutlineProps) {
+export function SlideOutline({
+  deck,
+  onDeck,
+  selectedPageId,
+  onSelectPage,
+}: SlideOutlineProps) {
   const { slides, sources: sourceService } = useServices();
-  const [selectedId, setSelectedId] = useState<string | null>(deck.pages[0]?.id ?? null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string; hint: string } | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -77,9 +90,9 @@ export function SlideOutline({ deck, onDeck }: SlideOutlineProps) {
 
   // 页被删掉后选中项会失效，退回第一页而不是留下一个指向空白的编辑区
   useEffect(() => {
-    if (selectedId && deck.pages.some((p) => p.id === selectedId)) return;
-    setSelectedId(deck.pages[0]?.id ?? null);
-  }, [deck.pages, selectedId]);
+    if (selectedPageId && deck.pages.some((p) => p.id === selectedPageId)) return;
+    onSelectPage(deck.pages[0]?.id ?? null);
+  }, [deck.pages, selectedPageId, onSelectPage]);
 
   // 页数变了（插了图文页/删了页）就关掉面板，否则面板会浮在一个已经不存在的位置上
   useEffect(() => {
@@ -106,7 +119,7 @@ export function SlideOutline({ deck, onDeck }: SlideOutlineProps) {
     [onDeck],
   );
 
-  const page = deck.pages.find((p) => p.id === selectedId) ?? null;
+  const page = deck.pages.find((p) => p.id === selectedPageId) ?? null;
   const pageIndex = page ? deck.pages.indexOf(page) : -1;
   const pinned = page ? isPinnedPage(page.layout) : false;
 
@@ -145,7 +158,7 @@ export function SlideOutline({ deck, onDeck }: SlideOutlineProps) {
             }
             onClick={() =>
               setFigurePanel(
-                selectedId ? { mode: 'insert', afterPageId: selectedId } : { mode: 'insert' },
+                selectedPageId ? { mode: 'insert', afterPageId: selectedPageId } : { mode: 'insert' },
               )
             }
           >
@@ -162,13 +175,13 @@ export function SlideOutline({ deck, onDeck }: SlideOutlineProps) {
         <ol className="sl-outline__pages">
           {deck.pages.map((item, index) => {
             const stats = pageStats(deck, item.id);
-            const active = item.id === selectedId;
+            const active = item.id === selectedPageId;
             return (
               <li key={item.id}>
                 <button
                   type="button"
                   className={`sl-outline__page${active ? ' sl-outline__page--active' : ''}`}
-                  onClick={() => setSelectedId(item.id)}
+                  onClick={() => onSelectPage(item.id)}
                   aria-current={active ? 'true' : undefined}
                 >
                   <span className="sl-outline__page-top">
@@ -215,7 +228,7 @@ export function SlideOutline({ deck, onDeck }: SlideOutlineProps) {
                 const after = figurePanel.afterPageId;
                 const base = after ? next.pages.findIndex((p) => p.id === after) : 0;
                 const inserted = next.pages[base + 1];
-                if (inserted) setSelectedId(inserted.id);
+                if (inserted) onSelectPage(inserted.id);
               }
               setNote(
                 figurePanel.mode === 'replace'
