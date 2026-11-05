@@ -132,15 +132,31 @@ async function main() {
     await cdp.send('Page.enable');
     await cdp.send('Runtime.enable');
 
-    // 拦截网络：把发给 DeepSeek 的请求换成假响应，
+    // 拦截网络：把发给各家模型服务的请求换成假响应，
     // 这样能验证「真后端整条链路」而不花一分钱、不需要真 Key。
+    //
+    // 早先只拦 api.deepseek.com，所以「换服务商」这条链路根本没有被覆盖 ——
+    // 代码里写死 DeepSeek 地址与模型名的问题一直测不出来。
+    // 现在把预设里的服务商都拦上，顺便记下每个请求打到哪一家。
     await cdp.send('Fetch.enable', {
-      patterns: [{ urlPattern: '*api.deepseek.com*', requestStage: 'Request' }],
+      patterns: [
+        { urlPattern: '*api.deepseek.com*', requestStage: 'Request' },
+        { urlPattern: '*open.bigmodel.cn*', requestStage: 'Request' },
+        { urlPattern: '*api.moonshot.cn*', requestStage: 'Request' },
+        { urlPattern: '*dashscope.aliyuncs.com*', requestStage: 'Request' },
+        { urlPattern: '*api.siliconflow.cn*', requestStage: 'Request' },
+        { urlPattern: '*api.openai.com*', requestStage: 'Request' },
+        { urlPattern: '*ark.cn-beijing.volces.com*', requestStage: 'Request' },
+      ],
     });
 
     const consoleErrors = [];
     let deepseekCalls = 0;
     let sawAuthHeader = false;
+    /** 记录每次非预检请求打到了哪个主机，用于验证「换服务商真的换了地址」 */
+    const calledHosts = [];
+    /** 记录每次请求体里的 model，用于验证「换服务商真的换了模型名」 */
+    const sentModels = [];
 
     cdp.ws.addEventListener('message', (ev) => {
       const msg = JSON.parse(ev.data);
@@ -154,11 +170,27 @@ async function main() {
         );
       }
 
-      // 拦住发往 DeepSeek 的请求，返回一个结构正确的假响应
+      // 拦住发往各家的请求，返回一个结构正确的假响应
       if (msg.method === 'Fetch.requestPaused') {
         const isOptions = (msg.params.request.method ?? '').toUpperCase() === 'OPTIONS';
         // 只统计真实的 POST（预检不算「发起了一次整理请求」）
-        if (!isOptions) deepseekCalls += 1;
+        if (!isOptions) {
+          deepseekCalls += 1;
+          try {
+            calledHosts.push(new URL(msg.params.request.url).host);
+          } catch {
+            calledHosts.push(msg.params.request.url);
+          }
+          const raw = msg.params.request.postData;
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw);
+              if (parsed.model) sentModels.push(parsed.model);
+            } catch {
+              /* 不是 JSON 就算了，不影响其余断言 */
+            }
+          }
+        }
         const headers = msg.params.request.headers ?? {};
         if (headers.Authorization || headers.authorization) sawAuthHeader = true;
 
@@ -408,6 +440,76 @@ async function main() {
       sawAuthHeader ? '' : '没有拦截到 Authorization 头',
     );
     await cdp.screenshot(path.join(OUT_DIR, 'p5-03-test-connection.png'));
+
+    /**
+     * ---------- 4b. 换服务商：地址与模型名必须跟着换 ----------
+     *
+     * 这条是「多 API 接入」的核心价值，也是最容易被写死的地方。
+     * 早先的代码不管 provider 是什么，一律构造 DeepSeek 后端、
+     * 一律把模型名兜底成 deepseek-chat —— 用户配了智谱也照样发去 DeepSeek，
+     * 报错还是「模型不存在」，完全看不出是代码写死。
+     *
+     * 所以这里真的要切一次服务商，然后检查网络里打出去的主机与模型名。
+     */
+    await cdp.eval(`location.hash = '#/settings'`);
+    await sleep(2000);
+
+    const switched = await cdp.eval(`(async () => {
+      // 打开编辑表单
+      const editBtn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '编辑');
+      if (!editBtn) return { ok: false, why: '找不到编辑按钮' };
+      editBtn.click();
+      await new Promise(r => setTimeout(r, 900));
+
+      const sel = document.getElementById('bf-provider');
+      if (!sel) return { ok: false, why: '找不到服务商下拉框' };
+
+      // 切到智谱
+      const target = [...sel.options].find(o => o.value === 'zhipu');
+      if (!target) return { ok: false, why: '下拉框里没有智谱', options: [...sel.options].map(o => o.value) };
+      sel.value = 'zhipu';
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise(r => setTimeout(r, 700));
+
+      const base = document.getElementById('bf-base')?.value ?? '';
+      const model = document.getElementById('bf-model')?.value ?? '';
+
+      const submit = [...document.querySelectorAll('.backend-form button')].find(b => b.textContent.includes('保存'));
+      if (!submit) return { ok: false, why: '找不到保存按钮' };
+      submit.click();
+      await new Promise(r => setTimeout(r, 2200));
+
+      return { ok: true, base, model, text: (document.querySelector('.shell__content')?.innerText ?? '').slice(0, 400) };
+    })()`);
+
+    record(
+      '切换服务商后接口地址与模型名自动跟着换（不是留在 DeepSeek）',
+      switched.ok &&
+        switched.base.includes('bigmodel.cn') &&
+        switched.model.includes('glm'),
+      switched.ok ? `地址=${switched.base} 模型=${switched.model}` : switched.why,
+    );
+
+    // 再点一次测试连接，检查真实打出去的主机是不是智谱
+    const hostBefore = calledHosts.length;
+    await cdp.eval(`(async () => {
+      const btn = [...document.querySelectorAll('button')].find(b => b.textContent.includes('测试连接'));
+      if (btn) btn.click();
+      await new Promise(r => setTimeout(r, 4000));
+    })()`);
+    const newHosts = calledHosts.slice(hostBefore);
+
+    record(
+      '**换成智谱后请求真的打到智谱，没有偷偷发去 DeepSeek**',
+      newHosts.length > 0 && newHosts.some((h) => h.includes('bigmodel.cn')),
+      newHosts.length ? `本轮到访：${[...new Set(newHosts)].join(', ')}` : '没有发出请求',
+    );
+    record(
+      '请求体里的模型名是智谱的模型（没有沿用 deepseek-chat）',
+      sentModels.length > 0 && sentModels.some((m) => /glm/i.test(m)),
+      sentModels.length ? `最近发送的模型：${[...new Set(sentModels)].slice(-3).join(', ')}` : '没有捕获到请求体',
+    );
+    await cdp.screenshot(path.join(OUT_DIR, 'p5-04-provider-switched.png'));
 
     // ---------- 5. 后端可切换，且切到真模型后界面提示会花钱 ----------
     await cdp.eval(`location.hash = '#/knowledge'`);

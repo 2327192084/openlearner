@@ -25,10 +25,19 @@ import { buildSystemPrompt, buildUserPrompt } from './prompts.ts';
  * 真正的逐段流式留给后续 —— 当前目标是先验证「真模型能不能跑通」。
  */
 
-export interface DeepSeekBackendOptions {
+export interface ModelBackendOptions {
   apiKey: string;
   model?: string;
   baseUrl?: string;
+  /**
+   * 服务商标识（BackendConfig.provider）。
+   *
+   * 只影响两件事：是否发 `response_format`、报错文案里写哪家的名字。
+   * 真正的调用形状各家一致，所以换服务商不需要换实现 —— 见 presets.ts。
+   */
+  provider?: string;
+  /** 用户给这个后端起的名字，用在进度条与错误提示里 */
+  label?: string;
   /** 一次请求最多带多少段（控制上下文长度） */
   segmentsPerRequest?: number;
   language?: 'zh' | 'en';
@@ -36,6 +45,9 @@ export interface DeepSeekBackendOptions {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }
+
+/** 旧名保留，避免一次性改掉所有引用。新代码用 ModelBackendOptions。 */
+export type DeepSeekBackendOptions = ModelBackendOptions;
 
 /** 模型返回的原始形状，用于逐字段校验 */
 interface RawPoint {
@@ -47,19 +59,35 @@ interface RawPoint {
 
 const VALID_LEVELS = new Set(['remember', 'understand', 'apply', 'analyze']);
 
-export class DeepSeekBackend implements OrganizeBackend {
-  readonly id = 'deepseek';
-  readonly label = 'DeepSeek（模型 API 直连）';
+/**
+ * 模型后端：把资料整理成知识点（任何 OpenAI 兼容服务商）。
+ *
+ * 实现 `OrganizeBackend` 契约，因此上层（KnowledgeService）不需要知道
+ * 背后是 DeepSeek、Kimi、智谱，还是 MockBackend。
+ *
+ * 类名从 `DeepSeekBackend` 改成 `ModelBackend`：它早就不是 DeepSeek 专用的了，
+ * 留旧名会让人以为换服务商要换实现。旧名保留为别名，见文件末尾。
+ */
+export class ModelBackend implements OrganizeBackend {
+  readonly id: string;
+  readonly label: string;
   readonly isMock = false;
 
   private readonly model: string;
   private readonly segmentsPerRequest: number;
   private readonly language: 'zh' | 'en';
 
-  constructor(private readonly options: DeepSeekBackendOptions) {
+  constructor(private readonly options: ModelBackendOptions) {
     this.model = options.model ?? 'deepseek-chat';
     this.segmentsPerRequest = options.segmentsPerRequest ?? 4;
     this.language = options.language ?? 'zh';
+    /**
+     * id 里带上 provider，这样「同一份资料用两个不同后端整理」的结果
+     * 在库里能区分开（P5 第 4 条要求并存对比）。
+     */
+    const provider = options.provider ?? 'deepseek';
+    this.id = `model:${provider}`;
+    this.label = options.label ?? '模型 API 直连';
   }
 
   /**
@@ -148,6 +176,7 @@ export class DeepSeekBackend implements OrganizeBackend {
       apiKey: this.options.apiKey,
       baseUrl: this.options.baseUrl,
       model: this.model,
+      provider: this.options.provider,
       systemPrompt: system,
       userPrompt: user,
       jsonMode: true,
@@ -159,6 +188,9 @@ export class DeepSeekBackend implements OrganizeBackend {
     };
   }
 }
+
+/** 旧名别名。新代码请用 ModelBackend。 */
+export { ModelBackend as DeepSeekBackend };
 
 // ---------------------------------------------------------------------------
 // 响应解析
@@ -305,6 +337,8 @@ export async function testConnection(options: {
   apiKey: string;
   model?: string;
   baseUrl?: string;
+  /** 服务商标识，用于错误文案与 JSON 模式兼容性判断 */
+  provider?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }): Promise<ConnectionTestResult> {
@@ -314,6 +348,7 @@ export async function testConnection(options: {
     const result = await chatCompletion({
       apiKey: options.apiKey,
       model: options.model ?? 'deepseek-chat',
+      provider: options.provider,
       systemPrompt: 'You are a connectivity probe. Reply with JSON only: {"ok": true}',
       userPrompt: 'ping',
       jsonMode: true,

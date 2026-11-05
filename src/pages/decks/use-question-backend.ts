@@ -5,7 +5,8 @@ import type {
   QuestionSourcePoint,
 } from '@/core/questions/backend-types.ts';
 import { MockQuestionBackend } from '@/core/questions/mock-backend.ts';
-import { DeepSeekQuestionBackend } from '@/core/questions/deepseek-backend.ts';
+import { DeepSeekQuestionBackend as ModelQuestionBackend } from '@/core/questions/deepseek-backend.ts';
+import { findPreset } from '@/core/ai/presets.ts';
 import type { BackendService, BackendView } from '@/core/backends.ts';
 
 /**
@@ -129,18 +130,26 @@ export function useQuestionBackend(backendService: BackendService): UseQuestionB
     // 配置被删掉了就退回假后端，避免界面卡在一个不存在的选择上
     if (!config) return new MockQuestionBackend();
 
+    /**
+     * 与 use-organize-backend 同样的多服务商映射：
+     * provider 必须传下去，否则换服务商后模型名仍会写死成 deepseek-chat。
+     */
+    const provider = config.provider || 'custom';
+    const preset = findPreset(provider);
     const base = {
-      model: config.model || 'deepseek-chat',
+      provider,
+      label: config.label || preset?.label || '模型 API 直连（出题）',
+      model: config.model || preset?.defaultModel || 'deepseek-chat',
       ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
     };
 
     return {
       id: config.id,
-      label: config.label || 'DeepSeek',
+      label: base.label,
       isMock: false,
       // 估算不需要真 key，直接借真后端的算法（它只用 points 与 count）
       estimateTokens: (points: QuestionSourcePoint[], opts: GenerateQuestionsOptions) =>
-        new DeepSeekQuestionBackend({ apiKey: 'estimation-only', ...base }).estimateTokens(
+        new ModelQuestionBackend({ apiKey: 'estimation-only', ...base }).estimateTokens(
           points,
           opts,
         ),
@@ -152,7 +161,7 @@ export function useQuestionBackend(backendService: BackendService): UseQuestionB
           );
         }
         // key 的明文只在这个作用域里存活到调用结束
-        return new DeepSeekQuestionBackend({ apiKey, ...base }).generate(points, opts);
+        return new ModelQuestionBackend({ apiKey, ...base }).generate(points, opts);
       },
     };
   }, [selected, list, backendService]);

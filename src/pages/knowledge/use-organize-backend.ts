@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { OrganizeBackend } from '@/core/knowledge/backend-types.ts';
 import { MockBackend } from '@/core/knowledge/mock-backend.ts';
-import { DeepSeekBackend } from '@/core/ai/deepseek-backend.ts';
+import { DeepSeekBackend as ModelBackend } from '@/core/ai/deepseek-backend.ts';
+import { findPreset } from '@/core/ai/presets.ts';
 import type { BackendService, BackendView } from '@/core/backends.ts';
 
 /**
@@ -121,18 +122,34 @@ export function useOrganizeBackend(backendService: BackendService): UseOrganizeB
     // 配置被删掉了就退回假后端，避免界面卡在一个不存在的选择上
     if (!config) return new MockBackend();
 
+    /**
+     * 把后端配置映射成调用参数。
+     *
+     * 这是「多服务商」真正落地的一环。以前不管用户配的是哪家，
+     * 都构造 DeepSeekBackend 并写死模型默认值 `deepseek-chat` ——
+     * 换成智谱后依然把 deepseek-chat 发过去，必然报「模型不存在」，
+     * 而用户配的明明是另一家，很难联想到是代码写死了。
+     *
+     * 现在 provider 一并传下去：默认模型按服务商预设取，
+     * 报错文案也会写上是哪一家出的问题。
+     */
+    const provider = config.provider || 'custom';
+    const preset = findPreset(provider);
     const base = {
-      model: config.model || 'deepseek-chat',
+      provider,
+      label: config.label || preset?.label || '模型 API 直连',
+      // 用户填了就用用户的；没填用该服务商的默认模型
+      model: config.model || preset?.defaultModel || 'deepseek-chat',
       ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
     };
 
     return {
       id: config.id,
-      label: config.label || 'DeepSeek',
+      label: base.label,
       isMock: false,
       // 估算不需要 key，直接借真后端的算法
       estimateTokens: (segments) =>
-        new DeepSeekBackend({ apiKey: 'estimation-only', ...base }).estimateTokens(segments),
+        new ModelBackend({ apiKey: 'estimation-only', ...base }).estimateTokens(segments),
       organize: async (request) => {
         const apiKey = await backendService.readCredential(config.id);
         if (!apiKey) {
@@ -141,7 +158,7 @@ export function useOrganizeBackend(backendService: BackendService): UseOrganizeB
           );
         }
         // key 的明文只在这个作用域里存活到调用结束
-        return new DeepSeekBackend({ apiKey, ...base }).organize(request);
+        return new ModelBackend({ apiKey, ...base }).organize(request);
       },
     };
   }, [selected, list, backendService]);

@@ -353,10 +353,15 @@ describe('parsePointsJson：模型的真实输出往往不干净', () => {
 });
 
 describe('DeepSeekBackend：遵守 OrganizeBackend 契约', () => {
-  it('标为非 mock，id 为 deepseek', () => {
+  it('标为非 mock，id 里带服务商（同资料不同后端的结果要能区分）', () => {
     const backend = new DeepSeekBackend({ apiKey: 'k' });
     expect(backend.isMock).toBe(false);
-    expect(backend.id).toBe('deepseek');
+    // 默认服务商是 deepseek；id 前缀 model: 让「模型后端」与 mock 一眼可分
+    expect(backend.id).toBe('model:deepseek');
+
+    const zhipu = new DeepSeekBackend({ apiKey: 'k', provider: 'zhipu' });
+    expect(zhipu.id).toBe('model:zhipu');
+    expect(zhipu.id).not.toBe(backend.id);
   });
 
   it('逐条 await onDraft（停止才能生效、落库才不会丢）', async () => {

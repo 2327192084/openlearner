@@ -1,6 +1,7 @@
 import { newId, nowIso } from './id.ts';
 import type { BackendConfig } from './model.ts';
 import type { SecretRecord, StorageAdapter } from './storage/types.ts';
+import { findPreset } from './ai/presets.ts';
 
 /** 新建后端时的用户输入（不含 id/时间戳/状态） */
 export interface BackendDraft {
@@ -26,8 +27,17 @@ export interface BackendView extends BackendConfig {
   credentialHint: string | null;
 }
 
+/**
+ * 新建后端时的默认值。
+ *
+ * `label` 刻意与 `PRESETS` 里 DeepSeek 的 label 保持一致：
+ * 界面切换服务商时，用「名字是否等于旧预设的 label」来判断
+ * 这个名字是不是自动填的。两边不一致的话，一个从没改过名字的用户
+ * 切到智谱后，名字会停在「DeepSeek」而地址已经变成智谱 ——
+ * 卡片上写着 DeepSeek、实际发去智谱，比报错更难排查。
+ */
 export const DEFAULT_BACKEND_DRAFT: BackendDraft = {
-  label: 'DeepSeek',
+  label: findPreset('deepseek')?.label ?? 'DeepSeek',
   kind: 'direct-api',
   provider: 'deepseek',
   baseUrl: 'https://api.deepseek.com',

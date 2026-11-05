@@ -29,29 +29,39 @@ import type {
  * 一次给出上下文反而更容易出好题。
  */
 
-export interface DeepSeekQuestionBackendOptions {
+export interface ModelQuestionBackendOptions {
   apiKey: string;
   model?: string;
   baseUrl?: string;
+  /** 服务商标识，用于错误文案与 JSON 模式兼容性判断 */
+  provider?: string;
+  /** 用户给这个后端起的名字 */
+  label?: string;
   /** 一次请求最多出几道题 */
   countPerRequest?: number;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }
 
+/** 旧名保留，避免一次性改掉所有引用。新代码用 ModelQuestionBackendOptions。 */
+export type DeepSeekQuestionBackendOptions = ModelQuestionBackendOptions;
+
 const VALID_KINDS = new Set(['single', 'multiple', 'blank', 'essay']);
 
-export class DeepSeekQuestionBackend implements QuestionBackend {
-  readonly id = 'deepseek-questions';
-  readonly label = 'DeepSeek（模型 API 直连）';
+export class ModelQuestionBackend implements QuestionBackend {
+  readonly id: string;
+  readonly label: string;
   readonly isMock = false;
 
   private readonly model: string;
   private readonly countPerRequest: number;
 
-  constructor(private readonly options: DeepSeekQuestionBackendOptions) {
+  constructor(private readonly options: ModelQuestionBackendOptions) {
     this.model = options.model ?? 'deepseek-chat';
     this.countPerRequest = options.countPerRequest ?? 8;
+    // id 带 provider：同资料用不同后端出的题在库里能区分开
+    this.id = `model-questions:${options.provider ?? 'deepseek'}`;
+    this.label = options.label ?? '模型 API 直连（出题）';
   }
 
   estimateTokens(points: QuestionSourcePoint[], options: GenerateQuestionsOptions): number {
@@ -148,6 +158,7 @@ export class DeepSeekQuestionBackend implements QuestionBackend {
       apiKey: this.options.apiKey,
       ...(this.options.baseUrl ? { baseUrl: this.options.baseUrl } : {}),
       model: this.model,
+      provider: this.options.provider,
       systemPrompt: system,
       userPrompt: user,
       jsonMode: true,
@@ -159,6 +170,9 @@ export class DeepSeekQuestionBackend implements QuestionBackend {
     };
   }
 }
+
+/** 旧名别名。新代码请用 ModelQuestionBackend。 */
+export { ModelQuestionBackend as DeepSeekQuestionBackend };
 
 // ---------------------------------------------------------------------------
 // 提示词

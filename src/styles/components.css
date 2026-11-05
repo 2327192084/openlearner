@@ -95,6 +95,18 @@
   line-height: 1.5;
 }
 
+/*
+ * 嵌套在 hint 里的第二层说明（例如「去哪拿 Key」）。
+ * 用左边框做视觉区分：内容与上一句相关但不是同一件事，
+ * 混成一段会读成一长条忽略掉。
+ */
+.field__hint-nested {
+  margin-top: 4px;
+  padding-left: 8px;
+  border-left: 2px solid var(--c-border);
+  color: var(--c-text-3);
+}
+
 .field__error {
   font-size: var(--fs-xs);
   color: var(--c-danger);

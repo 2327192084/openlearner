@@ -3,6 +3,12 @@ import { Badge, Notice } from '@/components/states.tsx';
 import { useServices } from '@/app/services-context.ts';
 import { DEFAULT_BACKEND_DRAFT, type BackendDraft, type BackendView } from '@/core/backends.ts';
 import { testConnection, type ConnectionTestResult } from '@/core/ai/deepseek-backend.ts';
+import {
+  CUSTOM_PROVIDER_ID,
+  PROVIDER_PRESETS,
+  findPreset,
+  isPresetLabel,
+} from '@/core/ai/presets.ts';
 import './backend.css';
 
 type Flash = { tone: 'info' | 'warning' | 'danger'; text: string } | null;
@@ -16,7 +22,10 @@ const STATUS_LABEL: Record<BackendView['status'], { text: string; tone: 'ready' 
 };
 
 /**
- * AI 后端配置区（P0 只做录入与保存）。
+ * AI 后端配置区。
+ *
+ * 支持任何 OpenAI 兼容服务：常见服务商做成了预设（选中即填好地址与模型），
+ * 「自定义」一项覆盖中转站、私有部署和 agent 平台的自定义端点。
  *
  * 两条硬性约束落实在这里：
  *  1. 凭据一旦保存就不回显明文，输入框始终为空，只显示脱敏尾号
@@ -83,7 +92,9 @@ export function BackendSection({
 
       const result = await testConnection({
         apiKey,
-        model: target.model || 'deepseek-chat',
+        // 模型名留空时按该服务商的预设兜底，而不是一律发 deepseek-chat
+        model: target.model || findPreset(target.provider)?.defaultModel || 'deepseek-chat',
+        provider: target.provider,
         ...(target.baseUrl ? { baseUrl: target.baseUrl } : {}),
       });
 
@@ -140,7 +151,8 @@ export function BackendSection({
         <div>
           <div className="card__title">AI 后端</div>
           <div className="card__subtitle">
-            录入后存在本机，P0 阶段不会发出任何请求。Key 只保存在本机存储里，不进备份文件、不进导出。
+            支持任何 OpenAI 兼容服务：DeepSeek、Kimi、智谱、通义、中转站，以及 agent
+            平台提供的自定义端点。Key 只保存在本机存储里，不进备份文件、不进导出、不上传。
           </div>
         </div>
         <button
@@ -177,6 +189,12 @@ export function BackendSection({
                       <span className="page__mono">{item.model || '未填模型'}</span>
                       <span className="backend-item__sep">·</span>
                       <span className="page__mono">{item.baseUrl || '未填地址'}</span>
+                      {findPreset(item.provider) ? (
+                        <>
+                          <span className="backend-item__sep">·</span>
+                          <span className="page__muted">{findPreset(item.provider)!.label}</span>
+                        </>
+                      ) : null}
                     </div>
                     <div className="backend-item__caps">
                       <Capability on={item.capabilities.textOrganize} label="文字整理" />
@@ -306,11 +324,49 @@ function BackendForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /** 当前选中的服务商预设（自定义时也返回那一项，只是 baseUrl/model 为空） */
+  const preset = findPreset(draft.provider);
+
   const setField = <K extends keyof BackendDraft>(key: K, value: BackendDraft[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
 
   const setCap = (key: keyof BackendDraft['capabilities'], value: boolean) =>
     setDraft((d) => ({ ...d, capabilities: { ...d.capabilities, [key]: value } }));
+
+  /**
+   * 切换服务商。
+   *
+   * 三件事一起做，缺一条用户都会踩坑：
+   *   1. 地址与默认模型跟着换（否则换了服务商还发旧模型名，必然报「模型不存在」）
+   *   2. 名称跟着换 —— 但**只在用户没自定义过名字时**改。
+   *      判断交给 `isPresetLabel`，它认预设 label 与几个历史别名
+   *      （早期版本把 DeepSeek 的默认名写成过 `DeepSeek`）。
+   *      用户改过的名字（比如「我的便宜通道」）必须保住。
+   *   3. 能力标记按预设重置：看图能力不一样，留旧值会导致点了「用看图模型」才报错。
+   *
+   * 「自定义」不清空已填的地址与模型 —— 用户往往是先选 DeepSeek 试通了，
+   * 再改成自己的中转站，只换地址。清空等于罚他重填一遍。
+   */
+  const handleProviderChange = (nextId: string) => {
+    const next = findPreset(nextId);
+    setDraft((d) => {
+      const wasAutoLabel = isPresetLabel(d.label, d.provider);
+      const isCustom = nextId === CUSTOM_PROVIDER_ID;
+
+      return {
+        ...d,
+        provider: nextId,
+        label: wasAutoLabel && next ? next.label : d.label,
+        // 自定义保留用户已填内容；具体预设则覆盖为预设值
+        baseUrl: isCustom ? d.baseUrl : (next?.baseUrl ?? ''),
+        model: isCustom ? d.model : (next?.defaultModel ?? ''),
+        capabilities: {
+          ...d.capabilities,
+          ...(next ? { visionFormula: next.vision } : {}),
+        },
+      };
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -355,6 +411,28 @@ function BackendForm({
 
       <div className="backend-form__grid">
         <div className="field">
+          <label className="field__label" htmlFor="bf-provider">
+            服务商
+          </label>
+          <select
+            id="bf-provider"
+            className="select"
+            value={draft.provider}
+            onChange={(e) => handleProviderChange(e.target.value)}
+            disabled={draft.kind === 'agent-app'}
+          >
+            {PROVIDER_PRESETS.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+          <div className="field__hint">
+            {preset?.note ?? '选择服务商后会自动填好接口地址与默认模型。'}
+          </div>
+        </div>
+
+        <div className="field">
           <label className="field__label" htmlFor="bf-label">
             名称
           </label>
@@ -363,9 +441,12 @@ function BackendForm({
             className="input"
             value={draft.label}
             onChange={(e) => setField('label', e.target.value)}
-            placeholder="DeepSeek"
+            placeholder={preset?.label || '我的模型通道'}
             maxLength={40}
           />
+          <div className="field__hint">
+            这个名字会出现在「用哪个后端整理」的下拉框里，可以随便起。
+          </div>
         </div>
 
         <div className="field">
@@ -383,8 +464,8 @@ function BackendForm({
           </select>
           <div className="field__hint">
             {draft.kind === 'direct-api'
-              ? '无条件可用的主干路径。推荐 DeepSeek，也可换任何 OpenAI 兼容服务。'
-              : '需要先在第三方平台登录，状态会显示「需登录」，直到 P5 完成对接。'}
+              ? '填自己的 Key，任何 OpenAI 兼容服务都能用。agent 平台给的自定义端点也选这个。'
+              : '需要先在第三方平台登录。目前还没有做自动对接，建议先用「模型 API 直连」。'}
           </div>
         </div>
 
@@ -397,9 +478,12 @@ function BackendForm({
             className="input input--mono"
             value={draft.baseUrl}
             onChange={(e) => setField('baseUrl', e.target.value)}
-            placeholder="https://api.deepseek.com"
+            placeholder={preset?.baseUrl || 'https://your-endpoint.example.com/v1'}
             disabled={draft.kind === 'agent-app'}
           />
+          <div className="field__hint">
+            填到 <code>/v1</code> 为止即可，不要带 <code>/chat/completions</code>（带了软件也会自动去掉）。
+          </div>
         </div>
 
         <div className="field">
@@ -411,8 +495,23 @@ function BackendForm({
             className="input input--mono"
             value={draft.model}
             onChange={(e) => setField('model', e.target.value)}
-            placeholder="deepseek-chat"
+            placeholder={preset?.defaultModel || 'model-name'}
+            list="bf-model-suggestions"
           />
+          {preset && preset.models.length > 0 ? (
+            <>
+              <datalist id="bf-model-suggestions">
+                {preset.models.map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+              <div className="field__hint">
+                {preset.label}常用：{preset.models.join(' / ')}
+              </div>
+            </>
+          ) : (
+            <div className="field__hint">按对方文档填模型名，区分大小写。</div>
+          )}
         </div>
       </div>
 
@@ -432,8 +531,9 @@ function BackendForm({
         />
         <div className="field__hint">
           {initial?.hasCredential
-            ? `当前已保存凭据 ${initial.credentialHint}。留空表示不修改；填新值会覆盖；填一个空格后删除则该行不生效，请用「删除后端」清除凭据。`
-            : '只保存在本机，不会写进导出文件。出于安全考虑，保存后不再回显明文。'}
+            ? `当前已保存凭据 ${initial.credentialHint}。留空表示不修改；填新值会覆盖。要彻底清除请删掉这个后端。`
+            : '只保存在本机，不进备份文件、不进导出、不上传。出于安全考虑，保存后不再回显明文。'}
+          {preset?.keyHint ? <div className="field__hint-nested">{preset.keyHint}</div> : null}
         </div>
       </div>
 
