@@ -29,5 +29,17 @@ export default defineConfig({
     environment: 'node',
     environmentMatchGlobs: [['src/**/*.idb.test.ts', 'node']],
     setupFiles: ['./src/test/setup.ts'],
+    /**
+     * 单测默认超时（毫秒）。
+     *
+     * vitest 默认 5000。PDF 相关用例（pdf.test / sources.test / stress-50p）
+     * 单独跑约 1 秒，但全量并行（39 个文件同时解 PDF）时会涨到 4~6 秒，
+     * 正好卡在 5000 的临界线上 —— 表现是「单独跑全过、全量跑随机红 1~3 个」。
+     *
+     * 这类抖动最消耗判断力：看起来像代码坏了，实际是测试基础设施在打架。
+     * 给到 20000 留余量，但不关掉超时 ——
+     * 真卡死的用例仍然会被抓到，只是阈值合理了。
+     */
+    testTimeout: 20000,
   },
 });
