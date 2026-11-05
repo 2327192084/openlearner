@@ -42,6 +42,48 @@ describe('导入 PDF', () => {
     expect(source.fileName).toBe('数据结构复习.pdf');
   });
 
+  /**
+   * 这条断言来自一个真实的、只在端到端跑才暴露的缺陷。
+   *
+   * pdfjs 的 `getDocument({data})` 会把传入的 ArrayBuffer **转移（detach）**走。
+   * 早先的顺序是「先 parseAny、后 storeOriginalFile」，于是拿到的永远是
+   * 一块 length 为 0 的 buffer，`copy.set()` 抛 TypeError 被空 catch 吞掉，
+   * 降级成 fileStored=false —— 表现是「任何 PDF 导进来，图文页入口都置灰」，
+   * 而且没有任何错误信息。
+   *
+   * 单测之所以一直没抓到：`MemoryStorage` 下没有任何断言检查 fileStored，
+   * 而界面侧只是「按钮灰了」，不报错。所以这里必须钉住两件事：
+   * 字节真的存下来了、取出来和原文件一致。
+   */
+  it('原始字节真的存下来了，取出来与源文件逐字节一致（pdfjs 会 detach buffer）', async () => {
+    const original = fixture('course.pdf');
+    // 传入的数组本身也会被 pdfjs detach（这本身就是那个 bug 的证据），
+    // 所以基准快照必须在导入之前留下
+    const expectedBytes = Buffer.from(original);
+    const expectedLength = original.byteLength;
+    expect(expectedLength).toBeGreaterThan(0);
+
+    const source = await sources.importBuffer('数据结构复习.pdf', original);
+
+    // 导入后调用方的数组已被转移走 —— 这条断言 simultane 证明「为什么必须提前复制」
+    expect(original.byteLength).toBe(0);
+
+    expect(source.fileStored).toBe(true);
+    expect(await sources.hasOriginalFile(source.id)).toBe(true);
+
+    const stored = await sources.getOriginalFile(source.id);
+    expect(stored).not.toBeNull();
+    expect(stored!.byteLength).toBe(expectedLength);
+    // 逐字节比对：长度对但内容错（比如存了个空壳）同样不能算通过
+    expect(Buffer.from(stored!).equals(expectedBytes)).toBe(true);
+  });
+
+  it('非 PDF 不存原始字节（没有「原页」可渲染）', async () => {
+    const source = await sources.importBuffer('笔记.md', fixture('notes.md'));
+    expect(source.fileStored).toBe(false);
+    expect(await sources.hasOriginalFile(source.id)).toBe(false);
+  });
+
   it('切分出的段与页一一对应，正文不为空', async () => {
     const source = await sources.importBuffer('c.pdf', fixture('course.pdf'));
     const segments = await sources.getSegments(source.id);

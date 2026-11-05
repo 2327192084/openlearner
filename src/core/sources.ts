@@ -100,6 +100,22 @@ export class SourceService {
     data: Uint8Array,
     opts: { courseId?: string | null; byteSize?: number; title?: string } = {},
   ): Promise<Source> {
+    /**
+     * 必须在解析之前把原始字节拷走。
+     *
+     * pdfjs 的 `getDocument({data})` 会把这个 ArrayBuffer **转移（detach）**走，
+     * 解析结束后传入的 `data.byteLength` 变成 0。所以「先解析、后存原始字节」
+     * 的顺序下永远只能存到一块空 buffer —— 而 storeOriginalFile 里的
+     * `copy.set(data)` 会抛 TypeError 被降级成 fileStored=false，
+     * 表现是「任何 PDF 导入后图文页入口都置灰」。
+     *
+     * 只有 PDF 需要留字节（图文页要拿它重新渲染某一页）。
+     */
+    const original =
+      kindFromFileName(fileName) === 'pdf' && data.byteLength <= MAX_STORED_FILE_BYTES
+        ? new Uint8Array(data)
+        : null;
+
     const parsed = await parseAny(fileName, data);
 
     const ts = nowIso();
@@ -134,7 +150,7 @@ export class SourceService {
 
     // 原始字节只对 PDF 留：图文页要用 pdfjs 重新渲染某一页，
     // 而 docx/pptx/md 的页面布局由 Office/浏览器实时排版，没有「原页」可渲染。
-    await this.storeOriginalFile(source, data);
+    if (original) await this.storeOriginalFile(source, original);
 
     // 先写段再写资料：万一中途失败，是「有段没资料」（不可见、可被清理），
     // 而不是「有资料没段」（可见但点开是空的，最糟的用户体验）
@@ -201,22 +217,43 @@ export class SourceService {
   private async storeOriginalFile(source: Source, data: Uint8Array): Promise<boolean> {
     if (source.kind !== 'pdf') return false;
     if (data.byteLength > MAX_STORED_FILE_BYTES) return false;
+    // 调用方（importBuffer）已经在解析前复制过一份独立 buffer，
+    // 这里如果还是 detached/空数组，说明上游逻辑出了问题，别静默写进去
+    if (data.byteLength === 0) {
+      source.fileStored = false;
+      return false;
+    }
 
     try {
-      // 复制一份独立 buffer：传进来的 Uint8Array 可能是别人 buffer 的视图，
-      // 直接把它的 .buffer 存进去会连带存下整块内存（甚至超出视图范围的数据）。
-      const copy = new Uint8Array(data.byteLength);
-      copy.set(data);
+      /**
+       * 存一份「刚好只包含这段字节」的 ArrayBuffer。
+       *
+       * 传进来的 Uint8Array 可能只是别人大 buffer 的一个视图（byteOffset 不为 0），
+       * 直接存 `data.buffer` 会把整块内存连带存进去 —— 例如从 200MB 的
+       * 上传缓冲里切出的 90KB PDF，会把 200MB 塞进 IndexedDB。
+       * 所以这里再复制一次，只留视图范围内的字节。
+       *
+       * `as ArrayBuffer`：`new Uint8Array()` 分配的一定是独立 ArrayBuffer，
+       * 不是 SharedArrayBuffer，这里 TS 的 ArrayBufferLike 宽类型需要收窄。
+       */
+      const exact = new Uint8Array(data);
       await this.storage.put('sourceFiles', {
         id: source.id,
-        data: copy.buffer,
-        byteSize: copy.byteLength,
+        data: exact.buffer as ArrayBuffer,
+        byteSize: exact.byteLength,
         savedAt: nowIso(),
       });
       source.fileStored = true;
       return true;
-    } catch {
-      // 配额满之类：降级为「没有原始文件」，导入本身仍然成功
+    } catch (err) {
+      /**
+       * 配额满之类：降级为「没有原始文件」，导入本身仍然成功。
+       *
+       * 但**必须留下日志**：早先这里是空 catch，结果是「所有 PDF 都存不下
+       * 原始字节、图文页入口永远置灰」，而排查时没有任何线索 —— 花二十分钟
+       * 才定位到 pdfjs 转移 buffer。降级可以，无声降级不行。
+       */
+      console.warn('[sources] 原始文件没有存下，图文页将不可用：', err);
       source.fileStored = false;
       return false;
     }
