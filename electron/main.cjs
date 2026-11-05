@@ -399,6 +399,60 @@ const MAX_PROXY_BYTES = 8 * 1024 * 1024;
 /** 与渲染进程的 120s 超时对齐 */
 const PROXY_TIMEOUT_MS = 120_000;
 
+/**
+ * 判断一个地址能不能被转发。
+ *
+ * 单独抽成函数是为了能被 `scripts/verify-electron-proxy.cjs` 直接验证 ——
+ * 内联在 ipcMain.handle 里的话，验它就得启动整个 Electron，等于验不了。
+ * 这不是为了整洁：这段判断决定了「这个通道会不会被利用去扫内网」，
+ * 必须是可回归的。
+ *
+ * 规则：
+ *   - 必须是 http/https，其他协议（file: / ftp: / chrome-extension: …）拒绝
+ *   - http 只允许回环地址。外部服务用 http 会明文传 Key，等于把 Key 送出去
+ *   - 拒绝内网地址（回环除外 —— 那是本地模型服务，明确放行）
+ *   - 路径必须以 /chat/completions 结尾，不做通用代理
+ *
+ * @param {string} url
+ * @returns {{ ok: true } | { ok: false, kind: string, message: string }}
+ */
+function checkProxyTarget(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { ok: false, kind: 'invalid-url', message: '接口地址不是合法的 URL' };
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return { ok: false, kind: 'invalid-url', message: '接口地址只支持 http / https' };
+  }
+
+  const loopback = isLoopbackHost(parsed.hostname);
+
+  if (parsed.protocol === 'http:' && !loopback) {
+    return {
+      ok: false,
+      kind: 'invalid-url',
+      message: 'http 只允许连本机地址。外部服务请用 https —— 明文传输会让 Key 泄露',
+    };
+  }
+
+  if (!loopback && isPrivateHost(parsed.hostname)) {
+    return {
+      ok: false,
+      kind: 'forbidden-host',
+      message: `不允许访问内网地址（${parsed.hostname}）`,
+    };
+  }
+
+  if (!parsed.pathname.endsWith('/chat/completions')) {
+    return { ok: false, kind: 'invalid-path', message: '只允许调用 /chat/completions' };
+  }
+
+  return { ok: true };
+}
+
 function registerChatProxy() {
   /**
    * 参数校验一律在主进程做。
@@ -415,47 +469,12 @@ function registerChatProxy() {
         ? Math.min(body.timeoutMs, PROXY_TIMEOUT_MS)
         : PROXY_TIMEOUT_MS;
 
-    let parsed;
-    try {
-      parsed = new URL(url);
-    } catch {
-      // 只回结构化结果，不 throw —— 渲染进程要能把这句话显示给用户
-      return { ok: false, kind: 'invalid-url', message: '接口地址不是合法的 URL' };
+    // 地址层面的检查全部集中在 checkProxyTarget 里，便于被脚本直接验证
+    const target = checkProxyTarget(url);
+    if (!target.ok) {
+      return target;
     }
 
-    /**
-     * 协议策略：
-     *   - https：允许（外部服务商的正规形态）
-     *   - http + 回环地址：允许（本地模型服务常常只跑 http，没有证书）
-     *   - 其余（http + 任意公网域名）：拒绝 —— 明文传 Key 等于把 Key 送出去
-     */
-    const loopback = isLoopbackHost(parsed.hostname);
-    if (parsed.protocol === 'http:') {
-      if (!loopback) {
-        return {
-          ok: false,
-          kind: 'invalid-url',
-          message: 'http 只允许连本机地址。外部服务请用 https —— 明文传输会让 Key 泄露',
-        };
-      }
-    } else if (parsed.protocol !== 'https:') {
-      return { ok: false, kind: 'invalid-url', message: '接口地址必须是 https' };
-    }
-
-    if (!loopback && isPrivateHost(parsed.hostname)) {
-      return {
-        ok: false,
-        kind: 'forbidden-host',
-        message: `不允许访问内网地址（${parsed.hostname}）`,
-      };
-    }
-    if (!parsed.pathname.endsWith('/chat/completions')) {
-      return {
-        ok: false,
-        kind: 'invalid-path',
-        message: '只允许调用 /chat/completions',
-      };
-    }
     if (!apiKey || !requestBody) {
       return { ok: false, kind: 'invalid-request', message: '请求缺少凭据或请求体' };
     }
@@ -464,7 +483,7 @@ function registerChatProxy() {
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const response = await fetch(parsed.toString(), {
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
