@@ -9,6 +9,7 @@ import type {
   SourceLocation,
 } from '../model.ts';
 import type { StorageAdapter } from '../storage/types.ts';
+import type { UsageService } from '../usage.ts';
 import {
   DEFAULT_EXPORT_OPTIONS,
   exportFileName,
@@ -84,7 +85,11 @@ export class DeckService {
    */
   private sequenceCounter: number | null = null;
 
-  constructor(private readonly storage: StorageAdapter) {}
+  constructor(
+    private readonly storage: StorageAdapter,
+    /** 用量记账，可选。不传就是不记账，业务行为不变（见 KnowledgeService 的说明） */
+    private readonly usage?: UsageService,
+  ) {}
 
   /** 取下一个序号。首次调用时从库里扫一遍取最大值。 */
   private async nextSequence(): Promise<number> {
@@ -243,6 +248,19 @@ export class DeckService {
     await this.storage.put('decks', updated);
 
     void estimated;
+
+    /**
+     * 记账。放在 deck 落库之后，理由同 KnowledgeService：
+     * 先存好用户的数据，再记这笔钱。停止也记 —— 请求已发出、照样计费。
+     */
+    if (this.usage && !input.backend.isMock && result.actualTokens) {
+      await this.usage.record({
+        backendId: input.backend.id,
+        provider: input.backend.provider ?? 'unknown',
+        kind: 'questions',
+        tokens: result.actualTokens,
+      });
+    }
 
     return {
       deck: updated,

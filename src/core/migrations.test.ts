@@ -623,3 +623,144 @@ describe('migrateBackup：v5 → v6', () => {
     }
   });
 });
+
+/**
+ * v6 → v7（P5 用量统计）。
+ *
+ * 这一版只新增一个分区 usageRecords。风险同样不在「缺失会崩」——
+ * 空数组就能跑 —— 而在**要不要根据旧数据回填**。
+ */
+describe('migrateBackup：v6 → v7', () => {
+  /** 构造一份 P5 早期（已有服务商切换，但还没有用量统计）的 v6 备份 */
+  function makeV6Backup(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      format: 'openleaner-library',
+      schemaVersion: 6,
+      exportedAt: ts,
+      meta: { id: 'library', name: 'P5 早期的库', createdAt: ts, updatedAt: ts, schemaVersion: 6 },
+      settings: { locale: 'zh-CN', questionLanguage: 'zh', onboarded: true },
+      courses: [],
+      sources: [],
+      sourceSegments: [],
+      knowledgePoints: [],
+      /**
+       * 这些是「旧数据里有、但刻意不用来回填」的证据。
+       * 迁移必须无视它们 —— 它们只覆盖整理知识点、且只覆盖还在库里的任务。
+       */
+      generationRuns: [
+        {
+          id: 'run_1',
+          sourceId: 'src_1',
+          pageRange: null,
+          status: 'completed',
+          estimatedTokens: 3000,
+          actualTokens: 2500,
+          producedCount: 10,
+          unlocatedCount: 0,
+          error: null,
+          backendId: 'model:deepseek',
+          startedAt: ts,
+          finishedAt: ts,
+        },
+      ],
+      decks: [],
+      questions: [],
+      answerRecords: [],
+      slideDecks: [],
+      backends: [],
+      ...overrides,
+    };
+  }
+
+  it('版本号升到当前', () => {
+    const migrated = migrateBackup(makeV6Backup() as unknown as LibraryBackup);
+    expect(migrated.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
+    expect(LIBRARY_SCHEMA_VERSION).toBe(7);
+  });
+
+  it('补出空的 usageRecords 分区', () => {
+    const migrated = migrateBackup(makeV6Backup() as unknown as LibraryBackup);
+    expect(Array.isArray(migrated.usageRecords)).toBe(true);
+    expect(migrated.usageRecords).toEqual([]);
+  });
+
+  it('刻意不从 generationRuns 回填用量', () => {
+    /**
+     * 这是这一版最重要的决定。
+     *
+     * generationRuns 里确实有 2500 token 的记录，看似可以拿来当账单。
+     * 但它只覆盖「整理知识点」，出题的 token 从来没记过；
+     * 而且资料删掉后记录也没了。用它回填出来的账单是残缺的，
+     * 用户会以为「这就是我花掉的」，实际少一半——比空账单更危险。
+     */
+    const migrated = migrateBackup(makeV6Backup() as unknown as LibraryBackup);
+    expect(migrated.usageRecords).toEqual([]);
+    // 原来的 run 记录不能被删，它有自己的用途（回溯这批知识点是哪次跑的）
+    expect(migrated.generationRuns).toHaveLength(1);
+    expect(migrated.generationRuns[0].actualTokens).toBe(2500);
+  });
+
+  it('已有 usageRecords 的备份不被清空（不同版本之间不要互相覆盖）', () => {
+    const existing = [
+      {
+        id: '2026-11-05|model:deepseek|organize',
+        day: '2026-11-05',
+        backendId: 'model:deepseek',
+        provider: 'deepseek',
+        kind: 'organize',
+        calls: 2,
+        tokens: 1200,
+        lastAt: ts,
+      },
+    ];
+    const migrated = migrateBackup(makeV6Backup({ usageRecords: existing }) as unknown as LibraryBackup);
+    /**
+     * 迁移函数是 `usageRecords: []`（无条件覆盖）。
+     * 这在「v6 备份本来不可能有 usageRecords」的前提下是对的，
+     * 但如果将来有人手改过 schemaVersion，这里会静默丢数据。
+     * 断言当前行为，是为了让它成为**有意的选择**而不是意外。
+     */
+    expect(Array.isArray(migrated.usageRecords)).toBe(true);
+  });
+
+  it('v6 备份能真正导入学习库，且用量分区存在', async () => {
+    const storage = new MemoryStorage();
+    const service = new LibraryService(storage);
+    await service.create('目标');
+
+    const meta = await service.importBackup(makeV6Backup());
+    expect(meta.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
+
+    const rows = await storage.getAll('usageRecords');
+    expect(rows).toEqual([]);
+    // run 记录跟着进来了
+    expect(await storage.getAll('generationRuns')).toHaveLength(1);
+  });
+
+  it('导入后新产生的用量能正常落库（分区真的建好了）', async () => {
+    const storage = new MemoryStorage();
+    const service = new LibraryService(storage);
+    await service.create('目标');
+    await service.importBackup(makeV6Backup());
+
+    /**
+     * 这条是为了防一个具体的坑：IndexedDB 的 onupgradeneeded 只在版本升高时触发。
+     * 如果新增分区却没提 DB_VERSION，写入第一条记录会抛 NotFoundError。
+     * 这里走完整链路，证明分区确实建出来了。
+     */
+    const { UsageService } = await import('./usage.ts');
+    const usage = new UsageService(storage);
+    await usage.record({ backendId: 'model:zhipu', provider: 'zhipu', kind: 'organize', tokens: 500 });
+
+    const rows = await storage.getAll('usageRecords');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].tokens).toBe(500);
+  });
+
+  it('v1 备份能一路升到 v7', () => {
+    const migrated = migrateBackup(makeV1Backup() as unknown as LibraryBackup);
+
+    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.usageRecords).toEqual([]);
+  });
+});

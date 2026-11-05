@@ -638,6 +638,88 @@ async function main() {
     );
     await cdp.screenshot(path.join(OUT_DIR, 'p5-05-generated.png'));
 
+    // ---------- 6b. 用量统计界面（P5 第 5 条） ----------
+    /**
+     * 关键：这里必须验证**界面上看到的数字是真的**，而不只是「这块区域存在」。
+     *
+     * 所以先读库里的 usageRecords，再去界面抓数字，两边对得上才算过。
+     * 只断言「有『用量统计』四个字」等于没测 —— 空态也有这四个字。
+     */
+    await cdp.eval(`location.hash = '#/settings'`);
+    await sleep(1200);
+
+    const usageDb = await cdp.eval(`(async () => {
+      const openDb = () => new Promise((res, rej) => {
+        const r = indexedDB.open('openleaner');
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
+      const db = await openDb();
+      return await new Promise((res) => {
+        const tx = db.transaction('usageRecords', 'readonly');
+        const req = tx.objectStore('usageRecords').getAll();
+        req.onsuccess = () => res(req.result ?? []);
+        req.onerror = () => res([]);
+      });
+    })()`);
+
+    const usageTokens = usageDb.reduce((a, r) => a + (r.tokens ?? 0), 0);
+
+    record(
+      '用量记录落库（按天 + 后端 + 用途聚合）',
+      usageDb.length > 0 && usageTokens > 0,
+      `${usageDb.length} 条，合计 ${usageTokens} token：${JSON.stringify(
+        usageDb.map((r) => ({ day: r.day, backend: r.backendId, kind: r.kind, tokens: r.tokens })),
+      )}`,
+    );
+
+    const usageUi = await cdp.eval(`(async () => {
+      const sec = [...document.querySelectorAll('section.card')]
+        .find(s => /用量统计/.test(s.querySelector('.card__title')?.textContent ?? ''));
+      if (!sec) return { found: false };
+      const statValues = [...sec.querySelectorAll('.usage-stat__value')].map(e => e.textContent.trim());
+      const itemNames = [...sec.querySelectorAll('.usage-item__name')].map(e => e.textContent.trim());
+      const bars = sec.querySelectorAll('.usage-bar-col').length;
+      return {
+        found: true,
+        statValues,
+        itemNames,
+        bars,
+        text: sec.innerText.slice(0, 400),
+      };
+    })()`);
+
+    record('设置页有用量统计区', usageUi.found, usageUi.found ? '' : '找不到 .card__title 含「用量统计」的区块');
+    record(
+      '界面上的 token 数与库里的记录一致',
+      usageUi.found && (usageUi.statValues?.[0] ?? '').replace(/[^0-9]/g, '') === String(usageTokens),
+      usageUi.found ? `界面 ${JSON.stringify(usageUi.statValues)} / 库 ${usageTokens}` : '',
+    );
+    record(
+      '按后端列出服务商（用真后端跑过，必须有对应一行）',
+      usageUi.found && (usageUi.itemNames?.length ?? 0) > 0,
+      `行：${JSON.stringify(usageUi.itemNames)}`,
+    );
+    /**
+     * 这一条是补上的漏洞：上一版只断言「有一行」，
+     * 结果界面显示「未知服务商」也算过 —— 数字对、名字错，最容易被忽略。
+     * 用户看到「未知服务商」会怀疑软件没记住他配的是哪家。
+     */
+    record(
+      '用量行显示的是真实服务商名，不是「未知服务商」',
+      usageUi.found &&
+        (usageUi.itemNames?.length ?? 0) > 0 &&
+        !usageUi.itemNames.some((n) => /未知服务商/.test(n)),
+      `行：${JSON.stringify(usageUi.itemNames)}`,
+    );
+    record('按天趋势画出了柱子', usageUi.found && (usageUi.bars ?? 0) > 0, `${usageUi.bars} 根`);
+    record(
+      '金额标明了是估算（不能让人把它当账单）',
+      usageUi.found && /估算|粗算|以.*账单为准/.test(usageUi.text ?? ''),
+      '',
+    );
+    await cdp.screenshot(path.join(OUT_DIR, 'p5-06-usage.png'));
+
     // ---------- 7. 无控制台错误 ----------
     record(
       'P5 全流程无 console 错误 / 未捕获异常',

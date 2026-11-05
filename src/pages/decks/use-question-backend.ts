@@ -147,6 +147,8 @@ export function useQuestionBackend(backendService: BackendService): UseQuestionB
       id: config.id,
       label: base.label,
       isMock: false,
+      // 界面手搓的对象，provider 漏了会让用量统计写成「未知服务商」
+      provider,
       // 估算不需要真 key，直接借真后端的算法（它只用 points 与 count）
       estimateTokens: (points: QuestionSourcePoint[], opts: GenerateQuestionsOptions) =>
         new ModelQuestionBackend({ apiKey: 'estimation-only', ...base }).estimateTokens(

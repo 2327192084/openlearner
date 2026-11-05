@@ -4,6 +4,7 @@ import { useServices } from '@/app/services-context.ts';
 import { backupFileName, LibraryError } from '@/core/library.ts';
 import type { LibraryMeta } from '@/core/model.ts';
 import { BackendSection } from './BackendSection.tsx';
+import { UsageSection } from './UsageSection.tsx';
 // 下载实现放在 PPT 页目录里：P0 备份导出和 P4 PPT 导出共用同一份，
 // 避免两边实现漂移（一份能下载、一份不能，最难查）。
 import { downloadBlob } from '../slides/download.ts';
@@ -309,6 +310,8 @@ export function SettingsPage() {
           })();
         }}
       />
+
+      <UsageSection />
     </div>
   );
 }

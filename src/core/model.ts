@@ -9,7 +9,7 @@
  */
 
 /** 当前学习库结构版本。改动实体结构时递增，并在 migrations.ts 补一段迁移。 */
-export const LIBRARY_SCHEMA_VERSION = 6;
+export const LIBRARY_SCHEMA_VERSION = 7;
 
 /**
  * 位置信息 —— 全项目「点回原文」的唯一依据。
@@ -192,6 +192,39 @@ export interface GenerationRun {
   backendId: string | null;
   startedAt: string;
   finishedAt: string | null;
+}
+
+/**
+ * 用量统计的一条记录：**按「天 + 后端 + 用途」聚合**，不是流水账。
+ *
+ * 为什么不存每次调用的明细：
+ * 一次整理可能发好几次请求，一次出题也是。按次存，一个月就是几千条记录，
+ * 而用户真正想知道的只有「这个月智谱花了多少、DeepSeek 花了多少」。
+ * 聚合记录的 id 是确定性的（见 usageKey），同一格重复写入就是累加，
+ * 天然幂等，也不会因为反复重试而膨胀。
+ *
+ * 为什么单独建表而不从 GenerationRun 统计：
+ * GenerationRun 只覆盖「整理知识点」，出题的 token 完全没落库；
+ * 而且它会被 clearBySource / 删除资料清掉，用量记录不该跟着消失
+ * —— 钱已经花了，删资料不能让账单变少。
+ */
+export interface UsageRecord {
+  /** 确定性 id：`${day}|${backendId}|${kind}`，保证同一格只有一条 */
+  id: string;
+  /** 本地日期 YYYY-MM-DD。按用户所在时区切天，不按 UTC */
+  day: string;
+  /** 用的后端（BackendConfig.id，或 model:xxx 这类内置标识） */
+  backendId: string;
+  /** 服务商标识，便于界面上按「智谱/DeepSeek」汇总而不必回查后端配置 */
+  provider: string;
+  /** 消耗在什么地方 */
+  kind: 'organize' | 'questions';
+  /** 累计调用次数，让「几次请求花了这么多」有据可依 */
+  calls: number;
+  /** 累计 token。服务端没返回 usage 时不计入（不猜） */
+  tokens: number;
+  /** 最近一次调用时间 */
+  lastAt: string;
 }
 
 /** 习题集。 */
@@ -578,4 +611,11 @@ export interface LibraryBackup {
   answerRecords: AnswerRecord[];
   slideDecks: SlideDeck[];
   backends: BackendConfig[];
+  /**
+   * 用量统计。跟库一起备份：换机器后账单不该归零。
+   *
+   * 注意这不违反「凭据不进备份」——这里只有「哪天用了多少 token」，
+   * 不含 Key、不含任何请求内容。
+   */
+  usageRecords: UsageRecord[];
 }

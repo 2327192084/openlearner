@@ -119,6 +119,8 @@ export class LibraryService {
       answerRecords: snapshot.answerRecords,
       slideDecks: snapshot.slideDecks,
       backends: snapshot.backends,
+      // 用量统计跟着走：换机器后账单不该归零（只有数字，不含 Key 与请求内容）
+      usageRecords: snapshot.usageRecords,
     };
   }
 

@@ -214,6 +214,22 @@ const migrations: Record<number, Migration> = {
       })),
     };
   },
+
+  /**
+   * v6 → v7
+   *
+   * v7 新增 usageRecords（用量统计）。旧库没有这个分区的数据，补空数组即可。
+   *
+   * **刻意不根据现有的 generationRuns 回填**：那张表只有「整理知识点」的用量，
+   * 出题的 token 从来没记过，被删资料的任务也没了。拿它回填出来的账单是残缺的，
+   * 而残缺的账单比空账单更危险——用户会以为「这就是我花掉的」，实际少了一半。
+   * 空账单至少诚实：从这一版开始记，之前的不算。
+   */
+  6: (backup) => ({
+    ...backup,
+    schemaVersion: 7,
+    usageRecords: [],
+  }),
 };
 
 /**

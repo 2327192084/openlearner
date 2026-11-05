@@ -72,6 +72,8 @@ export class ModelBackend implements OrganizeBackend {
   readonly id: string;
   readonly label: string;
   readonly isMock = false;
+  /** 服务商标识。用量统计按它汇总「智谱花了多少、DeepSeek 花了多少」 */
+  readonly provider: string;
 
   private readonly model: string;
   private readonly segmentsPerRequest: number;
@@ -87,6 +89,7 @@ export class ModelBackend implements OrganizeBackend {
      */
     const provider = options.provider ?? 'deepseek';
     this.id = `model:${provider}`;
+    this.provider = provider;
     this.label = options.label ?? '模型 API 直连';
   }
 

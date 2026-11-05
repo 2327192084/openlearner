@@ -52,6 +52,7 @@ export class ModelQuestionBackend implements QuestionBackend {
   readonly id: string;
   readonly label: string;
   readonly isMock = false;
+  readonly provider: string;
 
   private readonly model: string;
   private readonly countPerRequest: number;
@@ -60,7 +61,8 @@ export class ModelQuestionBackend implements QuestionBackend {
     this.model = options.model ?? 'deepseek-chat';
     this.countPerRequest = options.countPerRequest ?? 8;
     // id 带 provider：同资料用不同后端出的题在库里能区分开
-    this.id = `model-questions:${options.provider ?? 'deepseek'}`;
+    this.provider = options.provider ?? 'deepseek';
+    this.id = `model-questions:${this.provider}`;
     this.label = options.label ?? '模型 API 直连（出题）';
   }
 

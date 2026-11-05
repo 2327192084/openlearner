@@ -11,6 +11,7 @@ import type {
   SourceSegment,
   GenerationRun,
   AnswerRecord,
+  UsageRecord,
 } from '../model.ts';
 
 /** 学习库的存储分区。每个分区是一张「表」。 */
@@ -47,6 +48,14 @@ export const STORES = [
   'slideDecks',
   'backends',
   /**
+   * 用量统计（按天 + 后端 + 用途聚合）。
+   *
+   * 单独一张表的原因：它不该跟着资料一起被删。用户删掉一份资料，
+   * 已经花掉的钱不会回来，账单也就不该消失——否则用量页的数字会
+   * 莫名其妙变小，看起来像在掩盖花费。
+   */
+  'usageRecords',
+  /**
    * 凭据分区：**独立存放，永不进入备份文件**。
    * P5 验收要求「后端配置与登录凭据不出现在导出文件、日志、界面截图中」，
    * 这里从存储层面就把它和可导出数据隔开，而不是靠导出时记得剔除。
@@ -68,6 +77,8 @@ export const BACKUP_STORES = [
   'answerRecords',
   'slideDecks',
   'backends',
+  /** 用量统计。进备份：换机器后账单不该归零。只有数字，不含 Key 与请求内容 */
+  'usageRecords',
 ] as const;
 
 export type BackupStoreName = (typeof BACKUP_STORES)[number];
@@ -87,6 +98,7 @@ export interface StoreRecordMap {
   answerRecords: AnswerRecord;
   slideDecks: SlideDeck;
   backends: BackendConfig;
+  usageRecords: UsageRecord;
   secrets: SecretRecord;
 }
 

@@ -81,6 +81,8 @@ export interface QuestionBackend {
   readonly id: string;
   readonly label: string;
   readonly isMock: boolean;
+  /** 服务商标识，用于用量统计。可选，见 OrganizeBackend.provider 的说明 */
+  readonly provider?: string;
 
   /** 估算用量，生成前显示 */
   estimateTokens(points: QuestionSourcePoint[], options: GenerateQuestionsOptions): number;

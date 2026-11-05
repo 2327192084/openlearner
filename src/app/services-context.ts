@@ -5,6 +5,7 @@ import type { CourseService, SourceService } from '@/core/sources.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { SlideService } from '@/core/slides/service.ts';
+import type { UsageService } from '@/core/usage.ts';
 
 /**
  * 应用运行时上下文。
@@ -25,6 +26,8 @@ export interface AppServices {
   decks: DeckService;
   /** P4：学习 PPT（大纲 → 导出 .pptx） */
   slides: SlideService;
+  /** P5：用量统计（按天、按后端） */
+  usage: UsageService;
   /** 运行环境：浏览器 / Electron 桌面端 / 测试 */
   env: 'web' | 'desktop' | 'test';
 }

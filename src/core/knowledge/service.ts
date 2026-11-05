@@ -2,6 +2,7 @@ import { newId, nowIso } from '../id.ts';
 import type { GenerationRun, KnowledgePoint, SourceSegment } from '../model.ts';
 import type { SourceService } from '../sources.ts';
 import type { StorageAdapter } from '../storage/types.ts';
+import type { UsageService } from '../usage.ts';
 import type {
   KnowledgeDraft,
   OrganizeBackend,
@@ -68,6 +69,13 @@ export class KnowledgeService {
   constructor(
     private readonly storage: StorageAdapter,
     private readonly sources: SourceService,
+    /**
+     * 用量记账，可选。
+     *
+     * 可选而不是必填：这个服务在 20 多处测试里被 `new KnowledgeService(storage, sources)` 构造，
+     * 为了记账逼所有测试改签名不值得。不传就是把记账关掉，业务行为完全一致。
+     */
+    private readonly usage?: UsageService,
   ) {}
 
   /** 取某份资料的全部知识点（按页码+偏移排序，与原文顺序一致） */
@@ -248,6 +256,25 @@ export class KnowledgeService {
         finishedAt: nowIso(),
       };
       await this.storage.put('generationRuns', finished);
+
+      /**
+       * 记账。
+       *
+       * 放在「run 已落库」之后：先把这次任务的结果存好（那是用户的数据），
+       * 再记一笔账。反过来如果先记账再写 run，中途崩了会出现
+       * 「账上花了钱，但找不到是哪次任务花的」。
+       *
+       * 只在真后端上记：假后端不花一分钱，记进来会让真实花费看起来更多。
+       * 停止（stopped）也记 —— 已经发出去的请求照样计费，只是拿到的产出少了。
+       */
+      if (this.usage && !options.backend.isMock && result.actualTokens) {
+        await this.usage.record({
+          backendId: options.backend.id,
+          provider: options.backend.provider ?? 'unknown',
+          kind: 'organize',
+          tokens: result.actualTokens,
+        });
+      }
 
       return { run: finished, points };
     } catch (err) {

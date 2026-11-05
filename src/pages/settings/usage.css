@@ -1,0 +1,238 @@
+/* 用量统计区 */
+
+.usage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.usage-range {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+  flex: none;
+}
+
+.usage-range__btn {
+  border: none;
+  background: transparent;
+  padding: 5px 14px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.usage-range__btn:hover {
+  color: var(--c-text);
+}
+
+.usage-range__btn.is-active {
+  background: var(--c-surface);
+  color: var(--c-text);
+  box-shadow: var(--shadow-sm);
+  font-weight: 500;
+}
+
+.usage-muted {
+  color: var(--c-text-3);
+  font-size: var(--fs-sm);
+  padding: var(--sp-4) 0;
+}
+
+/* 三个数字 */
+
+.usage-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--sp-3);
+}
+
+.usage-stat {
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface-2);
+}
+
+.usage-stat__label {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+  margin-bottom: 2px;
+}
+
+.usage-stat__value {
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  color: var(--c-text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+}
+
+/* 金额下面那行小字。它承担「这个数字不可全信」的责任，不能省 */
+.usage-stat__note {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--c-text-3);
+  line-height: 1.4;
+}
+
+/* 分块 */
+
+.usage-block__title {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--c-text-2);
+  margin-bottom: var(--sp-2);
+}
+
+.usage-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.usage-item__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-1);
+}
+
+.usage-item__name {
+  font-size: var(--fs-base);
+  color: var(--c-text);
+  font-weight: 500;
+}
+
+.usage-item__tokens {
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 占比条：让「谁在花钱」一眼看出，不用读数字 */
+.usage-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--c-border);
+  overflow: hidden;
+}
+
+.usage-bar__fill {
+  height: 100%;
+  background: var(--c-primary);
+  border-radius: 3px;
+  transition: width 0.2s ease;
+}
+
+.usage-item__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  margin-top: var(--sp-1);
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 按天柱状图 */
+
+.usage-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: var(--sp-2) 0;
+  /* 柱状图不随内容撑高，固定高度才能比较 */
+  height: 120px;
+  overflow-x: auto;
+}
+
+.usage-bar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  /* 至少 18px 宽，否则天多的时候柱子细得像线 */
+  min-width: 18px;
+  flex: 1;
+  height: 100%;
+}
+
+.usage-bar-col__track {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.usage-bar-col__fill {
+  width: 100%;
+  max-width: 28px;
+  min-height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--c-primary-soft);
+  border: 1px solid var(--c-primary);
+  border-bottom: none;
+}
+
+/* 今天用实色：用户最关心「今天用了多少」，一眼能找到 */
+.usage-bar-col__fill.is-today {
+  background: var(--c-primary);
+}
+
+.usage-bar-col__label {
+  font-size: 10px;
+  color: var(--c-text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 底栏 */
+
+.usage-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--c-border);
+}
+
+.usage-foot__hint {
+  font-size: var(--fs-xs);
+  color: var(--c-text-3);
+  line-height: 1.5;
+  flex: 1;
+  min-width: 220px;
+}
+
+/* 空态 */
+
+.usage-empty {
+  padding: var(--sp-5) 0;
+}
+
+.usage-empty__title {
+  font-size: var(--fs-base);
+  color: var(--c-text-2);
+  margin-bottom: var(--sp-1);
+}
+
+.usage-empty__desc {
+  font-size: var(--fs-sm);
+  color: var(--c-text-3);
+  line-height: 1.6;
+  margin: 0;
+  max-width: 520px;
+}

@@ -86,6 +86,13 @@ export interface OrganizeBackend {
   readonly label: string;
   /** 这个后端能不能真的联网调用（假后端为 false） */
   readonly isMock: boolean;
+  /**
+   * 服务商标识（deepseek / zhipu / custom …），用于用量统计按服务商汇总。
+   *
+   * 可选：假后端没有服务商，第三方实现也可能不带。
+   * 上层记账时用 `provider ?? 'unknown'` 兜底，不能因为缺字段就不记。
+   */
+  readonly provider?: string;
 
   /** 估算用量。生成前显示，避免用户不小心烧掉大量额度。 */
   estimateTokens(segments: OrganizeInputSegment[]): number;

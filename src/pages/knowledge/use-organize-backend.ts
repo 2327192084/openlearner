@@ -147,6 +147,14 @@ export function useOrganizeBackend(backendService: BackendService): UseOrganizeB
       id: config.id,
       label: base.label,
       isMock: false,
+      /**
+       * provider 必须原样传出来。
+       *
+       * 这个对象是界面手搓的（不是 ModelBackend 实例），字段漏一个就是静默降级：
+       * 用了真后端、花了钱，用量统计里却写成「未知服务商」。
+       * 界面验收当时就是这么发现它的 —— 数字对、名字错，最容易被忽略。
+       */
+      provider,
       // 估算不需要 key，直接借真后端的算法
       estimateTokens: (segments) =>
         new ModelBackend({ apiKey: 'estimation-only', ...base }).estimateTokens(segments),
