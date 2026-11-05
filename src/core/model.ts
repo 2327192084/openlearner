@@ -63,7 +63,7 @@ export interface SourceSegment {
 export type SourceTextStatus =
   /** 正常，有可检索的文本层 */
   | 'ready'
-  /** 扫描件：没有文本层，文字在图片里。P6 会走看图模型 */
+  /** 扫描件：没有文本层，文字在图片里。用看图模型逐页识别可转成文字 */
   | 'no-text-layer'
   /**
    * 解码失败：文件里有字（有字体、有绘制指令），但我们取不出来。
@@ -603,6 +603,14 @@ export interface SlideDeck {
    * 旧数据没有这个字段时为 undefined，按默认主题处理。
    */
   theme?: string;
+  /**
+   * 自定义主色（不带 # 的六位十六进制）。可选。
+   *
+   * 只覆盖强调色（标题装饰线、角标），不动正文色 ——
+   * 用户改的是「风格」，不是「让正文变成别的颜色」。
+   * 对比度不足时界面会警告但放行，见 theme.ts 的 checkAccent。
+   */
+  accentColor?: string;
   /** 大纲 / 已确认 */
   status: 'outline' | 'ready';
   /** 大纲页。顺序即幻灯片顺序 */

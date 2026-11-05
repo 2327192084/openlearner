@@ -14,7 +14,7 @@ import { ApiError } from '../ai/chat-client.ts';
 import { SLIDE_LIMITS, chunkBullets, normalizeBulletText } from './limits.ts';
 import { buildCoverPage, buildOutline } from './outline.ts';
 import { applyAiOutline } from './ai-outline.ts';
-import { resolveTheme } from './theme.ts';
+import { normalizeHex, resolveTheme } from './theme.ts';
 import type { SourceChunk } from './source-chunk.ts';
 import { assembleTemplate, planTemplate } from './template.ts';
 import type { TemplateContentItem } from './template.ts';
@@ -571,6 +571,31 @@ export class SlideService {
   async setTheme(id: string, themeId: string): Promise<SlideDeck> {
     return this.mutate(id, (deck) => {
       deck.theme = resolveTheme(themeId).id;
+    });
+  }
+
+  /**
+   * 设自定义主色（传 null 清除，回到预设的强调色）。
+   *
+   * 不合法的颜色**直接拒绝**而不是静默忽略：用户输了 `#GGG` 却什么都没发生，
+   * 会以为功能坏了。对比度不足则放行（界面已警告），那是刻意的设计取舍。
+   */
+  async setAccentColor(id: string, color: string | null): Promise<SlideDeck> {
+    const normalized = normalizeHex(color);
+
+    // 传了值但解析不出来 → 报错；传 null/空 → 清除
+    if (color != null && color.trim() !== '' && normalized === null) {
+      throw new Error(
+        `「${color}」不是合法的颜色值。请填六位十六进制，如 1E5FAA 或 #1E5FAA。`,
+      );
+    }
+
+    return this.mutate(id, (deck) => {
+      if (normalized === null) {
+        delete deck.accentColor;
+      } else {
+        deck.accentColor = normalized;
+      }
     });
   }
 

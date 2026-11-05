@@ -11,7 +11,7 @@ import { ErrorState } from '@/components/states.tsx';
  *
  * 同一个构建产物要同时跑在两个地方：
  *   1. Electron 生产包：主进程用 loadFile 加载 dist/index.html，协议是 file://
- *   2. Web 部署：静态托管，协议是 http(s)://（P7 的试用链接与二维码）
+ *   2. Web 部署：静态托管，协议是 http(s)://
  *
  * history 路由在这两处都有坑：
  *   - file:// 下 location.pathname 是整个文件路径

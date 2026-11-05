@@ -30,7 +30,7 @@ import './reader.css';
  *  - 结果用 Flash（单条）或 outcomes（多条）如实显示，不吞失败。
  */
 export function SourcesPage() {
-  const { sources: sourceService, courses: courseService } = useServices();
+  const { sources: sourceService, courses: courseService, backends: backendService } = useServices();
 
   const [view, setView] = useState<
     { kind: 'list' } | { kind: 'reader'; sourceId: string }
@@ -287,6 +287,7 @@ export function SourcesPage() {
         <SourceReader
           source={activeSource}
           service={sourceService}
+          backends={backendService}
           onBack={() => {
             setDetailOpen(false);
             setView({ kind: 'list' });

@@ -4,6 +4,7 @@ import { Badge, ErrorState, LoadingState, Notice } from '@/components/states.tsx
 import type { Source, SourceSegment } from '@/core/model.ts';
 import type { SearchHit } from '@/core/sources.ts';
 import type { SourceService } from '@/core/sources.ts';
+import type { BackendService } from '@/core/backends.ts';
 import { HighlightedText } from './HighlightedText.tsx';
 import type { HighlightRange } from './HighlightedText.tsx';
 import {
@@ -28,17 +29,36 @@ import { describeError } from './types.ts';
  *  3. 扫描件不是错误，提示条要说清「能看、不能搜」以及后续版本怎么处理。
  */
 export function SourceReader({
-  source,
+  source: initialSource,
   service,
+  backends,
   onBack,
   onOpenDetail,
 }: {
   source: Source;
   service: SourceService;
+  backends: BackendService;
   onBack: () => void;
   /** 打开资料详情抽屉（详情里含删除入口） */
   onOpenDetail: () => void;
 }) {
+  /**
+   * 本地的 source 副本。
+   *
+   * OCR 之后 textStatus 会从 no-text-layer 变成 ready —— 不改这份副本的话，
+   * 识别完了提示条还在，用户会以为没成功。
+   */
+  const [source, setSource] = useState<Source>(initialSource);
+
+  /**
+   * 上层换了资料时同步过来。
+   *
+   * 只用 useState(initialSource) 的话，从一个扫描件切到另一个资料时
+   * 提示条还停在上一份的状态 —— 用户会以为新打开的也是扫描件。
+   */
+  useEffect(() => {
+    setSource(initialSource);
+  }, [initialSource]);
   const [segmentsState, setSegmentsState] = useState<
     | { kind: 'loading' }
     | { kind: 'error'; message: string; hint: string }
@@ -218,8 +238,19 @@ export function SourceReader({
       */}
       {searchDisabled ? (
         <ScanNotice
-          status={source.textStatus}
+          source={source}
           hint={TEXT_STATUS_LABEL[source.textStatus].hint}
+          sources={service}
+          backends={backends}
+          onDone={() => {
+            // 重新读一次资料与分段：状态变了，正文也换成了识别结果
+            void (async () => {
+              const fresh = await service.get(source.id);
+              if (fresh) setSource(fresh);
+              // load 读的是 source.id，同一个资料，直接重读即可
+              await load();
+            })();
+          }}
         />
       ) : null}
 

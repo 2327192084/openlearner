@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { SlideCitation, SlideDeck } from '@/core/model.ts';
 import { SLIDE_BOX, SLIDE_SIZE } from '@/core/slides/render-plan.ts';
 import type { RenderSlide } from '@/core/slides/render-plan.ts';
-import { cssColor, resolveTheme } from '@/core/slides/theme.ts';
+import { cssColor, resolveDeckTheme } from '@/core/slides/theme.ts';
 import type { SlideTheme } from '@/core/slides/theme.ts';
 import { SourcePeek } from '../practice/SourcePeek.tsx';
 
@@ -59,7 +59,7 @@ export function SlidePreview({ deck, plan }: SlidePreviewProps) {
    * 完全一致，两边各写一套就会变成「预览深蓝、导出黑色」，
    * 而这类缺陷只有真的打开文件看才发现。
    */
-  const t = resolveTheme(deck.theme);
+  const t = resolveDeckTheme(deck.theme, deck.accentColor);
 
   if (plan.length === 0) {
     return (

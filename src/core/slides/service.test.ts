@@ -889,3 +889,54 @@ describe('SlideService：模板模式 vs 自由模式', () => {
     expect(aiFailure).toContain('模型超时');
   });
 });
+
+describe('SlideService：自定义主色', () => {
+  let storage: MemoryStorage;
+  let slides: SlideService;
+
+  beforeEach(() => {
+    storage = new MemoryStorage();
+    slides = new SlideService(storage);
+  });
+
+  it('能设主色并落库', async () => {
+    const { deck } = await slides.createFromSource({
+      sourceId: 'src-a',
+      chunks: makePoints(1),
+    });
+    const next = await slides.setAccentColor(deck.id, '#aa3355');
+    expect(next.accentColor).toBe('AA3355');
+
+    // 落库的也要是规范化的值
+    expect((await slides.get(deck.id))!.accentColor).toBe('AA3355');
+  });
+
+  it('传 null 清除，回到预设色', async () => {
+    const { deck } = await slides.createFromSource({
+      sourceId: 'src-a',
+      chunks: makePoints(1),
+    });
+    await slides.setAccentColor(deck.id, 'AA3355');
+    const cleared = await slides.setAccentColor(deck.id, null);
+    expect(cleared.accentColor).toBeUndefined();
+  });
+
+  it('非法颜色直接报错（不静默忽略）', async () => {
+    const { deck } = await slides.createFromSource({
+      sourceId: 'src-a',
+      chunks: makePoints(1),
+    });
+    // 用户输了 #GGG 却什么都没发生，会以为功能坏了
+    await expect(slides.setAccentColor(deck.id, 'GGGGGG')).rejects.toThrow(/不是合法的颜色/);
+  });
+
+  it('设主色不改内容', async () => {
+    const { deck } = await slides.createFromSource({
+      sourceId: 'src-a',
+      chunks: makePoints(3),
+    });
+    const before = JSON.stringify(deck.pages);
+    const next = await slides.setAccentColor(deck.id, '123456');
+    expect(JSON.stringify(next.pages)).toBe(before);
+  });
+});

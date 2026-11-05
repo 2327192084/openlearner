@@ -7,7 +7,13 @@ import { SlideExport } from './SlideExport.tsx';
 import { SlideOutline } from './SlideOutline.tsx';
 import { SlidePreview } from './SlidePreview.tsx';
 import { OverlayEditor } from './OverlayEditor.tsx';
-import { DEFAULT_THEME_ID, THEMES, resolveTheme } from '@/core/slides/theme.ts';
+import {
+  DEFAULT_THEME_ID,
+  THEMES,
+  checkAccent,
+  normalizeHex,
+  resolveTheme,
+} from '@/core/slides/theme.ts';
 import {
   deckBulletStats,
   describeError,
@@ -58,6 +64,9 @@ export function SlideDetail({ deckId, onBack, onChanged }: SlideDetailProps) {
    * 左边选第 3 页、右边却在第 1 页上拖图。
    */
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
+
+  /** 主色输入框的草稿值（失焦/点应用才落库） */
+  const [accentDraft, setAccentDraft] = useState('');
 
   const deck = state.kind === 'ready' ? state.deck : null;
 
@@ -208,6 +217,19 @@ export function SlideDetail({ deckId, onBack, onChanged }: SlideDetailProps) {
   }
 
   const current = state.deck;
+
+  /**
+   * 主色草稿的对比度检查。
+   *
+   * 实时算而不是等保存：用户在输入框里打字时就能看到「这个颜色太浅」，
+   * 而不是保存之后翻到预览才发现看不清。
+   */
+  const accentWarning = (() => {
+    const normalized = normalizeHex(accentDraft);
+    if (!normalized) return null;
+    const check = checkAccent(normalized, resolveTheme(current.theme));
+    return check.ok ? null : (check.warning ?? null);
+  })();
   const bulletStats = deckBulletStats(current);
   const stale = editedAfterLastExport(current);
   const latest = lastExport(current);
@@ -360,6 +382,77 @@ export function SlideDetail({ deckId, onBack, onChanged }: SlideDetailProps) {
             <br />
             换风格不会影响已经写好的内容，导出时按这里选的配色生成。
           </div>
+        </div>
+
+        {/*
+          自定义主色。
+
+          只改强调色（标题装饰线、角标），不动正文色 —— 用户改的是风格，
+          不是让正文变成别的颜色。对比度不足时给警告但放行：
+          有人可能就是做低对比设计，硬拦会让人恼火，而什么都不说又不负责。
+        */}
+        <div className="field">
+          <label className="field__label" htmlFor="sl-detail-accent">
+            自定义主色（可留空）
+          </label>
+          <div className="page__row">
+            <input
+              id="sl-detail-accent"
+              className="input input--mono"
+              style={{ width: 120 }}
+              value={accentDraft}
+              placeholder="如 1E5FAA"
+              onChange={(e) => setAccentDraft(e.target.value)}
+            />
+            <input
+              type="color"
+              aria-label="选颜色"
+              value={`#${current.accentColor ?? resolveTheme(current.theme).colors.accent}`}
+              onChange={(e) => setAccentDraft(e.target.value)}
+              style={{ width: 44, height: 32, padding: 0, border: 'none', background: 'none' }}
+            />
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => {
+                void (async () => {
+                  const next = await slides.setAccentColor(current.id, accentDraft || null);
+                  void applyDeck(next);
+                  onChanged();
+                })();
+              }}
+            >
+              应用
+            </button>
+            {current.accentColor ? (
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => {
+                  void (async () => {
+                    setAccentDraft('');
+                    const next = await slides.setAccentColor(current.id, null);
+                    void applyDeck(next);
+                    onChanged();
+                  })();
+                }}
+              >
+                恢复预设色
+              </button>
+            ) : null}
+          </div>
+          {accentWarning ? (
+            <div className="field__error">
+              {accentWarning.message}
+              <br />
+              {accentWarning.hint}
+            </div>
+          ) : (
+            <div className="field__hint">
+              留空用预设的强调色。当前生效：
+              {current.accentColor ?? resolveTheme(current.theme).colors.accent}
+            </div>
+          )}
         </div>
 
         <SlidePreview deck={current} plan={plan} />

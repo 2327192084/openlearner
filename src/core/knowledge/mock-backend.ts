@@ -12,7 +12,7 @@ import type {
  * 它不是"测试用的小玩具"，有三个正经用途：
  *
  * 1. **P2 验收**：计划书明确要求「用假后端（固定返回）也能跑通整个流程」。
- * 2. **演示**：P7 要「拔网线、清空所有 Key，仍能完整走通」。
+ * 2. **演示**：拔网线、清空所有 Key 时仍能完整走通。
  *    评审不会去配 API Key，假后端是体验模式的基础设施。
  * 3. **回归**：真实模型输出不稳定，假后端让"定位是否准确"这类测试可重复。
  *
@@ -103,7 +103,7 @@ export class MockBackend implements OrganizeBackend {
    * ## 它真正的用途
    *
    * 1. 验证「导入 → 定位 → 校对」这条链路通不通（不花钱）
-   * 2. P7 体验模式：评审不配 Key 也能看到完整交互
+   * 2. 离线演示：不配 Key 也能看到完整交互
    * 它从来不是一个「凑合能用的总结器」。
    */
   private extractFromSegment(segment: OrganizeInputSegment): KnowledgeDraft[] {

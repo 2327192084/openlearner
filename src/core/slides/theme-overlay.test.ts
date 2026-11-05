@@ -3,7 +3,18 @@ import { MemoryStorage } from '../storage/memory-storage.ts';
 import type { SlideDeck } from '../model.ts';
 import type { SourceChunk } from './source-chunk.ts';
 import { SlideService } from './service.ts';
-import { DEFAULT_THEME_ID, THEMES, resolveTheme, cssColor } from './theme.ts';
+import {
+  DEFAULT_THEME_ID,
+  MIN_ACCENT_CONTRAST,
+  THEMES,
+  applyAccent,
+  checkAccent,
+  contrastRatio,
+  cssColor,
+  normalizeHex,
+  resolveDeckTheme,
+  resolveTheme,
+} from './theme.ts';
 import { buildRenderPlan } from './render-plan.ts';
 
 /**
@@ -385,5 +396,100 @@ describe('render-plan：比例 → 英寸', () => {
     } as unknown as SlideDeck;
 
     expect(buildRenderPlan(deck)[0]!.overlays).toEqual([]);
+  });
+});
+
+describe('自定义主色：对比度保护', () => {
+  const theme = resolveTheme(DEFAULT_THEME_ID);
+
+  it('深色在浅底上对比度足够 → 通过', () => {
+    // 深蓝配白底，一眼能看清
+    const check = checkAccent('1E5FAA', theme);
+    expect(check.ok).toBe(true);
+    expect(check.ratio).toBeGreaterThanOrEqual(MIN_ACCENT_CONTRAST);
+  });
+
+  it('浅色在浅底上对比度不足 → 警告但不算错', () => {
+    // 淡黄配白底，投影上基本看不见
+    const check = checkAccent('FFFACD', theme);
+    expect(check.ok).toBe(false);
+    expect(check.warning?.message).toContain(':1');
+    // 必须给出「下一步」，不能只说「不行」
+    expect(check.warning?.hint).toMatch(/建议|取舍/);
+  });
+
+  it('对比度是 1:1 到 21:1 之间的真实值（不是随便一个数）', () => {
+    // 同色对比度必然是 1
+    expect(contrastRatio('FFFFFF', 'FFFFFF')).toBeCloseTo(1, 1);
+    // 黑白对比度是 21
+    expect(contrastRatio('000000', 'FFFFFF')).toBeCloseTo(21, 0);
+  });
+
+  it('深浅反过来也算对（不是只认「深配浅」）', () => {
+    // 深色主题上，亮色才对
+    const dark = resolveTheme('dark-slate');
+    const check = checkAccent('4FA3E3', dark);
+    expect(check.ok).toBe(true);
+  });
+});
+
+describe('applyAccent：只覆盖强调色', () => {
+  const theme = resolveTheme(DEFAULT_THEME_ID);
+
+  it('覆盖 accent，正文色不动', () => {
+    const next = applyAccent(theme, 'AA3355');
+    expect(next.colors.accent).toBe('AA3355');
+    // 正文色必须原样保留：改坏正文整份课件就没法读了
+    expect(next.colors.text).toBe(theme.colors.text);
+    expect(next.colors.bg).toBe(theme.colors.bg);
+  });
+
+  it('传 null / 空时原样返回', () => {
+    expect(applyAccent(theme, null)).toBe(theme);
+    expect(applyAccent(theme, '')).toBe(theme);
+    expect(applyAccent(theme, undefined)).toBe(theme);
+  });
+
+  it('不合法颜色被忽略（不会把 undefined 写进主题）', () => {
+    expect(applyAccent(theme, 'ZZZZZZ').colors.accent).toBe(theme.colors.accent);
+  });
+});
+
+describe('normalizeHex：颜色格式归一', () => {
+  it('接受带 # 与不带 #', () => {
+    expect(normalizeHex('1e5faa')).toBe('1E5FAA');
+    expect(normalizeHex('#1e5faa')).toBe('1E5FAA');
+  });
+
+  it('三位简写展开成六位', () => {
+    expect(normalizeHex('#abc')).toBe('AABBCC');
+    expect(normalizeHex('f00')).toBe('FF0000');
+  });
+
+  it('不合法输入返回 null（调用方据此报错而不是静默忽略）', () => {
+    expect(normalizeHex('GGGGGG')).toBeNull();
+    expect(normalizeHex('#12345')).toBeNull();
+    expect(normalizeHex('')).toBeNull();
+    expect(normalizeHex(null)).toBeNull();
+  });
+});
+
+describe('resolveDeckTheme：渲染层唯一入口', () => {
+  it('只有预设时等于该预设', () => {
+    const t = resolveDeckTheme('green-ink');
+    expect(t.id).toBe('green-ink');
+  });
+
+  it('预设 + 主色覆盖一起生效', () => {
+    const t = resolveDeckTheme('green-ink', 'AA3355');
+    expect(t.id).toBe('green-ink');
+    expect(t.colors.accent).toBe('AA3355');
+  });
+
+  it('预览与导出取同一份（都经过这个函数）', () => {
+    // 直接比对两次调用结果：如果有任何随机性或状态残留，这条会挂
+    const a = resolveDeckTheme('dark-slate', '123456');
+    const b = resolveDeckTheme('dark-slate', '123456');
+    expect(a.colors).toEqual(b.colors);
   });
 });

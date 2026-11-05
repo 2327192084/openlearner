@@ -191,3 +191,131 @@ export function resolveTheme(id: string | null | undefined): SlideTheme {
 export function cssColor(hex: string): string {
   return hex.startsWith('#') ? hex : `#${hex}`;
 }
+
+// ---------------------------------------------------------------------------
+// 自定义主色
+// ---------------------------------------------------------------------------
+
+/**
+ * 相对亮度（WCAG 定义）。
+ *
+ * 公式里的 0.03928 与 2.4 指数不是随便写的：人眼对暗部的分辨力远高于亮部，
+ * 所以先把 sRGB 值做一次伽马解码，再加权求和。直接用 RGB 平均值会
+ * 把深蓝和深红算成「差不多亮」，而它们给人的明暗感差很多。
+ */
+function relativeLuminance(hex: string): number {
+  const clean = hex.replace('#', '');
+  if (!/^[0-9A-Fa-f]{6}$/.test(clean)) return 0;
+
+  const channel = (i: number): number => {
+    const v = parseInt(clean.slice(i, i + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+
+  return 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4);
+}
+
+/**
+ * 两色的对比度（1:1 到 21:1）。
+ *
+ * 用来判断「用户挑的主色叠在这个背景上，字还看不看得清」。
+ */
+export function contrastRatio(a: string, b: string): number {
+  const la = relativeLuminance(a);
+  const lb = relativeLuminance(b);
+  const lighter = Math.max(la, lb);
+  const darker = Math.min(la, lb);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+/**
+ * 对比度门槛。
+ *
+ * 4.5:1 是 WCAG AA 对正文的要求。这里用它判断主色能不能当强调色 ——
+ * 强调色会用在标题、装饰线、角标上，低于这个值投影到教室墙上就糊了。
+ */
+export const MIN_ACCENT_CONTRAST = 4.5;
+
+/** 主色覆盖的判断结果 */
+export interface AccentCheck {
+  ok: boolean;
+  /** 实际对比度 */
+  ratio: number;
+  /** 不合格时的说明与建议 */
+  warning?: { message: string; hint: string };
+}
+
+/**
+ * 检查一个自定义主色能不能用在某套主题上。
+ *
+ * ## 为什么不直接禁止
+ *
+ * 有人可能就是要做低对比的视觉设计，或者给色觉特殊的场景定制。
+ * 硬拦会让人恼火，而且用户会去找别的办法绕过。
+ *
+ * 所以策略是**警告但放行**：告诉他在投影上可能看不清，
+ * 让他自己做决定。这比「不让你选」诚实，也比「什么都不说」负责。
+ */
+export function checkAccent(color: string, theme: SlideTheme): AccentCheck {
+  const ratio = contrastRatio(color, theme.colors.bg);
+
+  if (ratio >= MIN_ACCENT_CONTRAST) {
+    return { ok: true, ratio };
+  }
+
+  return {
+    ok: false,
+    ratio,
+    warning: {
+      message: `这个颜色在背景上只有 ${ratio.toFixed(1)}:1 的对比度，低于 ${MIN_ACCENT_CONTRAST}:1`,
+      hint:
+        '用作标题和强调线时，投影到教室墙上可能看不清。' +
+        '建议选更深或更亮的颜色；如果这是刻意的设计取舍，保存也能用。',
+    },
+  };
+}
+
+/**
+ * 把主色覆盖应用到一套主题上，得到实际渲染用的主题。
+ *
+ * 只覆盖 `accent`：文字色不动 —— 用户改的是「强调色」，
+ * 不是「让正文变成别的颜色」。正文色改坏了整份课件就没法读了，
+ * 而强调色选得不好最多是不好看。
+ */
+export function applyAccent(theme: SlideTheme, color: string | null | undefined): SlideTheme {
+  const clean = normalizeHex(color);
+  if (!clean) return theme;
+
+  return {
+    ...theme,
+    colors: { ...theme.colors, accent: clean },
+  };
+}
+
+/** 把 `#ABC` / `abc` / `#aabbcc` 统一成 `AABBCC`；不合法返回 null */
+export function normalizeHex(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  let v = raw.trim().replace(/^#/, '');
+
+  // #ABC 简写展开成 AABBCC
+  if (/^[0-9A-Fa-f]{3}$/.test(v)) {
+    v = v
+      .split('')
+      .map((c) => c + c)
+      .join('');
+  }
+
+  return /^[0-9A-Fa-f]{6}$/.test(v) ? v.toUpperCase() : null;
+}
+
+/**
+ * 取最终生效的主题：预设 + 可选的主色覆盖。**这是渲染层唯一该调的入口。**
+ *
+ * 预览和导出都从这里拿主题，两边就不会出现「预览换了色、导出没换」。
+ */
+export function resolveDeckTheme(
+  themeId: string | null | undefined,
+  accentColor?: string | null,
+): SlideTheme {
+  return applyAccent(resolveTheme(themeId), accentColor);
+}

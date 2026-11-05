@@ -6,7 +6,7 @@ import {
   SLIDE_SIZE,
   type RenderSlide,
 } from './render-plan.ts';
-import { resolveTheme, type SlideTheme } from './theme.ts';
+import { resolveDeckTheme, type SlideTheme } from './theme.ts';
 
 /** 自定义画布名，与 pptxgenjs 内置预设区分开，避免被同名预设覆盖。 */
 const LAYOUT_NAME = 'OPENLEARNER_16x9';
@@ -79,7 +79,8 @@ export async function exportToPptx(
   pptx.title = deck.title;
 
   // 主题对这个 deck 全局生效；resolveTheme 对未知 id 退回默认，不抛错
-  t = resolveTheme(deck.theme);
+  // 预设 + 可选主色覆盖；预览走同一个入口，两边不会走样
+  t = resolveDeckTheme(deck.theme, deck.accentColor);
 
   for (const slide of plan) {
     renderSlide(pptx, slide);
@@ -106,7 +107,7 @@ export async function exportToPptx(
  * 安全性：exportToPptx 是唯一入口，它在开始时赋值、结束时清空，
  * 且 pptxgenjs 的渲染是同步的，不存在两次导出交错的情况。
  */
-let t: SlideTheme = resolveTheme(null);
+let t: SlideTheme = resolveDeckTheme(null);
 
 /**
  * 画叠加内容（用户自由摆放的图片 / 文本框）。
