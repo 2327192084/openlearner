@@ -42,6 +42,14 @@ export function SlideGenerate({ onCreated, onCancel }: SlideGenerateProps) {
   const [pointsError, setPointsError] = useState<{ message: string; hint: string } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [title, setTitle] = useState('');
+  /**
+   * 用户对这份 PPT 的额外要求。
+   *
+   * 空着 → 走固定模板（结构可预期：封面 → 章节页 → 要点页 → 总结页）。
+   * 有内容 → 走自由模式，由模型按这些要求组织结构。
+   * 这个分叉在 SlideService 里判定，界面只管把原文传下去。
+   */
+  const [instruction, setInstruction] = useState('');
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<{ message: string; hint: string } | null>(null);
 
@@ -168,6 +176,8 @@ export function SlideGenerate({ onCreated, onCancel }: SlideGenerateProps) {
         ...(currentSource?.courseId ? { courseId: currentSource.courseId } : {}),
         // 有可用后端就必须走 AI —— 这是这个功能的定位，不是可选项
         ...(outlineBackend.backend ? { backend: outlineBackend.backend } : {}),
+        // 空字符串会让 core 判成自由模式，所以只有真有内容才传
+        ...(instruction.trim() ? { instruction: instruction.trim() } : {}),
       });
 
       /**
@@ -260,6 +270,32 @@ export function SlideGenerate({ onCreated, onCancel }: SlideGenerateProps) {
               onChange={(event) => setTitle(event.target.value)}
             />
             <div className="field__hint">留空会用「资料名 · 学习 PPT」，之后还能改。</div>
+          </div>
+        </div>
+
+        {/*
+          用户要求输入框。
+
+          这是「让用户通过提示词提出修改需求」的落点。留空走固定模板
+          （每次都是同一套版式），写了就交给模型自由组织。
+        */}
+        <div className="field">
+          <label className="field__label" htmlFor="sl-gen-instruction">
+            对这份 PPT 有什么要求（可留空）
+          </label>
+          <textarea
+            className="input"
+            id="sl-gen-instruction"
+            rows={3}
+            value={instruction}
+            disabled={running}
+            placeholder="例如：每页不超过 3 条要点 / 用考试重点的口吻 / 多加一页易错点对比"
+            onChange={(event) => setInstruction(event.target.value)}
+          />
+          <div className="field__hint">
+            {instruction.trim()
+              ? '会按你的要求让模型自己安排页面结构，版式可能每次都不同。'
+              : '留空会用固定版式：封面 → 各章节页 → 要点页 → 总结页，每次结构一致。'}
           </div>
         </div>
 

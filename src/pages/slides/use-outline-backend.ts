@@ -143,6 +143,23 @@ export function useOutlineBackend(backendService: BackendService): UseOutlineBac
         // key 的明文只在这个作用域里存活到调用结束
         return new ModelOutlineBackend({ apiKey, ...base }).generate(points, opts);
       },
+      /**
+       * 必须显式透传。
+       *
+       * 这个对象是界面手搓的，不是 ModelOutlineBackend 实例：
+       * 方法漏一个就是**静默降级**。这里漏过 generateForTemplate，
+       * 后果是「用户没填提示词却拿不到固定模板」—— 而且不报错，
+       * 只是版式变得不可预期。界面验收当时就是这么发现它的。
+       */
+      generateForTemplate: async (points, opts) => {
+        const apiKey = await backendService.readCredential(config.id);
+        if (!apiKey) {
+          throw new Error(
+            '读不到这个后端的 API Key。请到设置页重新填一次并保存，然后回到这里重试。',
+          );
+        }
+        return new ModelOutlineBackend({ apiKey, ...base }).generateForTemplate!(points, opts);
+      },
     };
   }, [selected, list, backendService]);
 

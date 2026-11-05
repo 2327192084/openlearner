@@ -13,6 +13,8 @@ import { ApiError } from '../ai/chat-client.ts';
 import { SLIDE_LIMITS, chunkBullets, normalizeBulletText } from './limits.ts';
 import { buildCoverPage, buildOutline } from './outline.ts';
 import { applyAiOutline } from './ai-outline.ts';
+import { assembleTemplate, planTemplate } from './template.ts';
+import type { TemplateContentItem } from './template.ts';
 import type { OutlineBackend, OutlineInputPoint } from './backend-types.ts';
 import { buildRenderPlan, planStats, type RenderSlide } from './render-plan.ts';
 import { buildFileName, exportToPptx } from './pptx-export.ts';
@@ -48,8 +50,19 @@ export interface CreateDeckInput {
    * 而不是让他以为看到的是 AI 产出的东西。
    */
   backend?: OutlineBackend;
-  /** 生成语言，默认 zh */
+  /**
+   * 生成语言，默认 zh
+   */
   language?: 'zh' | 'en';
+  /**
+   * 用户对这份 PPT 的额外要求（自由输入）。
+   *
+   * **有值时走自由模式**：由模型决定页面结构。
+   * **没值时走固定模板**：结构由 template.ts 定死（封面 → 章节页 → 要点页 → 总结页），
+   * 模型只写每条知识点的文字和总结。这样「什么都不填」时得到的是
+   * 稳定可预期的版式，而不是每次跑出来都不一样的东西。
+   */
+  instruction?: string;
   /** 取消信号（用户在生成中途点了停止） */
   signal?: AbortSignal;
 }
@@ -69,6 +82,14 @@ export interface CreateDeckResult {
   aiFailure?: string;
   /** 实际 token 用量（AI 生成时有值） */
   tokens: number | null;
+  /**
+   * 这次用的哪种结构模式。
+   *
+   * `template` = 用户没写要求，走了固定版式（可预期）；
+   * `free` = 用户写了要求，模型自己组织结构。
+   * 界面据此告诉用户「你看到的是默认版式还是按你要求定制的」。
+   */
+  mode: 'template' | 'free';
 }
 
 export interface ExportOutcome {
@@ -134,6 +155,15 @@ export class SlideService {
 
     const deckTitle = (input.title ?? '').trim() || `${sourceTitle} · 学习 PPT`;
 
+    /**
+     * 模式判定：用户没写要求 → 固定模板（可预期）；写了 → 自由模式（按你说的做）。
+     *
+     * 这个分叉是这一版的核心决定。用户不填任何东西时，最不该发生的事
+     * 是「每次跑出来的页数和结构都不一样」—— 那让人无法预期，也无法复用。
+     */
+    const instruction = (input.instruction ?? '').trim();
+    const mode: 'template' | 'free' = instruction ? 'free' : 'template';
+
     // ── 先试 AI ───────────────────────────────────────────────
     let pages: SlideOutlinePage[] | null = null;
     let citations: SlideCitation[] | null = null;
@@ -146,11 +176,18 @@ export class SlideService {
 
     if (input.backend) {
       try {
-        const aiResult = await this.generateWithAi(input, {
-          deckTitle,
-          sourceTitle,
-          sourceTitles,
-        });
+        const aiResult =
+          mode === 'template'
+            ? await this.generateWithTemplate(input, {
+                deckTitle,
+                sourceTitle,
+                sourceTitles,
+              })
+            : await this.generateWithAi(input, {
+                deckTitle,
+                sourceTitle,
+                sourceTitles,
+              });
         if (aiResult) {
           pages = aiResult.pages;
           citations = aiResult.citations;
@@ -159,7 +196,7 @@ export class SlideService {
           skippedPoints = aiResult.droppedBullets;
           aiProduced = true;
         } else {
-          aiFailure = '模型返回的大纲是空的（可能内容太少，或返回格式不对）';
+          aiFailure = '模型返回的内容是空的（可能内容太少，或返回格式不对）';
         }
       } catch (err) {
         // 用户主动停止不算失败，直接往上抛
@@ -246,8 +283,104 @@ export class SlideService {
       bulletsWithoutCitation,
       skippedPoints,
       usedAi: aiProduced,
+      mode,
       ...(aiFailure ? { aiFailure } : {}),
       tokens,
+    };
+  }
+
+  /**
+   * 走固定模板：结构由 template.ts 定死，模型只写内容。
+   *
+   * 返回 null 表示「没产出可用内容」，由调用方回退。
+   */
+  private async generateWithTemplate(
+    input: CreateDeckInput,
+    ctx: { deckTitle: string; sourceTitle: string; sourceTitles: Map<string, string> },
+  ): Promise<{
+    pages: SlideOutlinePage[];
+    citations: SlideCitation[];
+    bulletsWithoutCitation: number;
+    droppedBullets: number;
+    tokens: number | null;
+  } | null> {
+    const backend = input.backend;
+    if (!backend) return null;
+
+    const usable = input.points.filter((p) => p.statement?.trim());
+    if (usable.length === 0) return null;
+
+    const language = input.language ?? 'zh';
+    const aiPoints = usable.map((p) => toAiPoint(p));
+
+    /**
+     * 后端没实现 generateForTemplate 时退回自由模式。
+     *
+     * 这不是理想的降级（版式会变得不可预期），但比什么都不产出强；
+     * 而且 ModelOutlineBackend 已经实现了它，正常路径不会走到这里。
+     */
+    if (!backend.generateForTemplate) {
+      return this.generateWithAi(input, ctx);
+    }
+
+    const plan = planTemplate(usable);
+
+    const result = await backend.generateForTemplate(aiPoints, {
+      title: ctx.deckTitle,
+      sourceTitle: ctx.sourceTitle,
+      maxPages: Math.max(1, Math.ceil(usable.length / 5) + 2),
+      language,
+      signal: input.signal ?? new AbortController().signal,
+    });
+
+    if (result.items.length === 0) return null;
+
+    // 角标：与自由模式同一套规则，位置从知识点 anchors 继承
+    const { citations, citationOf, bulletsWithoutCitation } = buildCitations(
+      usable,
+      ctx.sourceTitle,
+      ctx.sourceTitles,
+    );
+
+    const content = new Map<string, TemplateContentItem>();
+    let droppedBullets = 0;
+    const knownIds = new Set(usable.map((p) => p.id));
+
+    for (const item of result.items) {
+      if (!knownIds.has(item.fromPointId)) {
+        droppedBullets += 1;
+        continue;
+      }
+      content.set(item.fromPointId, item);
+    }
+
+    if (content.size === 0) return null;
+
+    const pages = assembleTemplate({
+      plan,
+      content,
+      summary: result.summary,
+      deckTitle: ctx.deckTitle,
+      sourceTitle: ctx.sourceTitle,
+      citationOf,
+    });
+
+    if (pages.length <= 1) return null;
+
+    // 统计「有内容但没有角标」的条数（用于界面如实告知）
+    let withoutCitation = 0;
+    for (const page of pages) {
+      for (const b of page.bullets) {
+        if (b.citationIndex === null) withoutCitation += 1;
+      }
+    }
+
+    return {
+      pages,
+      citations,
+      bulletsWithoutCitation: withoutCitation || bulletsWithoutCitation,
+      droppedBullets,
+      tokens: result.actualTokens,
     };
   }
 
@@ -600,8 +733,10 @@ export class SlideService {
    *
    * 导出成功后把记录写进 deck.exports —— 计划书要求「重复导出不覆盖旧版本」，
    * 文件名带版本号解决了文件层面的覆盖；记录解决了「我看不到自己导过几次」。
+   *
+   * @param options.includeSources 是否追加「资料来源」页，默认 true
    */
-  async export(id: string): Promise<ExportOutcome> {
+  async export(id: string, options: { includeSources?: boolean } = {}): Promise<ExportOutcome> {
     const deck = await this.get(id);
     if (!deck) throw new Error('这份 PPT 已经不存在了，可能在另一个窗口被删除。');
 
@@ -612,7 +747,7 @@ export class SlideService {
     // 序号 = 已有导出次数 + 1。第 1 次导出是「第1版」
     const ordinal = deck.exports.length + 1;
     const at = new Date();
-    const result = await exportToPptx(deck, ordinal);
+    const result = await exportToPptx(deck, ordinal, options);
     const fileName = normalizeFileName(result.fileName) || buildFileName(deck.title, ordinal, at);
 
     const recordId = newId('export');
@@ -700,3 +835,74 @@ export { chunkBullets };
 
 /** 类型再导出，界面只用从这里拿 */
 export type { RenderSlide };
+
+/**
+ * 把知识点转成送给模型的形状。
+ *
+ * 两种生成模式（固定模板 / 自由）共用，保证送给模型的信息一致 ——
+ * 否则两条路径产出的内容风格会不一样，用户换模式时会觉得像两个功能。
+ */
+function toAiPoint(p: KnowledgePoint): OutlineInputPoint {
+  return {
+    id: p.id,
+    statement: p.statement,
+    quotes: p.quotes,
+    chapter: p.chapter,
+    page: p.anchors[0]?.page ?? null,
+    cognitiveLevel: p.cognitiveLevel,
+  };
+}
+
+/**
+ * 建角标表，并返回「知识点 → 角标编号」的查询函数。
+ *
+ * 这是整个 PPT 功能最要紧的一段：位置只从知识点已验证的 anchors 继承，
+ * 绝不在这里推算。两种生成模式共用它，避免各写一份而走样。
+ */
+function buildCitations(
+  points: KnowledgePoint[],
+  sourceTitle: string,
+  sourceTitles: Map<string, string>,
+): {
+  citations: SlideCitation[];
+  citationOf: (point: KnowledgePoint) => number | null;
+  bulletsWithoutCitation: number;
+} {
+  const citations: SlideCitation[] = [];
+  const byPoint = new Map<string, number>();
+  let bulletsWithoutCitation = 0;
+
+  const citationOf = (point: KnowledgePoint): number | null => {
+    const existing = byPoint.get(point.id);
+    if (existing !== undefined) return existing;
+
+    // 定位失败/被豁免 → 不建角标（不给假角标）
+    if (point.anchorStatus !== 'located') {
+      bulletsWithoutCitation += 1;
+      return null;
+    }
+    const anchor = point.anchors[0];
+    if (!anchor) {
+      bulletsWithoutCitation += 1;
+      return null;
+    }
+
+    const citation: SlideCitation = {
+      index: citations.length + 1,
+      knowledgePointId: point.id,
+      sourceId: anchor.sourceId || point.sourceId || '',
+      sourceTitle: sourceTitles.get(anchor.sourceId) ?? sourceTitle,
+      page: anchor.page ?? null,
+      chapter: anchor.chapter ?? point.chapter,
+      quote: point.quotes[0] ?? '',
+    };
+    citations.push(citation);
+    byPoint.set(point.id, citation.index);
+    return citation.index;
+  };
+
+  // 预先为所有知识点建号，顺序按传入顺序（= 原文页码顺序）
+  for (const p of points) citationOf(p);
+
+  return { citations, citationOf, bulletsWithoutCitation };
+}

@@ -83,8 +83,18 @@ export interface RenderSlide {
  * 理由是它会凭空多出一页，如果存在大纲里，用户编辑大纲时就会看到一页
  * 自己没建过的内容，删了又会被下次导出补回来 —— 那是数据在跟用户打架。
  * 它是由 citations 派生的，就让它一直保持派生。
+ *
+ * @param options.includeSources 是否追加「资料来源」页，默认 true。
+ *   用户可以在导出时关掉它 —— 这一页对「自己看」的场景是多余的，
+ *   但对「发给别人」很重要：要点右侧的 `[3]` 如果末尾没有对照表，
+ *   读者就不知道它指向哪一页。所以做成开关而不是直接删掉。
  */
-export function buildRenderPlan(deck: SlideDeck, sourceTitleFallback = '学习资料'): RenderSlide[] {
+export function buildRenderPlan(
+  deck: SlideDeck,
+  sourceTitleFallback = '学习资料',
+  options: { includeSources?: boolean } = {},
+): RenderSlide[] {
+  const includeSources = options.includeSources !== false;
   const slides: RenderSlide[] = [];
 
   // ── 正文页（封面 / 章节 / 要点） ──────────────────────────
@@ -119,10 +129,10 @@ export function buildRenderPlan(deck: SlideDeck, sourceTitleFallback = '学习�
     });
   }
 
-  // ── 资料来源页（派生，固定追加在最后） ─────────────────────
+  // ── 资料来源页（派生，固定追加在最后；可关闭） ─────────────
   const citations = [...deck.citations].sort((a, b) => a.index - b.index);
 
-  if (citations.length > 0) {
+  if (includeSources && citations.length > 0) {
     const per = SLIDE_LIMITS.maxCitationsPerPage;
     const chunks: typeof citations[] = [];
     for (let i = 0; i < citations.length; i += per) {

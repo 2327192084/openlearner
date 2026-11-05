@@ -37,6 +37,14 @@ export function SlideExport({ deck, onDeck }: SlideExportProps) {
   const { slides } = useServices();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string; hint: string } | null>(null);
+  /**
+   * 是否包含「资料来源」页，默认包含。
+   *
+   * 为什么默认开：要点右侧的 `[3]` 靠这一页对照页码，关掉之后
+   * 角标就成了没人能解释的符号。但它对「自己复习」确实多余，
+   * 所以给开关而不是直接删。
+   */
+  const [includeSources, setIncludeSources] = useState(true);
   const [justExported, setJustExported] = useState<{
     fileName: string;
     slideCount: number;
@@ -53,7 +61,7 @@ export function SlideExport({ deck, onDeck }: SlideExportProps) {
     setBusy(true);
     setError(null);
     try {
-      const outcome = await slides.export(deck.id);
+      const outcome = await slides.export(deck.id, { includeSources });
       downloadPptx(outcome.buffer, outcome.fileName);
       setJustExported({
         fileName: outcome.fileName,
@@ -108,6 +116,27 @@ export function SlideExport({ deck, onDeck }: SlideExportProps) {
             现在这份大纲只有一页封面。先用上面的「末尾加页」加一页正文，或者回上一页从知识点重新生成。
           </Notice>
         ) : null}
+
+        {/*
+          资料来源页开关。
+
+          做成手动勾选而不是自动判断：只有用户知道自己这份是要发给别人
+          （需要页码对照）还是自己复习（不需要）。
+        */}
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={includeSources}
+            onChange={(e) => setIncludeSources(e.target.checked)}
+            disabled={busy}
+          />
+          附上「资料来源」页
+        </label>
+        <div className="field__hint">
+          {includeSources
+            ? `会在最后多一页，列出每条要点的角标 [n] 出自哪份资料的哪一页。当前有 ${deck.citations.length} 条引用。`
+            : '不附这一页。要点右侧的角标 [n] 将没有对照表，发给别人时对方看不懂它指向哪里。'}
+        </div>
 
         <div className="sl-export__actions">
           <button

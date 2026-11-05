@@ -378,8 +378,20 @@ async function main() {
        * 这里用 AI 改写过的文字（而不是知识点原文），正好验证
        * 「AI 改写要点后角标仍指向原页码」这件事 —— 这是本轮改动
        * 最容易静默出错的地方。
+       *
+       * **同时返回两种模式的形状**：模板模式要 items+summary，
+       * 自由模式要 pages。验收脚本没有填提示词，走的是模板模式，
+       * 但两套都给，这样脚本不会因为一次模式判断而整条崩掉。
        */
       const payload = {
+        // 模板模式：逐条内容 + 总结
+        items: aiPointIds.slice(0, 2).map((p, i) => ({
+          fromPointId: p.id,
+          title: '数据结构的研究对象',
+          bullet: `（AI 改写）第 ${i + 1} 条：${String(p.statement).slice(0, 20)}…`,
+        })),
+        summary: { title: '本章小结', bullets: ['（AI 改写）记住这几点就够了'] },
+        // 自由模式：整页结构
         pages: [
           {
             title: '数据结构的研究对象',
@@ -603,6 +615,16 @@ async function main() {
       deck.layouts.includes('sources') ? '大纲里混进了资料页' : '资料页未混入大纲',
     );
 
+    /**
+     * 没填提示词时应该走固定模板：封面 → 章节 → 要点 → 总结。
+     * 这条守的是「什么都不填时版式可预期」这个承诺。
+     */
+    record(
+      '**未填提示词时走固定模板（含总结页）**',
+      deck.layouts.includes('bullets') && deck.pages.some((p) => p.title === '本章小结'),
+      `版式序列：${deck.layouts.join(' → ')}`,
+    );
+
     // ---------- 5. 角标出处核对（计划书：抽查 3 个角标能跳回正确原文） ----------
     const anchorCheck = await cdp.eval(`(async () => {
       ${DB_HELPER}
@@ -744,6 +766,58 @@ async function main() {
       allText.includes('资料来源'),
       allText.includes('资料来源') ? '找到资料页' : '没找到资料页',
     );
+
+    // ---------- 7.5 关掉「资料来源」开关后再导出一次 ----------
+    /**
+     * 这一页现在是可选的。验证它真的能关，而不是一个点了没反应的勾选框
+     * —— 「假开关」这个毛病这个项目已经吃过两次亏了。
+     */
+    const beforeNoSources = fs.readdirSync(DOWNLOAD_DIR);
+
+    const toggled = await cdp.eval(`(async () => {
+      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+      // 找到「附上资料来源页」这个勾选框并取消勾选
+      const label = [...document.querySelectorAll('label')].find(l =>
+        /资料来源/.test(l.textContent || ''));
+      const box = label?.querySelector('input[type=checkbox]');
+      if (!box) return { ok: false, why: '找不到资料来源开关' };
+      if (box.checked) { box.click(); await sleep(300); }
+      return { ok: true, checked: box.checked };
+    })()`);
+
+    let noSourcesFile = null;
+    if (!toggled.ok) {
+      record('**关掉开关后不再生成「资料来源」页**', false, toggled.why ?? '找不到开关');
+    } else {
+      await cdp.eval(`(async () => {
+        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+        const btn = [...document.querySelectorAll('button')].find(b =>
+          /导出/.test(b.textContent || '') && !b.disabled);
+        if (btn) btn.click();
+        await sleep(4000);
+      })()`);
+      noSourcesFile = await waitForDownload(beforeNoSources);
+    }
+
+    if (!toggled.ok) {
+      // 已经记过失败，跳过后续比较
+    } else if (!noSourcesFile) {
+      record('**关掉开关后不再生成「资料来源」页**', false, '点了导出但没有文件下载');
+    } else {
+      const noSrcInfo = await inspectPptx(noSourcesFile);
+      const noSrcText = noSrcInfo.texts.join('\n');
+      record(
+        '**关掉开关后不再生成「资料来源」页**',
+        toggled.checked === false && !noSrcText.includes('资料来源'),
+        `开关=关 / 文件 ${path.basename(noSourcesFile)} / 页数 ${noSrcInfo.slideCount} / 含资料页=${noSrcText.includes('资料来源')}`,
+      );
+      // 第一次导出（info）是开着开关的，这次关了，页数必须变少
+      record(
+        '关掉后页数确实减少了',
+        noSrcInfo.slideCount < info.slideCount,
+        `开着 ${info.slideCount} 页 → 关掉 ${noSrcInfo.slideCount} 页`,
+      );
+    }
 
     // ---------- 8. 重复导出不覆盖 ----------
     const before2 = fs.readdirSync(DOWNLOAD_DIR);

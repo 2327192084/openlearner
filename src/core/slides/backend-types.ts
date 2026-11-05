@@ -57,6 +57,34 @@ export interface GenerateOutlineOptions {
   /** 期望的要点页数上限。模型可少给，不许多给 */
   maxPages: number;
   language: 'zh' | 'en';
+  /**
+   * 用户对这份 PPT 的额外要求（自由输入）。
+   *
+   * 有值时走**自由模式**：由模型决定页面结构。
+   * 没值时走**固定模板**：结构由 template.ts 定死，模型只写内容。
+   * 这个区别是刻意的 —— 用户没提要求时应该得到稳定可预期的版式，
+   * 提了要求才让模型放开手脚。
+   */
+  instruction?: string;
+}
+
+/**
+ * 一条知识点的成稿内容（固定模板模式下，模型为每条知识点写一段）。
+ */
+export interface TemplateItemDraft {
+  fromPointId: string;
+  /** 这组要点的标题；null 表示用章节名 */
+  title: string | null;
+  /** 要点正文 */
+  bullet: string;
+}
+
+/** 固定模板模式的结果 */
+export interface GenerateTemplateResult {
+  items: TemplateItemDraft[];
+  /** 总结页；模型没给则为 null */
+  summary: { title: string; bullets: string[] } | null;
+  actualTokens: number | null;
 }
 
 /** 模型返回的一条要点草稿 */
@@ -97,9 +125,23 @@ export interface OutlineBackend {
   /** 估算用量，生成前显示给用户看 */
   estimateTokens(points: OutlineInputPoint[], options: GenerateOutlineOptions): number;
 
-  /** 生成大纲 */
+  /** 生成大纲（自由模式：模型自己组织结构） */
   generate(
     points: OutlineInputPoint[],
     options: GenerateOutlineOptions & { signal: AbortSignal },
   ): Promise<GenerateOutlineResult>;
+
+  /**
+   * 按知识点逐条写内容（固定模板模式）。
+   *
+   * 与 generate 的区别：这里模型**不决定结构**，只负责
+   * 「每条知识点写成什么话」和「整份 PPT 的总结是什么」。
+   * 页面结构由 template.ts 定死，所以版式可预期。
+   *
+   * 可选：不实现时调用方退回 generate。
+   */
+  generateForTemplate?(
+    points: OutlineInputPoint[],
+    options: GenerateOutlineOptions & { signal: AbortSignal },
+  ): Promise<GenerateTemplateResult>;
 }

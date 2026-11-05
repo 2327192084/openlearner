@@ -53,9 +53,14 @@ export interface ExportResult {
  *
  * @param deck 待导出的 PPT
  * @param ordinal 导出序号（从 1 开始），用于文件名；避免覆盖之前导出的版本
+ * @param options.includeSources 是否追加「资料来源」页，默认 true
  */
-export async function exportToPptx(deck: SlideDeck, ordinal = 1): Promise<ExportResult> {
-  const plan = buildRenderPlan(deck, deck.title);
+export async function exportToPptx(
+  deck: SlideDeck,
+  ordinal = 1,
+  options: { includeSources?: boolean } = {},
+): Promise<ExportResult> {
+  const plan = buildRenderPlan(deck, deck.title, options);
   if (plan.length === 0) {
     throw new Error('没有可导出的内容：大纲是空的');
   }

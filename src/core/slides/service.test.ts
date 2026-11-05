@@ -749,3 +749,159 @@ describe('SlideService：AI 用量记账', () => {
     expect(row.tokens).toBe(600);
   });
 });
+
+describe('SlideService：模板模式 vs 自由模式', () => {
+  let storage: MemoryStorage;
+  let slides: SlideService;
+
+  beforeEach(() => {
+    storage = new MemoryStorage();
+    slides = new SlideService(storage);
+  });
+
+  /** 能同时应付两种模式的后端 */
+  function dualBackend(track: { template: number; free: number }) {
+    return {
+      id: 'fake',
+      label: '假后端',
+      isMock: true,
+      provider: 'test',
+      estimateTokens: () => 100,
+      generate: async () => {
+        track.free += 1;
+        return {
+          pages: [{ title: '自由模式页', subtitle: null, bullets: [] as never[] }],
+          actualTokens: 10,
+        };
+      },
+      generateForTemplate: async (points: { id: string }[]) => {
+        track.template += 1;
+        return {
+          items: points.map((p) => ({
+            fromPointId: p.id,
+            title: '章节要点',
+            bullet: `讲解 ${p.id}`,
+          })),
+          summary: { title: '总结', bullets: ['收尾'] },
+          actualTokens: 20,
+        };
+      },
+    };
+  }
+
+  it('没有提示词时走固定模板', async () => {
+    const track = { template: 0, free: 0 };
+    const { mode } = await slides.createFromPoints({
+      sourceId: 'src-a',
+      points: makePoints(2),
+      backend: dualBackend(track),
+    });
+
+    expect(mode).toBe('template');
+    expect(track.template).toBe(1);
+    expect(track.free).toBe(0);
+  });
+
+  it('有提示词时走自由模式', async () => {
+    const track = { template: 0, free: 0 };
+    const { mode } = await slides.createFromPoints({
+      sourceId: 'src-a',
+      points: makePoints(2),
+      backend: dualBackend(track),
+      instruction: '每页只放 2 条要点',
+    });
+
+    expect(mode).toBe('free');
+    expect(track.free).toBe(1);
+    expect(track.template).toBe(0);
+  });
+
+  it('只有空白的提示词也算没写（走模板）', async () => {
+    const track = { template: 0, free: 0 };
+    const { mode } = await slides.createFromPoints({
+      sourceId: 'src-a',
+      points: makePoints(2),
+      backend: dualBackend(track),
+      instruction: '   \n  ',
+    });
+
+    expect(mode).toBe('template');
+  });
+
+  it('模板模式产出固定的结构：封面 → 章节 → 要点 → 总结', async () => {
+    const track = { template: 0, free: 0 };
+    const points = [
+      makePoint({ id: 'k0', chapter: '第一章' }),
+      makePoint({ id: 'k1', chapter: '第二章' }),
+    ];
+
+    const { deck } = await slides.createFromPoints({
+      sourceId: 'src-a',
+      points,
+      backend: dualBackend(track),
+    });
+
+    expect(deck.pages.map((p) => p.layout)).toEqual([
+      'title',
+      'section',
+      'bullets',
+      'section',
+      'bullets',
+      'bullets', // 总结页
+    ]);
+  });
+
+  it('模板模式的角标仍指向知识点真实页码', async () => {
+    const track = { template: 0, free: 0 };
+    const points = [makePoint({ id: 'k0', statement: '甲' })];
+
+    const { deck } = await slides.createFromPoints({
+      sourceId: 'src-a',
+      points,
+      backend: dualBackend(track),
+    });
+
+    const bulletPage = deck.pages.find((p) => p.layout === 'bullets')!;
+    // makePoint 的锚点是第 3 页
+    expect(deck.citations[0]!.page).toBe(3);
+    expect(bulletPage.bullets[0]!.citationIndex).toBe(1);
+  });
+
+  it('模板模式两次生成结构一致（可预期）', async () => {
+    const points = [makePoint({ id: 'k0', chapter: '第一章' }), makePoint({ id: 'k1', chapter: '第二章' })];
+
+    const build = async () => {
+      const track = { template: 0, free: 0 };
+      const { deck } = await slides.createFromPoints({
+        sourceId: 'src-a',
+        points,
+        backend: dualBackend(track),
+      });
+      return deck.pages.map((p) => `${p.layout}:${p.title}`);
+    };
+
+    expect(await build()).toEqual(await build());
+  });
+
+  it('模板模式后端失败时回退，并如实报 aiFailure', async () => {
+    const { usedAi, aiFailure } = await slides.createFromPoints({
+      sourceId: 'src-a',
+      points: makePoints(2),
+      backend: {
+        id: 'bad',
+        label: '坏的',
+        isMock: true,
+        estimateTokens: () => 0,
+        generate: async () => {
+          throw new Error('不该走到这里');
+        },
+        generateForTemplate: async () => {
+          throw new Error('模型超时');
+        },
+      },
+    });
+
+    expect(usedAi).toBe(false);
+    expect(aiFailure).toContain('模型超时');
+  });
+});
