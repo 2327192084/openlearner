@@ -1,8 +1,9 @@
-# OpenLeaner · 开发说明（P0）
+# OpenLeaner · 开发说明
 
 青岛科技大学 2026 年人工智能应用创新大赛 · AI原生代码创意编程 · 学生学习与成长类
 
-计划书见 `PLAN.md`（另存于比赛材料目录）。本文只讲**代码怎么跑、结构为什么这样分**。
+> 本文按阶段分节，**不是**只讲 P0 —— 标题曾误标「（P0）」。
+> 目前覆盖到 P5；P3 出题、P4 PPT、P6 看图识别见文末「九、其余阶段」。计划书见 `PLAN.md`（另存于比赛材料目录，不在本仓库）。本文只讲**代码怎么跑、结构为什么这样分**。
 
 ---
 
@@ -374,10 +375,67 @@ web ──► deepseek-client.ts   手写 fetch：超时/取消/HTTP 错误分�
 npm run build
 npx vite preview --port 4173
 node scripts/verify-p5.cjs     # 15 项，用 CDP 拦截 API 请求，不花钱
-npx vitest run src/core/ai     # 46 项，注入 fetchImpl，不联网
+npx vitest run src/core/ai     # 108 项（4 个文件），注入 fetchImpl，不联网
 ```
 
 > ⚠️ **自动验收用的是拦截到的假响应，不是真实 API。**
 > 真调用需要有效 Key 且会产生费用，只能人工验一次。
 > 别把「15 项全过」理解成「真能用」—— 它证明的是链路通、错误分类对、
 > 结果能进定位器。真实模型输出质量与定位成功率，要拿真课件跑过才知道。
+
+---
+
+## 九、其余阶段（P3 出题 / P4 PPT / P6 看图识别）
+
+前三节写于各自开发当时，P3/P4/P6 完成时没回来补。这里补上，只记**结构与坑**。
+
+### P3 · 出题与刷题
+
+| 位置 | 职责 |
+|---|---|
+| `src/core/questions/service.ts` | 题库、练习会话、作答记录 |
+| `src/core/questions/deepseek-backend.ts` | 真模型出题（`QuestionBackend` 实现） |
+| `src/core/questions/mock-backend.ts` | 离线演示后端，不花钱 |
+| `src/core/questions/export.ts` | 题库导出 |
+
+与 P2 的知识点整理**刻意不共用**私有逻辑：两者接口不同
+（`QuestionBackend.estimateTokens(points, options)` vs `OrganizeBackend.estimateTokens(segments)`）。
+
+**Key 只在 `generate` 调用那一刻读，用完即弃**，组件状态里只存「选了哪个后端」。
+理由写在 `use-question-backend.ts` 头部：否则首次渲染时 key 还没读到，
+后端会拿着空 key 被创建；且明文 key 长期留在组件状态里，加一句 `console.log` 就泄露。
+
+每次作答都留时间与对错，按单调序号递增 —— 错题归集靠它判先后。
+
+验收：`node scripts/verify-p3.cjs` — **18 项**（2026-11-05 实测）。
+
+### P4 · 学习 PPT
+
+`src/core/slides/` 13 个非测试文件，几条硬规矩：
+
+- **从资料原文生成**，不是从知识点二次加工；可按页码范围取材。
+- **主题单一来源** `theme.ts`，预览与导出都走 `resolveDeckTheme()`。
+  两处各写一套会导致「预览深蓝、导出黑色」，而这类缺陷所有自动测试都会通过。
+- **叠加内容坐标存 0~1 比例**，不是像素 —— 存像素换个屏幕就错位。
+- **图片上限 8MB，拦在 `addImage` 写入口**而不是界面（界面有多个入口，漏一个就绕过）。
+- 角标链路：要点 → `citationIndex` → `SlideCitation` → `segmentId` → 段落页码。
+  模型只指回段落 id，**绝不给页码**。
+
+已知未做：没有图片批量管理界面（删 PPT 时才级联清理）；只有 .pptx 导出，没有 PDF。
+
+验收：`node scripts/verify-p4.cjs` — **43 项**（实测）。
+另有 `verify-p4-figure.cjs` 单独验插图。
+
+### P6 · 扫描件看图识别
+
+`src/core/ocr/`：`service.ts`（编排）、`vision-backend.ts`（多模态调用）、`types.ts`。
+
+流程：页面渲染成图片 → 视觉模型 → 结果写回分段 → 从此能搜索、能出题、能做 PPT。
+
+- **按页计费**，所以提供「只识别第 1 页先试效果」，且随时可停。
+- 解码失败的文件**不走 OCR**：那类文件里有字，是我们没读出来，该我们修，
+  不该让用户去折腾识别。见 `ScanNotice.tsx` 注释。
+- **本地 Tesseract OCR 从未实现**，已从界面摘掉死标签（一条永远不做的路
+  不该占着版面让人以为以后会有）。
+
+验收：`node scripts/verify-p6.cjs` — **12 项**（实测），会拦截请求体确认真的带 `image_url`。

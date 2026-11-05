@@ -95,9 +95,10 @@ Key 只存在你本机 IndexedDB 的 `secrets` 分区，不进备份文件、不
 
 ---
 
-## 单元测试：46 项，全部不花钱
+## 单元测试：108 项，全部不花钱
 
-`src/core/ai/ai.test.ts` 通过注入 `fetchImpl` 模拟服务端，覆盖：
+`src/core/ai/` 下的 4 个测试文件（`ai.test.ts` / `providers.test.ts` /
+`presets.test.ts` / `electron-fetch.test.ts`）主要靠注入 `fetchImpl` 模拟服务端，覆盖：
 
 - 请求构造（URL、头、body、json mode）
 - 6 种 HTTP 状态的错误分类
@@ -132,12 +133,18 @@ Key 只存在你本机 IndexedDB 的 `secrets` 分区，不进备份文件、不
 
 ## 已知限制
 
-- **只做了知识点整理**。出题（P3）、PPT（P4）还没接真模型，
-  但它们复用同一个 `OrganizeBackend` 抽象，接入成本低。
-- **没有做逐段流式**，进度是「批」级别的。
-- **没有做重试**。失败后要用户手动再点一次。对 429 限流应该自动退避重试，
+> 本节已按 2026-11-05 的代码状态更新。P3 出题、P4 PPT、用量统计面板
+> 当时都还是「未接真模型 / 未做」，现在都已完成。
+
+- ~~只做了知识点整理，出题（P3）、PPT（P4）还没接真模型~~ —— **已完成**。
+  出题走 `src/core/questions/deepseek-backend.ts`（`use-question-backend.ts` 选后端），
+  PPT 走 `src/core/slides/`（`use-outline-backend.ts` 选后端），
+  三者共用同一套后端抽象与错误分类。
+- **没有做逐段流式**，进度是「批」级别的。`chat-client.ts` 里 `stream: false` 写死。
+- **没有做自动重试**。失败后要用户手动再点一次。对 429 限流应该自动退避重试，
   这是下一步该补的。
-- **没有 token 用量统计面板**（P5 第 5 条要求）。当前只在每次整理后显示本次用量，
-  没有按后端/按天汇总。
+- ~~没有 token 用量统计面板~~ —— **已完成**。设置页 `UsageSection.tsx`，
+  按天、按后端汇总（`src/core/usage.ts` 的 `byDay` / `byBackend`）。
+  仍然守住一条：服务端没返回 token 就不记，不猜数字。
 - **WorkBuddy 接入没做**。计划书列为「争取做」，且前置调研未完成
   （需确认它是否提供可被第三方调用的官方接口）。
