@@ -56,8 +56,15 @@ export function SlideFigurePanel({
   const [sourceId, setSourceId] = useState<string | null>(
     replacingPage?.figure?.sourceId ?? deck.sourceId ?? null,
   );
+  /**
+   * 默认填 1，不留空。
+   *
+   * 留空的话「渲染预览」一打开就是禁用的，用户得先猜一个数字才能点——
+   * 而绝大多数人要的就是第一页（封面/示意图常在第一页）。先给一个合法值，
+   * 想换页的人改一下就行，不想换的人直接点渲染。
+   */
   const [pageText, setPageText] = useState<string>(
-    replacingPage?.figure ? String(replacingPage.figure.page) : '',
+    replacingPage?.figure ? String(replacingPage.figure.page) : '1',
   );
   /** 选中的资料是否还留着原始字节。null = 正在查 */
   const [storesFile, setStoresFile] = useState<boolean | null>(null);

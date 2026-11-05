@@ -204,10 +204,23 @@ export function SlideOutline({ deck, onDeck }: SlideOutlineProps) {
             {...(figurePanel.mode === 'replace' ? { replacePageId: figurePanel.pageId } : {})}
             onDone={(next) => {
               onDeck(next);
+              /**
+               * 插入后把选中页切到刚插进去的那一页。
+               *
+               * 不切的话插入完编辑区还停在上一个页面上，用户看不到新页的图注输入框，
+               * 得自己去左边列表里找「图文」——而他刚做完的动作正是「插一页图文」，
+               * 下一步十有八九就是改图注。换图不用切，那一页本来就是当前页。
+               */
+              if (figurePanel.mode === 'insert') {
+                const after = figurePanel.afterPageId;
+                const base = after ? next.pages.findIndex((p) => p.id === after) : 0;
+                const inserted = next.pages[base + 1];
+                if (inserted) setSelectedId(inserted.id);
+              }
               setNote(
                 figurePanel.mode === 'replace'
                   ? '图已经换掉了。大纲里的其他页没有变。'
-                  : '已插入一页图文页，图注可以在下面改。',
+                  : '已插入一页图文页，下面就是它的图注，可以直接改。',
               );
               setFigurePanel(null);
             }}
