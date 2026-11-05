@@ -1,7 +1,7 @@
 import { register } from '@/core/registry.ts';
 import { SourcesPage } from './sources/SourcesPage.tsx';
 import { KnowledgePage } from './knowledge/KnowledgePage.tsx';
-import { SlidesPage } from './SlidesPage.tsx';
+import { SlidesPage } from './slides/SlidesPage.tsx';
 import { DecksPage } from './decks/DecksPage.tsx';
 import { PracticePage } from './practice/PracticePage.tsx';
 import { SettingsPage } from './settings/SettingsPage.tsx';
@@ -71,7 +71,8 @@ register({
   summary: '从知识点生成可编辑的幻灯片',
   order: 50,
   inNav: true,
-  status: 'planned',
+  // P4 已实现：选资料与知识点 → 生成大纲 → 逐页编辑 → 等比预览（角标可回原文）→ 导出 .pptx
+  status: 'ready',
   phase: 'P4',
   component: SlidesPage,
 });

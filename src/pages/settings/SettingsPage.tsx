@@ -4,6 +4,9 @@ import { useServices } from '@/app/services-context.ts';
 import { backupFileName, LibraryError } from '@/core/library.ts';
 import type { LibraryMeta } from '@/core/model.ts';
 import { BackendSection } from './BackendSection.tsx';
+// 下载实现放在 PPT 页目录里：P0 备份导出和 P4 PPT 导出共用同一份，
+// 避免两边实现漂移（一份能下载、一份不能，最难查）。
+import { downloadBlob } from '../slides/download.ts';
 import '@/components/page.css';
 
 type Flash = { tone: 'info' | 'warning' | 'danger'; text: string } | null;
@@ -308,20 +311,6 @@ export function SettingsPage() {
       />
     </div>
   );
-}
-
-/** 触发浏览器下载。Electron 里同样走 Blob + a.click()，会弹系统保存对话框。 */
-function downloadBlob(blob: Blob, fileName: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  a.rel = 'noopener';
-  document.body.append(a);
-  a.click();
-  a.remove();
-  // 立刻 revoke 会让部分浏览器来不及读到 blob，让出一个宏任务再释放
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function describe(err: unknown): string {

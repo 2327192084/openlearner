@@ -9,7 +9,7 @@
  */
 
 /** 当前学习库结构版本。改动实体结构时递增，并在 migrations.ts 补一段迁移。 */
-export const LIBRARY_SCHEMA_VERSION = 4;
+export const LIBRARY_SCHEMA_VERSION = 5;
 
 /**
  * 位置信息 —— 全项目「点回原文」的唯一依据。
@@ -324,11 +324,106 @@ export interface QuestionIssue {
   message: string;
 }
 
-/** 学习 PPT。P4 实现，P0 只占位。 */
+/**
+ * 幻灯片版式。
+ *
+ * 只做四种，不做自由排版引擎（计划书第 4 节「不做」清单第 7 条）。
+ * 版式少的好处是每页都规整，不会出现文字压到边角的情况。
+ */
+export type SlideLayout =
+  /** 封面：标题 + 副标题（资料来源概览） */
+  | 'title'
+  /** 章节过渡页：只放章节名 */
+  | 'section'
+  /** 要点页：一组要点，每条带引用角标 */
+  | 'bullets'
+  /** 资料来源页：角标编号 → 文档名 + 页码。固定放在最后 */
+  | 'sources';
+
+/**
+ * 幻灯片里的一条要点。
+ *
+ * ## 为什么不存位置，只存 citationId
+ *
+ * 和 P3 的题目同理：位置从知识点**继承**，不在 PPT 层再算一次。
+ * 如果这里也存一份 page，就有两处可能打架，而学生不知道该信哪个。
+ * 存 citationId 指向本 PPT 的引用表，引用表里的位置是从知识点复制来的，
+ * 而知识点的位置是 P2 定位器在真实文本里实测出来的。
+ */
+export interface SlideBullet {
+  id: string;
+  text: string;
+  /** 指向 SlideDeck.citations 的下标；null 表示这条要点没有出处（比如页面过渡语） */
+  citationIndex: number | null;
+}
+
+/** 大纲里的一页。用户可改标题、调顺序、增删页。 */
+export interface SlideOutlinePage {
+  id: string;
+  layout: SlideLayout;
+  title: string;
+  /** 副标题，仅 title/section 版式使用 */
+  subtitle: string | null;
+  bullets: SlideBullet[];
+}
+
+/**
+ * 一条引用（角标）。
+ *
+ * 同一份资料的同一页可能有多个角标指向同一个位置，这里按知识点去重：
+ * 一条知识点一个角标，编号连续，便于在末尾的资料页逐条列出。
+ */
+export interface SlideCitation {
+  /** 角标编号，从 1 开始。界面显示为 ① 或 [1] */
+  index: number;
+  knowledgePointId: string;
+  /** 出处资料 */
+  sourceId: string;
+  sourceTitle: string;
+  /** 页码/章节序号 */
+  page: number | null;
+  chapter: string | null;
+  /** 被引用的原文片段，资料页显示前 40 字，便于核对 */
+  quote: string;
+}
+
+/**
+ * 一次导出的记录。
+ *
+ * 计划书 P4 第 5 条：「重复导出不覆盖旧版本」。
+ * 光靠文件名加版本号还不够 —— 用户看不到自己到底导过几次、导的是哪一版。
+ * 存下来，界面才能如实显示「已导出 3 次，最近一次 10:32，24 页」。
+ */
+export interface SlideExportRecord {
+  id: string;
+  fileName: string;
+  /** 这次导出的页数，便于和当前大纲对比出「导出后又改过」 */
+  slideCount: number;
+  byteSize: number;
+  exportedAt: string;
+}
+
+/**
+ * 学习 PPT。
+ *
+ * 两段式：先出大纲（status='outline'，用户可改），确认后再生成幻灯片
+ * （status='ready'）。这和 P3「先落草稿、人工检查后发布」是同一个思路 ——
+ * 让人在花时间导出之前先看一眼结构对不对。
+ */
 export interface SlideDeck {
   id: string;
   title: string;
   courseId: string | null;
+  /** 生成用的资料（可空：也支持手工建的空 PPT） */
+  sourceId: string | null;
+  /** 大纲 / 已确认 */
+  status: 'outline' | 'ready';
+  /** 大纲页。顺序即幻灯片顺序 */
+  pages: SlideOutlinePage[];
+  /** 引用表，角标编号 → 出处 */
+  citations: SlideCitation[];
+  /** 导出历史，按时间正序。数组长度即导出次数 */
+  exports: SlideExportRecord[];
   createdAt: string;
   updatedAt: string;
 }

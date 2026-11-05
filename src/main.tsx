@@ -5,6 +5,7 @@ import { BackendService } from '@/core/backends.ts';
 import { CourseService, SourceService } from '@/core/sources.ts';
 import { KnowledgeService } from '@/core/knowledge/service.ts';
 import { DeckService } from '@/core/questions/service.ts';
+import { SlideService } from '@/core/slides/service.ts';
 import { IndexedDbStorage } from '@/core/storage/indexeddb-storage.ts';
 import { ServicesContext, type AppServices } from '@/app/services-context.ts';
 import { AppRouter } from '@/app/router.tsx';
@@ -35,12 +36,13 @@ function Bootstrap() {
     const courses = new CourseService(storage);
     const knowledge = new KnowledgeService(storage, sources);
     const decks = new DeckService(storage);
+    const slides = new SlideService(storage);
 
     library
       .init()
       .then(() => {
         if (cancelled) return;
-        setServices({ library, backends, sources, courses, knowledge, decks, env: detectEnv() });
+        setServices({ library, backends, sources, courses, knowledge, decks, slides, env: detectEnv() });
       })
       .catch((err: unknown) => {
         if (cancelled) return;

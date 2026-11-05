@@ -313,7 +313,7 @@ describe('migrateBackup：v2 → v3', () => {
     expect(kp.quotes).toEqual(['某段原文引用']);
   });
 
-  it('v1 备份能一路升到 v3', () => {
+  it('v1 备份能一路升到当前版本', () => {
     const migrated = migrateBackup(makeV1Backup() as unknown as LibraryBackup);
 
     expect(migrated.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
@@ -335,5 +335,137 @@ describe('migrateBackup：v2 → v3', () => {
     expect(points).toHaveLength(2);
     expect(points[0].anchorStatus).toBe('located');
     expect(points[1].anchorStatus).toBe('unlocated');
+  });
+});
+
+/**
+ * v4 → v5（P4 学习 PPT）。
+ *
+ * 这一版的风险点在于：v4 的 slideDecks 表虽然存在，但 P4 之前
+ * 「学习 PPT」页是「待接入」占位，没有任何代码往里写过正常数据。
+ * 所以迁移要处理的其实是**异常残留** —— 但正因为平时跑不到，
+ * 出错时也不会有人发现，才更需要测试盯着。
+ */
+describe('migrateBackup：v4 → v5', () => {
+  /** 构造一份 P3 时期的 v4 备份 */
+  function makeV4Backup(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      format: 'openleaner-library',
+      schemaVersion: 4,
+      exportedAt: ts,
+      meta: { id: 'library', name: 'P3 时代的库', createdAt: ts, updatedAt: ts, schemaVersion: 4 },
+      settings: { locale: 'zh-CN', questionLanguage: 'zh', onboarded: true },
+      courses: [],
+      sources: [],
+      sourceSegments: [],
+      knowledgePoints: [],
+      generationRuns: [],
+      decks: [],
+      questions: [],
+      answerRecords: [],
+      // v4 的 SlideDeck 只有 P0 占位的 5 个字段
+      slideDecks: [
+        {
+          id: 'slide_1',
+          title: 'P0 时代残留的空壳',
+          createdAt: ts,
+          updatedAt: ts,
+        },
+      ],
+      backends: [],
+      ...overrides,
+    };
+  }
+
+  it('版本号升到当前', () => {
+    const migrated = migrateBackup(makeV4Backup() as unknown as LibraryBackup);
+    expect(migrated.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
+  });
+
+  it('空壳 SlideDeck 补齐全部字段', () => {
+    const migrated = migrateBackup(makeV4Backup() as unknown as LibraryBackup);
+    const deck = migrated.slideDecks[0];
+
+    expect(deck.courseId).toBeNull();
+    expect(deck.sourceId).toBeNull();
+    expect(deck.status).toBe('outline');
+    expect(deck.pages).toEqual([]);
+    expect(deck.citations).toEqual([]);
+    expect(deck.exports).toEqual([]);
+    expect(deck.createdAt).toBe(ts);
+    expect(deck.updatedAt).toBe(ts);
+  });
+
+  it('不补假封面页（不能让用户看到「有 1 页但不记得建过」的 PPT）', () => {
+    const migrated = migrateBackup(makeV4Backup() as unknown as LibraryBackup);
+
+    // 补一页封面看起来"更完整"，但那是一页用户从没见过、也从没要过的内容。
+    // 它还会让「页数」这个概念失真：0 页的草稿本应显示为未完成。
+    expect(migrated.slideDecks[0].pages).toHaveLength(0);
+  });
+
+  it('全部字段都真的存在（不是 undefined，JSON 往返后也在）', () => {
+    const migrated = migrateBackup(makeV4Backup() as unknown as LibraryBackup);
+    const round = JSON.parse(JSON.stringify(migrated)) as Record<string, unknown>;
+    const deck = (round.slideDecks as Record<string, unknown>[])[0];
+
+    for (const key of ['courseId', 'sourceId', 'status', 'pages', 'citations', 'exports']) {
+      expect(deck).toHaveProperty(key);
+    }
+  });
+
+  it('已有数据不被覆盖（已经是 ready 的仍然是 ready）', () => {
+    const migrated = migrateBackup(
+      makeV4Backup({
+        slideDecks: [
+          {
+            id: 'slide_1',
+            title: '手改过的',
+            status: 'ready',
+            pages: [{ id: 'p1', layout: 'title', title: 'T', subtitle: null, bullets: [] }],
+            citations: [],
+            exports: [{ id: 'e1', fileName: 'a.pptx', slideCount: 1, byteSize: 100, exportedAt: ts }],
+            createdAt: ts,
+            updatedAt: ts,
+          },
+        ],
+      }) as unknown as LibraryBackup,
+    );
+
+    const deck = migrated.slideDecks[0];
+    expect(deck.status).toBe('ready');
+    expect(deck.pages).toHaveLength(1);
+    expect(deck.exports).toHaveLength(1);
+  });
+
+  it('slideDecks 不是数组时退化为空数组，不抛错', () => {
+    const migrated = migrateBackup(
+      makeV4Backup({ slideDecks: null }) as unknown as LibraryBackup,
+    );
+    expect(migrated.slideDecks).toEqual([]);
+  });
+
+  it('v1 备份能一路升到 v5', () => {
+    const migrated = migrateBackup(makeV1Backup() as unknown as LibraryBackup);
+
+    expect(migrated.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
+    expect(Array.isArray(migrated.sourceSegments)).toBe(true);
+    expect(Array.isArray(migrated.generationRuns)).toBe(true);
+    expect(Array.isArray(migrated.answerRecords)).toBe(true);
+    expect(Array.isArray(migrated.slideDecks)).toBe(true);
+  });
+
+  it('v4 备份能真正导入学习库', async () => {
+    const storage = new MemoryStorage();
+    const service = new LibraryService(storage);
+    await service.create('目标');
+
+    const meta = await service.importBackup(makeV4Backup());
+    expect(meta.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
+
+    const decks = await storage.getAll('slideDecks');
+    expect(decks).toHaveLength(1);
+    expect(decks[0].status).toBe('outline');
+    expect(decks[0].pages).toEqual([]);
   });
 });

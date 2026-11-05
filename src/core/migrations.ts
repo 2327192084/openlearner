@@ -136,6 +136,45 @@ const migrations: Record<number, Migration> = {
       answerRecords: Array.isArray(backup.answerRecords) ? backup.answerRecords : [],
     };
   },
+
+  /**
+   * v4 → v5（P4 引入）
+   *
+   * SlideDeck 从 5 个字段的占位版重写成完整结构：
+   * 新增 pages / citations / exports / courseId / status，
+   * 并新增 sourceId 之外的引用表。
+   *
+   * 关键判断：v4 时期的 slideDecks **从未被写入过**
+   * （P4 之前「学习 PPT」页是「待接入」占位，没有任何代码写这张表）。
+   * 所以这里不需要推断旧结构 —— 但仍要把字段补齐：
+   * 一旦真有残留数据（比如用户从别处导入过备份），读字段才不会是 undefined。
+   *
+   * 对残留的空壳一律标成 outline + 空页表。
+   * 不补一个假封面页：那会让用户看到一份「有 1 页但不记得建过」的 PPT。
+   */
+  4: (backup) => {
+    const decks = Array.isArray(backup.slideDecks)
+      ? (backup.slideDecks as Record<string, unknown>[])
+      : [];
+
+    const migratedDecks = decks.map((d) => ({
+      ...d,
+      courseId: d.courseId ?? null,
+      sourceId: d.sourceId ?? null,
+      status: d.status === 'ready' ? 'ready' : 'outline',
+      pages: Array.isArray(d.pages) ? d.pages : [],
+      citations: Array.isArray(d.citations) ? d.citations : [],
+      exports: Array.isArray(d.exports) ? d.exports : [],
+      createdAt: d.createdAt ?? new Date().toISOString(),
+      updatedAt: d.updatedAt ?? d.createdAt ?? new Date().toISOString(),
+    }));
+
+    return {
+      ...backup,
+      schemaVersion: 5,
+      slideDecks: migratedDecks,
+    };
+  },
 };
 
 /**

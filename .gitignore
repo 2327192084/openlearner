@@ -16,3 +16,4 @@ coverage/
 .scratch/
 .scratch-t/
 .scratch-test-native.cjs
+.tmp/

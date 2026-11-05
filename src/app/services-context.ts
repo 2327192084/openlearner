@@ -4,6 +4,7 @@ import type { BackendService } from '@/core/backends.ts';
 import type { CourseService, SourceService } from '@/core/sources.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { DeckService } from '@/core/questions/service.ts';
+import type { SlideService } from '@/core/slides/service.ts';
 
 /**
  * 应用运行时上下文。
@@ -22,6 +23,8 @@ export interface AppServices {
   knowledge: KnowledgeService;
   /** P3：习题集、作答与错题 */
   decks: DeckService;
+  /** P4：学习 PPT（大纲 → 导出 .pptx） */
+  slides: SlideService;
   /** 运行环境：浏览器 / Electron 桌面端 / 测试 */
   env: 'web' | 'desktop' | 'test';
 }
