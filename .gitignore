@@ -17,3 +17,6 @@ coverage/
 .scratch-t/
 .scratch-test-native.cjs
 .tmp/
+
+# 图文页渲染验证产物
+.verify-figure/
