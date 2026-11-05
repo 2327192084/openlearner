@@ -21,3 +21,6 @@ coverage/
 # 图文页渲染验证产物
 .verify-figure/
 .m.txt
+
+# esbuild 构建临时目录（Access is denied 时用它绕开）
+.tmp-esbuild/

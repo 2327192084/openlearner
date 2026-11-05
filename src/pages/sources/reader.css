@@ -423,3 +423,27 @@
     padding: var(--sp-4);
   }
 }
+
+/*
+ * 图片资料的原图预览。
+ *
+ * 为什么要限制高度并居中：扫描版讲义与板书照片常常是竖向长图，
+ * 按原始尺寸铺开会把正文区撑到几千像素高，翻页按钮被推到屏幕外。
+ * max-height + object-fit 让整张图先看全，点开可另存细看。
+ */
+.reader__figure {
+  margin: 0 0 var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.reader__image {
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+  background: var(--c-surface);
+}

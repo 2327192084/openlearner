@@ -7,6 +7,7 @@ import {
   checkOcrReadiness,
   pickVisionBackends,
   ModelVisionBackend,
+  LocalTesseractBackend,
 } from '@/core/ocr/index.ts';
 import type { OcrProgress } from '@/core/ocr/index.ts';
 import type { BackendService, BackendView } from '@/core/backends.ts';
@@ -32,6 +33,9 @@ import { describeError } from './types.ts';
  * 的情况下跑一遍，花掉的钱换不回任何东西。所以入口点之前先把条件
  * 讲清楚，而不是点了才报错。
  */
+/** 下拉框里代表「本地引擎」的取值。不是后端 id，后端 id 都由 BackendService 生成 */
+const LOCAL_ID = '__local__';
+
 export function OcrPanel({
   source,
   sources,
@@ -66,8 +70,11 @@ export function OcrPanel({
       const usable = pickVisionBackends(all);
       setVisionBackends(usable);
       setSelectedId((prev) => {
+        // 用户已选过且仍有效（含本地），保持不动
+        if (prev === LOCAL_ID) return prev;
         if (prev && usable.some((b) => b.id === prev)) return prev;
-        return usable[0]?.id ?? '';
+        // 默认选本地：免费离线，不该一上来就默认让用户花钱
+        return LOCAL_ID;
       });
     } catch {
       setVisionBackends([]);
@@ -89,13 +96,23 @@ export function OcrPanel({
    * `pickVisionBackends` 已经把「勾了看图 + 有凭据 + 状态就绪」筛过一遍，
    * 这里再叠一层 checkOcrReadiness 判断资料本身（是不是 PDF、原始文件在不在）。
    */
-  const precheck = useMemo(
-    () => checkOcrReadiness(source, selected ? { provider: selected.provider } : null),
-    [source, selected],
-  );
+  const precheck = useMemo(() => {
+    // 本地引擎不依赖任何云端后端，用一个固定的 provider 占位即可；
+    // 传 null 会被判成「没有可用的看图后端」，那是错拦。
+    const vision =
+      selectedId === LOCAL_ID
+        ? { provider: 'local' }
+        : selected
+          ? { provider: selected.provider }
+          : null;
+    return checkOcrReadiness(source, vision);
+  }, [source, selected, selectedId]);
 
   const start = async (pages?: number[]) => {
-    if (running || !selected) return;
+    if (running) return;
+    // 本地识别不依赖任何云端后端，所以「选本地」时不需要 selected
+    const useLocal = selectedId === LOCAL_ID;
+    if (!useLocal && !selected) return;
     if (!precheck.ok) return;
 
     setRunning(true);
@@ -106,19 +123,28 @@ export function OcrPanel({
     const controller = new AbortController();
     abortRef.current = controller;
 
-    try {
-      const apiKey = await backends.readCredential(selected.id);
-      if (!apiKey) {
-        throw new Error('读不到这个后端的 API Key。请到设置页重新填一次并保存，然后回来重试。');
-      }
+    // 本地引擎持有 wasm 内存，整批跑完要释放
+    let localEngine: LocalTesseractBackend | null = null;
 
-      const preset = findPreset(selected.provider);
-      const vision = new ModelVisionBackend({
-        apiKey,
-        provider: selected.provider,
-        model: selected.model || preset?.defaultModel || '',
-        ...(selected.baseUrl ? { baseUrl: selected.baseUrl } : {}),
-      });
+    try {
+      let vision;
+      if (useLocal) {
+        localEngine = new LocalTesseractBackend();
+        vision = localEngine;
+      } else {
+        const apiKey = await backends.readCredential(selected!.id);
+        if (!apiKey) {
+          throw new Error('读不到这个后端的 API Key。请到设置页重新填一次并保存，然后回来重试。');
+        }
+
+        const preset = findPreset(selected!.provider);
+        vision = new ModelVisionBackend({
+          apiKey,
+          provider: selected!.provider,
+          model: selected!.model || preset?.defaultModel || '',
+          ...(selected!.baseUrl ? { baseUrl: selected!.baseUrl } : {}),
+        });
+      }
 
       const service = new OcrService({
         sources,
@@ -159,6 +185,8 @@ export function OcrPanel({
     } finally {
       setRunning(false);
       abortRef.current = null;
+      // 释放本地引擎的 wasm 内存；下次识别会重新创建
+      if (localEngine) void localEngine.dispose();
     }
   };
 
@@ -166,25 +194,18 @@ export function OcrPanel({
     abortRef.current?.abort();
   };
 
-  // ── 没装/没配好心看后端：说清怎么办 ──────────────────────
-  if (visionBackends !== null && visionBackends.length === 0) {
-    return (
-      <Notice tone="warning" title="没有可用的看图后端">
-        要让扫描件变成能搜索、能出题的文字，需要一个能看图的模型：
-        <ol style={{ margin: '6px 0 0 18px' }}>
-          <li>到「设置」页添加一个后端，模型名填多模态模型（如智谱 glm-4v、通义 qwen-vl-max、OpenAI gpt-4o）。</li>
-          <li>在那个后端的「这个后端支持的能力」里勾上<strong>「看图识公式」</strong>。</li>
-          <li>回到这一页，就能选它来识别了。</li>
-        </ol>
-      </Notice>
-    );
+  // ── 后端列表还没读到 ──────────────────────────────────
+  if (visionBackends === null) {
+    return <div className="field__hint">正在读取可用的后端…</div>;
   }
+
+  const useLocal = selectedId === LOCAL_ID;
 
   return (
     <div className="page__stack">
       <div className="page__row">
         <label className="field__label" htmlFor="ocr-backend">
-          用哪个后端识别
+          用哪个引擎识别
         </label>
         <select
           id="ocr-backend"
@@ -193,18 +214,46 @@ export function OcrPanel({
           onChange={(e) => setSelectedId(e.target.value)}
           disabled={running}
         >
-          {(visionBackends ?? []).map((b) => (
+          {/*
+            本地引擎排在第一位并默认选中：它不花钱、不联网，是绝大多数
+            普通印刷体资料的合理默认。云端效果更好但要按页付费，
+            让用户在有成本意识的情况下主动选它。
+          */}
+          <option value={LOCAL_ID}>本地识别 · 免费离线（普通印刷体够用）</option>
+          {visionBackends.map((b) => (
             <option key={b.id} value={b.id}>
-              {b.label}（{b.model || '未填模型'}）
+              看图模型 · {b.label}（{b.model || '未填模型'}）· 按页计费
             </option>
           ))}
         </select>
       </div>
 
       <div className="field__hint">
-        识别是<strong>按页计费</strong>的：一本 600 页的教材成本不低。
-        建议先点「只识别第 1 页」看看效果，满意再跑整本。
+        {useLocal ? (
+          <>
+            本地识别<strong>不花钱、不联网</strong>，但有两个已知短板：
+            <strong>公式和表格识别明显变差</strong>，中文偶尔会有错字。
+            识别错字会污染「点回原文」，<strong>教材类资料建议用看图模型</strong>；
+            普通讲义、笔记、打印稿用本地就够。
+          </>
+        ) : (
+          <>
+            识别是<strong>按页计费</strong>的：一本 600 页的教材成本不低。
+            建议先点「只识别第 1 页」看看效果，满意再跑整本。
+          </>
+        )}
       </div>
+
+      {visionBackends.length === 0 ? (
+        <Notice tone="info" title="还没有配置看图模型（不影响本地识别）">
+          本地识别可以直接用。若资料里有公式、表格或复杂版面，看图模型效果会好很多：
+          <ol style={{ margin: '6px 0 0 18px' }}>
+            <li>到「设置」页添加一个后端，模型名填多模态模型（如智谱 glm-4v、通义 qwen-vl-max、OpenAI gpt-4o）。</li>
+            <li>在那个后端的「这个后端支持的能力」里勾上<strong>「看图识公式」</strong>。</li>
+            <li>回到这一页，下拉框里就会多出这个选项。</li>
+          </ol>
+        </Notice>
+      ) : null}
 
       {!precheck.ok ? (
         <Notice tone="warning" title={precheck.reason ?? '现在还不能识别'}>
@@ -271,8 +320,8 @@ export function OcrPanel({
               type="button"
               className="btn btn--ghost"
               onClick={() => void start([1])}
-              disabled={!precheck.ok || !selected}
-              title="先跑一页看效果，只花一页的钱"
+              disabled={!precheck.ok}
+              title={useLocal ? '先跑一页看效果（免费）' : '先跑一页看效果，只花一页的钱'}
             >
               只识别第 1 页（先试效果）
             </button>
@@ -280,7 +329,7 @@ export function OcrPanel({
               type="button"
               className="btn btn--primary"
               onClick={() => void start()}
-              disabled={!precheck.ok || !selected}
+              disabled={!precheck.ok}
             >
               识别整篇
             </button>

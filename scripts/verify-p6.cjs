@@ -398,6 +398,30 @@ async function main() {
     );
 
     // ---------- 真跑一次「只识别第 1 页」 ----------
+    /**
+     * 先把引擎切到「看图模型」再跑。
+     *
+     * P7 起下拉框第一位是**本地识别**（免费离线，默认选中）。
+     * 本脚本验的是云端链路（拦截请求、检查 image_url），
+     * 不显式切换就会选中本地、一个请求都不发，断言必然假红。
+     */
+    const switched = await cdp.eval(`(async () => {
+      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+      const sel = document.querySelector('#ocr-backend');
+      if (!sel) return { ok: false, note: '找不到 #ocr-backend' };
+      const cloud = [...sel.options].find(o => o.value !== '__local__');
+      if (!cloud) return { ok: false, note: '下拉框里没有看图模型选项' };
+      sel.value = cloud.value;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      await sleep(800);
+      return { ok: true, picked: cloud.textContent };
+    })()`);
+    record(
+      '能显式选择「看图模型」引擎',
+      Boolean(switched?.ok),
+      switched?.ok ? String(switched.picked).slice(0, 60) : String(switched?.note ?? ''),
+    );
+
     const clicked = await cdp.eval(`(async () => {
       const sleep = (ms) => new Promise(r => setTimeout(r, ms));
       const btn = [...document.querySelectorAll('button')].find(b =>

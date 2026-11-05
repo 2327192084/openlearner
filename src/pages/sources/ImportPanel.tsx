@@ -177,7 +177,7 @@ export function ImportPanel({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf,.docx,.pptx,.md,.markdown,.txt,application/pdf"
+                accept=".pdf,.docx,.pptx,.md,.markdown,.txt,.png,.jpg,.jpeg,.webp,.gif,.bmp,application/pdf,image/*"
                 multiple
                 hidden
                 onChange={(e) => {

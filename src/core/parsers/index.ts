@@ -2,6 +2,7 @@ import { parseDocx } from './docx.ts';
 import { parsePdf } from './pdf.ts';
 import { parsePptx } from './pptx.ts';
 import { parseMarkdown, parseText } from './text.ts';
+import { detectImageKind, parseImage } from './image.ts';
 import { MAX_FILE_BYTES, importError } from './types.ts';
 import type { ParsedDocument } from './types.ts';
 
@@ -14,7 +15,7 @@ import type { ParsedDocument } from './types.ts';
  * 只看扩展名会把这类文件丢进错误的解析器，得到一个看不懂的报错。
  */
 
-export type SupportedKind = 'pdf' | 'docx' | 'pptx' | 'markdown' | 'text';
+export type SupportedKind = 'pdf' | 'docx' | 'pptx' | 'markdown' | 'text' | 'image';
 
 /** 依次尝试的嗅探结果 */
 export function detectFormat(fileName: string, head: Uint8Array): SupportedKind | null {
@@ -27,6 +28,10 @@ export function detectFormat(fileName: string, head: Uint8Array): SupportedKind 
     const magic = String.fromCharCode(head[0], head[1], head[2], head[3], head[4]);
     if (magic === '%PDF-') return 'pdf';
   }
+
+  // 图片按魔数认，扩展名改了也认得出。放在 ZIP 判断之前 ——
+  // 图片魔数与 PK 不冲突，但 BMP 的 "BM" 太短，必须先排除图片
+  if (detectImageKind(head)) return 'image';
 
   // ZIP 容器（docx/pptx 都是）：PK\x03\x04
   // 光看魔数分不出 docx 与 pptx，交给扩展名；扩展名也不对时按 zip 内部结构判断
@@ -70,7 +75,11 @@ export async function parseAny(
     );
   }
 
-  const head = data.subarray(0, 8);
+  /**
+   * 取 16 字节而不是 8 —— WEBP 的魔数在第 8~11 字节（"RIFF....WEBP"），
+   * 只取 8 字节会把 webp 判成「未知格式」。
+   */
+  const head = data.subarray(0, 16);
   let kind = detectFormat(fileName, head);
 
   // ZIP 但扩展名不明：用内部结构判断到底是 docx 还是 pptx。
@@ -99,6 +108,8 @@ export async function parseAny(
       return parseMarkdown(data, { title });
     case 'text':
       return parseText(data, { title });
+    case 'image':
+      return parseImage(data, { title });
   }
 }
 
@@ -146,9 +157,16 @@ export function kindFromFileName(fileName: string): SupportedKind {
     case 'md':
     case 'markdown':
       return 'markdown';
+    case 'png':
+    case 'jpg':
+    case 'jpeg':
+    case 'webp':
+    case 'gif':
+    case 'bmp':
+      return 'image';
     default:
       return 'text';
   }
 }
 
-export { parsePdf, parseDocx, parsePptx, parseMarkdown, parseText };
+export { parsePdf, parseDocx, parsePptx, parseMarkdown, parseText, parseImage, detectImageKind };

@@ -67,6 +67,50 @@ export function SourceReader({
 
   const [current, setCurrent] = useState(0);
 
+  /**
+   * 图片资料的预览地址。
+   *
+   * 图片的正文是空的（字在像素里，还没识别），所以正文区必须显示原图，
+   * 否则用户打开一张图看到的是白板 —— 那会以为导入失败。
+   *
+   * 只在 kind === 'image' 时才去读原始字节：其它格式没有也不会去读，
+   * 避免无谓地把几十 MB 的 PDF 拉进内存。
+   */
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (source.kind !== 'image') {
+      setImageUrl(null);
+      setImageError(null);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const bytes = await service.getOriginalFile(source.id);
+        if (cancelled) return;
+        if (!bytes || bytes.byteLength === 0) {
+          setImageError(
+            '这张图片的原始数据不在本机。换过机器或从备份恢复过的资料需要重新导入一次。',
+          );
+          return;
+        }
+        const { toImageDataUrl } = await import('@/core/parsers/image.ts');
+        if (cancelled) return;
+        setImageUrl(toImageDataUrl(bytes));
+      } catch (err) {
+        if (cancelled) return;
+        setImageError(err instanceof Error ? err.message : '读不出这张图片');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [source.id, source.kind, service]);
+
   // ---- 搜索 ----
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<SearchHit[] | null>(null);
@@ -393,6 +437,30 @@ export function SourceReader({
 
           {/* ---------- 正文 ---------- */}
           <article className="reader__body" tabIndex={0} aria-label="正文">
+            {/*
+              图片资料：正文是空的（字在像素里），所以显示原图本身。
+              识别成功后正文会被写回，那时图片和文字一起显示 ——
+              用户能对照着看识别得对不对。
+            */}
+            {source.kind === 'image' ? (
+              imageError ? (
+                <Notice tone="warning" title="看不到这张图片">
+                  {imageError}
+                </Notice>
+              ) : imageUrl ? (
+                <figure className="reader__figure">
+                  <img src={imageUrl} alt={source.title} className="reader__image" />
+                  <figcaption className="page__muted">
+                    {source.textStatus === 'ready'
+                      ? '这张图已经识别出文字，下方正文可与原图对照。'
+                      : '这是一张图片资料。识别成文字后才能搜索、出题和做 PPT。'}
+                  </figcaption>
+                </figure>
+              ) : (
+                <div className="page__muted">正在打开图片…</div>
+              )
+            ) : null}
+
             <HighlightedText
               text={segment.text}
               ranges={highlightRanges}
@@ -405,6 +473,17 @@ export function SourceReader({
                 activeMarkRef.current = el;
               }}
             />
+
+            {/*
+              图片且还没识别：正文区没有字可读，明说下一步该点哪里，
+              而不是留一片空白让用户以为坏了。
+            */}
+            {source.kind === 'image' && source.textStatus !== 'ready' ? (
+              <p className="page__muted">
+                这张图还没有文字。用上方的「识别」把图里的字读出来，
+                之后就能搜索、出题、做 PPT。
+              </p>
+            ) : null}
           </article>
 
           <div className="reader__foot">

@@ -81,8 +81,14 @@ export interface Source {
   title: string;
   /** 原始文件名，粘贴文本为 null */
   fileName: string | null;
-  /** 来源类型 */
-  kind: 'pdf' | 'docx' | 'pptx' | 'markdown' | 'text';
+  /**
+   * 来源类型。
+   *
+   * `image` 是后加的：图片本身没有文本层，导入后是「一段、正文待识别」，
+   * 靠 OCR 转成文字参与后续流程。它和扫描件走同一条路
+   * （textStatus = 'no-text-layer'），所以下游不需要为它开特例。
+   */
+  kind: 'pdf' | 'docx' | 'pptx' | 'markdown' | 'text' | 'image';
   /** 归属课程，未归类为 null */
   courseId: string | null;
   /** 总页数（未知为 null） */

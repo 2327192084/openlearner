@@ -14,6 +14,7 @@ const KIND_LABEL: Record<Source['kind'], string> = {
   pptx: 'PPT',
   markdown: 'Markdown',
   text: '文本',
+  image: '图片',
 };
 
 export function kindLabel(kind: Source['kind']): string {
@@ -51,7 +52,7 @@ export const TEXT_STATUS_LABEL: Record<
   'no-text-layer': {
     text: '扫描件·无文字层',
     tone: 'planned',
-    hint: '这份是扫描件，只能翻看，搜不出文字。可以用看图模型识别它——它没有被当成导入失败。',
+    hint: '这份是扫描件，暂时搜不出文字。打开它就能把每页识别成文字——本地识别免费离线；看图模型能读公式和表格，但按页计费。',
   },
   /**
    * 解码失败与扫描件必须说**不同的话**。

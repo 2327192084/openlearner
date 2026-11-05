@@ -124,10 +124,16 @@ export class SourceService {
      * `copy.set(data)` 会抛 TypeError 被降级成 fileStored=false，
      * 表现是「任何 PDF 导入后图文页入口都置灰」。
      *
-     * 只有 PDF 需要留字节（图文页要拿它重新渲染某一页）。
+     * 只有 PDF 和图片需要留字节：
+     *  - PDF：图文页与 OCR 要拿它重新渲染某一页；
+     *  - 图片：本身就是要显示的那张图，不留字节就只剩一条空记录。
+     *
+     * docx/pptx/md/txt 不留：它们的文字已经切进分段了，
+     * 留着整份原文件只是白占配额。
      */
+    const kind = kindFromFileName(fileName);
     const original =
-      kindFromFileName(fileName) === 'pdf' && data.byteLength <= MAX_STORED_FILE_BYTES
+      (kind === 'pdf' || kind === 'image') && data.byteLength <= MAX_STORED_FILE_BYTES
         ? new Uint8Array(data)
         : null;
 

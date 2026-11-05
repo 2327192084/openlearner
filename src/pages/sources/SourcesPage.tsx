@@ -592,7 +592,7 @@ function CourseSection({
                         <span title={status.hint}>
                           {source.textStatus === 'decode-failed'
                             ? '有字但读不出，见详情'
-                            : '只能翻看，搜不出字'}
+                            : '扫描件 · 打开后可识别成文字'}
                         </span>
                       </>
                     ) : null}

@@ -16,6 +16,9 @@ export type { OcrPrecheck, OcrRunOptions, OcrServiceOptions, RenderPageFn } from
 
 export { ModelVisionBackend, normalizeOcrText, pickVisionBackends } from './vision-backend.ts';
 
+export { LocalTesseractBackend, stripCjkSpaces } from './local-backend.ts';
+export type { LocalOcrOptions } from './local-backend.ts';
+
 export { OcrError } from './types.ts';
 export type {
   OcrPageFailure,
