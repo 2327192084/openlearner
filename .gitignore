@@ -20,3 +20,4 @@ coverage/
 
 # 图文页渲染验证产物
 .verify-figure/
+.m.txt
