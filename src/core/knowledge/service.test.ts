@@ -5,7 +5,11 @@ import { KnowledgeService } from './service.ts';
 import { MockBackend } from './mock-backend.ts';
 import { SourceService } from '../sources.ts';
 import { MemoryStorage } from '../storage/memory-storage.ts';
-import type { KnowledgeDraft } from './backend-types.ts';
+import type {
+  KnowledgeDraft,
+  OrganizeInputSegment,
+  OrganizeRequest,
+} from './backend-types.ts';
 import type { Source } from '../model.ts';
 
 /**
@@ -316,6 +320,147 @@ describe('编辑与持久化', () => {
     // 条数与第二次生成一致，说明旧的被清掉了
     expect(stored).toHaveLength(second.points.length);
     expect(stored.map((s) => s.id)).not.toContain(first.points[0].id);
+  });
+});
+
+/**
+ * P5 第 4 条：同一份资料用不同后端整理的结果要能并存对比。
+ *
+ * 这里测的是「不因为换后端就丢结果」这个行为。它很容易在重构时被破坏 ——
+ * generate() 里那句清理只要写回 clearBySource，前两条就同时变红。
+ */
+describe('多后端结果并存（P5 第 4 条）', () => {
+  /**
+   * 与 fastBackend 同源但 id 不同，用来模拟「用户换了另一家模型」。
+   *
+   * 不能继承 MockBackend 改 id：它的 `readonly id = 'mock'` 被推断成字面量类型，
+   * 子类改成别的字符串通不过 tsc。直接包一层，转发 organize 即可。
+   */
+  function otherBackend() {
+    const inner = new MockBackend(0);
+    return {
+      id: 'mock-other',
+      label: '另一家模型',
+      isMock: true,
+      estimateTokens: (segments: OrganizeInputSegment[]) => inner.estimateTokens(segments),
+      organize: (request: OrganizeRequest) => inner.organize(request),
+    };
+  }
+
+  it('换一个后端整理，前一个后端的结果还在', async () => {
+    const a = await knowledge.generate({
+      sourceId: source.id,
+      backend: fastBackend(),
+      signal: new AbortController().signal,
+    });
+    const b = await knowledge.generate({
+      sourceId: source.id,
+      backend: otherBackend(),
+      signal: new AbortController().signal,
+    });
+
+    expect(a.points.length).toBeGreaterThan(0);
+    expect(b.points.length).toBeGreaterThan(0);
+
+    const stored = await knowledge.listBySource(source.id);
+    // 两份都在，条目总数 = 两份之和
+    expect(stored).toHaveLength(a.points.length + b.points.length);
+    const ids = stored.map((s) => s.id);
+    for (const p of a.points) expect(ids).toContain(p.id);
+    for (const p of b.points) expect(ids).toContain(p.id);
+  });
+
+  it('同一后端再跑一次，只替换它自己那一份', async () => {
+    const a = await knowledge.generate({
+      sourceId: source.id,
+      backend: fastBackend(),
+      signal: new AbortController().signal,
+    });
+    const b = await knowledge.generate({
+      sourceId: source.id,
+      backend: otherBackend(),
+      signal: new AbortController().signal,
+    });
+    const a2 = await knowledge.generate({
+      sourceId: source.id,
+      backend: fastBackend(),
+      signal: new AbortController().signal,
+    });
+
+    const stored = await knowledge.listBySource(source.id);
+    expect(stored).toHaveLength(a2.points.length + b.points.length);
+    const ids = stored.map((s) => s.id);
+    // 第一次 A 的条目没了
+    for (const p of a.points) expect(ids).not.toContain(p.id);
+    // B 的一条没动
+    for (const p of b.points) expect(ids).toContain(p.id);
+  });
+
+  it('按后端分组列出时，各组的条数与实际条目对得上', async () => {
+    const a = await knowledge.generate({
+      sourceId: source.id,
+      backend: fastBackend(),
+      signal: new AbortController().signal,
+    });
+    const b = await knowledge.generate({
+      sourceId: source.id,
+      backend: otherBackend(),
+      signal: new AbortController().signal,
+    });
+
+    const groups = await knowledge.listBackends(source.id);
+    expect(groups).toHaveLength(2);
+
+    const ga = groups.find((g) => g.backendId === 'mock');
+    const gb = groups.find((g) => g.backendId === 'mock-other');
+    expect(ga?.count).toBe(a.points.length);
+    expect(gb?.count).toBe(b.points.length);
+    // 分组里的定位统计之和等于该组条数（漏算会让界面显示「3 条里 1 条已定位」而其实都对）
+    for (const g of groups) {
+      expect(g.located + g.unlocated + g.waived).toBe(g.count);
+    }
+  });
+
+  it('按后端筛选只返回该后端的条目', async () => {
+    const a = await knowledge.generate({
+      sourceId: source.id,
+      backend: fastBackend(),
+      signal: new AbortController().signal,
+    });
+    const b = await knowledge.generate({
+      sourceId: source.id,
+      backend: otherBackend(),
+      signal: new AbortController().signal,
+    });
+
+    const onlyA = await knowledge.listBySourceAndBackend(source.id, 'mock');
+    const onlyB = await knowledge.listBySourceAndBackend(source.id, 'mock-other');
+    const all = await knowledge.listBySourceAndBackend(source.id, null);
+
+    expect(onlyA).toHaveLength(a.points.length);
+    expect(onlyB).toHaveLength(b.points.length);
+    expect(all).toHaveLength(a.points.length + b.points.length);
+    // 筛选真的生效了，不是把全部返回后靠界面过滤
+    expect(onlyA.every((p) => p.backendId === 'mock')).toBe(true);
+  });
+
+  it('clearBySourceAndBackend 只清指定后端', async () => {
+    await knowledge.generate({
+      sourceId: source.id,
+      backend: fastBackend(),
+      signal: new AbortController().signal,
+    });
+    const b = await knowledge.generate({
+      sourceId: source.id,
+      backend: otherBackend(),
+      signal: new AbortController().signal,
+    });
+
+    await knowledge.clearBySourceAndBackend(source.id, 'mock');
+
+    const stored = await knowledge.listBySource(source.id);
+    expect(stored).toHaveLength(b.points.length);
+    expect(stored.every((p) => p.backendId === 'mock-other')).toBe(true);
   });
 });
 

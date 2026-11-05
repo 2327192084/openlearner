@@ -511,6 +511,75 @@ async function main() {
     );
     await cdp.screenshot(path.join(OUT_DIR, 'p5-04-provider-switched.png'));
 
+    // ---------- 4c. 先用示例后端整理一份，作为「换后端不丢结果」的对照 ----------
+    /**
+     * P5 第 4 条要求不同后端的结果并存对比。要验这件事，
+     * 必须先让库里**真的有两份**（不同 backendId），否则后面再怎么查
+     * 也只能看到一份，「并存」无从谈起。
+     *
+     * 所以这里先用离线示例后端跑一遍（不花钱、不走网络），
+     * 第 6 段再用真后端跑，最后检查两份都在。
+     */
+    await cdp.eval(`location.hash = '#/knowledge'`);
+    await sleep(2000);
+
+    const mockGenerate = await cdp.eval(`(async () => {
+      // 先选资料
+      const sourceSel = [...document.querySelectorAll('select')]
+        .find(s => [...s.options].some(o => o.textContent.includes('数据结构复习')));
+      if (!sourceSel) return { ok: false, why: '找不到资料选择器' };
+      const srcOpt = [...sourceSel.options].find(o => o.textContent.includes('数据结构复习'));
+      sourceSel.value = srcOpt.value;
+      sourceSel.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise(r => setTimeout(r, 1500));
+
+      // 选示例后端
+      const sel = document.getElementById('kp-backend');
+      if (!sel) return { ok: false, why: '找不到后端选择器' };
+      const mockOpt = [...sel.options].find(o => o.value === 'mock');
+      if (!mockOpt) return { ok: false, why: '找不到示例后端选项' };
+      sel.value = 'mock';
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise(r => setTimeout(r, 800));
+
+      const btn = [...document.querySelectorAll('button')]
+        .find(b => /开始整理|生成知识点|开始生成|重新整理|重新生成/.test(b.textContent ?? ''));
+      if (!btn) return { ok: false, why: '找不到整理按钮' };
+      btn.click();
+      // 示例后端每条之间还有延迟，等久一点
+      await new Promise(r => setTimeout(r, 9000));
+
+      return { ok: true, text: (document.querySelector('.shell__content')?.innerText ?? '').slice(0, 300) };
+    })()`);
+
+    const afterMock = await cdp.eval(`(async () => {
+      const openDb = () => new Promise((res, rej) => {
+        const r = indexedDB.open('openleaner');
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
+      const db = await openDb();
+      const readAll = (name) => new Promise((res, rej) => {
+        const tx = db.transaction(name, 'readonly');
+        const req = tx.objectStore(name).getAll();
+        req.onsuccess = () => res(req.result);
+        req.onerror = () => rej(req.error);
+      });
+      const points = await readAll('knowledgePoints');
+      db.close();
+      return {
+        total: points.length,
+        mock: points.filter(p => p.backendId === 'mock').length,
+        ids: points.map(p => p.id),
+      };
+    })()`);
+
+    record(
+      '准备：示例后端整理出一份结果（后面用来验「换后端不丢」）',
+      mockGenerate.ok && afterMock.mock > 0,
+      mockGenerate.ok ? `示例后端 ${afterMock.mock} 条 / 库中合计 ${afterMock.total} 条` : mockGenerate.why,
+    );
+
     // ---------- 5. 后端可切换，且切到真模型后界面提示会花钱 ----------
     await cdp.eval(`location.hash = '#/knowledge'`);
     await sleep(2200);
@@ -571,7 +640,7 @@ async function main() {
 
     const generateState = await cdp.eval(`(async () => {
       const btn = [...document.querySelectorAll('button')]
-        .find(b => /开始整理|生成知识点|开始生成/.test(b.textContent ?? ''));
+        .find(b => /开始整理|生成知识点|开始生成|重新整理|重新生成/.test(b.textContent ?? ''));
       if (!btn) return { ok: false, why: '找不到整理按钮' };
       btn.click();
       await new Promise(r => setTimeout(r, 8000));
@@ -626,6 +695,51 @@ async function main() {
       dbCheck.fromRealBackend > 0,
       `共 ${dbCheck.total} 条，其中来自真后端 ${dbCheck.fromRealBackend} 条；backendId=${JSON.stringify(dbCheck.sample.map((s) => s.backendId))}`,
     );
+
+    /**
+     * P5 第 4 条的核心：换后端不能把前一个后端的结果抹掉。
+     *
+     * 这是最容易在重构时被打回去的一条 —— generate() 里那句清理
+     * 只要写回 clearBySource，示例后端那一份就凭空消失了，
+     * 而用户看到的是「我明明整理过」，无从对比。
+     */
+    const coexistence = await cdp.eval(`(async () => {
+      const openDb = () => new Promise((res, rej) => {
+        const r = indexedDB.open('openleaner');
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
+      const db = await openDb();
+      const readAll = (name) => new Promise((res, rej) => {
+        const tx = db.transaction(name, 'readonly');
+        const req = tx.objectStore(name).getAll();
+        req.onsuccess = () => res(req.result);
+        req.onerror = () => rej(req.error);
+      });
+      const points = await readAll('knowledgePoints');
+      db.close();
+
+      const byBackend = {};
+      for (const p of points) {
+        const k = p.backendId ?? '__manual__';
+        byBackend[k] = (byBackend[k] ?? 0) + 1;
+      }
+      const mockIds = points.filter(p => p.backendId === 'mock').map(p => p.id);
+      return { total: points.length, byBackend, mockCount: mockIds.length };
+    })()`);
+
+    record(
+      '**换后端后，前一个后端的结果还在（P5 第 4 条：并存对比）**',
+      coexistence.mockCount > 0 && Object.keys(coexistence.byBackend).length >= 2,
+      `库中 ${coexistence.total} 条，按后端分组：${JSON.stringify(coexistence.byBackend)}`,
+    );
+    record(
+      '两个后端的结果各自独立计数，没有互相覆盖',
+      Object.values(coexistence.byBackend).every((n) => n > 0),
+      JSON.stringify(coexistence.byBackend),
+    );
+    await cdp.screenshot(path.join(OUT_DIR, 'p5-05b-coexist.png'));
+
     record(
       '真后端的返回也走了定位器（有页码说明定位成功）',
       dbCheck.sample.every((s) => s.page !== null),

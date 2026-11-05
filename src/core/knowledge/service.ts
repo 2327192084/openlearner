@@ -11,6 +11,32 @@ import type {
 import { locateQuotes } from './locator.ts';
 
 /**
+ * 手工录入/没有后端来源的条目在分组里用的标识。
+ *
+ * 用一个不可能与真实 backendId 撞的值：真实 id 由 newId('backend') 生成，
+ * 形如 `backend_xxxx`，不会是下面这个字面量。
+ */
+export const MANUAL_BACKEND_ID = '__manual__';
+
+/**
+ * 某份资料里「一个后端产出的一批知识点」的概要。
+ *
+ * P5 第 4 条要求不同后端的结果并存对比，界面需要一个按后端分组的口径：
+ * 光有 `listBySource` 的一长串条目，用户分不清是「软件重复生成了」
+ * 还是「两个后端各产了一份」。
+ */
+export interface KnowledgeBackendSummary {
+  backendId: string;
+  count: number;
+  located: number;
+  unlocated: number;
+  waived: number;
+  /** 这批里最新一条的创建时间，用来在界面上标「最近一次」 */
+  lastAt: string;
+}
+
+
+/**
  * 知识点服务：把资料整理成知识点，并保证每条都能指回原文。
  *
  * 职责边界很重要 —— 它**不做**的事：
@@ -91,6 +117,59 @@ export class KnowledgeService {
         const cb = b.anchors[0]?.charStart ?? 0;
         return ca - cb;
       });
+  }
+
+  /**
+   * 按后端拆开列出结果。
+   *
+   * 计划书 P5 第 4 条要求「同一份资料用不同后端整理的结果能并存对比」，
+   * 所以 `listBySource` 返回的是**全部后端合起来**的条目 ——
+   * 界面必须能知道哪些条目来自哪个后端，否则两份「线性表是…」混在一列里，
+   * 用户只会以为软件重复生成了。
+   *
+   * 返回顺序按条数从多到少：多数情况下用户想先看产得多的那份。
+   *
+   * `backendId` 可能是 null（手工录入的条目没有后端），
+   * 这类单独归到 MANUAL_BACKEND_ID 一组 —— 混进任何一个后端组里
+   * 都会让「这组是模型产出的」这个判断失真。
+   */
+  async listBackends(sourceId: string): Promise<KnowledgeBackendSummary[]> {
+    const points = await this.listBySource(sourceId);
+    const map = new Map<string, KnowledgeBackendSummary>();
+
+    for (const p of points) {
+      const key = p.backendId ?? MANUAL_BACKEND_ID;
+      const item =
+        map.get(key) ??
+        ({
+          backendId: key,
+          count: 0,
+          located: 0,
+          unlocated: 0,
+          waived: 0,
+          lastAt: p.createdAt,
+        } satisfies KnowledgeBackendSummary);
+      item.count += 1;
+      if (p.anchorStatus === 'located') item.located += 1;
+      else if (p.anchorStatus === 'unlocated') item.unlocated += 1;
+      else item.waived += 1;
+      if (p.createdAt > item.lastAt) item.lastAt = p.createdAt;
+      map.set(key, item);
+    }
+
+    return [...map.values()].sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return a.backendId.localeCompare(b.backendId);
+    });
+  }
+
+  /** 取某份资料里某个后端产出的知识点（不传后端 = 全部） */
+  async listBySourceAndBackend(
+    sourceId: string,
+    backendId: string | null = null,
+  ): Promise<KnowledgePoint[]> {
+    const all = await this.listBySource(sourceId);
+    return backendId === null ? all : all.filter((k) => k.backendId === backendId);
   }
 
   async get(id: string): Promise<KnowledgePoint | null> {
@@ -179,9 +258,15 @@ export class KnowledgeService {
       throw new Error('选定的范围内没有内容');
     }
 
-    // 前一次生成的结果先清掉，避免重复条目堆在一起。
-    // 这是「重新整理」的语义：用户点这个按钮就是想要一份新的。
-    await this.clearBySource(options.sourceId);
+    /**
+     * 只清掉「同一个后端」上一次的结果，别动其他后端的。
+     *
+     * 这是「重新整理」的语义：用户点这个按钮，是想要这个后端给一份新的。
+     * 但**换后端不该抹掉前一份** —— P5 第 4 条要求同一份资料用不同后端
+     * 整理的结果能并存对比，早先这里调 clearBySource 清全部，
+     * A 整理完换个后端整理一次，A 的结果就凭空消失了。
+     */
+    await this.clearBySourceAndBackend(options.sourceId, options.backend.id);
 
     const ts = nowIso();
     const runId = newId('run');
@@ -299,10 +384,27 @@ export class KnowledgeService {
     this.activeRuns.get(runId)?.abort();
   }
 
-  /** 清掉某份资料的全部知识点（重新整理 / 删除资料时用） */
+  /** 清掉某份资料的全部知识点（删除资料时用） */
   async clearBySource(sourceId: string): Promise<void> {
     const all = await this.storage.getAll('knowledgePoints');
     for (const k of all.filter((x) => x.sourceId === sourceId)) {
+      await this.storage.remove('knowledgePoints', k.id);
+    }
+  }
+
+  /**
+   * 清掉某份资料里**某个后端**产出的知识点。
+   *
+   * 「重新整理」的正确粒度就在这里。早先 generate() 调的是 clearBySource，
+   * 于是用 A 后端整理完再换 B 后端整理一次，A 的结果就被抹掉了 ——
+   * P5 第 4 条要求两份并存对比，一换就没了根本无从对比。
+   *
+   * 只清自己那一份也符合直觉：同一个后端重跑是想要新的，
+   * 换后端是想要另一份对照，不该动别人的。
+   */
+  async clearBySourceAndBackend(sourceId: string, backendId: string): Promise<void> {
+    const all = await this.storage.getAll('knowledgePoints');
+    for (const k of all.filter((x) => x.sourceId === sourceId && x.backendId === backendId)) {
       await this.storage.remove('knowledgePoints', k.id);
     }
   }
