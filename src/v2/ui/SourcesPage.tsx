@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Source } from '@/core/model.ts';
 import type { SourceService, ImportOutcome } from '@/core/sources.ts';
 import { IconSources, IconUpload } from './icons.tsx';
+import { ConfirmDialog } from './dialog.tsx';
 
 /**
  * 资料页。
@@ -41,6 +42,8 @@ export function SourcesPage({ service, onOpenSource, onImported }: SourcesPagePr
   const [dragging, setDragging] = useState(false);
   const [pasteText, setPasteText] = useState('');
   const [pasteTitle, setPasteTitle] = useState('');
+  /** 待删除的资料。二级确认框由它驱动，删完清空。 */
+  const [deleting, setDeleting] = useState<Source | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -56,6 +59,25 @@ export function SourcesPage({ service, onOpenSource, onImported }: SourcesPagePr
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * 删除一份资料。
+   *
+   * 用 SourceService.remove() —— 它会级联删掉段、原始字节、手写注释，
+   * 但**不会**删由这份资料整理出来的知识点、题组、题目与复习记录
+   * （这些是「改数据模型/删除语义」的岔路，本轮不动）。
+   * 所以确认框里必须把「哪些会一起删、哪些会留下孤儿」讲清楚，
+   * 不能只写一句「确定删除吗」。
+   */
+  const confirmDelete = useCallback(async () => {
+    if (!deleting) return;
+    await service.remove(deleting.id);
+    setDeleting(null);
+    setResults(null);
+    setError(null);
+    await load();
+    onImported?.();
+  }, [deleting, service, load, onImported]);
 
   /** 导入文件（拖放与选择共用） */
   const importFiles = useCallback(
@@ -314,16 +336,41 @@ export function SourcesPage({ service, onOpenSource, onImported }: SourcesPagePr
       {sources !== null && sources.length > 0 ? (
         <ul className="source-list">
           {sources.map((s) => (
-            <li key={s.id}>
+            <li key={s.id} className="source-item">
               <button type="button" className="source-row" onClick={() => onOpenSource(s)}>
                 <span className="source-row__title">{s.title}</span>
                 <span className="source-row__meta">
                   {s.kind.toUpperCase()} · {s.pageCount ?? '?'} 页 · {s.segmentCount} 段
                 </span>
               </button>
+              <button
+                type="button"
+                className="source-item__delete"
+                aria-label={`删除「${s.title}」`}
+                title="删除这份资料"
+                disabled={busy}
+                onClick={() => setDeleting(s)}
+              >
+                删除
+              </button>
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {deleting ? (
+        <ConfirmDialog
+          title={`删除「${deleting.title}」？`}
+          description="这份资料的正文、原始文件与手写批注会一起删掉，不能撤销。"
+          confirmLabel="删除"
+          onConfirm={confirmDelete}
+          onClose={() => setDeleting(null)}
+        >
+          <p className="set-hint" style={{ marginTop: 0 }}>
+            注意：由它整理出的知识点、题组、题目和复习记录不会删（它们还在库里，
+            但已经点不回原文）。要清掉这些，得先删对应的题组或重新整理。
+          </p>
+        </ConfirmDialog>
       ) : null}
     </div>
   );

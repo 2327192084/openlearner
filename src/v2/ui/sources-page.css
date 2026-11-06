@@ -335,7 +335,9 @@
     font-size: var(--fs-sm);
   }
 
-  /* ---------- 资料列表 ---------- */
+  /* ---------- 资料列表 ----------
+   * 一行 = 「资料」主按钮（点开整理页）+ 「删除」次按钮。
+   * 两者是兄弟而不是嵌套：button 里不能塞 button。 */
   .source-list {
     list-style: none;
     margin: var(--space-5) 0 0;
@@ -346,24 +348,46 @@
     border-top: 1px solid var(--line-soft);
   }
 
+  .source-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .source-item:hover {
+    background: var(--bg-hover);
+  }
+
   .source-row {
+    flex: 1;
+    min-width: 0; /* 让标题的 ellipsis 真的生效 */
     display: flex;
     flex-direction: column;
     gap: 2px;
-    width: 100%;
     padding: var(--space-3) var(--space-2);
     border: none;
-    border-bottom: 1px solid var(--line-soft);
     background: transparent;
     color: inherit;
     font: inherit;
     text-align: left;
     cursor: pointer;
-    transition: background 0.12s;
   }
 
-  .source-row:hover {
-    background: var(--bg-hover);
+  /* 删除按钮的结构（配色见本文件末尾的层外规则） */
+  .source-item__delete {
+    flex: none;
+    margin-right: var(--space-2);
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .source-item__delete:hover {
+    border-color: var(--line);
+    background: var(--bg-raised);
   }
 
   .source-row__title {
@@ -379,4 +403,25 @@
     color: var(--text-faint);
     font-variant-numeric: tabular-nums;
   }
+}
+
+/*
+ * 删除按钮的字号与颜色必须放在 @layer 外面。
+ *
+ * src/styles/base.css 有一条**无层级**的 `button { color: inherit; font: inherit }`。
+ * CSS 级联是「层级先于特异性」：无层级规则永远压过任何 @layer 内的规则，
+ * 所以在 study.features 里写 `.source-item__delete { color: ... }` 会静默失效
+ * —— 这正是设置页「现在重新加载」按钮当年查了半天的原因。
+ */
+.source-item__delete {
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+}
+
+.source-item__delete:hover {
+  color: var(--text);
+}
+
+.source-item__delete:disabled {
+  opacity: 0.45;
 }
