@@ -9,6 +9,7 @@ import type {
   SlideDeck,
   SlideImageRecord,
   Source,
+  SourceAnnotation,
   SourceSegment,
   GenerationRun,
   AnswerRecord,
@@ -41,6 +42,17 @@ export const STORES = [
    * 恢复备份后这些资料的 fileStored 就是 false，界面如实关闭图文页。
    */
   'sourceFiles',
+  /**
+   * 用户在资料页面上做的注释（画笔笔迹与文本框）。
+   *
+   * 单独一张表而不是塞进 Source 或 SourceSegment：
+   *  - 按「资料 + 页」存，只加载当前页的注释（628 页教材全量加载会拖慢打开）
+   *  - 删资料时要级联清理，独立分区才好一次删干净
+   *
+   * **进备份**：这些是用户自己画的，丢了找不回来 ——
+   * 与 sourceFiles 性质不同（那个可以从原文件重新渲染）。
+   */
+  'sourceAnnotations',
   'knowledgePoints',
   'generationRuns',
   'decks',
@@ -82,6 +94,8 @@ export const BACKUP_STORES = [
   'courses',
   'sources',
   'sourceSegments',
+  /** 用户手写注释。进备份：这是用户自己画的内容，丢了找不回来 */
+  'sourceAnnotations',
   'knowledgePoints',
   'generationRuns',
   'decks',
@@ -105,6 +119,7 @@ export interface StoreRecordMap {
   courses: Course;
   sources: Source;
   sourceSegments: SourceSegment;
+  sourceAnnotations: SourceAnnotation;
   knowledgePoints: KnowledgePoint;
   generationRuns: GenerationRun;
   decks: Deck;

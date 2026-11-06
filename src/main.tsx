@@ -7,6 +7,7 @@ import { KnowledgeService } from '@/core/knowledge/service.ts';
 import { DeckService } from '@/core/questions/service.ts';
 import { SlideService } from '@/core/slides/service.ts';
 import { UsageService } from '@/core/usage.ts';
+import { AnnotationService } from '@/core/annotation-service.ts';
 import { IndexedDbStorage } from '@/core/storage/indexeddb-storage.ts';
 import { ServicesContext, type AppServices } from '@/app/services-context.ts';
 import { AppRouter } from '@/app/router.tsx';
@@ -35,6 +36,7 @@ function Bootstrap() {
     const backends = new BackendService(storage);
     const sources = new SourceService(storage);
     const courses = new CourseService(storage);
+    const annotations = new AnnotationService(storage);
     const usage = new UsageService(storage);
     const knowledge = new KnowledgeService(storage, sources, usage);
     const decks = new DeckService(storage, usage);
@@ -49,6 +51,7 @@ function Bootstrap() {
           backends,
           sources,
           courses,
+          annotations,
           usage,
           knowledge,
           decks,

@@ -727,6 +727,13 @@ export interface LibraryBackup {
   sources: Source[];
   /** 切分后的正文。跟资料一起备份，否则恢复后「点回原文」全失效 */
   sourceSegments: SourceSegment[];
+  /**
+   * 用户手写的页面注释。
+   *
+   * 进备份的理由：这是用户自己画的内容，不像 sourceFiles 那样
+   * 能从原文件重新渲染。丢了就真的找不回来。
+   */
+  sourceAnnotations?: SourceAnnotation[];
   knowledgePoints: KnowledgePoint[];
   /** 生成任务记录。跟知识点一起备份，否则恢复后看不到「这批是哪次跑的、花了多少」 */
   generationRuns: GenerationRun[];
@@ -751,3 +758,57 @@ export interface LibraryBackup {
    */
   usageRecords: UsageRecord[];
 }
+
+// ---------------------------------------------------------------------------
+// 资料页面注释（画笔 + 文本框）
+// ---------------------------------------------------------------------------
+
+/** 一笔画笔笔迹。一次按下-拖动-抬起算一笔 */
+export interface InkStroke {
+  /** 笔迹内的点，坐标是页面比例（0~1） */
+  points: { x: number; y: number }[];
+  /** 线的颜色，形如 `#e11d48` */
+  color: string;
+  /** 线的粗细，以页面宽度的比例表示（0~1）。这样缩放时不跟着变粗 */
+  width: number;
+  /**
+   * 是否用荧光笔样式（半透明、粗）。
+   *
+   * 与普通笔分开而不是靠 opacity 参数，因为两者的用途完全不同：
+   * 荧光笔是划重点（在下层、半透明），画笔是写字（在上层、实色）。
+   */
+  highlighter?: boolean;
+}
+
+/** 页面上的一类注释 */
+export interface SourceAnnotation {
+  id: string;
+  sourceId: string;
+  /** 页码，从 1 开始。与 SourceSegment.page 对齐 */
+  page: number;
+  /** 画笔笔迹集合 */
+  strokes: InkStroke[];
+  /** 文本框 */
+  texts: TextNote[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 页面上的一个文本框 */
+export interface TextNote {
+  id: string;
+  /** 文本内容 */
+  text: string;
+  /** 位置：左上角 + 尺寸，全部是页面比例（0~1） */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** 字号，以页面高度的比例表示，缩放时不跟着变 */
+  fontSize: number;
+  /** 文字颜色 */
+  color: string;
+  /** 背景色，null 表示透明（只看字，不挡原文） */
+  background: string | null;
+}
+

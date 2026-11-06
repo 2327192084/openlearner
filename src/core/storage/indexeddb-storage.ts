@@ -14,7 +14,8 @@ const DB_NAME = 'openleaner';
  * onupgradeneeded 只在版本升高时触发，不提版本的新分区永远不会被建出来，
  * 而写入时抛的 NotFoundError 只在「往新分区写第一条记录」时才出现。
  */
-const DB_VERSION = 2;
+/** v3：新增 sourceAnnotations（用户在资料上的手写注释） */
+const DB_VERSION = 3;
 
 /**
  * IndexedDB 存储适配器（浏览器与 Electron 渲染进程用）。

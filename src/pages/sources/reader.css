@@ -447,3 +447,146 @@
   border-radius: var(--radius-md);
   background: var(--c-surface);
 }
+
+/* ---------- 页码跳转 ---------- */
+.reader__jump {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+/* 窄输入框：页码只有三四位，不需要占满 */
+.input--tiny {
+  width: 64px;
+  padding: var(--sp-1) var(--sp-2);
+  text-align: center;
+  /* 去掉 number 输入的上下箭头，它会挤掉数字 */
+  -moz-appearance: textfield;
+}
+.input--tiny::-webkit-outer-spin-button,
+.input--tiny::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* ---------- 页面 + 注释层 ---------- */
+/*
+ * 定位基准：注释层绝对定位在图上，坐标按比例换算。
+ * position: relative 必须在这里，否则注释会相对整页定位而错位。
+ */
+.reader__page-box {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.annot__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* 只在选中画笔时接收事件，其余时候点击穿透到下层 */
+  touch-action: none;
+}
+
+.annot {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.annot > * {
+  pointer-events: auto;
+}
+
+/*
+ * 工具栏放在图**下方**而不是上方。
+ * 上方是阅读器顶栏与提示区，放那里会被挤出可视区域或被裁掉；
+ * 下方紧贴页面图，滚到哪都跟着。
+ */
+.annot__bar {
+  position: absolute;
+  top: 100%;
+  margin-top: var(--sp-2);
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  z-index: 3;
+}
+
+.annot__group {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.annot__swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.annot__swatch--on {
+  border-color: var(--c-text);
+  box-shadow: 0 0 0 2px var(--c-surface);
+}
+
+/* 文本框：贴在比例位置上，可编辑 */
+.annot__note {
+  position: absolute;
+  border: 1px dashed var(--c-border-strong, var(--c-border));
+  border-radius: var(--radius-sm);
+  padding: 4px;
+  box-sizing: border-box;
+  display: flex;
+  z-index: 2;
+}
+
+.annot__note-input {
+  flex: 1;
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  line-height: 1.4;
+}
+
+.annot__note-del {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  cursor: pointer;
+  line-height: 1;
+  font-size: 14px;
+  padding: 0;
+}
+
+/* 目录里的「有笔记」标记 */
+.reader__toc-note {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--c-warning, #eab308);
+  margin-left: auto;
+  flex: none;
+}

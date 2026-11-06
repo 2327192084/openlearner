@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge, ErrorState, LoadingState, Notice } from '@/components/states.tsx';
+import { AnnotationLayer } from './AnnotationLayer.tsx';
+import { useServices } from '@/app/services-context.ts';
+
+/** 缩放的步进与上下限。上限 3 倍够看清小字，再大会因位图放大而糊 */
+const ZOOM_STEP = 0.25;
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 3;
+const clampZoom = (z: number): number => Math.min(Math.max(z, MIN_ZOOM), MAX_ZOOM);
 import type { Source, SourceSegment } from '@/core/model.ts';
 import type { SearchHit } from '@/core/sources.ts';
 import type { SourceService } from '@/core/sources.ts';
@@ -62,6 +70,13 @@ export function SourceReader({
   >({ kind: 'loading' });
 
   const [current, setCurrent] = useState(0);
+
+  /** 页码输入框的值（独立受控：边输边跳会来回闪） */
+  const [pageInput, setPageInput] = useState('1');
+
+  /** 页面缩放。1 = 适应宽度；只对渲染出的页面图有效 */
+  const [zoom, setZoom] = useState(1);
+
 
   /**
    * 图片资料的预览地址。
@@ -146,6 +161,62 @@ export function SourceReader({
    */
   const pdfBytesCache = useRef<{ sourceId: string; bytes: Uint8Array } | null>(null);
 
+  /** 注释服务与「哪些页有笔记」的标记 */
+  const { annotations } = useServices();
+  const [annotatedPages, setAnnotatedPages] = useState<Set<number>>(new Set());
+
+  /**
+   * 量页面图的实际显示尺寸。
+   *
+   * 直接用 getBoundingClientRect 而不是 clientWidth/Height：
+   * clientWidth 取的是布局值，在有缩放/边界框时可能取整偏差；
+   * getBoundingClientRect 给的是真实渲染尺寸，更准。
+   */
+  const measurePageBox = useCallback((img: HTMLImageElement) => {
+    const r = img.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) {
+      setPageBoxSize({ width: Math.round(r.width), height: Math.round(r.height) });
+    }
+  }, []);
+
+  /** 页面图渲染后的实际显示尺寸，注释坐标按它换算 */
+  const pageBoxRef = useRef<HTMLDivElement | null>(null);
+  const [pageBoxSize, setPageBoxSize] = useState<{ width: number; height: number }>({
+    width: 0,
+    height: 0,
+  });
+
+  /** 重新统计有笔记的页（保存/清空后调用） */
+  const refreshAnnotationPages = useCallback(async () => {
+    try {
+      const all = await annotations.listForSource(source.id);
+      const { pagesWithAnnotations } = await import('@/core/annotations.ts');
+      setAnnotatedPages(pagesWithAnnotations(all));
+    } catch {
+      setAnnotatedPages(new Set());
+    }
+  }, [annotations, source.id]);
+
+  useEffect(() => {
+    void refreshAnnotationPages();
+  }, [refreshAnnotationPages]);
+
+  /**
+   * 缩放或窗口尺寸变化后重测页面图尺寸。
+   *
+   * 不重测的话：放大到 150% 后图片变大了，但注释层还按旧尺寸换算，
+   * 笔迹会整体缩小并偏到左上角 —— 看起来像"注释漂移了"。
+   */
+  useEffect(() => {
+    const img = pageBoxRef.current?.querySelector('img');
+    if (!img) return;
+    measurePageBox(img);
+
+    const onResize = () => measurePageBox(img);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [zoom, pageImage, measurePageBox]);
+
 
   /**
    * 当前页号与渲染 effect 都在 segments 声明之后（那里才拿得到 segments）。
@@ -179,6 +250,24 @@ export function SourceReader({
 
   const segments = segmentsState.kind === 'ready' ? segmentsState.segments : [];
   const segment = segments[current];
+
+  /**
+   * 跳转到输入的页码。
+   *
+   * 做范围夹取而不是报错：用户输 999 时最可能是想「翻到最后」，
+   * 弹一句「页码超出范围」再让他自己改，比直接跳到底更烦。
+   * 非数字或空则回到当前页。
+   */
+  const jumpToTyped = useCallback(() => {
+    const n = Number.parseInt(pageInput, 10);
+    if (!Number.isFinite(n)) {
+      setPageInput(String(current + 1));
+      return;
+    }
+    const idx = Math.min(Math.max(n, 1), segments.length) - 1;
+    setCurrent(idx);
+    setPageInput(String(idx + 1));
+  }, [pageInput, current, segments.length]);
 
   /**
    * 这一页要不要渲染成图片 —— 判据是**这一页有没有正文**，不是资料的整体状态。
@@ -282,6 +371,16 @@ export function SourceReader({
       controller.abort();
     };
   }, [needsPageImage, source.id, currentPageNo, service]);
+
+  /**
+   * 翻页后同步输入框。
+   *
+   * 不同步的话，点「下一页」翻到第 5 页，输入框还写着 1，
+   * 用户再按回车会莫名跳回第 1 页。
+   */
+  useEffect(() => {
+    setPageInput(String(current + 1));
+  }, [current]);
 
   const go = useCallback(
     (next: number) => {
@@ -456,6 +555,10 @@ export function SourceReader({
                   {hits?.some((h) => h.segmentId === seg.id) ? (
                     <span className="reader__toc-hit" aria-label="此页有搜索命中" />
                   ) : null}
+                  {/* 有手写笔记的页在目录里打点，否则用户不知道哪几页做过标注 */}
+                  {annotatedPages.has(seg.page) ? (
+                    <span className="reader__toc-note" title="此页有笔记" aria-label="此页有笔记" />
+                  ) : null}
                 </button>
               </li>
             ))}
@@ -473,7 +576,17 @@ export function SourceReader({
               {segment.chapter ? <Badge tone="neutral">{segment.chapter}</Badge> : null}
               <span className="page__muted">{segment.charCount} 字</span>
             </div>
-            <div className="page__row" style={{ flex: 'none' }}>
+            <div className="page__row" style={{ flex: 'none', gap: 6, alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn btn--sm"
+                onClick={() => go(0)}
+                disabled={current === 0}
+                title="第一页（Ctrl+Home）"
+                aria-label="第一页"
+              >
+                ⇤
+              </button>
               <button
                 type="button"
                 className="btn btn--sm"
@@ -483,6 +596,34 @@ export function SourceReader({
               >
                 ← 上一页
               </button>
+
+              {/*
+                页码跳转。628 页的教材只靠「上一页/下一页」翻不现实，
+                输入页码直接跳是最省事的定位方式。
+                输入框独立受控，回车或失焦才跳 —— 边输边跳会在输「30」
+                的中途先跳到第 3 页，来回闪。
+              */}
+              <form
+                className="reader__jump"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  jumpToTyped();
+                }}
+              >
+                <input
+                  className="input input--tiny"
+                  type="number"
+                  min={1}
+                  max={segments.length}
+                  value={pageInput}
+                  onChange={(e) => setPageInput(e.target.value)}
+                  onBlur={jumpToTyped}
+                  aria-label="输入页码跳转"
+                  title="输入页码后回车跳转"
+                />
+                <span className="page__muted">/ {segments.length}</span>
+              </form>
+
               <button
                 type="button"
                 className="btn btn--sm"
@@ -491,6 +632,50 @@ export function SourceReader({
                 title="下一页（→）"
               >
                 下一页 →
+              </button>
+              <button
+                type="button"
+                className="btn btn--sm"
+                onClick={() => go(segments.length - 1)}
+                disabled={current >= segments.length - 1}
+                title="最后一页（Ctrl+End）"
+                aria-label="最后一页"
+              >
+                ⇥
+              </button>
+
+              {/*
+                缩放：只对渲染出来的页面图有效（文字资料不需要）。
+                用按钮而不是滚轮缩放，避免和页面滚动冲突。
+              */}
+              <span style={{ width: 8 }} />
+              <button
+                type="button"
+                className="btn btn--sm"
+                onClick={() => setZoom((z) => clampZoom(z - ZOOM_STEP))}
+                disabled={zoom <= MIN_ZOOM}
+                title="缩小"
+                aria-label="缩小"
+              >
+                −
+              </button>
+              <button
+                type="button"
+                className="btn btn--sm"
+                onClick={() => setZoom(1)}
+                title="恢复原始大小"
+              >
+                {Math.round(zoom * 100)}%
+              </button>
+              <button
+                type="button"
+                className="btn btn--sm"
+                onClick={() => setZoom((z) => clampZoom(z + ZOOM_STEP))}
+                disabled={zoom >= MAX_ZOOM}
+                title="放大"
+                aria-label="放大"
+              >
+                +
               </button>
             </div>
           </div>
@@ -606,14 +791,46 @@ export function SourceReader({
                 </Notice>
               ) : pageImage ? (
                 <figure className="reader__figure">
-                  <img
-                    src={pageImage}
-                    alt={`${source.title} 第 ${currentPageNo} 页`}
-                    className="reader__image"
-                  />
+                  {/*
+                    页面图与注释层叠在一起：注释层绝对定位覆盖在图上，
+                    共用同一套比例坐标系，所以缩放后注释仍落在原位。
+                    measured 是渲染后的实际尺寸，注释坐标按它换算。
+                  */}
+                  <div className="reader__page-box" ref={pageBoxRef}>
+                    <img
+                      src={pageImage}
+                      alt={`${source.title} 第 ${currentPageNo} 页`}
+                      className="reader__image"
+                      /*
+                        缩放用宽度而不是 transform: scale()。
+                        transform 只是视觉放大，布局高度不变 —— 放大了却滚不到
+                        下半页，且超出部分被容器裁掉。改宽度才真的占位。
+                      */
+                      style={{ width: `${zoom * 100}%` }}
+                      /*
+                        量图的实际显示尺寸给注释层换算用。
+                        onLoad 只触发一次，而缩放/窗口变化会改尺寸，
+                        所以另有一个 effect 负责重测（见下方的 measure）。
+                      */
+                      onLoad={(e) => measurePageBox(e.currentTarget)}
+                    />
+                    {pageBoxSize.width > 0 ? (
+                      <AnnotationLayer
+                        sourceId={source.id}
+                        page={currentPageNo}
+                        width={pageBoxSize.width}
+                        height={pageBoxSize.height}
+                        service={annotations}
+                        onChange={() => {
+                          // 目录上的「有笔记」标记要跟着更新
+                          void refreshAnnotationPages();
+                        }}
+                      />
+                    ) : null}
+                  </div>
                   <figcaption className="page__muted">
-                    第 {currentPageNo} 页原图。这是扫描件，文字在图片里 ——
-                    可以用上方的「识别」把它转成可搜索的正文。
+                    第 {currentPageNo} 页原图。可以用上方的画笔和文本框在这一页上做标注，
+                    标注会保存在本机，下次打开还在。
                   </figcaption>
                 </figure>
               ) : (
