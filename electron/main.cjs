@@ -15,6 +15,7 @@
 const { app, BrowserWindow, Menu, shell, dialog, session, ipcMain } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+const os = require('node:os');
 
 // --------------------------------------------------------------------------
 // userData 目录：必须在任何其他操作之前确保它存在
@@ -635,6 +636,137 @@ function createWindow() {
 }
 
 // --------------------------------------------------------------------------
+// 本机 MinerU 转换（扫描件 / 图片 → 带页码的正文）
+// --------------------------------------------------------------------------
+//
+// 为什么需要它：用户库里 45MB 的《信号与系统》是纯扫描件（628 页 / 0 字体），
+// 现有 tesseract 实测整本约 1.6 小时且只出纯文本。用户已拍板改用本机 MinerU。
+//
+// 安全边界（渲染进程传来的东西一律不可信）：
+//  - 只执行探测到的那个 mineru-kit，参数由主进程拼，不接受用户传 argv；
+//  - 输出目录必须在应用自己的 temp 下（见 allowedRoots）；
+//  - 超时兜底，避免一本大书把子进程挂到天荒地老。
+//
+// 纯逻辑全在 electron/mineru.cjs 里，因为那里能不开窗口直接单测。
+
+let mineruStatus = { available: false, exePath: null, mineruHome: null, reason: '还没探测' };
+
+/**
+ * sourceId → 原文件绝对路径。
+ *
+ * ## 为什么要有这张表
+ *
+ * 渲染进程里的 `File` 对象没有真实路径（浏览器安全设计），而 MinerU 是
+ * 命令行程序，只能读磁盘上的文件。所以导入时把「页面生成的 sourceId」
+ * 与「webUtils 拿到的真实路径」对应起来存着，转换时按 sourceId 查回去。
+ *
+ * ## 为什么存在内存里、不落盘
+ *
+ * 路径里可能带用户名等个人信息，不属于学习库数据，不该进备份、不该进
+ * IndexedDB。应用重启后这张表清空是**可接受的**：重启后用户重新导入
+ * 一次那份大 PDF 即可（资料本体还在，只是转换时需要重新指一次路径）。
+ * 落盘反而会在用户移动/删除原文件后留下一个指向不存在文件的陈旧路径。
+ */
+const sourcePaths = new Map();
+
+function registerMineru() {
+  // 探测一次，缓存在进程内。用户装了 MinerU 之后重启应用即可生效。
+  mineruStatus = require('./mineru.cjs').detectMineru({
+    userDataDir: app.getPath('userData'),
+  });
+
+  // preload 用 sendSync 取可用性：它是同步属性访问，
+  // 页面首次渲染就要知道「能不能用」，异步会让按钮先亮再灭。
+  ipcMain.on('openleaner:mineru-available-sync', (event) => {
+    event.returnValue = mineruStatus.available;
+  });
+  ipcMain.on('openleaner:mineru-reason-sync', (event) => {
+    event.returnValue = mineruStatus.available ? null : mineruStatus.reason;
+  });
+
+  // ---------- 原文件路径登记 ----------
+  //
+  // 页面导入资料时调这两个：先 rememberPath 登记，转换时 sourcePath 取回。
+  // 路径由 preload 的 webUtils.getPathForFile 得到（用户自己选的文件），
+  // 页面无法凭空构造一个路径。
+
+  ipcMain.handle('openleaner:remember-source-path', (_event, payload) => {
+    const body = payload && typeof payload === 'object' ? payload : {};
+    const sourceId = typeof body.sourceId === 'string' ? body.sourceId : '';
+    const filePath = typeof body.filePath === 'string' ? body.filePath : '';
+    if (!sourceId || !filePath || !path.isAbsolute(filePath)) return false;
+    sourcePaths.set(sourceId, filePath);
+    return true;
+  });
+
+  ipcMain.handle('openleaner:source-path', (_event, sourceId) => {
+    if (typeof sourceId !== 'string') return null;
+    const p = sourcePaths.get(sourceId);
+    if (!p) return null;
+    // 原文件可能已经被移动或删除 —— 如实返回 null，别给一个死路径
+    try {
+      return fs.existsSync(p) ? p : null;
+    } catch {
+      return null;
+    }
+  });
+
+  ipcMain.handle('openleaner:mineru-convert', async (event, payload) => {
+    const mineru = require('./mineru.cjs');
+
+    if (!mineruStatus.available) {
+      return {
+        ok: false,
+        trouble: 'not-installed',
+        message: mineruStatus.reason ?? '本机没有可用的 MinerU。',
+      };
+    }
+
+    /*
+     * 输出目录放在 userData 下，不用系统 temp。
+     *
+     * 为什么改：实测在 Windows 上 `app.getPath('temp')` 下 mkdir 会报
+     * `EPERM: operation not permitted`（受管机器 / 安全软件对系统 Temp 有
+     * 额外限制，而 userData 是应用自己的目录，启动时已经验证过可写 ——
+     * 我们往那里写 window-state.json）。
+     *
+     * 目录留在 userData 下还有两个好处：
+     *  - 用户能在应用目录里找到转换产物，出问题时可以自己翻；
+     *  - 应用退出后不当成垃圾清掉，下次可以复用缓存。
+     */
+    const allowedRoot = path.join(app.getPath('userData'), 'mineru-jobs');
+
+    const checked = mineru.validateRequest(payload, { allowedRoots: [allowedRoot] });
+    if (!checked.ok) {
+      return { ok: false, trouble: checked.trouble, message: checked.message };
+    }
+
+    const result = await mineru.runMineru(checked.value, {
+      exePath: mineruStatus.exePath,
+      /*
+       * home 必须一起传：不传时 mineru-kit 会退回 ~/.mineru，
+       * 那里可能是空的或写不进去，实测会卡在模型锁上报
+       * `[WinError 5] 拒绝访问` —— 看起来像 PDF 坏了，其实是用错了模型目录。
+       */
+      ...(mineruStatus.mineruHome ? { mineruHome: mineruStatus.mineruHome } : {}),
+      onProgress: (p) => {
+        // 窗口可能已经关了
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('openleaner:mineru-progress', p);
+        }
+      },
+    });
+
+    return result;
+  });
+}
+
+/** 供确认对话框用：把 temp 下的输出目录算出来，页面据此传 outDir */
+function mineruOutRoot() {
+  return path.join(app.getPath('userData'), 'mineru-jobs');
+}
+
+// --------------------------------------------------------------------------
 // 应用生命周期
 // --------------------------------------------------------------------------
 
@@ -668,6 +800,7 @@ if (!gotTheLock) {
 
     buildMenu();
     registerChatProxy();
+    registerMineru();
     createWindow();
 
     // macOS：点 Dock 图标且没有窗口时重新开一个

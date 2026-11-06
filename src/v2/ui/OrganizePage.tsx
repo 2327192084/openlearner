@@ -4,6 +4,8 @@ import type { SourceService } from '@/core/sources.ts';
 import type { KnowledgeService, GenerateProgress } from '@/core/knowledge/service.ts';
 import type { BackendService } from '@/core/backends.ts';
 import { useOrganizeBackend } from './organize-backend.ts';
+import { ConvertPanel } from './ConvertPanel.tsx';
+import { needsConversion } from '@/core/mineru/convert.ts';
 import { IconSources } from './icons.tsx';
 
 /**
@@ -189,14 +191,28 @@ export function OrganizePage({
     [points],
   );
 
+  const currentSource = (sources ?? []).find((s) => s.id === selected) ?? null;
+
   const blockedReason = useMemo(() => {
     if (parsed.error) return parsed.error;
     if (!selected) return '先选一份资料。';
     if (segments === null) return '正在读这份资料的正文…';
-    if (segments.length === 0) return '这份资料没有可整理的正文（可能是扫描件）。';
+    if (segments.length === 0) {
+      /*
+       * 指向上面那个转换面板，而不是只丢一句「可能是扫描件」——
+       * 用户看到这句话的下一步应该是「那我该怎么办」，
+       * 而答案就在上面的面板里（用 MinerU 转成正文）。
+       */
+      const needsBody = Boolean(
+        currentSource && needsConversion(currentSource.textStatus, currentSource.kind),
+      );
+      return needsBody
+        ? '这份资料还没有正文。先用上面的按钮把它转成正文，再来整理。'
+        : '这份资料没有可整理的正文。';
+    }
     if (scoped.length === 0) return '选定的页码范围里没有内容，换一个范围再试。';
     return null;
-  }, [parsed.error, selected, segments, scoped.length]);
+  }, [parsed.error, selected, segments, scoped.length, currentSource]);
 
   const start = useCallback(async () => {
     if (running || !selected) return;
@@ -268,7 +284,15 @@ export function OrganizePage({
       ? Math.min(100, Math.round((progress.produced / progress.estimatedTotal) * 100))
       : 0;
 
-  const currentSource = (sources ?? []).find((s) => s.id === selected) ?? null;
+  /**
+   * 这份资料需不需要「先补正文」。
+   *
+   * 用来决定步骤编号：需要转换时插一步，后面两步顺延 ——
+   * 否则编号会变成 01 → (无编号面板) → 02 → 03，看着像漏了一步。
+   */
+  const hasConvertPanel = Boolean(
+    currentSource && needsConversion(currentSource.textStatus, currentSource.kind),
+  );
 
   return (
     <div className="org-page">
@@ -318,8 +342,26 @@ export function OrganizePage({
             </select>
           </fieldset>
 
+          {/* 扫描件 / 图片：检测到就在流程里解决，不让用户去别处找 */}
+          {currentSource ? (
+            <ConvertPanel
+              source={currentSource}
+              sourceService={sourceService}
+              onConverted={() => {
+                void reloadSourceData(currentSource.id);
+                onChanged();
+              }}
+              {...(onOpenAnchor
+                ? {
+                    onOpenPage: (page: number) =>
+                      onOpenAnchor({ sourceId: currentSource.id, page }),
+                  }
+                : {})}
+            />
+          ) : null}
+
           <fieldset className="org-field">
-            <legend className="org-legend">02 / 用哪个后端</legend>
+            <legend className="org-legend">{hasConvertPanel ? '03' : '02'} / 用哪个后端</legend>
             <select
               className="org-select"
               value={backendChoice.selected}
@@ -343,7 +385,7 @@ export function OrganizePage({
           </fieldset>
 
           <fieldset className="org-field">
-            <legend className="org-legend">03 / 页码范围（可选）</legend>
+            <legend className="org-legend">{hasConvertPanel ? '04' : '03'} / 页码范围（可选）</legend>
             <div className="org-row">
               <input
                 className="org-input"

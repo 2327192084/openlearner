@@ -323,3 +323,136 @@
     }
   }
 }
+
+/* --------------------------------------------------------------------------
+ * 扫描件转换面板（ConvertPanel）
+ *
+ * 外观上它要看起来像「流程中的一步」，而不是一个错误提示 ——
+ * 因为扫描件不是错误，只是需要多一步处理。
+ * 用中性卡片 + 顶部朱砂细线（纸卡系统的一致做法），不用红色警告色。
+ * -------------------------------------------------------------------------- */
+
+.convert-panel {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-card);
+  /* 纸卡三要素之一：顶部 2px 朱砂横线（设计系统第 2 条） */
+  border-top: 2px solid var(--accent);
+}
+
+.convert-panel__title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-lg);
+  font-weight: 550;
+  color: var(--text);
+}
+
+.convert-panel__hint {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+}
+
+.convert-panel__note {
+  margin: var(--space-2) 0 0;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
+  color: var(--text-faint);
+}
+
+.convert-panel__actions {
+  margin-top: var(--space-3);
+}
+
+/* ---------- 进度 ---------- */
+
+.convert-panel__progress {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-sunken);
+  border-radius: var(--radius-sm);
+}
+
+.convert-panel__phase {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+
+.convert-panel__ratio {
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+/* ---------- 不可用 ---------- */
+
+.convert-panel__unavailable {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-sunken);
+  border-left: 2px solid var(--warn);
+  border-radius: var(--radius-sm);
+}
+
+.convert-panel__unavail-title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  color: var(--text-dim);
+}
+
+/* ---------- 完成 ---------- */
+
+.convert-panel__done {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-raised);
+  border-left: 2px solid var(--ok);
+  border-radius: var(--radius-sm);
+}
+
+.convert-panel__done-title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  color: var(--text);
+}
+
+.convert-panel__warn {
+  margin: var(--space-2) 0;
+  padding: var(--space-2);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+  background: var(--bg-sunken);
+  border-radius: var(--radius-xs);
+}
+
+.convert-panel__meta {
+  margin: var(--space-2) 0;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+
+/* ---------- 失败 ---------- */
+
+.convert-panel__failed {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-sunken);
+  border-left: 2px solid var(--bad);
+  border-radius: var(--radius-sm);
+}
+
+.convert-panel__failed-msg {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--bad);
+}

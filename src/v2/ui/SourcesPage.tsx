@@ -101,6 +101,19 @@ export function SourcesPage({
           onProgress: (done, total, name) => setProgress({ done, total, name }),
         });
         setResults(outcomes);
+        /*
+         * 把每个导入成功的资料与原文件的绝对路径对应起来登记给主进程。
+         *
+         * 为什么现在做：扫描件转换要用本机 MinerU，而 MinerU 是命令行程序，
+         * 需要磁盘上的路径 —— 但渲染进程的 File 对象没有路径（浏览器安全设计）。
+         * 只有在**导入的这一刻**我们手里同时有 File 和刚生成的 sourceId，
+         * 过了这一步就再也拿不到原始路径了。
+         *
+         * 桌面版才有这个能力；浏览器里 pathOf 返回 null，静默跳过即可 ——
+         * 浏览器本来也跑不了 MinerU。
+         */
+        void rememberSourcePaths(files, outcomes);
+
         await load();
         onImported?.();
       } catch (err) {
@@ -399,4 +412,46 @@ export function SourcesPage({
       ) : null}
     </div>
   );
+}
+
+/**
+ * 把「导入成功的资料」与其原文件绝对路径登记给主进程。
+ *
+ * 只在桌面版有效：`pathOf` 依赖 Electron 的 webUtils，
+ * 浏览器里拿不到路径（那是浏览器安全设计，不是缺陷）。
+ * 拿不到就静默跳过 —— 浏览器本来也跑不了 MinerU。
+ *
+ * 匹配策略：`importFiles` 返回的结果里带 `source`，而 `File` 带 `name`。
+ * 同名多选时按顺序配对。宁可保守（配不上就不登记），也不要错配 ——
+ * 错配会让转换读到**另一份**文件的路径，然后把别人的内容写进这份资料。
+ */
+async function rememberSourcePaths(
+  files: File[],
+  outcomes: Array<{ ok: boolean; source?: { id: string }; fileName?: string }>,
+): Promise<void> {
+  const mineru = typeof window !== 'undefined' ? window.openleaner?.mineru : undefined;
+  if (!mineru || typeof mineru.pathOf !== 'function') return;
+
+  // 按文件名分组，保持各自的选取顺序
+  const byName = new Map<string, File[]>();
+  for (const f of files) {
+    const list = byName.get(f.name) ?? [];
+    list.push(f);
+    byName.set(f.name, list);
+  }
+
+  for (const outcome of outcomes) {
+    if (!outcome.ok || !outcome.source) continue;
+    const candidates = byName.get(outcome.fileName ?? '');
+    const file = candidates?.shift();
+    if (!file) continue;
+
+    const absolute = mineru.pathOf(file);
+    if (!absolute) continue;
+    try {
+      await mineru.rememberPath(outcome.source.id, absolute);
+    } catch {
+      // 登记失败不影响导入本身，转换时会给出「拿不到路径」的说明
+    }
+  }
 }

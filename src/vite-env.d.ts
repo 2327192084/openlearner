@@ -45,6 +45,38 @@ interface OpenLeanerBridge {
     | { ok: true; status: number; text: string }
     | { ok: false; kind: string; message: string }
   >;
+
+  /**
+   * 本机 MinerU 转换（仅桌面端）。
+   *
+   * 浏览器里没有这个对象 —— 页面必须判空，并用「这台机器用不了 MinerU」
+   * 的文案如实说明，而不是摆一个点了才报错的按钮。
+   * 判空与降级集中在 `core/mineru/runner.ts` 的 getMinerURunner()。
+   */
+  readonly mineru?: {
+    /** 主进程启动时探测的结果 */
+    readonly available: boolean;
+    readonly unavailableReason?: string;
+    /** 取 File 在磁盘上的绝对路径；拿不到返回 null */
+    pathOf: (file: File) => string | null;
+    /** 登记「这份资料的原文件在哪」 */
+    rememberPath: (sourceId: string, filePath: string) => Promise<boolean>;
+    /** 按 sourceId 取回原文件路径；没登记或文件已不在返回 null */
+    sourcePath: (sourceId: string) => Promise<string | null>;
+    /** 跑一次转换 */
+    run: (request: {
+      filePath: string;
+      exePath: string;
+      outDir: string;
+      tier?: string;
+    }) => Promise<
+      { ok: true; result: unknown } | { ok: false; message: string; trouble?: string }
+    >;
+    /** 订阅进度，返回取消订阅函数 */
+    onProgress: (
+      cb: (p: { phase: string; ratio: number | null; detail?: string | null; line?: string }) => void,
+    ) => () => void;
+  };
 }
 
 interface Window {

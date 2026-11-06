@@ -34,6 +34,41 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
+/**
+ * 取一个 File 对象在磁盘上的绝对路径。
+ *
+ * ## 为什么需要它
+ *
+ * 渲染进程拿到的 `File` 对象只有名字和字节，**没有真实路径** ——
+ * 这是浏览器的安全设计。但本机 MinerU 需要路径：它是个命令行程序，
+ * 只能读文件，不能接收一个「页面里的 File」。
+ *
+ * Electron 在 32 版之后把 `File.path` 移除了，改成 `webUtils.getPathForFile`。
+ * 这个 API 只在 preload 里可用，所以必须从这里暴露出去。
+ *
+ * ## 为什么返回路径是安全的
+ *
+ * 路径来自用户**自己在文件选择框里选的文件**（或拖进来的文件），
+ * 页面对它没有凭空构造的能力。这不是把任意 fs 能力交给页面。
+ */
+function getPathForFile(file) {
+  try {
+    // 运行时才有 webUtils；打包后一定存在，dev 里可能没有就要降级
+    const { webUtils } = require('electron');
+    if (webUtils && typeof webUtils.getPathForFile === 'function') {
+      return webUtils.getPathForFile(file) || null;
+    }
+  } catch {
+    /* 降级到下面的老办法 */
+  }
+  // 老版本 Electron / 某些构建里 file.path 还在
+  try {
+    return typeof file?.path === 'string' && file.path ? file.path : null;
+  } catch {
+    return null;
+  }
+}
+
 // --------------------------------------------------------------------------
 // 运行环境信息：只读、无副作用。
 // 页面用它做平台相关的细节（快捷键提示、窗口拖拽区、版本号展示）。
@@ -106,6 +141,76 @@ const openleanerApi = Object.freeze({
    * 这样渲染进程不需要为 IPC 单独做序列化，core 层也能直接注入这个函数当 fetchImpl。
    */
   chat: (request) => ipcRenderer.invoke('openleaner:chat-completion', request),
+
+  /**
+   * 本机 MinerU 转换（扫描件 / 图片 → 带页码的正文）。
+   *
+   * ## 为什么必须走主进程
+   *
+   * 渲染进程没有 Node 权限（nodeIntegration: false，这条边界不能为省事关掉），
+   * 而 MinerU 是一个 Python 可执行文件，必须 spawn 子进程。
+   * 所以只有主进程能跑，页面通过这一个受限方法请求它。
+   *
+   * ## 为什么不是通用 invoke
+   *
+   * 通用 invoke 等于把整个 IPC 面交给页面 —— 任何被注入的脚本都能调
+   * 任意 handler。这里只暴露两个语义化方法（run / onProgress），
+   * 主进程侧再对路径与参数做一次校验。
+   *
+   * ## 进度
+   *
+   * MinerU 跑一本 628 页的教材要几分钟，没有进度用户会以为卡死了。
+   * 主进程把 stderr 的行转成事件推过来；onProgress 返回取消订阅函数，
+   * 组件卸载时必须调用，否则会往已卸载的组件里写状态。
+   */
+  mineru: Object.freeze({
+    /** 主进程是否报告本机 MinerU 可用（启动时探测一次） */
+    get available() {
+      // 同步可用性以主进程启动探测结果为准；未探到时按「不可用」处理，
+      // 由页面显示具体原因，而不是给一个点了才报错的按钮。
+      return ipcRenderer.sendSync('openleaner:mineru-available-sync') === true;
+    },
+
+    get unavailableReason() {
+      return ipcRenderer.sendSync('openleaner:mineru-reason-sync') ?? undefined;
+    },
+
+    /**
+     * 取 File 在磁盘上的绝对路径。拿不到返回 null。
+     *
+     * 导入资料时把它连同 sourceId 一起登记给主进程，
+     * 之后转换扫描件时主进程就能按 sourceId 找回原路径。
+     */
+    pathOf: (file) => getPathForFile(file),
+
+    /** 登记「这份资料的原文件在哪个路径」。sourceId 由页面生成后传进来。 */
+    rememberPath: (sourceId, filePath) =>
+      ipcRenderer.invoke('openleaner:remember-source-path', { sourceId, filePath }),
+
+    /** 取回某份资料的原文件路径。没有登记过就返回 null。 */
+    sourcePath: (sourceId) => ipcRenderer.invoke('openleaner:source-path', sourceId),
+
+    /** 跑一次转换。返回值形状与主进程 handler 一致。 */
+    run: (request) => ipcRenderer.invoke('openleaner:mineru-convert', request),
+
+    /**
+     * 订阅进度。返回取消订阅函数。
+     *
+     * 只转发带 taskId 属于自己的事件 —— 同一时刻可能有多份资料在排队，
+     * 不过滤会把别人的进度显示进来。
+     */
+    onProgress: (cb) => {
+      const listener = (_event, payload) => {
+        try {
+          cb(payload);
+        } catch {
+          /* 回调异常不该影响主进程 */
+        }
+      };
+      ipcRenderer.on('openleaner:mineru-progress', listener);
+      return () => ipcRenderer.removeListener('openleaner:mineru-progress', listener);
+    },
+  }),
 });
 
 // contextIsolation 打开时用 contextBridge；这里加一道保险，
