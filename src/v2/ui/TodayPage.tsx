@@ -25,7 +25,6 @@ export interface TodayPageProps {
   onStartReview: () => void;
   onStartNew: () => void;
   onOpenSources: () => void;
-  onOpenGenerate?: () => void;
 }
 
 export function TodayPage({
@@ -37,7 +36,6 @@ export function TodayPage({
   onStartReview,
   onStartNew,
   onOpenSources,
-  onOpenGenerate,
 }: TodayPageProps) {
   const [overview, setOverview] = useState<TodayOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -111,16 +109,17 @@ export function TodayPage({
         </ol>
 
         <div className="welcome__foot">
-          <button
-            type="button"
-            className="btn-text"
-            onClick={onOpenGenerate ?? onStartNew}
-          >
-            想先看看效果？载入示例并开始导览
-          </button>
-          <button type="button" className="btn-text" onClick={() => void load()}>
-            以后再说
-          </button>
+          {/*
+            这里原来有两个 btn-text：「想先看看效果？载入示例并开始导览」和「以后再说」。
+            两个都是坏按钮：
+              - 第一个说「载入示例」，但它只是跳去出题页，一个示例都没有真的载入；
+              - 第二个说「以后再说」，点了也只是重新读一遍概览，引导根本没有关掉。
+            用户的约束是「不做假开关」——说要做 A 却做了 B 比没有更糟。
+            现在换成两句真话：一句指向当前唯一能走的下一步。
+          */}
+          <span className="welcome__foot-note">
+            这个库还是空的。按上面的顺序走一遍，之后每次打开都会直接看到今天该复习什么。
+          </span>
         </div>
       </div>
     );

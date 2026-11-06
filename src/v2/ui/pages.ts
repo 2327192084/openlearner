@@ -50,6 +50,7 @@ export type PageId =
   | 'skeleton'
   | 'audio'
   | 'record'
+  | 'organize'
   | 'guide'
   | 'settings';
 
@@ -266,6 +267,16 @@ const OFF_NAV: Partial<Record<PageId, PageDef>> = {
     purpose: '每一页能做什么、快捷键有哪些',
     group: 'prep',
     show: false,
+  },
+  organize: {
+    id: 'organize',
+    label: '整理知识点',
+    title: '整理知识点',
+    icon: IconSkeleton,
+    purpose: '把资料的正文整理成一条条能点回原文的知识点',
+    group: 'daily',
+    show: false,
+    ready: true,
   },
 };
 

@@ -31,6 +31,8 @@ export interface GeneratePageProps {
   backends: BackendService;
   onGenerated: () => void;
   onOpenSources: () => void;
+  /** 知识点不够时跳去整理页，带上当前选中的资料 */
+  onOpenOrganize: (sourceId: string | null) => void;
 }
 
 type Mode = 'from-source' | 'import-json' | 'case' | 'capture';
@@ -69,6 +71,7 @@ export function GeneratePage({
   backends,
   onGenerated,
   onOpenSources,
+  onOpenOrganize,
 }: GeneratePageProps) {
   const [mode, setMode] = useState<Mode>('from-source');
   const [sources, setSources] = useState<Source[] | null>(null);
@@ -291,13 +294,13 @@ export function GeneratePage({
               <p className="gen-hint">
                 {usablePoints.length > 0
                   ? `这份资料有 ${usablePoints.length} 条已定位的知识点可以出题`
-                  : /*
-                     * 不写「先去学习库整理知识点」—— 学习库页现在只有今日概览，
-                     * 没有整理知识点的入口。指向一个不存在的地方比不提示更糟，
-                     * 用户会以为是自己没找到。
-                     */
-                    '这份资料还没有整理过知识点。整理知识点的页面还在重做中，暂时无法从这里出题。'}
+                  : '这份资料还没有可出题的知识点。先到「整理知识点」把它过一遍 —— 有了带出处的小条目，这里就能出题。'}
               </p>
+            ) : null}
+            {points !== null && usablePoints.length === 0 ? (
+              <button type="button" className="btn-ghost" onClick={() => onOpenOrganize(selected)}>
+                去整理这份资料的知识点
+              </button>
             ) : null}
           </fieldset>
 

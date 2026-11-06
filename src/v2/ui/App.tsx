@@ -14,6 +14,7 @@ import type { SourceService } from '@/core/sources.ts';
 import type { Card } from '@/v2/core/cards.ts';
 import type { PageId } from './pages.ts';
 import { SettingsPage } from './SettingsPage.tsx';
+import { OrganizePage } from './OrganizePage.tsx';
 import { useServices } from '@/app/services-context.ts';
 import './tokens.css';
 import './shell.css';
@@ -24,6 +25,7 @@ import './sources-page.css';
 import './generate-page.css';
 import './stats-page.css';
 import './settings.css';
+import './organize-page.css';
 
 /**
  * v2 应用入口。
@@ -80,6 +82,14 @@ export function App({
   const [queue, setQueue] = useState<Card[] | null>(null);
   const [queueError, setQueueError] = useState<string | null>(null);
   const [overviewCounts, setOverviewCounts] = useState<Partial<Record<PageId, number>>>({});
+  /**
+   * 从资料列表点进来时，要带上是哪一份。
+   *
+   * 单独存而不是塞进 page 状态：page 只是「显示哪一页」，
+   * 而「整理哪一份资料」是另一回事 —— 混在一起会导致
+   * 从别处进整理页时用上一次残留的选择。
+   */
+  const [organizeSourceId, setOrganizeSourceId] = useState<string | null>(null);
 
   const { library } = useServices();
 
@@ -118,25 +128,27 @@ export function App({
   /**
    * 侧栏计数。
    *
-   * 只给「复习」显示待复习数量 —— 其他页面的计数目前没有可靠来源，
-   * 宁可不显示，也不显示一个猜的数字。
+   * 只给「复习」显示待复习数量、给「资料」显示资料份数 ——
+   * 其他页面的计数目前没有可靠来源，宁可不显示，也不显示一个猜的数字。
+   *
+   * 「资料」这个数字以前是写死的 0。库里有三份资料而侧栏写 0，
+   * 就是界面在说谎，所以改成真的去数。
    */
   const refreshCounts = useCallback(async () => {
     try {
-      const o = await reviewService.todayOverview(cardPool);
+      const [o, srcs] = await Promise.all([reviewService.todayOverview(cardPool), sourceService.list()]);
       /**
-       * 「资料」与「待办」显示条目数（0 也有意义：说明库是空的）。
        * 「复习」显示待复习数量，0 时不显示徽章 —— 没有待办就不该有标记。
+       * 「资料」显示份数（0 也有意义：说明库是空的）。
        */
       setOverviewCounts({
-        sources: 0,
-        board: 0,
+        sources: srcs.length,
         ...(o.dueCount > 0 ? { review: o.dueCount } : {}),
       });
     } catch {
       setOverviewCounts({});
     }
-  }, [reviewService, cardPool]);
+  }, [reviewService, cardPool, sourceService]);
 
   useEffect(() => {
     void refreshCounts();
@@ -195,11 +207,28 @@ export function App({
       ) : page === 'sources' ? (
         <SourcesPage
           service={sourceService}
-          onOpenSource={() => {
-            // 阅读器还没做，先给明确说明而不是空白页
-            setQueueError(null);
+          onOpenSource={(source) => {
+            /*
+             * 阅读器还没做，所以点资料不是「打开原文」，而是
+             * 跳到这份资料的整理页 —— 那是现在真正能对一份资料做的事。
+             * 不摆一个点了没反应的资料行。
+             */
+            setOrganizeSourceId(source.id);
+            setPage('organize');
           }}
           onImported={() => void refreshCounts()}
+        />
+      ) : page === 'organize' ? (
+        <OrganizePage
+          sourceService={sourceService}
+          knowledge={knowledge}
+          backends={backends}
+          initialSourceId={organizeSourceId}
+          onBack={() => setPage('sources')}
+          onChanged={() => {
+            void refreshCounts();
+            void refreshShellState();
+          }}
         />
       ) : page === 'generate' ? (
         <GeneratePage
@@ -209,6 +238,10 @@ export function App({
           backends={backends}
           onGenerated={() => void refreshCounts()}
           onOpenSources={() => setPage('sources')}
+          onOpenOrganize={(sourceId) => {
+            setOrganizeSourceId(sourceId);
+            setPage('organize');
+          }}
         />
       ) : page === 'stats' ? (
         <StatsPage service={reviewService} cardPool={cardPool} />
@@ -225,7 +258,6 @@ export function App({
           onOpenSources={() => setPage('sources')}
           onStartReview={() => setPage('review')}
           onStartNew={() => setPage('generate')}
-          onOpenGenerate={() => setPage('generate')}
         />
       ) : (
         <Placeholder page={page} onBack={() => setPage('today')} />
@@ -258,6 +290,7 @@ function Placeholder({ page, onBack }: { page: PageId; onBack: () => void }) {
     skeleton: '知识骨架',
     audio: '音频转写',
     record: '课堂实录',
+    organize: '整理知识点',
     guide: '功能导览',
     settings: '设置',
   };
@@ -274,7 +307,7 @@ function Placeholder({ page, onBack }: { page: PageId; onBack: () => void }) {
           marginBottom: 'var(--space-5)',
         }}
       >
-        这一页还在重做中。现在能用的是「学习库」—— 打开就能看到今天该复习什么。
+        这一页还在重做中。现在能用的有：学习库、资料、整理知识点、创建题组、复习、统计、设置。
       </p>
       <button type="button" className="btn-ghost" onClick={onBack}>
         回到学习库
