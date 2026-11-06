@@ -1,5 +1,6 @@
 import type { StorageAdapter } from '@/core/storage/types.ts';
 import {
+  addDays,
   initialState,
   schedule,
   todayUtc,
@@ -214,6 +215,96 @@ export class ReviewService {
       due.map((id) => ({ id, state: records.find((r) => r.cardId === id)?.state ?? null })),
       today,
     ).due.map((x) => (x as { id: string }).id);
+  }
+
+  /**
+   * 连续学习天数。
+   *
+   * ## 为什么「今天没学」不等于「断了」
+   *
+   * 如果今天还没开始学，连续天数应该显示**昨天为止的**连续天数，
+   * 而不是归零。否则用户早上打开软件看到「0 天」，会觉得自己
+   * 前功尽弃 —— 那是最打击人的一种显示。
+   *
+   * 所以判定：今天有记录就从今天往前数；今天没有就从昨天往前数。
+   */
+  async streakDays(now: Date = new Date()): Promise<number> {
+    const logs = await this.storage.getAll('reviewLogs');
+    if (logs.length === 0) return 0;
+
+    const days = new Set(logs.map((l) => l.day));
+    const today = todayUtc(now);
+
+    // 从今天或昨天起算
+    let cursor = days.has(today) ? today : addDays(today, -1);
+    if (!days.has(cursor)) return 0;
+
+    let streak = 0;
+    while (days.has(cursor)) {
+      streak += 1;
+      cursor = addDays(cursor, -1);
+      // 防御：库里若有异常久远的数据，最多数 5 年
+      if (streak > 1825) break;
+    }
+    return streak;
+  }
+
+  /**
+   * 12 周热力图数据（每周 7 天，按周对齐）。
+   *
+   * 对齐到「周一」而不是「14 天前」：热力图按周排，
+   * 不按周对齐的话每一列会错位，看起来像随机的方格。
+   */
+  async heatmap(weeks = 12, now: Date = new Date()): Promise<{ day: string; count: number }[]> {
+    const logs = await this.storage.getAll('reviewLogs');
+    const byDay = new Map<string, number>();
+    for (const l of logs) byDay.set(l.day, (byDay.get(l.day) ?? 0) + 1);
+
+    const today = todayUtc(now);
+    // 找本周一
+    const [y, m, d] = today.split('-').map(Number);
+    const todayMs = Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1);
+    const dow = new Date(todayMs).getUTCDay(); // 0=周日
+    const mondayOffset = dow === 0 ? -6 : 1 - dow;
+    const thisMonday = todayMs + mondayOffset * 86400000;
+    const startMs = thisMonday - (weeks - 1) * 7 * 86400000;
+
+    const out: { day: string; count: number }[] = [];
+    for (let i = 0; i < weeks * 7; i++) {
+      const t = new Date(startMs + i * 86400000);
+      const day = t.toISOString().slice(0, 10);
+      out.push({ day, count: byDay.get(day) ?? 0 });
+    }
+    return out;
+  }
+
+  /**
+   * 掌握度分布（五档各有多少张）。
+   *
+   * 分档用与显示一致的固定阈值：
+   * 未学 0 / 薄弱 <0.3 / 学习中 <0.55 / 熟悉 <0.8 / 已掌握 ≥0.8
+   */
+  async masteryDistribution(): Promise<{
+    unlearned: number;
+    weak: number;
+    learning: number;
+    familiar: number;
+    mastered: number;
+  }> {
+    const records = await this.listRecords();
+    const out = { unlearned: 0, weak: 0, learning: 0, familiar: 0, mastered: 0 };
+    for (const r of records) {
+      if (r.state.reviewCount === 0) {
+        out.unlearned += 1;
+        continue;
+      }
+      const m = mastery(r.state);
+      if (m < 0.3) out.weak += 1;
+      else if (m < 0.55) out.learning += 1;
+      else if (m < 0.8) out.familiar += 1;
+      else out.mastered += 1;
+    }
+    return out;
   }
 
   /** 最近 N 天的复习量（用于画趋势） */

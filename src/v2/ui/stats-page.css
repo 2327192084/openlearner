@@ -1,0 +1,269 @@
+/*
+ * 统计页样式。
+ *
+ * 设计取向：极简、非仪表盘。
+ * 左侧超大数字（连续天数）是唯一的重心，
+ * 右侧热力图与下方分布都是辅助。
+ */
+
+@layer study.features {
+  .stats-page {
+    max-width: 860px;
+  }
+
+  .stats-h1 {
+    font-size: var(--fs-3xl);
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    margin-bottom: var(--space-5);
+  }
+
+  .stats-lead {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+    line-height: var(--lh-body);
+  }
+
+  .stats-error {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--bad);
+    border-radius: var(--radius-sm);
+    color: var(--bad);
+    font-size: var(--fs-sm);
+  }
+
+  /* ---------- 主区：左数字 + 右热力图 ---------- */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
+    gap: var(--space-8);
+    align-items: start;
+    padding-bottom: var(--space-6);
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  @media (max-width: 760px) {
+    .stats-grid {
+      grid-template-columns: 1fr;
+      gap: var(--space-5);
+    }
+  }
+
+  /* 超大数字：display 光学尺寸 + 最细字重 */
+  .stats-streak__num {
+    font-size: 104px;
+    font-weight: 300;
+    line-height: 0.9;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.04em;
+    color: var(--text);
+  }
+
+  .stats-streak__label {
+    font-size: var(--fs-md);
+    color: var(--text-dim);
+    margin-top: var(--space-2);
+  }
+
+  .stats-streak__meta {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    line-height: 1.8;
+    margin-top: var(--space-1);
+  }
+
+  .stats-streak__meta strong {
+    color: var(--text-muted);
+    font-weight: 550;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- 热力图 ---------- */
+  .stats-heat__label {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    margin-bottom: var(--space-2);
+  }
+
+  /*
+   * 84 格 = 12 周 × 7 天，按列排（每列一周）。
+   * grid-auto-flow: column 让它先填满一列再换列 ——
+   * 这样每一列正好是一周，横向就是时间推进。
+   */
+  .stats-heat__grid {
+    display: grid;
+    grid-template-rows: repeat(7, 1fr);
+    grid-auto-flow: column;
+    gap: 3px;
+    max-width: 100%;
+  }
+
+  .heat-cell {
+    width: 12px;
+    height: 12px;
+    border-radius: 2.5px;
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+  }
+
+  /* 五档朱砂色阶：从几乎不可见到实色 */
+  .heat-cell--1 {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  .heat-cell--2 {
+    background: color-mix(in srgb, var(--accent) 42%, transparent);
+  }
+  .heat-cell--3 {
+    background: color-mix(in srgb, var(--accent) 62%, transparent);
+  }
+  .heat-cell--4 {
+    background: color-mix(in srgb, var(--accent) 82%, transparent);
+  }
+  .heat-cell--5 {
+    background: var(--accent);
+  }
+
+  .stats-heat__legend {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    margin-top: var(--space-2);
+    font-size: 10px;
+    color: var(--text-faint);
+  }
+
+  .stats-heat__legend .heat-cell {
+    width: 10px;
+    height: 10px;
+  }
+
+  .stats-heat__legend > span:first-child {
+    margin-right: 4px;
+  }
+
+  .stats-heat__legend > span:last-child {
+    margin-left: 4px;
+  }
+
+  /* ---------- 掌握度分布 ---------- */
+  .stats-dist {
+    padding: var(--space-6) 0;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .stats-dist__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+    flex-wrap: wrap;
+  }
+
+  .stats-dist__title {
+    font-size: var(--fs-md);
+    font-weight: 550;
+  }
+
+  .stats-dist__avg {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+  }
+
+  /* 堆叠条：一眼看出比例 */
+  .dist-bar {
+    display: flex;
+    height: 8px;
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+    gap: 2px;
+    margin-bottom: var(--space-4);
+  }
+
+  .dist-bar__seg {
+    height: 100%;
+  }
+
+  .dist-bar__seg--unlearned {
+    background: color-mix(in srgb, var(--text) 20%, transparent);
+  }
+  .dist-bar__seg--weak {
+    background: var(--bad);
+  }
+  .dist-bar__seg--learning {
+    background: var(--warn);
+  }
+  .dist-bar__seg--familiar {
+    background: color-mix(in srgb, var(--ok) 45%, transparent);
+  }
+  .dist-bar__seg--mastered {
+    background: var(--ok);
+  }
+
+  .dist-rows {
+    display: flex;
+    gap: var(--space-5);
+    flex-wrap: wrap;
+  }
+
+  .dist-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--fs-sm);
+  }
+
+  .dist-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  .dist-dot--unlearned {
+    background: color-mix(in srgb, var(--text) 20%, transparent);
+  }
+  .dist-dot--weak {
+    background: var(--bad);
+  }
+  .dist-dot--learning {
+    background: var(--warn);
+  }
+  .dist-dot--familiar {
+    background: color-mix(in srgb, var(--ok) 45%, transparent);
+  }
+  .dist-dot--mastered {
+    background: var(--ok);
+  }
+
+  .dist-row__label {
+    color: var(--text-muted);
+  }
+
+  .dist-row__n {
+    font-variant-numeric: tabular-nums;
+    font-weight: 550;
+    color: var(--text);
+  }
+
+  /* ---------- 今天 ---------- */
+  .stats-today {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding-top: var(--space-4);
+    flex-wrap: wrap;
+    font-size: var(--fs-sm);
+  }
+
+  .stats-today__label {
+    color: var(--text-faint);
+    font-size: var(--fs-xs);
+  }
+
+  .stats-today__item {
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+}

@@ -6,6 +6,7 @@ import { TodayPage } from './TodayPage.tsx';
 import { ReviewPage } from './ReviewPage.tsx';
 import { SourcesPage } from './SourcesPage.tsx';
 import { GeneratePage } from './GeneratePage.tsx';
+import { StatsPage } from './StatsPage.tsx';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { BackendService } from '@/core/backends.ts';
@@ -19,6 +20,7 @@ import './today-page.css';
 import './review-page.css';
 import './sources-page.css';
 import './generate-page.css';
+import './stats-page.css';
 
 /**
  * v2 应用入口。
@@ -171,6 +173,8 @@ export function App({
           onGenerated={() => void refreshCounts()}
           onOpenSources={() => setPage('sources')}
         />
+      ) : page === 'stats' ? (
+        <StatsPage service={reviewService} cardPool={cardPool} />
       ) : page === 'today' ? (
         <TodayPage
           key={poolKey}
