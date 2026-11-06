@@ -4,6 +4,8 @@ import type { CardLoader } from './cards-loader.ts';
 import { AppShell } from './AppShell.tsx';
 import { TodayPage } from './TodayPage.tsx';
 import { ReviewPage } from './ReviewPage.tsx';
+import { SourcesPage } from './SourcesPage.tsx';
+import type { SourceService } from '@/core/sources.ts';
 import type { Card } from '@/v2/core/cards.ts';
 import type { PageId } from './pages.ts';
 import './tokens.css';
@@ -11,6 +13,7 @@ import './shell.css';
 import './paper.css';
 import './today-page.css';
 import './review-page.css';
+import './sources-page.css';
 
 /**
  * v2 应用入口。
@@ -31,6 +34,8 @@ export interface AppProps {
   reviewService: ReviewService;
   /** 从资料库加载卡片（题目 + 知识点统一成 Card） */
   loadCards: CardLoader;
+  /** 资料服务（导入与列表） */
+  sourceService: SourceService;
   /** 当前资料库里的全部卡片 id */
   cardPool: readonly string[];
   hasSources: boolean;
@@ -43,6 +48,7 @@ export interface AppProps {
 export function App({
   reviewService,
   loadCards,
+  sourceService,
   cardPool,
   hasSources,
   connected,
@@ -136,6 +142,15 @@ export function App({
             onExit={() => setPage('today')}
           />
         )
+      ) : page === 'sources' ? (
+        <SourcesPage
+          service={sourceService}
+          onOpenSource={() => {
+            // 阅读器还没做，先给明确说明而不是空白页
+            setQueueError(null);
+          }}
+          onImported={() => void refreshCounts()}
+        />
       ) : page === 'today' ? (
         <TodayPage
           key={poolKey}

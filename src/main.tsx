@@ -42,6 +42,7 @@ function Bootstrap() {
     connected: boolean;
     modelName: string | null;
     loadCards: ReturnType<typeof createCardLoader>;
+    sourceService: SourceService;
   } | null>(null);
   const [failure, setFailure] = useState<{ message: string; hint: string } | null>(null);
 
@@ -84,6 +85,7 @@ function Bootstrap() {
           connected: ready.length > 0,
           modelName: first ? `${first.label} · ${first.model || '未填模型'}` : null,
           loadCards: createCardLoader(storage),
+          sourceService: sources,
         });
 
         setServices({
@@ -148,6 +150,7 @@ function Bootstrap() {
         connected={v2Data.connected}
         modelName={v2Data.modelName}
         loadCards={v2Data.loadCards}
+        sourceService={v2Data.sourceService}
       />
     </ServicesContext.Provider>
   );

@@ -1,0 +1,382 @@
+/*
+ * 资料页样式。
+ *
+ * 按截图还原：
+ *  - 标题 + 副标题 + 右侧添加按钮
+ *  - 三个标签（横排，选中态中性底 + 下边框）
+ *  - 虚线拖放区
+ */
+
+@layer study.features {
+  .sources-page {
+    max-width: 900px;
+  }
+
+  .sources-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-4);
+    margin-bottom: var(--space-5);
+  }
+
+  .sources-title {
+    font-size: var(--fs-3xl);
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    margin-bottom: var(--space-1);
+  }
+
+  .sources-sub {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+  }
+
+  .sources-head__right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex: none;
+    padding-top: var(--space-1);
+  }
+
+  /* ---------- 空状态 ---------- */
+  .sources-empty {
+    padding: var(--space-5) 0 var(--space-4);
+  }
+
+  .sources-empty__title {
+    font-size: var(--fs-xl);
+    font-weight: 550;
+    margin-bottom: var(--space-2);
+  }
+
+  .sources-empty__desc {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+    line-height: var(--lh-body);
+    max-width: 52ch;
+  }
+
+  /* ---------- 课程行 ---------- */
+  .sources-course {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    background: var(--bg-surface);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius);
+    margin-bottom: var(--space-4);
+  }
+
+  .sources-course__label {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+  }
+
+  /* ---------- 标签 ---------- */
+  .sources-tabs {
+    display: flex;
+    gap: 2px;
+    margin-bottom: var(--space-4);
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .sources-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: var(--space-2) var(--space-4);
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: var(--fs-sm);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color 0.12s, border-color 0.12s;
+  }
+
+  .sources-tab:hover {
+    color: var(--text);
+  }
+
+  /*
+   * 选中态用中性色 + 下边框。
+   * 不用朱砂 —— 朱砂留给「添加资料」那个主按钮。
+   */
+  .sources-tab--on {
+    color: var(--text);
+    font-weight: 550;
+    border-bottom-color: var(--text);
+  }
+
+  /* ---------- 拖放区 ---------- */
+  .dropzone {
+    border: 1.5px dashed var(--line-strong);
+    border-radius: var(--radius-card);
+    padding: var(--space-6) var(--space-5);
+    text-align: center;
+    transition: border-color 0.15s, background 0.15s;
+    background: var(--bg-surface);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .dropzone--over {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 6%, var(--bg-surface));
+  }
+
+  .dropzone--busy {
+    border-style: solid;
+  }
+
+  .dropzone__inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    width: 100%;
+  }
+
+  .dropzone__icon {
+    color: var(--text-muted);
+    display: inline-flex;
+  }
+
+  .dropzone__title {
+    font-size: var(--fs-md);
+    font-weight: 550;
+    color: var(--text);
+  }
+
+  .dropzone__name {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+  }
+
+  .dropzone__formats {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    line-height: 1.7;
+    max-width: 58ch;
+  }
+
+  .dropzone__pick {
+    flex: none;
+  }
+
+  /* 导入进度条 */
+  .dropzone__bar {
+    width: min(320px, 100%);
+    height: 3px;
+    background: var(--line);
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+  }
+
+  .dropzone__bar-fill {
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.2s;
+  }
+
+  /* ---------- 粘贴文本 ---------- */
+  .paste-box {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .paste-title {
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--fs-md);
+  }
+
+  .paste-area {
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--fs-md);
+    line-height: var(--lh-body);
+    resize: vertical;
+    min-height: 200px;
+  }
+
+  .paste-title:focus,
+  .paste-area:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+  }
+
+  .paste-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+
+  .paste-count {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- 音频占位 ---------- */
+  .audio-todo {
+    padding: var(--space-5);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius-card);
+    background: var(--bg-surface);
+  }
+
+  .audio-todo__text {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+    line-height: var(--lh-body);
+    max-width: 58ch;
+  }
+
+  /* ---------- 格式说明折叠 ---------- */
+  .sources-note {
+    margin-top: var(--space-4);
+    border-top: 1px solid var(--line-soft);
+    padding-top: var(--space-3);
+  }
+
+  .sources-note > summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    padding: var(--space-2) 0;
+  }
+
+  /* 自绘 chevron：打开转 90° */
+  .sources-note > summary::before {
+    content: '';
+    width: 0;
+    height: 0;
+    border-left: 4px solid currentColor;
+    border-top: 3.5px solid transparent;
+    border-bottom: 3.5px solid transparent;
+    transition: transform 0.18s;
+    opacity: 0.6;
+  }
+
+  .sources-note[open] > summary::before {
+    transform: rotate(90deg);
+  }
+
+  .sources-note__hint {
+    margin-left: auto;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+  }
+
+  .sources-note p {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+    line-height: var(--lh-body);
+    padding: var(--space-2) 0 var(--space-2) var(--space-4);
+    max-width: 64ch;
+  }
+
+  /* ---------- 导入结果 ---------- */
+  .import-results {
+    list-style: none;
+    margin: var(--space-3) 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    font-size: var(--fs-sm);
+  }
+
+  .import-result--ok {
+    color: var(--ok);
+  }
+
+  .import-result--bad {
+    color: var(--bad);
+  }
+
+  .import-result__reason {
+    margin-left: var(--space-2);
+    color: var(--text-muted);
+  }
+
+  .sources-error {
+    margin: var(--space-3) 0;
+    padding: var(--space-3);
+    border: 1px solid var(--bad);
+    border-radius: var(--radius-sm);
+    color: var(--bad);
+    font-size: var(--fs-sm);
+  }
+
+  /* ---------- 资料列表 ---------- */
+  .source-list {
+    list-style: none;
+    margin: var(--space-5) 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .source-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    padding: var(--space-3) var(--space-2);
+    border: none;
+    border-bottom: 1px solid var(--line-soft);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+
+  .source-row:hover {
+    background: var(--bg-hover);
+  }
+
+  .source-row__title {
+    font-size: var(--fs-md);
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .source-row__meta {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+}
