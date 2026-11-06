@@ -27,3 +27,7 @@ coverage/
 
 # v1 资料备份（89MB 二进制，不入库；需要时从桌面程序目录恢复）
 .backup-v1/
+
+# StudyHub 参考仓库（67MB，子代理 clone 用于对照设计系统）
+# 需要时重新 clone：git clone --depth 1 https://github.com/EricWang1358/dsh-web-studyhub
+.tmp/
