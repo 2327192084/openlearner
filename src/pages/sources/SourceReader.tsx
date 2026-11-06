@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge, ErrorState, LoadingState, Notice } from '@/components/states.tsx';
 import { AnnotationLayer } from './AnnotationLayer.tsx';
+import { AnnotatedBox } from './AnnotatedBox.tsx';
 import { useServices } from '@/app/services-context.ts';
 
 /** 缩放的步进与上下限。上限 3 倍够看清小字，再大会因位图放大而糊 */
@@ -299,6 +300,17 @@ export function SourceReader({
    * 但那不影响「显示什么」这个决定。
    */
   const needsPageImage = source.kind === 'pdf' && segments.length > 0;
+
+  /**
+   * 文字类资料 —— 用文字渲染正文，并在其上挂批注。
+   *
+   * 判据是「这一页有没有正文可读」：
+   *  - docx / markdown / text 一律是文字
+   *  - 有文字层的 PDF 也是文字（这时不渲染页面图）
+   *  - 扫描件（无文字层）不在此列，它显示的是页面图，批注挂在图上
+   */
+  const isTextDocument =
+    source.kind !== 'image' && !needsPageImage && (segment?.text ?? '').trim().length > 0;
 
   /**
    * 当前页号（扫描件渲染用）。按 segment.page 取，不用数组下标 ——
@@ -838,18 +850,47 @@ export function SourceReader({
               )
             ) : null}
 
-            <HighlightedText
-              text={segment.text}
-              ranges={highlightRanges}
-              active={
-                activeHit && activeHit.segmentId === segment.id
-                  ? { charStart: activeHit.charStart, charEnd: activeHit.charEnd }
-                  : null
-              }
-              activeRef={(el) => {
-                activeMarkRef.current = el;
-              }}
-            />
+            {/*
+              文字资料（docx / markdown / 纯文本 / 有文字层的 PDF 页）
+              也支持批注：把正文本身当成"一块页面"，批注画布覆盖在文字上方。
+
+              为什么不在 PDF 页面图上也走这条路径：那边已经有明确的页面边界
+              与尺寸（渲染出来的图），用 AnnotatedBox 反而多一层测量。
+            */}
+            {isTextDocument ? (
+              <AnnotatedBox
+                sourceId={source.id}
+                page={currentPageNo}
+                service={annotations}
+                onChange={() => void refreshAnnotationPages()}
+              >
+                <HighlightedText
+                  text={segment.text}
+                  ranges={highlightRanges}
+                  active={
+                    activeHit && activeHit.segmentId === segment.id
+                      ? { charStart: activeHit.charStart, charEnd: activeHit.charEnd }
+                      : null
+                  }
+                  activeRef={(el) => {
+                    activeMarkRef.current = el;
+                  }}
+                />
+              </AnnotatedBox>
+            ) : (
+              <HighlightedText
+                text={segment.text}
+                ranges={highlightRanges}
+                active={
+                  activeHit && activeHit.segmentId === segment.id
+                    ? { charStart: activeHit.charStart, charEnd: activeHit.charEnd }
+                    : null
+                }
+                activeRef={(el) => {
+                  activeMarkRef.current = el;
+                }}
+              />
+            )}
 
             {/*
               图片且还没识别：正文区没有字可读，明说下一步该点哪里，

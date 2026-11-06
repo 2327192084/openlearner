@@ -590,3 +590,18 @@
   margin-left: auto;
   flex: none;
 }
+
+/* ---------- 文字资料上的批注层 ---------- */
+/*
+ * 定位基准：批注画布绝对定位覆盖在正文上，坐标按比例换算。
+ * position: relative 必须在这里，否则注释会相对整页定位而错位。
+ *
+ * 注意正文可能有较大的 padding（阅读舒适度），批注要盖住**内容区**
+ * 而不是含 padding 的外框 —— 否则文字与批注会差一个 padding 的距离，
+ * 划线划在字的上方。所以用 inset: 0 覆盖内容区，
+ * 并让 padding 落在内部子元素上。
+ */
+.annot-box {
+  position: relative;
+  width: 100%;
+}
