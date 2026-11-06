@@ -139,7 +139,17 @@ export function SourceReader({
   const [pageImageState, setPageImageState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [pageImageError, setPageImageError] = useState<string | null>(null);
 
-  const needsPageImage = source.kind === 'pdf' && source.textStatus === 'no-text-layer';
+  /**
+   * 原始 PDF 字节的缓存（按资料 id）。
+   *
+   * 为什么必须有：这份教材 45MB，而扫描件翻页要逐页渲染。
+   * 每次翻页都去 IndexedDB 读 45MB 会让翻页卡死 ——
+   * 实测 628 页的资料翻到第 3 页就再也出不来图。
+   *
+   * 用 ref 而不是 state：它是纯缓存，变化不该触发重渲染。
+   */
+  const pdfBytesCache = useRef<{ sourceId: string; bytes: Uint8Array } | null>(null);
+
 
   /**
    * 当前页号与渲染 effect 都在 segments 声明之后（那里才拿得到 segments）。
@@ -175,6 +185,23 @@ export function SourceReader({
   const segment = segments[current];
 
   /**
+   * 这一页要不要渲染成图片 —— 判据是**这一页有没有正文**，不是资料的整体状态。
+   *
+   * ⚠️ 这里曾经写成 `textStatus === 'no-text-layer'`，是个错误判断：
+   * 扫描件一旦被 OCR 过，整体状态就变成 'ready'，于是整份资料再也不渲染图。
+   * 但 OCR 往往只识别了前几页 —— 结果是第 1、2 页有文字，第 3 页起一片空白。
+   * 用户看到的就是「只能看前两页」，而资料明明有 628 页。
+   *
+   * 「有没有文字层」和「这一页该显示什么」是两件事：
+   *   - 该页有正文 → 显示文字（更清晰、更省内存）
+   *   - 该页没正文 → 显示页面图（否则翻到那里就是白板）
+   */
+  const needsPageImage =
+    source.kind === 'pdf' &&
+    segments.length > 0 &&
+    (segment?.text ?? '').trim().length === 0;
+
+  /**
    * 当前页号（扫描件渲染用）。按 segment.page 取，不用数组下标 ——
    * 按章节切分的资料里两者不相等。
    */
@@ -205,15 +232,24 @@ export function SourceReader({
 
     void (async () => {
       try {
-        const bytes = await service.getOriginalFile(source.id);
-        if (cancelled) return;
-        if (!bytes || bytes.byteLength === 0) {
-          setPageImageState('error');
-          setPageImageError(
-            '这份 PDF 的原始文件不在本机，没法渲染出页面图。换过机器或从备份恢复过的资料需要重新导入一次。',
-          );
-          return;
+        // 先看缓存：45MB 的 PDF 每次翻页都重读会让翻页卡死
+        let bytes = pdfBytesCache.current?.sourceId === source.id
+          ? pdfBytesCache.current.bytes
+          : null;
+        if (!bytes) {
+          const loaded = await service.getOriginalFile(source.id);
+          if (cancelled) return;
+          if (!loaded || loaded.byteLength === 0) {
+            setPageImageState('error');
+            setPageImageError(
+              '这份 PDF 的原始文件不在本机，没法渲染出页面图。换过机器或从备份恢复过的资料需要重新导入一次。',
+            );
+            return;
+          }
+          bytes = loaded;
+          pdfBytesCache.current = { sourceId: source.id, bytes };
         }
+        if (cancelled) return;
 
         const { renderSourcePage } = await import('@/core/slides/source-page.ts');
         if (cancelled) return;
