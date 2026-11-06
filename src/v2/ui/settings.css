@@ -1,0 +1,546 @@
+/*
+ * 设置页样式。
+ *
+ * 结构借鉴 StudyHub 的 Settings.jsx（MIT，4.4.3）：
+ * 左侧分类 + 右侧单面板，而不是把所有东西塞进一长条。
+ * 但没有抄它的组件 —— 那套是 JSX + 自研 css loader，这里是普通 Vite。
+ *
+ * 设计约束（交接文档第五节）：
+ *  - 选中态用中性色（--bg-selected），不用朱砂
+ *  - 一屏只有一个填充主按钮
+ *  - 字重只有 300/400/550/650
+ */
+
+@layer study.features {
+  .settings-page {
+    width: 100%;
+    max-width: 1000px;
+  }
+
+  .settings-head {
+    margin-bottom: var(--space-6);
+  }
+
+  .settings-title {
+    font-size: var(--fs-3xl);
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    margin-bottom: var(--space-2);
+  }
+
+  .settings-lead {
+    color: var(--text-muted);
+    font-size: var(--fs-md);
+    line-height: var(--lh-body);
+    max-width: 62ch;
+  }
+
+  /* ---------- 两栏：分类 + 面板 ---------- */
+  .settings-layout {
+    display: grid;
+    grid-template-columns: 176px minmax(0, 1fr);
+    gap: var(--space-7);
+    align-items: start;
+  }
+
+  .settings-nav {
+    position: sticky;
+    top: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .settings-nav__group {
+    padding: var(--space-3) var(--space-3) var(--space-1);
+    color: var(--text-faint);
+    font-size: var(--fs-xs);
+    letter-spacing: 0.06em;
+  }
+
+  .settings-nav__item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 7px var(--space-3);
+    border: none;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: var(--fs-sm);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .settings-nav__item:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+
+  /* 选中态用中性色，不用朱砂（朱砂只留给主操作） */
+  .settings-nav__item[aria-current='page'] {
+    background: var(--bg-selected);
+    color: var(--text);
+    font-weight: 550;
+  }
+
+  .settings-nav__item[aria-current='page'] .settings-nav__count {
+    color: var(--text-dim);
+  }
+
+  .settings-nav__count {
+    margin-left: auto;
+    color: var(--text-faint);
+    font-size: var(--fs-xs);
+  }
+
+  .settings-panel {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-7);
+    padding-bottom: var(--space-8);
+  }
+
+  /* ---------- 面板里的分区 ---------- */
+  .set-section {
+    display: grid;
+    gap: var(--space-3);
+    align-content: start;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .set-section + .set-section {
+    padding-top: var(--space-6);
+    border-top: 1px solid var(--line);
+  }
+
+  .set-section__title {
+    margin: 0;
+    color: var(--text);
+    font-size: var(--fs-lg);
+    font-weight: 550;
+    line-height: var(--lh-tight);
+  }
+
+  .set-section__lead {
+    margin: 0;
+    max-width: 70ch;
+    color: var(--text-dim);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-body);
+  }
+
+  /* ---------- 键值信息（库信息） ---------- */
+  .set-kv {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: var(--space-2) var(--space-5);
+    margin: 0;
+    font-size: var(--fs-sm);
+  }
+
+  .set-kv dt {
+    color: var(--text-faint);
+  }
+
+  .set-kv dd {
+    margin: 0;
+    color: var(--text-dim);
+    overflow-wrap: anywhere;
+  }
+
+  .set-mono {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+  }
+
+  /* ---------- 底部操作行 ---------- */
+  .set-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+
+  .set-actions--stack {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  /*
+   * 并排时实心按钮要和描边按钮同高。.btn-fill 基础类是 border:none，
+   * .btn-ghost 有 1px 边框，同排会差 2px、错位 1px（量过）。补一条透明边框对齐。
+   */
+  .set-actions .btn-fill {
+    border: 1px solid transparent;
+  }
+
+  /*
+   * 不沿用 .btn-text：它在 today-page.css 里是「无层级」规则（那边的 @layer
+   * 在第 182 行就关了），无层级规则按级联顺序会压过本文件 @layer 里的所有规则。
+   * 这里用独立类名，见文件末尾的同名规则（那条也必须放在层外）。
+   */
+
+  /* ---------- 就地提示 ---------- */
+  .set-inline {
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line);
+    border-left-width: 2px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+    color: var(--text-dim);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-snug);
+  }
+
+  .set-inline--ok {
+    border-left-color: var(--ok);
+    color: var(--text-dim);
+  }
+
+  .set-inline--warn {
+    border-left-color: var(--warn);
+  }
+
+  .set-inline--error {
+    border-left-color: var(--bad);
+    color: var(--text);
+  }
+
+  .set-hint {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: var(--fs-xs);
+    line-height: var(--lh-snug);
+  }
+
+  /* ---------- 后端卡片 ---------- */
+  .set-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .set-item {
+    display: flex;
+    gap: var(--space-4);
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+  }
+
+  .set-item__main {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .set-item__title {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    font-size: var(--fs-md);
+    font-weight: 550;
+    color: var(--text);
+  }
+
+  .set-item__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    color: var(--text-muted);
+    font-size: var(--fs-xs);
+    overflow-wrap: anywhere;
+  }
+
+  .set-item__caps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    color: var(--text-faint);
+    font-size: var(--fs-xs);
+  }
+
+  .set-item__actions {
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    justify-content: flex-end;
+  }
+
+  /* ---------- 徽章 ---------- */
+  .set-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 7px;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--line);
+    color: var(--text-muted);
+    font-size: 11.5px;
+    font-weight: 400;
+    line-height: 1.6;
+  }
+
+  .set-badge--ok {
+    border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+    color: var(--ok);
+  }
+
+  .set-badge--warn {
+    border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+    color: var(--warn);
+  }
+
+  .set-badge--default {
+    border-color: var(--line-strong);
+    color: var(--text-dim);
+  }
+
+  /* ---------- 表单 ---------- */
+  .set-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-5);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+  }
+
+  .set-form__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+
+  .set-form__title {
+    margin: 0;
+    font-size: var(--fs-md);
+    font-weight: 550;
+  }
+
+  .set-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+    gap: var(--space-4);
+  }
+
+  .set-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  .set-label {
+    color: var(--text-muted);
+    font-size: var(--fs-xs);
+    letter-spacing: 0.02em;
+  }
+
+  .set-input,
+  .set-select {
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--bg-canvas);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--fs-sm);
+  }
+
+  .set-select {
+    cursor: pointer;
+  }
+
+  .set-input:focus-visible,
+  .set-select:focus-visible {
+    outline: none;
+    border-color: var(--line-strong);
+    box-shadow: var(--ring);
+  }
+
+  .set-input--mono {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+  }
+
+  .set-fieldset {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .set-legend {
+    padding: 0;
+    color: var(--text-muted);
+    font-size: var(--fs-xs);
+    letter-spacing: 0.02em;
+  }
+
+  .set-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+  }
+
+  .set-check {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--text-dim);
+    font-size: var(--fs-sm);
+    cursor: pointer;
+  }
+
+  /* ---------- 二次确认框 ---------- */
+  .set-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: grid;
+    place-items: center;
+    padding: var(--space-5);
+  }
+
+  .set-modal__scrim {
+    position: absolute;
+    inset: 0;
+    border: none;
+    padding: 0;
+    background: #00000099;
+    cursor: default;
+  }
+
+  .set-modal__box {
+    position: relative;
+    width: min(100%, 460px);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-6);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-card);
+    background: var(--bg-raised);
+    box-shadow: var(--shadow-md);
+  }
+
+  .set-modal__title {
+    margin: 0;
+    font-size: var(--fs-lg);
+    font-weight: 550;
+  }
+
+  .set-modal__desc {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-body);
+  }
+
+  .set-modal__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-3);
+    margin-top: var(--space-2);
+  }
+
+  /* 危险主按钮：同尺寸，颜色换成莓红，仍然只有一个填充按钮 */
+  .btn-fill--danger {
+    background: var(--bad);
+    color: #1b0b12;
+  }
+
+  .btn-fill--danger:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--bad) 82%, white);
+  }
+
+  /* ---------- 窄屏：分类变顶部横向药丸 ---------- */
+  @media (max-width: 760px) {
+    .settings-layout {
+      grid-template-columns: minmax(0, 1fr);
+      gap: var(--space-5);
+    }
+
+    .settings-nav {
+      position: static;
+      flex-direction: row;
+      overflow-x: auto;
+      gap: var(--space-2);
+      padding-bottom: var(--space-2);
+    }
+
+    .settings-nav__group {
+      display: none;
+    }
+
+    .settings-nav__item {
+      flex: none;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-pill);
+      padding: 5px var(--space-4);
+    }
+
+    .settings-nav__item[aria-current='page'] {
+      border-color: var(--line-strong);
+    }
+
+    .settings-nav__count {
+      margin-left: var(--space-1);
+    }
+
+    .set-item {
+      flex-direction: column;
+    }
+
+    .set-item__actions {
+      justify-content: flex-start;
+    }
+  }
+}
+
+/*
+ * 提示条里的行内动作（如「现在重新加载」）。
+ *
+ * 这条规则**故意放在 @layer 外面**：src/styles/base.css 的
+ * `button, input, select, textarea { font: inherit; color: inherit }`
+ * 是无层级规则，按 CSS 级联顺序「无层级优先于任何层」，
+ * 放在 study.features 里不管特异性多高都输给它，按钮会继承父级灰字、
+ * 看起来像普通文本、看不出能点。两边同为无层级后，类选择器才有机会赢。
+ */
+.set-inline__action {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+  text-underline-offset: 3px;
+}
+
+.set-inline__action:hover {
+  color: var(--accent-text);
+}

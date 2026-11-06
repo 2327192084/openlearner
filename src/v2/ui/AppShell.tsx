@@ -4,7 +4,6 @@ import {
   PAGES,
   pagesInGroup,
   pageById,
-  LANG_ICON,
   SETTINGS_ITEM,
   FOOT_ITEMS,
   type PageId,
@@ -187,23 +186,8 @@ export function AppShell({
           })}
         </nav>
 
-        {/* 底部：语言 + 功能导览 + 设置 */}
+        {/* 底部：功能导览 + 设置 */}
         <div className="sidebar__foot">
-          <div className="lang-switch">
-            <span className="lang-switch__icon" aria-hidden="true">
-              <LANG_ICON size={18} />
-            </span>
-            <span className="lang-switch__label">语言</span>
-            <div className="lang-switch__opts">
-              <button type="button" className="lang-btn lang-btn--on">
-                中文
-              </button>
-              <button type="button" className="lang-btn">
-                EN
-              </button>
-            </div>
-          </div>
-
           {FOOT_ITEMS.map((f) => {
             const Icon = f.icon;
             return (

@@ -13,6 +13,8 @@ import type { BackendService } from '@/core/backends.ts';
 import type { SourceService } from '@/core/sources.ts';
 import type { Card } from '@/v2/core/cards.ts';
 import type { PageId } from './pages.ts';
+import { SettingsPage } from './SettingsPage.tsx';
+import { useServices } from '@/app/services-context.ts';
 import './tokens.css';
 import './shell.css';
 import './paper.css';
@@ -21,6 +23,7 @@ import './review-page.css';
 import './sources-page.css';
 import './generate-page.css';
 import './stats-page.css';
+import './settings.css';
 
 /**
  * v2 应用入口。
@@ -77,6 +80,40 @@ export function App({
   const [queue, setQueue] = useState<Card[] | null>(null);
   const [queueError, setQueueError] = useState<string | null>(null);
   const [overviewCounts, setOverviewCounts] = useState<Partial<Record<PageId, number>>>({});
+
+  const { library } = useServices();
+
+  /**
+   * 后端状态与库名的本地副本。
+   *
+   * 初值来自启动时的 props —— 但设置页可能在会话中期新增/删除后端、
+   * 改库名。若只认 props，顶栏会一直写着「未连接」而实际上已经连上了，
+   * 那正是「界面在骗人」。所以这里留一份可刷新的副本。
+   */
+  const [conn, setConn] = useState<{ connected: boolean; modelName: string | null }>({
+    connected,
+    modelName: modelName ?? null,
+  });
+  const [libName, setLibName] = useState('openleaner');
+
+  const refreshShellState = useCallback(async () => {
+    try {
+      const [list, meta] = await Promise.all([backends.list(), library.getMeta()]);
+      const ready = list.filter((b) => b.status === 'ready');
+      const first = ready[0] ?? null;
+      setConn({
+        connected: ready.length > 0,
+        modelName: first ? `${first.label} · ${first.model || '未填模型'}` : null,
+      });
+      setLibName(meta?.name ?? 'openleaner');
+    } catch {
+      // 读不到就保持原样，不要把状态改成「未连接」骗用户
+    }
+  }, [backends, library]);
+
+  useEffect(() => {
+    void refreshShellState();
+  }, [refreshShellState]);
 
   /**
    * 侧栏计数。
@@ -140,8 +177,8 @@ export function App({
       current={page}
       onNavigate={(id) => void navigate(id)}
       counts={overviewCounts}
-      connected={connected}
-      libraryName="openleaner"
+      connected={conn.connected}
+      libraryName={libName}
       reviewProgress={null}
     >
       {page === 'review' ? (
@@ -175,14 +212,16 @@ export function App({
         />
       ) : page === 'stats' ? (
         <StatsPage service={reviewService} cardPool={cardPool} />
+      ) : page === 'settings' ? (
+        <SettingsPage onChanged={() => void refreshShellState()} />
       ) : page === 'today' ? (
         <TodayPage
           key={poolKey}
           service={reviewService}
           cardPool={cardPool}
           hasSources={hasSources}
-          connected={connected}
-          modelName={modelName}
+          connected={conn.connected}
+          modelName={conn.modelName}
           onOpenSources={() => setPage('sources')}
           onStartReview={() => setPage('review')}
           onStartNew={() => setPage('generate')}
@@ -219,6 +258,7 @@ function Placeholder({ page, onBack }: { page: PageId; onBack: () => void }) {
     skeleton: '知识骨架',
     audio: '音频转写',
     record: '课堂实录',
+    guide: '功能导览',
     settings: '设置',
   };
 

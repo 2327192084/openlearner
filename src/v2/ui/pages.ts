@@ -7,7 +7,6 @@ import {
   IconExam,
   IconFlow,
   IconGenerate,
-  IconGlobe,
   IconHelp,
   IconLibrary,
   IconNotes,
@@ -27,9 +26,11 @@ import {
  * 按你给的真实截图还原：
  *  - 顶部单行「回到题目」（带进度 chip）
  *  - 三组可折叠：每天 / 阶段性 / 课程准备与管理
- *  - 底部固定：语言切换、功能导览
+ *  - 底部固定：功能导览、设置
  *
  * 组的顺序与命名照截图，不自创。
+ * 语言切换（中文/EN）已移除：EN 从来没有实现过，只放一个点了没反应的按钮
+ * 比没有更糟。
  */
 
 export type PageId =
@@ -49,6 +50,7 @@ export type PageId =
   | 'skeleton'
   | 'audio'
   | 'record'
+  | 'guide'
   | 'settings';
 
 export type NavGroup = 'daily' | 'staged' | 'prep';
@@ -220,11 +222,12 @@ export const GROUPS: { id: NavGroup; label: string }[] = [
 
 /** 底部固定项 */
 export const FOOT_ITEMS: { id: PageId; label: string; icon: (p: { size?: number }) => ReactElement }[] = [
-  { id: 'settings', label: '功能导览', icon: IconHelp },
+  // 「功能导览」有自己的 id，不再借用 settings —— 之前点它其实是跳去设置页，
+  // 名不副实。真正的导览页还没做，进去会看到明确的占位说明。
+  { id: 'guide', label: '功能导览', icon: IconHelp },
 ];
 
 export const SETTINGS_ITEM = { id: 'settings' as PageId, label: '设置', icon: IconSettings };
-export const LANG_ICON = IconGlobe;
 export const BACK_ICON = IconBack;
 
 /**
@@ -250,7 +253,17 @@ const OFF_NAV: Partial<Record<PageId, PageDef>> = {
     label: '设置',
     title: '设置',
     icon: IconSettings,
-    purpose: '接入模型、选择主题、导出备份',
+    purpose: '接入模型、管理学习库、导出备份',
+    group: 'prep',
+    show: false,
+    ready: true,
+  },
+  guide: {
+    id: 'guide',
+    label: '功能导览',
+    title: '功能导览',
+    icon: IconHelp,
+    purpose: '每一页能做什么、快捷键有哪些',
     group: 'prep',
     show: false,
   },
