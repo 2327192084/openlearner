@@ -1,0 +1,160 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+import { ReviewService } from './review-service.ts';
+import { MemoryStorage } from '@/core/storage/memory-storage.ts';
+import { todayUtc } from './srs.ts';
+
+/**
+ * 复习服务的测试。
+ *
+ * 重点验「面板上的数字必须来自同一时刻的快照」——
+ * 早先的功能里出现过「显示到期 5 张但列表只有 3 张」这类矛盾，
+ * 用户会觉得软件在乱报数字。
+ */
+
+const at = new Date('2026-11-06T10:00:00Z');
+
+describe('ReviewService：复习与进度', () => {
+  let storage: MemoryStorage;
+  let svc: ReviewService;
+
+  beforeEach(() => {
+    storage = new MemoryStorage();
+    svc = new ReviewService(storage);
+  });
+
+  it('首次复习会建记录', async () => {
+    const r = await svc.review('q1', 'question', 'good', at);
+    expect(r.cardId).toBe('q1');
+    expect(r.state.reviewCount).toBe(1);
+    expect(r.state.intervalDays).toBe(1);
+  });
+
+  it('再次复习在旧状态上累加', async () => {
+    await svc.review('q1', 'question', 'good', at);
+    const r2 = await svc.review('q1', 'question', 'good', at);
+    expect(r2.state.reviewCount).toBe(2);
+    expect(r2.state.intervalDays).toBeGreaterThan(1);
+  });
+
+  it('答错会缩短间隔', async () => {
+    await svc.review('q1', 'question', 'easy', at);
+    await svc.review('q1', 'question', 'easy', at);
+    const before = (await svc.getRecord('q1'))!.state.intervalDays;
+    const after = await svc.review('q1', 'question', 'again', at);
+    expect(after.state.intervalDays).toBe(1);
+    expect(before).toBeGreaterThan(1);
+  });
+
+  it('每次复习都记一条历史', async () => {
+    await svc.review('q1', 'question', 'good', at);
+    await svc.review('q1', 'question', 'again', at);
+    const logs = await storage.getAll('reviewLogs');
+    expect(logs).toHaveLength(2);
+    expect(logs.map((l) => l.grade)).toEqual(['good', 'again']);
+  });
+
+  it('不同卡片互不影响', async () => {
+    await svc.review('q1', 'question', 'easy', at);
+    await svc.review('q2', 'question', 'again', at);
+    expect((await svc.getRecord('q1'))!.state.intervalDays).toBe(3);
+    expect((await svc.getRecord('q2'))!.state.intervalDays).toBe(1);
+  });
+
+  it('批量查询一次拿到多张卡', async () => {
+    await svc.review('q1', 'question', 'good', at);
+    await svc.review('q2', 'question', 'good', at);
+    const map = await svc.getRecords(['q1', 'q2', 'q3']);
+    expect(map.size).toBe(2);
+    expect(map.has('q3')).toBe(false);
+  });
+});
+
+describe('ReviewService：今日概览', () => {
+  let storage: MemoryStorage;
+  let svc: ReviewService;
+
+  beforeEach(() => {
+    storage = new MemoryStorage();
+    svc = new ReviewService(storage);
+  });
+
+  it('全没学过时：全是新卡，到期 0', async () => {
+    const o = await svc.todayOverview(['q1', 'q2', 'q3'], at);
+    expect(o.freshCount).toBe(3);
+    expect(o.dueCount).toBe(0);
+    expect(o.totalCards).toBe(3);
+    expect(o.learnedCards).toBe(0);
+    expect(o.avgMastery).toBe(0);
+  });
+
+  it('学过但未到期：不算 due', async () => {
+    await svc.review('q1', 'question', 'easy', at); // 3 天后
+    const o = await svc.todayOverview(['q1', 'q2'], at);
+    expect(o.dueCount).toBe(0);
+    expect(o.learnedCards).toBe(1);
+  });
+
+  it('今天的复习计入 doneToday 与正确率', async () => {
+    await svc.review('q1', 'question', 'good', at);
+    await svc.review('q2', 'question', 'again', at);
+    const o = await svc.todayOverview(['q1', 'q2'], at);
+    expect(o.doneToday).toBe(2);
+    // 2 次里 1 次答对
+    expect(o.accuracyToday).toBe(0.5);
+  });
+
+  it('没有复习记录时正确率为 null（不编造 0）', async () => {
+    const o = await svc.todayOverview(['q1'], at);
+    expect(o.accuracyToday).toBeNull();
+  });
+
+  it('概览数字只统计池子里的卡', async () => {
+    await svc.review('q1', 'question', 'good', at);
+    await svc.review('not-in-pool', 'question', 'good', at);
+    const o = await svc.todayOverview(['q1', 'q2'], at);
+    expect(o.learnedCards).toBe(1);  // 只算 q1
+    expect(o.totalCards).toBe(2);
+  });
+
+  it('平均熟练度随复习提升', async () => {
+    const before = await svc.todayOverview(['q1'], at);
+    await svc.review('q1', 'question', 'easy', at);
+    await svc.review('q1', 'question', 'easy', at);
+    const after = await svc.todayOverview(['q1'], at);
+    expect(after.avgMastery).toBeGreaterThan(before.avgMastery);
+  });
+});
+
+describe('ReviewService：到期列表与趋势', () => {
+  let storage: MemoryStorage;
+  let svc: ReviewService;
+
+  beforeEach(() => {
+    storage = new MemoryStorage();
+    svc = new ReviewService(storage);
+  });
+
+  it('到期列表按逾期优先', async () => {
+    // 造两张逾期不同的卡
+    await storage.put('reviewRecords', {
+      id: 'rv:old', cardId: 'old', kind: 'question',
+      state: { ease: 2.5, intervalDays: 1, streak: 1, reviewCount: 1, lapseCount: 0, dueAt: '2026-10-01' },
+      firstSeenAt: '2026-09-30', updatedAt: '2026-09-30T00:00:00Z',
+    });
+    await storage.put('reviewRecords', {
+      id: 'rv:new', cardId: 'new', kind: 'question',
+      state: { ease: 2.5, intervalDays: 1, streak: 1, reviewCount: 1, lapseCount: 0, dueAt: '2026-11-05' },
+      firstSeenAt: '2026-11-04', updatedAt: '2026-11-04T00:00:00Z',
+    });
+    const due = await svc.dueCards(['old', 'new'], at);
+    expect(due[0]).toBe('old'); // 逾期更久
+  });
+
+  it('趋势返回指定天数且含今天', async () => {
+    await svc.review('q1', 'question', 'good', at);
+    const trend = await svc.recentActivity(7, at);
+    expect(trend).toHaveLength(7);
+    expect(trend[trend.length - 1]!.day).toBe(todayUtc(at));
+    expect(trend[trend.length - 1]!.count).toBe(1);
+  });
+});

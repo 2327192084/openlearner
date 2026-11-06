@@ -15,7 +15,8 @@ const DB_NAME = 'openleaner';
  * 而写入时抛的 NotFoundError 只在「往新分区写第一条记录」时才出现。
  */
 /** v3：新增 sourceAnnotations（用户在资料上的手写注释） */
-const DB_VERSION = 3;
+/** v4：新增 reviewRecords(reviewLogs) —— 间隔复习进度与历史 */
+const DB_VERSION = 4;
 
 /**
  * IndexedDB 存储适配器（浏览器与 Electron 渲染进程用）。

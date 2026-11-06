@@ -53,6 +53,22 @@ export const STORES = [
    * 与 sourceFiles 性质不同（那个可以从原文件重新渲染）。
    */
   'sourceAnnotations',
+  /**
+   * 复习进度（每张卡一条）。
+   *
+   * v2 重写新增：间隔复习是学习工具的核心机制，
+   * 进度必须持久化，否则每次打开都从零开始。
+   * 进备份 —— 丢了等于让用户白学几个月。
+   */
+  'reviewRecords',
+  /**
+   * 复习历史（每次评分一条）。
+   *
+   * 与 reviewRecords 分开：后者只留最终状态，
+   * 算不出「今天实际刷了几张」「今天的正确率」。
+   * 进备份，同样不该丢。
+   */
+  'reviewLogs',
   'knowledgePoints',
   'generationRuns',
   'decks',
@@ -96,6 +112,9 @@ export const BACKUP_STORES = [
   'sourceSegments',
   /** 用户手写注释。进备份：这是用户自己画的内容，丢了找不回来 */
   'sourceAnnotations',
+  /** 复习进度与历史。进备份：丢了等于让用户白学几个月 */
+  'reviewRecords',
+  'reviewLogs',
   'knowledgePoints',
   'generationRuns',
   'decks',
@@ -120,6 +139,8 @@ export interface StoreRecordMap {
   sources: Source;
   sourceSegments: SourceSegment;
   sourceAnnotations: SourceAnnotation;
+  reviewRecords: import('../../v2/core/review-service.ts').ReviewRecord;
+  reviewLogs: import('../../v2/core/review-service.ts').ReviewLog;
   knowledgePoints: KnowledgePoint;
   generationRuns: GenerationRun;
   decks: Deck;

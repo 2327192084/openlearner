@@ -1,0 +1,169 @@
+/*
+ * 今日面板。
+ *
+ * 排版原则：两个主数字最大最显眼，其余信息层级递减。
+ * 用户打开软件时的第一眼应该落在「待复习 12」上，
+ * 而不是平均分布在一堆等大数字里找不到重点。
+ */
+.today {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--sp-6) var(--sp-4);
+}
+
+.today__title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin: 0 0 var(--sp-4);
+  font-size: 20px;
+}
+
+.today__date {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--c-text-muted, #6b7280);
+}
+
+.today__lead {
+  margin: 0 0 var(--sp-4);
+  line-height: 1.8;
+  color: var(--c-text-muted, #6b7280);
+}
+
+.today__lead--done {
+  padding: var(--sp-3);
+  background: var(--c-primary-weak, rgb(37 99 235 / 8%));
+  border-radius: var(--radius-md);
+  color: var(--c-text);
+}
+
+.today__cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+@media (max-width: 560px) {
+  .today__cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+.today__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  background: var(--c-surface);
+}
+
+/* 主卡（待复习）加一点视觉权重 */
+.today__card--primary {
+  border-color: var(--c-primary, #2563eb);
+  box-shadow: 0 2px 12px rgb(37 99 235 / 8%);
+}
+
+.today__card-label {
+  font-size: 13px;
+  color: var(--c-text-muted, #6b7280);
+}
+
+.today__card-value {
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.today__card-hint {
+  font-size: 12px;
+  color: var(--c-text-muted, #6b7280);
+  flex: 1;
+}
+
+.today__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--c-surface-2, rgb(0 0 0 / 3%));
+  border-radius: var(--radius-md);
+  margin-bottom: var(--sp-4);
+}
+
+.today__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.today__stat-label {
+  font-size: 11px;
+  color: var(--c-text-muted, #6b7280);
+}
+
+.today__stat-value {
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.today__stat-note {
+  margin-left: 4px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--c-text-muted, #6b7280);
+}
+
+/* ---- 近 7 天趋势：纯 CSS 柱状，不引图表库 ---- */
+.today__trend-label {
+  font-size: 12px;
+  color: var(--c-text-muted, #6b7280);
+  margin-bottom: var(--sp-2);
+}
+
+.today__bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 64px;
+}
+
+.today__bar-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  gap: 4px;
+}
+
+.today__bar {
+  width: 100%;
+  max-width: 28px;
+  background: var(--c-primary, #2563eb);
+  border-radius: 2px 2px 0 0;
+  opacity: 0.75;
+  min-height: 2px;
+}
+
+.today__bar-day {
+  font-size: 10px;
+  color: var(--c-text-muted, #6b7280);
+}
+
+.today__error {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--c-danger, #ef4444);
+  border-radius: var(--radius-md);
+  color: var(--c-danger, #ef4444);
+  font-size: 13px;
+}

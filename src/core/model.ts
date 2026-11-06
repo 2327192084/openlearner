@@ -734,6 +734,14 @@ export interface LibraryBackup {
    * 能从原文件重新渲染。丢了就真的找不回来。
    */
   sourceAnnotations?: SourceAnnotation[];
+  /**
+   * 复习进度与历史（v2 新增）。
+   *
+   * 可选是为了兼容旧备份：2026-11-06 之前的备份没有这两个字段。
+   * 导入时按空数组处理，不让旧备份因为缺字段而导入失败。
+   */
+  reviewRecords?: import('../v2/core/review-service.ts').ReviewRecord[];
+  reviewLogs?: import('../v2/core/review-service.ts').ReviewLog[];
   knowledgePoints: KnowledgePoint[];
   /** 生成任务记录。跟知识点一起备份，否则恢复后看不到「这批是哪次跑的、花了多少」 */
   generationRuns: GenerationRun[];
