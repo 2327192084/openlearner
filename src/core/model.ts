@@ -763,6 +763,18 @@ export interface LibraryBackup {
 // 资料页面注释（画笔 + 文本框）
 // ---------------------------------------------------------------------------
 
+/**
+ * 笔形。
+ *
+ * 每种笔不是简单的粗细差别，而是**渲染方式**不同：
+ *  - pen      钢笔：随速变粗细（压感模拟），边缘清晰
+ *  - marker   马克笔：方头、半透明叠加，划重点用
+ *  - highlighter 荧光笔：更宽更淡，垫在文字下面
+ *  - pencil   铅笔：轻微抖动 + 颗粒感，草稿感
+ *  - laser    激光笔：高亮但不落墨（默认不留存，松手即散）
+ */
+export type PenKind = 'pen' | 'marker' | 'highlighter' | 'pencil' | 'laser';
+
 /** 一笔画笔笔迹。一次按下-拖动-抬起算一笔 */
 export interface InkStroke {
   /** 笔迹内的点，坐标是页面比例（0~1） */
@@ -772,12 +784,44 @@ export interface InkStroke {
   /** 线的粗细，以页面宽度的比例表示（0~1）。这样缩放时不跟着变粗 */
   width: number;
   /**
-   * 是否用荧光笔样式（半透明、粗）。
+   * 笔形。缺省视为 'pen'。
    *
-   * 与普通笔分开而不是靠 opacity 参数，因为两者的用途完全不同：
-   * 荧光笔是划重点（在下层、半透明），画笔是写字（在上层、实色）。
+   * 为什么用枚举而不是 `highlighter?: boolean`：
+   * 布尔只能表达「是不是荧光笔」，加第三种笔就表达不了。
+   * 早先的布尔字段保留兼容（见 renderStroke 里的回退）。
+   */
+  kind?: PenKind;
+  /**
+   * @deprecated 用 kind: 'highlighter' 代替。
+   * 保留是为了让 2026-11-06 之前存下的注释还能正常显示。
    */
   highlighter?: boolean;
+}
+
+/** 图形种类 */
+export type ShapeKind = 'line' | 'arrow' | 'rect' | 'ellipse';
+
+/**
+ * 一个图形元素（直线、箭头、矩形、椭圆）。
+ *
+ * 与笔迹分开存而不是「用笔迹模拟」：
+ * 图形必须是**矢量**的 —— 缩放后重画才不糊，擦除时也是一个整体。
+ * 用笔迹拼矩形的话，放大到 300% 边缘会有锯齿。
+ */
+export interface ShapeElement {
+  id: string;
+  kind: ShapeKind;
+  /** 起点（比例）。矩形/椭圆是一组对角 */
+  x1: number;
+  y1: number;
+  /** 终点（比例） */
+  x2: number;
+  y2: number;
+  color: string;
+  /** 线宽，页面宽度比例 */
+  width: number;
+  /** 填充色，null 表示不填充 */
+  fill: string | null;
 }
 
 /** 页面上的一类注释 */
@@ -790,6 +834,14 @@ export interface SourceAnnotation {
   strokes: InkStroke[];
   /** 文本框 */
   texts: TextNote[];
+  /**
+   * 图形元素（线/箭头/矩形/椭圆）。
+   *
+   * 可选是为了兼容 2026-11-06 之前存下的记录 ——
+   * 那些记录里没有这个字段，读出来是 undefined，
+   * 各处按 `?? []` 处理。
+   */
+  shapes?: ShapeElement[];
   createdAt: string;
   updatedAt: string;
 }

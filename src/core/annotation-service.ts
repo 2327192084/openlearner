@@ -1,4 +1,4 @@
-import type { SourceAnnotation, InkStroke, TextNote } from './model.ts';
+import type { SourceAnnotation, InkStroke, TextNote, ShapeElement } from './model.ts';
 import type { StorageAdapter } from './storage/types.ts';
 import { createAnnotation, hasContent } from './annotations.ts';
 
@@ -48,7 +48,7 @@ export class AnnotationService {
   async save(
     sourceId: string,
     page: number,
-    content: { strokes?: InkStroke[]; texts?: TextNote[] },
+    content: { strokes?: InkStroke[]; texts?: TextNote[]; shapes?: ShapeElement[] },
   ): Promise<SourceAnnotation | null> {
     const id = annotationId(sourceId, page);
     const existing = await this.storage.get('sourceAnnotations', id);
@@ -61,6 +61,8 @@ export class AnnotationService {
       page,
       strokes: content.strokes ?? existing?.strokes ?? [],
       texts: content.texts ?? existing?.texts ?? [],
+      // 老记录没有 shapes 字段，按空数组处理（见 model.ts 的注释）
+      shapes: content.shapes ?? existing?.shapes ?? [],
       updatedAt: now,
     };
 
@@ -107,6 +109,44 @@ export class AnnotationService {
     const existing = await this.get(sourceId, page);
     if (!existing) return null;
     return this.save(sourceId, page, { texts: existing.texts.filter((t) => t.id !== noteId) });
+  }
+
+  /** 追加一个图形 */
+  async addShape(sourceId: string, page: number, shape: ShapeElement): Promise<SourceAnnotation | null> {
+    const existing = await this.get(sourceId, page);
+    return this.save(sourceId, page, {
+      shapes: [...(existing?.shapes ?? []), shape],
+    });
+  }
+
+  /** 删除一个图形 */
+  async removeShape(sourceId: string, page: number, shapeId: string): Promise<SourceAnnotation | null> {
+    const existing = await this.get(sourceId, page);
+    if (!existing) return null;
+    return this.save(sourceId, page, {
+      shapes: (existing.shapes ?? []).filter((s) => s.id !== shapeId),
+    });
+  }
+
+  /**
+   * 整页覆盖写回。
+   *
+   * 擦除、套索移动、批量删除这类操作会一次改掉多个元素，
+   * 逐个调用 add/remove 会产生很多次写库。整页覆盖写一次更省，
+   * 语义也更清楚：「这一页现在长这样」。
+   *
+   * 空内容会被删除（与 save 一致），不留假标记。
+   */
+  async replacePage(
+    sourceId: string,
+    page: number,
+    content: { strokes: InkStroke[]; texts: TextNote[]; shapes: ShapeElement[] },
+  ): Promise<SourceAnnotation | null> {
+    return this.save(sourceId, page, {
+      strokes: content.strokes,
+      texts: content.texts,
+      shapes: content.shapes,
+    });
   }
 
   /** 撤销最后一笔 */

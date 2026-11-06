@@ -68,6 +68,21 @@ describe('hasContent / isAnnotationEmpty', () => {
     expect(hasContent({ ...base, strokes: [], texts: [note()] })).toBe(true);
   });
 
+  it('**只有图形也算有内容**（这个漏判会让图形存不住）', () => {
+    // 早先 hasContent 只判 strokes/texts，只画一个矩形的页面被判成空，
+    // 保存时直接删除 —— 表现是「图形画出来了，刷新就没了」
+    const shape = {
+      id: 's1', kind: 'rect' as const, x1: 0.1, y1: 0.1, x2: 0.5, y2: 0.5,
+      color: '#000', width: 0.003, fill: null,
+    };
+    expect(hasContent({ ...base, strokes: [], texts: [], shapes: [shape] })).toBe(true);
+    expect(isAnnotationEmpty({ ...base, strokes: [], texts: [], shapes: [shape] })).toBe(false);
+  });
+
+  it('shapes 字段缺失（老记录）时按空处理，不抛错', () => {
+    expect(hasContent({ ...base, strokes: [], texts: [] })).toBe(false);
+  });
+
   it('都没有算空', () => {
     expect(hasContent({ ...base, strokes: [], texts: [] })).toBe(false);
     expect(isAnnotationEmpty({ ...base, strokes: [], texts: [] })).toBe(true);

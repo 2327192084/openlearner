@@ -28,9 +28,21 @@ export const DEFAULT_INK_WIDTH = 0.0035;
 /** 荧光笔粗细，明显更宽 */
 export const HIGHLIGHTER_WIDTH = 0.02;
 
-/** 注释里是否有可显示的内容 */
+/**
+ * 注释里是否有可显示的内容。
+ *
+ * ⚠️ 必须把 shapes 也算进来。
+ * 早先只判 strokes 和 texts，于是「只画了一个矩形」的页面被判成空注释，
+ * 保存时直接删除 —— 表现是「图形画出来了，刷新就没了」。
+ * 这个 bug 只在「页面上只有图形、没有笔迹和文字」时出现，
+ * 所以混着笔迹测试时完全看不出来。
+ */
 export function hasContent(annotation: SourceAnnotation): boolean {
-  return annotation.strokes.length > 0 || annotation.texts.length > 0;
+  return (
+    annotation.strokes.length > 0 ||
+    annotation.texts.length > 0 ||
+    (annotation.shapes?.length ?? 0) > 0
+  );
 }
 
 /**
