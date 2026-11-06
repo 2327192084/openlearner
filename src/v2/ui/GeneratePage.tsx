@@ -84,11 +84,30 @@ export function GeneratePage({
     try {
       const all = await sourceService.list();
       setSources(all);
-      if (all.length > 0 && !selected) setSelected(all[0]!.id);
+      if (all.length === 0 || selected) return;
+
+      /**
+       * 默认选中**第一份真的有知识点的资料**，不是列表第一份。
+       *
+       * ⚠️ 这里踩过坑：原先直接选 all[0]，而用户库里第一份是
+       * 没整理过知识点的 PDF —— 打开出题页就看到「暂时无法从这里出题」，
+       * 会以为整个功能坏了，其实切一下就正常。
+       *
+       * 优先选有知识点的，都选不到才退回第一份（并给明确提示）。
+       */
+      let best: string | null = null;
+      for (const s of all) {
+        const pts = await knowledge.listBySource(s.id);
+        if (pts.some((p) => p.anchors.length > 0)) {
+          best = s.id;
+          break;
+        }
+      }
+      setSelected(best ?? all[0]!.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : '读不出资料');
     }
-  }, [sourceService, selected]);
+  }, [sourceService, knowledge, selected]);
 
   useEffect(() => {
     void loadSources();
@@ -242,11 +261,15 @@ export function GeneratePage({
               onChange={(e) => setSelected(e.target.value)}
               disabled={busy}
             >
-              {(sources ?? []).map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.title}
-                </option>
-              ))}
+              {(sources ?? []).map((s) => {
+                const n = s.id === selected ? usablePoints.length : null;
+                return (
+                  <option key={s.id} value={s.id}>
+                    {s.title}
+                    {n !== null ? `（${n} 条可出题）` : ''}
+                  </option>
+                );
+              })}
             </select>
             {points !== null ? (
               <p className="gen-hint">
