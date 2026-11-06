@@ -199,11 +199,21 @@
   }
 
   .gen-error {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
     padding: var(--space-3);
     border: 1px solid var(--bad);
     border-radius: var(--radius-sm);
     color: var(--bad);
     font-size: var(--fs-sm);
+  }
+
+  /* 下一步该做什么，比「出了什么事」更重要 —— 但要让位给错误本身 */
+  .gen-error__hint {
+    color: var(--text-muted);
+    font-size: var(--fs-xs);
+    line-height: var(--lh-snug);
   }
 
   .gen-done {

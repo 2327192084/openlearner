@@ -217,6 +217,16 @@ describe('hintFor：错误提示跟着服务商走', () => {
     const text = hintFor('invalid-key');
     expect(text).not.toContain('DeepSeek');
   });
+
+  /**
+   * 界面是「标题 + 建议」两行紧挨着渲染的。
+   * 如果建议的第一句又在重复标题，用户看到的就是同一句话说两遍。
+   * 建议只该回答「那我该做什么」。
+   */
+  it('建议不重复标题已经说过的结论', () => {
+    expect(hintFor('insufficient-balance', 'deepseek')).not.toContain('余额不足');
+    expect(hintFor('rate-limited', 'deepseek')).not.toContain('太频繁');
+  });
 });
 
 describe('ModelBackend：id 带上服务商，多种后端的结果能分开', () => {

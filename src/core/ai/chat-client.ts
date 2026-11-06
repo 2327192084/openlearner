@@ -76,8 +76,8 @@ export class ApiError extends Error {
 export const API_HINTS: Record<ApiErrorCode, string> = {
   'invalid-key': '请到设置页检查 API Key 是否粘贴完整（常见问题是首尾多了空格，或复制时漏了一段）。',
   forbidden: '这把 Key 可能没有该模型的权限，或账号已欠费。请到服务商控制台确认账号状态。',
-  'rate-limited': '请求太频繁。等十几秒再试；如果经常出现，说明需要降低单次整理的资料量。',
-  'insufficient-balance': '账号余额不足。请到服务商控制台充值后再试；已生成的内容不会丢。',
+  'rate-limited': '等十几秒再试；如果经常出现，说明需要降低单次整理的资料量。',
+  'insufficient-balance': '请到服务商控制台充值后再试；已生成的内容不会丢。',
   'server-error': '这是服务商那边的临时故障，不是你或软件的问题。稍后重试通常就能成。',
   network:
     '连不上服务。检查三件事：① 网络是否正常；② 接口地址是否填对（应该到 /v1 为止，不要带 /chat/completions）；③ 该服务是否允许浏览器直连（不允许的话用桌面版，或改用中转站）。',

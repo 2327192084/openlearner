@@ -78,7 +78,22 @@ export function GeneratePage({
   const [count, setCount] = useState(8);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * 错误附带的下一步建议。
+   *
+   * ApiError 的构造函数注释写着「不允许只显示 message」，因为
+   * 「账号余额不足」只告诉用户发生了什么，没告诉他该做什么。
+   * 这些建议在 chat-client 里已经按错误码写好了，不能在这一层丢掉。
+   */
+  const [errorHint, setErrorHint] = useState<string | null>(null);
   const [done, setDone] = useState<{ deck: string; questions: number } | null>(null);
+
+  /** 统一的报错入口：带上 hint 就一起显示，没带就清掉上一条的 */
+  const reportError = useCallback((err: unknown, fallback: string) => {
+    const e = err as { message?: string; hint?: string } | null;
+    setError(e?.message ?? fallback);
+    setErrorHint(typeof e?.hint === 'string' ? e.hint : null);
+  }, []);
 
   const loadSources = useCallback(async () => {
     try {
@@ -105,7 +120,7 @@ export function GeneratePage({
       }
       setSelected(best ?? all[0]!.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '读不出资料');
+      reportError(err, '读不出资料');
     }
   }, [sourceService, knowledge, selected]);
 
@@ -149,6 +164,7 @@ export function GeneratePage({
     if (busy || usablePoints.length === 0) return;
     setBusy(true);
     setError(null);
+    setErrorHint(null);
     setDone(null);
     try {
       const list = await backends.list();
@@ -192,7 +208,7 @@ export function GeneratePage({
       setDone({ deck: out.deck.title, questions: out.questions.length });
       onGenerated();
     } catch (err) {
-      setError(err instanceof Error ? err.message : '出题失败');
+      reportError(err, '出题失败');
     } finally {
       setBusy(false);
     }
@@ -323,7 +339,12 @@ export function GeneratePage({
             <span className="gen-estimate__note">按资料字数与题数估算，实际以服务端返回为准</span>
           </div>
 
-          {error ? <div className="gen-error">{error}</div> : null}
+          {error ? (
+            <div className="gen-error">
+              <span>{error}</span>
+              {errorHint ? <span className="gen-error__hint">{errorHint}</span> : null}
+            </div>
+          ) : null}
           {done ? (
             <div className="gen-done">
               ✓ 已生成「{done.deck}」，共 {done.questions} 道题。可以去「复习」里做了。
