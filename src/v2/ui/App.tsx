@@ -5,6 +5,10 @@ import { AppShell } from './AppShell.tsx';
 import { TodayPage } from './TodayPage.tsx';
 import { ReviewPage } from './ReviewPage.tsx';
 import { SourcesPage } from './SourcesPage.tsx';
+import { GeneratePage } from './GeneratePage.tsx';
+import type { KnowledgeService } from '@/core/knowledge/service.ts';
+import type { DeckService } from '@/core/questions/service.ts';
+import type { BackendService } from '@/core/backends.ts';
 import type { SourceService } from '@/core/sources.ts';
 import type { Card } from '@/v2/core/cards.ts';
 import type { PageId } from './pages.ts';
@@ -14,6 +18,7 @@ import './paper.css';
 import './today-page.css';
 import './review-page.css';
 import './sources-page.css';
+import './generate-page.css';
 
 /**
  * v2 应用入口。
@@ -36,6 +41,9 @@ export interface AppProps {
   loadCards: CardLoader;
   /** 资料服务（导入与列表） */
   sourceService: SourceService;
+  knowledge: KnowledgeService;
+  decks: DeckService;
+  backends: BackendService;
   /** 当前资料库里的全部卡片 id */
   cardPool: readonly string[];
   hasSources: boolean;
@@ -49,6 +57,9 @@ export function App({
   reviewService,
   loadCards,
   sourceService,
+  knowledge,
+  decks,
+  backends,
   cardPool,
   hasSources,
   connected,
@@ -150,6 +161,15 @@ export function App({
             setQueueError(null);
           }}
           onImported={() => void refreshCounts()}
+        />
+      ) : page === 'generate' ? (
+        <GeneratePage
+          sourceService={sourceService}
+          knowledge={knowledge}
+          decks={decks}
+          backends={backends}
+          onGenerated={() => void refreshCounts()}
+          onOpenSources={() => setPage('sources')}
         />
       ) : page === 'today' ? (
         <TodayPage

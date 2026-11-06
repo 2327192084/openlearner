@@ -43,6 +43,9 @@ function Bootstrap() {
     modelName: string | null;
     loadCards: ReturnType<typeof createCardLoader>;
     sourceService: SourceService;
+    knowledge: AppServices['knowledge'];
+    decks: AppServices['decks'];
+    backends: AppServices['backends'];
   } | null>(null);
   const [failure, setFailure] = useState<{ message: string; hint: string } | null>(null);
 
@@ -86,6 +89,9 @@ function Bootstrap() {
           modelName: first ? `${first.label} · ${first.model || '未填模型'}` : null,
           loadCards: createCardLoader(storage),
           sourceService: sources,
+          knowledge,
+          decks,
+          backends,
         });
 
         setServices({
@@ -151,6 +157,9 @@ function Bootstrap() {
         modelName={v2Data.modelName}
         loadCards={v2Data.loadCards}
         sourceService={v2Data.sourceService}
+        knowledge={v2Data.knowledge}
+        decks={v2Data.decks}
+        backends={v2Data.backends}
       />
     </ServicesContext.Provider>
   );
