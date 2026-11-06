@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge, ErrorState, LoadingState, Notice } from '@/components/states.tsx';
 import { AnnotationLayer } from './AnnotationLayer.tsx';
 import { AnnotatedBox } from './AnnotatedBox.tsx';
+import { TextMarkLayer } from './TextMarkLayer.tsx';
+import { SelectionToolbar } from './SelectionToolbar.tsx';
+import { NotesPanel } from './NotesPanel.tsx';
+import type { TextMark } from '@/core/model.ts';
 import { useServices } from '@/app/services-context.ts';
 
 /** 缩放的步进与上下限。上限 3 倍够看清小字，再大会因位图放大而糊 */
@@ -321,6 +325,45 @@ export function SourceReader({
       ? (segments[Math.min(current, segments.length - 1)]?.page ?? 1)
       : 1;
 
+  // ---- 文本标记（高亮 / 下划线 / 删除线） ----
+  /** 文字容器引用：标记层与选中工具条都靠它定位 */
+  const textBoxRef = useRef<HTMLDivElement | null>(null);
+  /** 当前页的文本标记 */
+  const [textMarks, setTextMarks] = useState<TextMark[]>([]);
+  /** 备注合集面板 */
+  const [notesOpen, setNotesOpen] = useState(false);
+  /** 保存后自增，让备注面板重新统计 */
+  const [notesRevision, setNotesRevision] = useState(0);
+
+  /**
+   * 载入当前页的文本标记。
+   *
+   * 翻页、保存后都要重读：否则用户加了高亮、翻走再回来就看不到了。
+   */
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const ann = await annotations.get(source.id, currentPageNo);
+      if (cancelled) return;
+      setTextMarks(ann?.textMarks ?? []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [annotations, source.id, currentPageNo, notesRevision]);
+
+  /** 新建一条文本标记 */
+  const createMark = useCallback(
+    async (mark: TextMark) => {
+      await annotations.addTextMark(source.id, currentPageNo, mark);
+      const ann = await annotations.get(source.id, currentPageNo);
+      setTextMarks(ann?.textMarks ?? []);
+      setNotesRevision((n) => n + 1);
+      void refreshAnnotationPages();
+    },
+    [annotations, source.id, currentPageNo, refreshAnnotationPages],
+  );
+
   /**
    * 扫描件：把当前页渲染成图片。
    *
@@ -505,7 +548,14 @@ export function SourceReader({
   if (segments.length === 0) {
     return (
       <div className="page page__stack">
-        <ReaderHeader source={source} onBack={onBack} onOpenDetail={onOpenDetail} />
+        <ReaderHeader
+          source={source}
+          onBack={onBack}
+          onOpenDetail={onOpenDetail}
+          onToggleNotes={() => setNotesOpen((v) => !v)}
+          notesOpen={notesOpen}
+          noteCount={0}
+        />
         <ErrorState
           title="这份资料没有可显示的段落"
           message="库里存在这份资料的记录，但切分出的正文是空的。"
@@ -517,7 +567,31 @@ export function SourceReader({
 
   return (
     <div className="reader">
-      <ReaderHeader source={source} onBack={onBack} onOpenDetail={onOpenDetail} />
+      <ReaderHeader
+        source={source}
+        onBack={onBack}
+        onOpenDetail={onOpenDetail}
+        onToggleNotes={() => setNotesOpen((v) => !v)}
+        notesOpen={notesOpen}
+        noteCount={annotatedPages.size}
+      />
+
+      {/*
+        备注合集：按页汇总这份资料的全部标记与手写笔记，点击跳转。
+        复习时「我当初标了什么」是核心诉求，散在 628 页里找不到。
+      */}
+      <NotesPanel
+        sourceId={source.id}
+        service={annotations}
+        open={notesOpen}
+        onClose={() => setNotesOpen(false)}
+        onJump={(p) => {
+          const idx = segments.findIndex((seg) => seg.page === p);
+          if (idx >= 0) setCurrent(idx);
+          setNotesOpen(false);
+        }}
+        revision={notesRevision}
+      />
 
       {/*
         没有文字层时只说明「能看、不能搜」，**不再提供 OCR 入口**。
@@ -858,7 +932,19 @@ export function SourceReader({
               与尺寸（渲染出来的图），用 AnnotatedBox 反而多一层测量。
             */}
             {isTextDocument ? (
-              <AnnotatedBox
+              <div ref={textBoxRef} className="mark-host">
+                <TextMarkLayer
+                  fullText={segment.text}
+                  marks={textMarks}
+                  containerRef={textBoxRef}
+                />
+                <SelectionToolbar
+                  containerRef={textBoxRef}
+                  fullText={segment.text}
+                  page={currentPageNo}
+                  onCreate={(m) => void createMark(m)}
+                />
+                <AnnotatedBox
                 sourceId={source.id}
                 page={currentPageNo}
                 service={annotations}
@@ -876,7 +962,8 @@ export function SourceReader({
                     activeMarkRef.current = el;
                   }}
                 />
-              </AnnotatedBox>
+                </AnnotatedBox>
+              </div>
             ) : (
               <HighlightedText
                 text={segment.text}
@@ -936,10 +1023,16 @@ function ReaderHeader({
   source,
   onBack,
   onOpenDetail,
+  onToggleNotes,
+  notesOpen,
+  noteCount,
 }: {
   source: Source;
   onBack: () => void;
   onOpenDetail: () => void;
+  onToggleNotes: () => void;
+  notesOpen: boolean;
+  noteCount: number;
 }) {
   const status = TEXT_STATUS_LABEL[source.textStatus];
   return (
@@ -958,6 +1051,19 @@ function ReaderHeader({
           </span>
         </div>
       </div>
+      {/*
+        备注合集入口。放在资料详情旁边而不是藏进菜单：
+        复习时「看我标过什么」是高频动作，多一步就明显变累。
+        按钮上带数量，让用户知道里面有没有东西。
+      */}
+      <button
+        type="button"
+        className={`btn btn--sm${notesOpen ? ' btn--primary' : ''}`}
+        onClick={onToggleNotes}
+        title="查看这份资料的全部标记与笔记"
+      >
+        备注{noteCount > 0 ? ` · ${noteCount}` : ''}
+      </button>
       <button type="button" className="btn btn--sm" onClick={onOpenDetail}>
         资料详情
       </button>

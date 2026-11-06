@@ -605,3 +605,194 @@
   position: relative;
   width: 100%;
 }
+
+/* ---------- 文本标记（高亮 / 下划线 / 删除线） ---------- */
+/*
+ * 标记层覆盖在正文上，只画彩色小块，不动原文一个节点。
+ * pointer-events 默认穿透，只有高亮块自己可点（打开备注）。
+ */
+.mark-host {
+  position: relative;
+}
+
+.mark-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* 在文字之下、背景之上：高亮不能盖住字 */
+  z-index: 0;
+}
+
+.mark-box {
+  position: absolute;
+  pointer-events: auto;
+  cursor: pointer;
+  border-radius: 2px;
+  /* 高亮默认半透明，避免盖住字 */
+  opacity: 0.55;
+}
+
+.mark-box--highlight {
+  /* 背景色由内联样式给（用户可改颜色） */
+}
+
+.mark-box--underline {
+  background: transparent;
+  border-bottom: 2px solid;
+  border-radius: 0;
+  opacity: 1;
+}
+
+.mark-box--strikethrough {
+  background: transparent;
+  border-top: 2px solid;
+  border-radius: 0;
+  opacity: 1;
+  /* 删除线要落在字的中部，不是顶部 */
+  transform: translateY(50%);
+}
+
+/* ---------- 选中文字后的浮动工具条 ---------- */
+.sel-bar {
+  position: fixed;
+  transform: translate(-50%, -100%);
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
+  z-index: 60;
+}
+
+.sel-bar__btn {
+  border: none;
+  background: transparent;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.sel-bar__btn:hover {
+  background: var(--c-surface-2, rgb(0 0 0 / 6%));
+}
+
+/* ---------- 备注合集侧栏 ---------- */
+.notes-panel {
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  background: var(--c-surface);
+  margin-bottom: var(--sp-3);
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+}
+
+.notes-panel__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.notes-panel__head strong {
+  font-size: 13px;
+}
+
+.notes-panel__head .page__muted {
+  flex: 1;
+  font-size: 12px;
+}
+
+.notes-panel__empty {
+  padding: var(--sp-4) var(--sp-3);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.notes-panel__list {
+  overflow-y: auto;
+  padding: var(--sp-2) var(--sp-3);
+  margin: 0;
+  list-style: none;
+}
+
+.notes-panel__page {
+  margin-bottom: var(--sp-2);
+}
+
+.notes-panel__page-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 4px 0;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.notes-panel__page-head .page__muted {
+  font-weight: 400;
+}
+
+.notes-panel__marks {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 var(--sp-3);
+}
+
+.notes-panel__mark {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.5;
+  border-left: 3px solid transparent;
+}
+
+.notes-panel__mark:hover {
+  background: var(--c-surface-2, rgb(0 0 0 / 5%));
+}
+
+.notes-panel__mark--highlight {
+  border-left-color: #fde68a;
+}
+
+.notes-panel__mark--underline {
+  border-left-color: #2563eb;
+}
+
+.notes-panel__mark--strikethrough {
+  border-left-color: #ef4444;
+}
+
+.notes-panel__mark-kind {
+  color: var(--c-text-muted, #6b7280);
+  margin-right: 6px;
+}
+
+.notes-panel__mark-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notes-panel__mark-note {
+  display: block;
+  color: var(--c-text-muted, #6b7280);
+  font-style: italic;
+}

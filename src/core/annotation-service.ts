@@ -1,4 +1,4 @@
-import type { SourceAnnotation, InkStroke, TextNote, ShapeElement } from './model.ts';
+import type { SourceAnnotation, InkStroke, TextNote, ShapeElement, TextMark } from './model.ts';
 import type { StorageAdapter } from './storage/types.ts';
 import { createAnnotation, hasContent } from './annotations.ts';
 
@@ -48,7 +48,12 @@ export class AnnotationService {
   async save(
     sourceId: string,
     page: number,
-    content: { strokes?: InkStroke[]; texts?: TextNote[]; shapes?: ShapeElement[] },
+    content: {
+      strokes?: InkStroke[];
+      texts?: TextNote[];
+      shapes?: ShapeElement[];
+      textMarks?: TextMark[];
+    },
   ): Promise<SourceAnnotation | null> {
     const id = annotationId(sourceId, page);
     const existing = await this.storage.get('sourceAnnotations', id);
@@ -63,6 +68,8 @@ export class AnnotationService {
       texts: content.texts ?? existing?.texts ?? [],
       // 老记录没有 shapes 字段，按空数组处理（见 model.ts 的注释）
       shapes: content.shapes ?? existing?.shapes ?? [],
+      // 同上：textMarks 是后加的，老记录读出来是 undefined
+      textMarks: content.textMarks ?? existing?.textMarks ?? [],
       updatedAt: now,
     };
 
@@ -109,6 +116,50 @@ export class AnnotationService {
     const existing = await this.get(sourceId, page);
     if (!existing) return null;
     return this.save(sourceId, page, { texts: existing.texts.filter((t) => t.id !== noteId) });
+  }
+
+  /**
+   * 追加一条文本标记（高亮/下划线/删除线）。
+   *
+   * 与笔迹分开存：标记靠文本锚点定位，笔迹靠坐标定位。
+   * 混在一起会让「重新渲染后标记漂不漂」这件事无法单独处理。
+   */
+  async addTextMark(
+    sourceId: string,
+    page: number,
+    mark: TextMark,
+  ): Promise<SourceAnnotation | null> {
+    const existing = await this.get(sourceId, page);
+    return this.save(sourceId, page, {
+      textMarks: [...(existing?.textMarks ?? []), mark],
+    });
+  }
+
+  /** 更新一条文本标记（改备注文字、改颜色） */
+  async updateTextMark(
+    sourceId: string,
+    page: number,
+    markId: string,
+    patch: Partial<Omit<TextMark, 'id'>>,
+  ): Promise<SourceAnnotation | null> {
+    const existing = await this.get(sourceId, page);
+    if (!existing) return null;
+    return this.save(sourceId, page, {
+      textMarks: (existing.textMarks ?? []).map((m) => (m.id === markId ? { ...m, ...patch } : m)),
+    });
+  }
+
+  /** 删除一条文本标记 */
+  async removeTextMark(
+    sourceId: string,
+    page: number,
+    markId: string,
+  ): Promise<SourceAnnotation | null> {
+    const existing = await this.get(sourceId, page);
+    if (!existing) return null;
+    return this.save(sourceId, page, {
+      textMarks: (existing.textMarks ?? []).filter((m) => m.id !== markId),
+    });
   }
 
   /** 追加一个图形 */

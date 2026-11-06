@@ -842,8 +842,68 @@ export interface SourceAnnotation {
    * 各处按 `?? []` 处理。
    */
   shapes?: ShapeElement[];
+  /**
+   * 文本标记（高亮/下划线/删除线）。
+   *
+   * 与 strokes 分开存：strokes 是坐标锚定的手写，textMarks 是文本锚定的
+   * 对原文的标记。两者定位机制完全不同，混在一起会让渲染与命中判定都变复杂。
+   * 可选是为了兼容 2026-11-06 之前存下的记录。
+   */
+  textMarks?: TextMark[];
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * 文本选中标记的种类。
+ *
+ * 与手写笔迹分开：这是**对原文文字的标记**，靠文本锚点定位，
+ * 不是坐标。换字号、换窗口宽度后仍然落在同一句话上 ——
+ * 手写笔迹做不到这一点（它是画在某个像素位置的）。
+ */
+export type TextMarkKind = 'highlight' | 'underline' | 'strikethrough';
+
+/**
+ * 文本锚点：把标记钉在「某一段文字的某个位置」上。
+ *
+ * ## 为什么要两个选择器（W3C Web Annotation 的做法）
+ *
+ * 单靠字符偏移不够稳：资料重新解析（比如 OCR 补全了正文）后，
+ * 偏移量就全变了，标记会漂到别处。
+ * 单靠引用文字也不够稳：同一句话在一页里可能出现多次。
+ *
+ * 两个一起用：
+ *  - `position` 快速定位（O(1)）
+ *  - `quote.exact` + 前后文校验；对不上就全文找 exact 的最近匹配
+ *
+ * 这套思路来自 W3C Web Annotation 的 TextQuoteSelector +
+ * TextPositionSelector，Zotero 与 Hypothesis 都是这么做的。
+ */
+export interface TextAnchor {
+  /** 页码（从 1 开始）。与 SourceSegment.page 对齐 */
+  page: number;
+  /** 精确引用的原文，逐字 */
+  exact: string;
+  /** 前若干字，用于消歧 */
+  prefix: string;
+  /** 后若干字，用于消歧 */
+  suffix: string;
+  /** 该页纯文本中的字符偏移，起点 */
+  start: number;
+  /** 该页纯文本中的字符偏移，终点（开区间） */
+  end: number;
+}
+
+/** 一条文本标记 */
+export interface TextMark {
+  id: string;
+  kind: TextMarkKind;
+  anchor: TextAnchor;
+  /** 标记颜色（#rrggbb）。不填按 kind 用默认色 */
+  color?: string;
+  /** 用户给这条标记写的批注（可选）—— NoteIn 的「备注」就是它 */
+  note?: string;
+  createdAt: string;
 }
 
 /** 页面上的一个文本框 */
