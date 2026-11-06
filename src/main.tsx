@@ -13,6 +13,7 @@ import { ServicesContext, type AppServices } from '@/app/services-context.ts';
 // v1 路由暂时不用，但保留文件（解析器与业务逻辑仍被 v2 复用）
 import { ReviewService } from '@/v2/core/review-service.ts';
 import { App as V2App } from '@/v2/ui/App.tsx';
+import { createCardLoader } from '@/v2/ui/cards-loader.ts';
 import { ErrorState, LoadingState } from '@/components/states.tsx';
 import { detectEnv } from '@/app/env.ts';
 import '@/styles/base.css';
@@ -40,6 +41,7 @@ function Bootstrap() {
     hasSources: boolean;
     connected: boolean;
     modelName: string | null;
+    loadCards: ReturnType<typeof createCardLoader>;
   } | null>(null);
   const [failure, setFailure] = useState<{ message: string; hint: string } | null>(null);
 
@@ -81,6 +83,7 @@ function Bootstrap() {
           hasSources: srcs.length > 0,
           connected: ready.length > 0,
           modelName: first ? `${first.label} · ${first.model || '未填模型'}` : null,
+          loadCards: createCardLoader(storage),
         });
 
         setServices({
@@ -144,6 +147,7 @@ function Bootstrap() {
         hasSources={v2Data.hasSources}
         connected={v2Data.connected}
         modelName={v2Data.modelName}
+        loadCards={v2Data.loadCards}
       />
     </ServicesContext.Provider>
   );

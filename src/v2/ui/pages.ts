@@ -227,18 +227,46 @@ export const SETTINGS_ITEM = { id: 'settings' as PageId, label: '设置', icon: 
 export const LANG_ICON = IconGlobe;
 export const BACK_ICON = IconBack;
 
-export function pageById(id: PageId): PageDef {
-  const p = PAGES.find((x) => x.id === id);
-  if (p) return p;
-  // settings 不在 PAGES 里，单独给一个
-  return {
-    id,
+/**
+ * 不在导航列表里、但仍需要有标题与图标的页面。
+ *
+ * review 由「回到题目」进入，不出现在分组导航里；
+ * settings 在底部固定区。两者都要能被 pageById 找到，
+ * 否则顶栏标题会回退成错的页名（曾经显示成「设置」）。
+ */
+const OFF_NAV: Partial<Record<PageId, PageDef>> = {
+  review: {
+    id: 'review',
+    label: '复习',
+    title: '复习',
+    icon: IconLibrary,
+    purpose: '按遗忘曲线做今天该复习的卡片',
+    group: 'daily',
+    show: false,
+    ready: true,
+  },
+  settings: {
+    id: 'settings',
     label: '设置',
     title: '设置',
     icon: IconSettings,
     purpose: '接入模型、选择主题、导出备份',
     group: 'prep',
-    show: true,
+    show: false,
+  },
+};
+
+export function pageById(id: PageId): PageDef {
+  const p = PAGES.find((x) => x.id === id) ?? OFF_NAV[id];
+  if (p) return p;
+  return {
+    id,
+    label: String(id),
+    title: String(id),
+    icon: IconSettings,
+    purpose: '',
+    group: 'prep',
+    show: false,
   };
 }
 

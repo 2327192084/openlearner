@@ -1,0 +1,474 @@
+/*
+ * 复习页样式。
+ *
+ * 规格来自 StudyHub ui/review/question.css 实测值：
+ *   卡片宽 min(700px, 100% - 48px)，上下 32/56px
+ *   进度条 2px 朱砂
+ *   选项行 padding 16px 10px，字号 17px，左侧 28px 圆标
+ */
+
+@layer study.features {
+  .review-wrap {
+    width: min(700px, 100% - 48px);
+    margin: var(--space-7) auto var(--space-9);
+  }
+
+  /* ---------- 顶部：进度 + 掌握度 ---------- */
+  .review-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+  }
+
+  .review-progress-text {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /*
+   * 掌握度胶囊。
+   * 变好时描边转绿 + 数字带 +N% ——
+   * 这是「做题时当场看见自己变熟」的那个反馈，
+   * 不是装饰。
+   */
+  .live-mastery {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-pill);
+    color: var(--text-muted);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.3;
+  }
+
+  .live-mastery--up {
+    border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+    background: color-mix(in srgb, var(--ok) 12%, transparent);
+    color: var(--ok);
+  }
+
+  .live-mastery__delta {
+    font-weight: 650;
+    animation: live-delta-in 0.32s ease-out;
+  }
+
+  @keyframes live-delta-in {
+    from {
+      opacity: 0;
+      transform: translateY(3px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /* ---------- 题卡 ---------- */
+  .question-card {
+    padding-top: var(--space-4);
+    /* 发牌动画：卡片从下方递入 */
+    animation: card-deal 0.42s ease-out;
+  }
+
+  @keyframes card-deal {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .question-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    color: var(--paper-dim);
+    font-size: var(--fs-sm);
+    padding-bottom: var(--space-3);
+  }
+
+  .question-meta > span:first-child {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 卡片类型徽标：中性，不抢视觉 */
+  .question-kind {
+    padding: 1px 6px;
+    border-radius: var(--radius-xs);
+    background: color-mix(in srgb, var(--paper-ink) 8%, transparent);
+    font-size: var(--fs-xs);
+    color: var(--paper-dim);
+  }
+
+  .question-meta__dim {
+    color: color-mix(in srgb, var(--paper-dim) 75%, transparent);
+  }
+
+  /* 2px 朱砂进度条 */
+  .card-progress {
+    height: 2px;
+    background: color-mix(in srgb, var(--paper-ink) 12%, transparent);
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+    margin-bottom: var(--space-6);
+  }
+
+  .card-progress__fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: var(--radius-pill);
+    transition: width 0.3s ease;
+  }
+
+  /* ---------- 题干 ---------- */
+  .question-prompt {
+    font-size: var(--fs-xl);
+    font-weight: 550;
+    line-height: 1.5;
+    color: var(--paper-ink);
+    margin-bottom: var(--space-5);
+    animation: ink-in 0.34s ease-out;
+  }
+
+  @keyframes ink-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  /* ---------- 选项行 ---------- */
+  /*
+   * 选项不是按钮盒，而是卡上的一道道横线。
+   * 状态只体现在左侧的字母圆标上。
+   */
+  .options {
+    display: flex;
+    flex-direction: column;
+    border-bottom: 1px solid color-mix(in srgb, var(--paper-ink) 10%, transparent);
+  }
+
+  .option {
+    display: flex;
+    gap: var(--space-3);
+    align-items: flex-start;
+    text-align: left;
+    border: none;
+    border-top: 1px solid color-mix(in srgb, var(--paper-ink) 10%, transparent);
+    background: transparent;
+    border-radius: 0;
+    padding: var(--space-4) var(--space-2);
+    font: inherit;
+    font-size: var(--fs-lg);
+    line-height: 1.6;
+    width: 100%;
+    cursor: pointer;
+    color: var(--paper-ink);
+    transition: background 0.12s;
+    animation: ink-in 0.34s ease-out 70ms backwards;
+  }
+
+  .option:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--paper-ink) 4%, transparent);
+  }
+
+  .option:disabled {
+    cursor: default;
+  }
+
+  /* 28px 圆形字母标 */
+  .option__mark {
+    flex: none;
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--paper-ink) 28%, transparent);
+    font-size: var(--fs-sm);
+    font-variant-numeric: tabular-nums;
+    margin-top: 1px;
+  }
+
+  /* 选中：实心深色，挖白字 */
+  .option--picked .option__mark {
+    background: var(--paper-ink);
+    color: var(--paper);
+    box-shadow: none;
+  }
+
+  /* 正确：实心玉绿 */
+  .option--correct .option__mark {
+    background: var(--ok);
+    color: #fff;
+    box-shadow: none;
+  }
+
+  /* 错误：空心莓红描边 */
+  .option--wrong .option__mark {
+    box-shadow: inset 0 0 0 1.5px var(--bad);
+    color: var(--bad);
+  }
+
+  .option__text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* 判定标签：跟在选项文字后面 */
+  .option__tag {
+    display: inline-block;
+    margin-left: var(--space-2);
+    padding: 1px 6px;
+    border-radius: var(--radius-xs);
+    font-size: var(--fs-xs);
+    vertical-align: middle;
+  }
+
+  .option__tag--ok {
+    background: color-mix(in srgb, var(--ok) 16%, transparent);
+    color: var(--ok);
+  }
+
+  .option__tag--bad {
+    background: color-mix(in srgb, var(--bad) 16%, transparent);
+    color: var(--bad);
+  }
+
+  /* ---------- 填空 / 简答 ---------- */
+  .answer-input {
+    margin-bottom: var(--space-4);
+  }
+
+  .answer-field,
+  .answer-area {
+    width: 100%;
+    padding: var(--space-3);
+    border: 1px solid color-mix(in srgb, var(--paper-ink) 20%, transparent);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, #fff 55%, transparent);
+    color: var(--paper-ink);
+    font: inherit;
+    font-size: var(--fs-lg);
+    line-height: 1.7;
+    resize: vertical;
+  }
+
+  .answer-field:focus,
+  .answer-area:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+
+  /* ---------- 知识点正文 ---------- */
+  .point-body {
+    font-size: var(--fs-lg);
+    line-height: 1.8;
+    color: var(--paper-ink);
+    padding-bottom: var(--space-3);
+  }
+
+  /* ---------- 揭晓区 ---------- */
+  .reveal {
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid color-mix(in srgb, var(--paper-ink) 10%, transparent);
+    animation: reveal-in 0.46s ease-out;
+  }
+
+  @keyframes reveal-in {
+    from {
+      opacity: 0;
+      max-height: 0;
+    }
+    to {
+      opacity: 1;
+      max-height: 600px;
+    }
+  }
+
+  .reveal__verdict {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    font-size: var(--fs-lg);
+    font-weight: 550;
+    margin-bottom: var(--space-3);
+    flex-wrap: wrap;
+  }
+
+  .reveal__verdict--ok {
+    color: var(--ok);
+  }
+
+  .reveal__verdict--bad {
+    color: var(--bad);
+  }
+
+  .reveal__answer {
+    font-size: var(--fs-sm);
+    font-weight: 400;
+    color: var(--paper-dim);
+  }
+
+  .reveal__explain {
+    font-size: var(--fs-md);
+    line-height: 1.8;
+    color: color-mix(in srgb, var(--paper-ink) 82%, transparent);
+    padding-left: var(--space-3);
+    border-left: 2px solid color-mix(in srgb, var(--paper-ink) 20%, transparent);
+  }
+
+  /* ---------- 底部操作 ---------- */
+  .review-foot {
+    margin-top: var(--space-5);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .review-foot .btn-fill {
+    min-width: 200px;
+    justify-content: center;
+  }
+
+  /* ---------- 0-5 评分档 ---------- */
+  /*
+   * 评分按钮**没有常驻背景色**，只有数字与文字着色。
+   * 这是「克制」原则：一屏只该有一个填充块（主按钮），
+   * 六个带底色的评分块会把注意力撕碎。
+   */
+  .grades {
+    width: 100%;
+  }
+
+  .grades__head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .grades__title {
+    font-size: var(--fs-md);
+    font-weight: 550;
+  }
+
+  .grades__hint {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+  }
+
+  .grades__row {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 2px;
+  }
+
+  @media (max-width: 640px) {
+    .grades__row {
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--space-2);
+    }
+  }
+
+  .grade {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    min-height: 74px;
+    padding: var(--space-2) 4px;
+    border: none;
+    background: transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font: inherit;
+    transition: background 0.12s;
+  }
+
+  .grade:hover {
+    background: var(--bg-hover);
+  }
+
+  /*
+   * 数字：28px / 300 字重（display 光学尺寸）。
+   * 大字号配细字重才不显笨重。
+   */
+  .grade__n {
+    font-size: var(--fs-3xl);
+    font-weight: 300;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .grade__label {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+  }
+
+  .grade__hint {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /*
+   * 颜色语义固定：
+   * 0-2 莓红（忘了/记得一点/有印象）
+   * 3   赭黄（勉强答对）
+   * 4-5 玉绿（熟练/轻松掌握）
+   */
+  .grade--0 .grade__n,
+  .grade--1 .grade__n,
+  .grade--2 .grade__n {
+    color: var(--bad);
+  }
+
+  .grade--3 .grade__n {
+    color: var(--warn);
+  }
+
+  .grade--4 .grade__n,
+  .grade--5 .grade__n {
+    color: var(--ok);
+  }
+
+  .grades__auto {
+    margin-top: var(--space-2);
+    text-align: center;
+  }
+
+  /* ---------- 本轮小结 ---------- */
+  .review-stats {
+    margin-top: var(--space-4);
+    text-align: center;
+    font-size: var(--fs-sm);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .review-empty {
+    max-width: 40ch;
+    margin: var(--space-9) auto;
+    text-align: center;
+    color: var(--text-dim);
+  }
+}

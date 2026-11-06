@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReviewService } from '@/v2/core/review-service.ts';
+import type { CardLoader } from './cards-loader.ts';
 import { AppShell } from './AppShell.tsx';
 import { TodayPage } from './TodayPage.tsx';
+import { ReviewPage } from './ReviewPage.tsx';
+import type { Card } from '@/v2/core/cards.ts';
 import type { PageId } from './pages.ts';
 import './tokens.css';
 import './shell.css';
 import './paper.css';
 import './today-page.css';
+import './review-page.css';
 
 /**
  * v2 应用入口。
@@ -25,6 +29,8 @@ import './today-page.css';
 
 export interface AppProps {
   reviewService: ReviewService;
+  /** 从资料库加载卡片（题目 + 知识点统一成 Card） */
+  loadCards: CardLoader;
   /** 当前资料库里的全部卡片 id */
   cardPool: readonly string[];
   hasSources: boolean;
@@ -34,8 +40,23 @@ export interface AppProps {
   modelName?: string | null;
 }
 
-export function App({ reviewService, cardPool, hasSources, connected, modelName }: AppProps) {
+export function App({
+  reviewService,
+  loadCards,
+  cardPool,
+  hasSources,
+  connected,
+  modelName,
+}: AppProps) {
   const [page, setPage] = useState<PageId>('today');
+  /**
+   * 本轮复习队列。
+   *
+   * 进「复习」时才构造 —— 每次进入都重新算今日到期，
+   * 而不是缓存一份（用户可能中途答完几张又回来）。
+   */
+  const [queue, setQueue] = useState<Card[] | null>(null);
+  const [queueError, setQueueError] = useState<string | null>(null);
   const [overviewCounts, setOverviewCounts] = useState<Partial<Record<PageId, number>>>({});
 
   /**
@@ -65,9 +86,32 @@ export function App({ reviewService, cardPool, hasSources, connected, modelName 
     void refreshCounts();
   }, [refreshCounts]);
 
-  const navigate = useCallback((id: PageId) => {
-    setPage(id);
-  }, []);
+  const navigate = useCallback(
+    async (id: PageId) => {
+      setPage(id);
+      if (id === 'review') {
+        // 进复习就现取今日到期队列
+        setQueueError(null);
+        setQueue(null);
+        try {
+          const all = await loadCards();
+          const today = new Date().toISOString().slice(0, 10);
+          const records = await reviewService.listRecords();
+          const byId = new Map(records.map((r) => [r.cardId, r]));
+          const due = all.filter((c) => {
+            const r = byId.get(c.id);
+            if (!r) return true; // 没学过也算今天可学
+            return r.state.dueAt <= today;
+          });
+          setQueue(due.slice(0, 30));
+        } catch (err) {
+          setQueueError(err instanceof Error ? err.message : '读不出卡片');
+          setQueue([]);
+        }
+      }
+    },
+    [loadCards, reviewService],
+  );
 
   // 卡片池是数组，每次渲染都可能是新引用 —— 用内容做 key 避免无谓重算
   const poolKey = useMemo(() => cardPool.join(','), [cardPool]);
@@ -75,13 +119,24 @@ export function App({ reviewService, cardPool, hasSources, connected, modelName 
   return (
     <AppShell
       current={page}
-      onNavigate={navigate}
+      onNavigate={(id) => void navigate(id)}
       counts={overviewCounts}
       connected={connected}
       libraryName="openleaner"
       reviewProgress={null}
     >
-      {page === 'today' ? (
+      {page === 'review' ? (
+        queue === null ? (
+          <p className="today__lead">{queueError ?? '正在准备今日复习…'}</p>
+        ) : (
+          <ReviewPage
+            service={reviewService}
+            queue={queue}
+            onFinish={() => setPage('today')}
+            onExit={() => setPage('today')}
+          />
+        )
+      ) : page === 'today' ? (
         <TodayPage
           key={poolKey}
           service={reviewService}
