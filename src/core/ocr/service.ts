@@ -252,17 +252,24 @@ export class OcrService {
     }
 
     /**
-     * 写回分两种，按「是否整篇」区分 —— 这是关键。
+     * 写回分两种，判断依据是**实际完成了多少**，不是用户点了哪个按钮。
      *
-     * - **整篇识别**（没传 pages，或 pages 覆盖了所有页）：整份替换，
-     *   把旧的空段清掉，不留「前几页是空的」脏数据。
-     * - **局部识别**（用户点「只识别第 1 页」看效果）：按页合并，
-     *   未识别的页原样保留。否则 628 页的资料识别 1 页后只剩 1 段，
-     *   其余 627 页的页码与目录全没了，用户再也翻不回去 —— 那是数据损失。
+     * ⚠️ 这里曾经犯过一个严重错误：用 `!options.pages` 判断「是否整篇」。
+     * 于是用户点「识别整篇」→ 走整份替换 → 但中途停止/出错只产出 2 页
+     * → 628 段的资料被删成 2 段，其余 626 页再也翻不回去。
+     * 「请求了整篇」不等于「跑完了整篇」，这是两件不同的事。
      *
-     * 两种语义都是真实需求：整篇跑完该清爽，局部试跑不该破坏可翻性。
+     * 现在的规则：
+     *  - 只有**覆盖全部页、无失败、且没被停止**时才整份替换
+     *    （那种情况下旧的空段确实是脏数据，该清掉）。
+     *  - 其余一切情况（局部识别、中途停止、有失败页）都按页合并，
+     *    未识别的页原样保留 —— 用户永远还能翻回去，也能再识别一次。
+     *
+     * 数据损失不可逆，宁可多留几个空段，也不能删用户翻得到的页。
      */
-    const isWholeDocument = targets.length >= totalPages || !options.pages;
+    const coveredAllPages = targets.length >= totalPages;
+    const isWholeDocument =
+      coveredAllPages && !stopped && failures.length === 0 && targets.length > 0;
     const segments = [...written].sort((a, b) => a.page - b.page);
 
     const saved = isWholeDocument

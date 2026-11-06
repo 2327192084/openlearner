@@ -231,8 +231,19 @@ describe('OcrService：失败与中断', () => {
     // 失败必须带 hint，不能只说「失败」
     expect(result!.failures[0]!.hint).toBeTruthy();
 
+    /**
+     * 有失败页时不再整份替换，而是按页合并 —— 失败那页（第 2 页）的原有
+     * 分段会保留，页码仍是完整的 1..4。
+     *
+     * 早先这里断言 `[1, 3, 4]`（失败页被删掉）。那在「整篇替换」语义下成立，
+     * 但正是这种语义造成了 628 页被写成 2 段的事故：一旦有页没识别出来，
+     * 那些页就永久消失，用户再也翻不回去。留一个空段远好于删掉一页。
+     */
     const segments = await sources.getSegments('source_scan');
-    expect(segments.map((s) => s.page)).toEqual([1, 3, 4]);
+    expect(segments.map((s) => s.page)).toEqual([1, 2, 3, 4]);
+    expect(segments[1]!.text).toBe(''); // 失败页不编造内容
+    expect(segments[0]!.text).toContain('第 1 页');
+    expect(segments[2]!.text).toContain('第 3 页');
   });
 
   it('渲染失败也按单页处理，不影响其他页', async () => {
@@ -261,12 +272,25 @@ describe('OcrService：失败与中断', () => {
     const result = await service.run('source_scan', { signal: controller.signal });
 
     expect(result!.stopped).toBe(true);
-    // 前两页识别完并写回，第 3/4 页没被调用
-    expect(result!.segments.map((s) => s.page)).toEqual([1, 2]);
     expect(vision.calls).toEqual([1, 2]);
 
+    /**
+     * ⚠️ 这条断言原本是 `toHaveLength(2)` / `[1, 2]` —— **那正是本次事故的成因**。
+     *
+     * 原语义：中途停止就把已识别的两页写成全部，其余页删除。
+     * 现实中用户点「识别整篇」，跑到第 2 页停了，628 页的资料于是只剩 2 段，
+     * 另外 626 页永远翻不回去。界面上还显示「识别完成」，用户毫不知情。
+     *
+     * 现在的语义：停止时只把已识别的页合并回去，其余页保留原样。
+     * 用户既能看已识别的部分，也能继续翻原文、稍后再识别剩下的页。
+     */
     const segments = await sources.getSegments('source_scan');
-    expect(segments).toHaveLength(2);
+    expect(segments.map((s) => s.page)).toEqual([1, 2, 3, 4]);
+    expect(segments[0]!.text).toContain('第 1 页');
+    expect(segments[1]!.text).toContain('第 2 页');
+    // 没跑的第 3/4 页仍是原空段
+    expect(segments[2]!.text).toBe('');
+    expect(segments[3]!.text).toBe('');
   });
 
   it('一页都没识别出来时保留原状态并报错，不假装成功', async () => {

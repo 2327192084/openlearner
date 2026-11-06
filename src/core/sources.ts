@@ -449,6 +449,91 @@ export class SourceService {
   }
 
   /**
+   * 用保留下来的原始文件重建这份资料的分段。
+   *
+   * ## 为什么需要它
+   *
+   * 分段可能因为缺陷而少于真实页数（曾出过：628 页的扫描件被 OCR 写成 2 段，
+   * 其余 626 页翻不回去）。原始字节还在，就能重新解析还原，
+   * 不必让用户删掉重导 —— 重导会丢掉已有知识点与题目的引用。
+   *
+   * ## 只对有原始文件的资料可用
+   *
+   * 只有 PDF 与图片会保留原始字节（见 importBuffer 的注释）。
+   * docx/pptx/txt 不留，所以它们没法这样重建 —— 返回 ok:false 并说明原因，
+   * 而不是假装成功。
+   *
+   * @returns 重建结果；`rebuilt` 为 false 时带原因
+   */
+  async rebuildSegments(sourceId: string): Promise<
+    | { ok: true; source: Source; segments: SourceSegment[]; pageCount: number }
+    | { ok: false; reason: string; hint: string }
+  > {
+    const existing = await this.storage.get('sources', sourceId);
+    if (!existing) {
+      return {
+        ok: false,
+        reason: '这份资料已经不在了',
+        hint: '可能已在另一个窗口被删除。刷新页面看看列表里还有没有它。',
+      };
+    }
+
+    const bytes = await this.getOriginalFile(sourceId);
+    if (!bytes || bytes.byteLength === 0) {
+      return {
+        ok: false,
+        reason: `「${existing.title}」没有保留原始文件，无法重建正文`,
+        hint:
+          '只有 PDF 和图片会保留原始字节。其它格式请重新导入一份 —— ' +
+          '重导会换成新资料，已有的知识点与题目需要重新关联。',
+      };
+    }
+
+    let parsed;
+    try {
+      parsed = await parseAny(existing.fileName ?? existing.title, bytes);
+    } catch (err) {
+      return {
+        ok: false,
+        reason: '重新解析这份文件失败了',
+        hint:
+          err instanceof ImportError
+            ? err.hint
+            : '文件可能已损坏。可以删掉这份资料后重新导入。',
+      };
+    }
+
+    /**
+     * 重建用整份替换是**正确**的：这里的目标就是把分段恢复成文件的真实样子。
+     * 与 OCR 的局部写回不同 —— 那里必须保页，这里必须还原页。
+     */
+    const written = parsed.segments.map((s) => ({
+      page: s.page,
+      chapter: s.chapter,
+      text: s.text,
+    }));
+
+    const saved = await this.writeSegments(sourceId, written, parsed.textStatus);
+    if (!saved) {
+      return {
+        ok: false,
+        reason: '重建过程中资料消失了',
+        hint: '请刷新页面确认这份资料还在。',
+      };
+    }
+
+    // 解析器给的 pageCount 更可信（来源文件本身），一并修正
+    const source: Source = {
+      ...saved.source,
+      pageCount: parsed.pageCount,
+      updatedAt: nowIso(),
+    };
+    await this.storage.put('sources', source);
+
+    return { ok: true, source, segments: saved.segments, pageCount: parsed.pageCount };
+  }
+
+  /**
    * 按页合并正文，**不删除未被涉及的页**。
    *
    * 为什么需要它（与 writeSegments 的区别）：

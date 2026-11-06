@@ -37,6 +37,45 @@ export function SourceDetailDrawer({
   const [error, setError] = useState<{ message: string; hint: string } | null>(null);
   const [confirming, setConfirming] = useState(false);
 
+  /** 重建正文（用保留下来的原始文件重新解析） */
+  const [rebuilding, setRebuilding] = useState(false);
+  const [rebuildResult, setRebuildResult] = useState<string | null>(null);
+
+  /**
+   * 页数与段数对不上，说明分段被写坏了。
+   *
+   * PDF 的页数是文件里写死的，段数是我们切出来的 —— 后者少于前者就是异常。
+   * 注意 `页数未知`（pageCount 为 null）时不判断，那种资料没法比对。
+   */
+  const mismatched =
+    source.pageCount !== null &&
+    source.segmentCount > 0 &&
+    source.segmentCount < source.pageCount;
+
+  const handleRebuild = async () => {
+    setRebuilding(true);
+    setRebuildResult(null);
+    setError(null);
+    try {
+      const out = await service.rebuildSegments(source.id);
+      if (out.ok) {
+        setRebuildResult(
+          `已从原始文件重建：现在是 ${out.segments.length} 段（共 ${out.pageCount} 页）。` +
+            '关掉这个抽屉再打开资料就能看到全部页。',
+        );
+      } else {
+        setError({ message: out.reason, hint: out.hint });
+      }
+    } catch (err) {
+      setError({
+        message: err instanceof Error ? err.message : '重建失败',
+        hint: '可以重试一次；若持续失败，请把这份文件反馈给我们。',
+      });
+    } finally {
+      setRebuilding(false);
+    }
+  };
+
   /*
    * Esc 关闭。
    *
@@ -128,7 +167,37 @@ export function SourceDetailDrawer({
               ) : null}
             </dd>
             <dt>切分段数</dt>
-            <dd>{source.segmentCount} 段</dd>
+            <dd>
+              {source.segmentCount} 段
+              {/*
+                页数与段数对不上，说明分段被写坏了（曾出过：628 页被 OCR
+                写成 2 段）。这时给一个重建入口，而不是逼用户删掉重导 ——
+                重导会丢掉已有知识点与题目对这份资料的引用。
+              */}
+              {mismatched ? (
+                <div style={{ marginTop: 'var(--sp-2)' }}>
+                  <Notice tone="warning" title="分段数量与页数对不上">
+                    这份资料有 {formatPageCount(source.pageCount)}，但只切出了{' '}
+                    {source.segmentCount} 段。原始文件还留着，可以从它重新解析一遍，
+                    把缺的页补回来。
+                  </Notice>
+                  <button
+                    type="button"
+                    className="btn btn--primary btn--sm"
+                    onClick={() => void handleRebuild()}
+                    disabled={rebuilding}
+                    style={{ marginTop: 'var(--sp-2)' }}
+                  >
+                    {rebuilding ? '正在重建…' : '从原始文件重建正文'}
+                  </button>
+                  {rebuildResult ? (
+                    <div className="field__hint" style={{ marginTop: 'var(--sp-2)' }}>
+                      {rebuildResult}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </dd>
             <dt>文本状态</dt>
             <dd>
               {status.text}
