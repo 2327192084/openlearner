@@ -41,7 +41,19 @@ export function hasContent(annotation: SourceAnnotation): boolean {
   return (
     annotation.strokes.length > 0 ||
     annotation.texts.length > 0 ||
-    (annotation.shapes?.length ?? 0) > 0
+    (annotation.shapes?.length ?? 0) > 0 ||
+    /**
+     * ⚠️ textMarks 必须算进来。
+     *
+     * 这个判据已经漏过一次（当时漏的是 shapes），症状一模一样：
+     * 保存返回成功，但记录被当成「空注释」直接删掉 ——
+     * 表现是「点了高亮，看起来存了，刷新就没了」。
+     *
+     * 凡是新增一种注释类型，这里都要同步加。
+     * 更稳妥的做法是反过来写：列出「哪种情况算空」，
+     * 但那会让默认行为偏向删除，风险更大。
+     */
+    (annotation.textMarks?.length ?? 0) > 0
   );
 }
 

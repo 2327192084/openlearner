@@ -796,3 +796,155 @@
   color: var(--c-text-muted, #6b7280);
   font-style: italic;
 }
+
+/* ---------- 紧凑工具栏 ---------- */
+/*
+ * 一行图标按钮。位置在图下方，用 sticky 让它滚动时留在视野内 ——
+ * 628 页的资料翻到下半页时，工具栏跑出屏幕就没法用了。
+ */
+.toolbar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 6px 8px;
+  margin-top: var(--sp-2);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 6%);
+  z-index: 10;
+  font-size: 13px;
+}
+
+.toolbar__btn {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toolbar__btn:hover {
+  background: var(--c-surface-2, rgb(0 0 0 / 6%));
+}
+
+.toolbar__btn--on {
+  background: var(--c-primary-weak, rgb(37 99 235 / 12%));
+  border-color: var(--c-primary, #2563eb);
+  color: var(--c-primary, #2563eb);
+}
+
+.toolbar__btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 分隔线：把「工具」和「历史操作」分开 */
+.toolbar__sep {
+  width: 1px;
+  height: 18px;
+  background: var(--c-border);
+  margin: 0 4px;
+}
+
+.toolbar__hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--c-text-muted, #6b7280);
+}
+
+/* 弹出面板：鼠标移入或聚焦时展开 */
+.toolbar__pop {
+  position: relative;
+  display: inline-flex;
+}
+
+.toolbar__panel {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 4px;
+  padding: 6px;
+  min-width: 92px;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
+  z-index: 20;
+}
+
+.toolbar__panel--row {
+  flex-direction: row;
+  min-width: 0;
+}
+
+.toolbar__pop:hover .toolbar__panel,
+.toolbar__pop:focus-within .toolbar__panel {
+  display: flex;
+}
+
+.toolbar__label {
+  font-size: 10px;
+  color: var(--c-text-muted, #6b7280);
+  padding: 2px 6px;
+}
+
+.toolbar__opt {
+  border: none;
+  background: transparent;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.toolbar__opt:hover {
+  background: var(--c-surface-2, rgb(0 0 0 / 6%));
+}
+
+.toolbar__opt--on {
+  background: var(--c-primary-weak, rgb(37 99 235 / 12%));
+  color: var(--c-primary, #2563eb);
+  font-weight: 600;
+}
+
+.toolbar__swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.toolbar__swatch--on {
+  border-color: var(--c-text);
+}
+
+/*
+ * mark-text 只装正文，是 TreeWalker 的扫描范围。
+ * 浮层（标记层、选中工具条）放在它外面的 mark-host 里 ——
+ * 否则工具条的按钮文字会被算进正文偏移，导致锚点全错。
+ */
+.mark-host {
+  position: relative;
+}
+
+.mark-text {
+  position: relative;
+}

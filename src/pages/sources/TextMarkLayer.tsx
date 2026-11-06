@@ -66,10 +66,22 @@ export function TextMarkLayer({
     const layer = layerRef.current;
     if (!container || !layer) return;
 
-    const containerRect = container.getBoundingClientRect();
+    /**
+     * 只扫正文元素，不扫整个容器。
+     *
+     * 容器里除了正文还有批注层工具栏（图标也是文本节点），
+     * 一起遍历会让偏移偏掉，高亮画到错误的位置。
+     */
+    const textRoot =
+      container.querySelector('.reader__p') ??
+      container.querySelector('p') ??
+      container;
 
-    // 收集容器内所有文本节点及其在纯文本里的起始偏移
-    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    // 定位基准是正文元素，不是整块容器（后者含工具栏，会让标记偏移）
+    const containerRect = textRoot.getBoundingClientRect();
+
+    // 收集正文里的文本节点及其在纯文本里的起始偏移
+    const walker = document.createTreeWalker(textRoot, NodeFilter.SHOW_TEXT);
     const nodes: { node: Text; start: number }[] = [];
     let offset = 0;
     let n: Node | null = walker.nextNode();

@@ -79,6 +79,19 @@ describe('hasContent / isAnnotationEmpty', () => {
     expect(isAnnotationEmpty({ ...base, strokes: [], texts: [], shapes: [shape] })).toBe(false);
   });
 
+  it('**只有文本标记也算有内容**（这个漏判让高亮存不住）', () => {
+    // 与上面 shapes 那条是同一类 bug：hasContent 漏了一种类型，
+    // 保存返回成功但记录被当成空注释删掉，表现是「点了高亮刷新就没了」
+    const mark = {
+      id: 'm1',
+      kind: 'highlight' as const,
+      anchor: { page: 1, exact: '测试', prefix: '', suffix: '', start: 0, end: 2 },
+      createdAt: '',
+    };
+    expect(hasContent({ ...base, strokes: [], texts: [], textMarks: [mark] })).toBe(true);
+    expect(isAnnotationEmpty({ ...base, strokes: [], texts: [], textMarks: [mark] })).toBe(false);
+  });
+
   it('shapes 字段缺失（老记录）时按空处理，不抛错', () => {
     expect(hasContent({ ...base, strokes: [], texts: [] })).toBe(false);
   });

@@ -50,7 +50,17 @@ import { newId } from '@/core/id.ts';
  * 松手时一次性提交，流畅且只写一次。
  */
 
-type Tool = 'none' | 'eraser' | 'lasso' | 'text' | ShapeKind;
+/**
+ * 当前工具。
+ *
+ * `select` 是**默认模式**：鼠标是正常箭头，可以选文字、拖滚动条、
+ * 点链接 —— 画布完全不拦事件（pointer-events: none）。
+ *
+ * 为什么默认不是画笔：批注是主动行为，阅读才是常态。
+ * 早先默认画笔，画布一直拦着鼠标，用户选不中文字、
+ * 拖不动滚动条，感觉「只能用批注，别的都不好使」。
+ */
+type Tool = 'select' | 'pen' | 'eraser' | 'lasso' | 'text' | ShapeKind;
 
 export interface AnnotationLayerProps {
   sourceId: string;
@@ -60,6 +70,8 @@ export interface AnnotationLayerProps {
   service: AnnotationService;
   onChange?: (annotation: SourceAnnotation | null) => void;
   initial?: SourceAnnotation | null;
+  /** 工具变化时通知父层（父层据此决定画布要不要拦事件） */
+  onToolChange?: (isDrawing: boolean) => void;
 }
 
 /** 拖拽中的临时预览状态 */
@@ -78,9 +90,10 @@ export function AnnotationLayer({
   service,
   onChange,
   initial,
+  onToolChange,
 }: AnnotationLayerProps) {
   const [annotation, setAnnotation] = useState<SourceAnnotation | null>(initial ?? null);
-  const [tool, setTool] = useState<Tool>('none');
+  const [tool, setTool] = useState<Tool>('select');
   const [pen, setPen] = useState<PenKind>('pen');
   const [color, setColor] = useState<string>(INK_COLORS[0].value);
   const [saving, setSaving] = useState(false);
@@ -100,7 +113,7 @@ export function AnnotationLayer({
    * 后两个事件可能还跑在旧闭包里，读到上一轮的工具值。
    * 实测症状：选「矩形」拖出来却是一条笔迹。
    */
-  const toolRef = useRef<Tool>('none');
+  const toolRef = useRef<Tool>('select');
   const penRef = useRef<PenKind>('pen');
   const colorRef = useRef<string>(INK_COLORS[0].value);
 
@@ -113,6 +126,19 @@ export function AnnotationLayer({
    * 直接赋值没有这个窗口。
    */
   toolRef.current = tool;
+
+  /**
+   * 工具变化时通知父层。
+   *
+   * 父层要据此决定画布的 pointer-events：在 select 模式下
+   * 画布必须完全不拦事件，否则用户选不中文字、拖不动滚动条。
+   * 这个状态放在这里而不是父层，是因为「哪个工具」本来就是
+   * 批注层的内部状态；父层只需要知道「要不要拦」这一个布尔量。
+   */
+  const isDrawingTool = tool !== 'select';
+  useEffect(() => {
+    onToolChange?.(isDrawingTool);
+  }, [isDrawingTool, onToolChange]);
   penRef.current = pen;
   colorRef.current = color;
 
@@ -249,7 +275,8 @@ export function AnnotationLayer({
       setPreview({ liveShape: makeShape(t, p, p, colorRef.current) });
       return;
     }
-    // 其余一律当画笔
+    // 只有画笔才起笔（select 模式下画布不接收事件，走不到这里）
+    if (t !== 'pen') return;
     currentStroke.current = [p];
     setPreview({ liveStroke: makeStroke([p], penRef.current, colorRef.current) });
   };
@@ -432,132 +459,172 @@ export function AnnotationLayer({
 
   return (
     <div className="annot">
-      <div className="annot__bar">
-        {/* 笔形 */}
-        <span className="annot__group">
-          {(Object.keys(PEN_LABELS) as PenKind[]).map((k) => (
-            <button
-              key={k}
-              type="button"
-              className={`btn btn--sm${tool === 'none' && pen === k ? ' btn--primary' : ''}`}
-              onClick={() => {
-                setPen(k);
-                setTool('none');
-              }}
-              title={`${PEN_LABELS[k]}：直接拖动即可书写`}
-            >
-              {PEN_LABELS[k]}
+      {/*
+        紧凑工具栏：一行图标按钮，笔形与颜色收进弹出面板。
+        早先把五种笔形、四种图形、两个工具、五个颜色全部平铺，
+        一共十六个按钮挤成一排 —— 在 759px 宽的画布下要换行，
+        挡住正文。现在只留六个常用按钮，其余点开再选。
+      */}
+      <div className="toolbar">
+        {/* 选择（默认）：正常鼠标，不拦事件 */}
+        <button
+          type="button"
+          className={`toolbar__btn${tool === 'select' ? ' toolbar__btn--on' : ''}`}
+          onClick={() => setTool('select')}
+          title="选择：正常鼠标，可以选文字、拖滚动条"
+        >
+          ↖
+        </button>
+
+        {/* 批注笔：点开选笔形 */}
+        <div className="toolbar__pop">
+          <button
+            type="button"
+            className={`toolbar__btn${tool === 'pen' ? ' toolbar__btn--on' : ''}`}
+            onClick={() => setTool(tool === 'pen' ? 'select' : 'pen')}
+            title={`批注笔（当前：${PEN_LABELS[pen]}）`}
+          >
+            ✎
+          </button>
+          <div className="toolbar__panel">
+            <div className="toolbar__label">笔形</div>
+            {(Object.keys(PEN_LABELS) as PenKind[]).map((k) => (
+              <button
+                key={k}
+                type="button"
+                className={`toolbar__opt${pen === k ? ' toolbar__opt--on' : ''}`}
+                onClick={() => {
+                  setPen(k);
+                  setTool('pen');
+                }}
+              >
+                {PEN_LABELS[k]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 橡皮 */}
+        <button
+          type="button"
+          className={`toolbar__btn${tool === 'eraser' ? ' toolbar__btn--on' : ''}`}
+          onClick={() => setTool(tool === 'eraser' ? 'select' : 'eraser')}
+          title="橡皮：划过即擦"
+        >
+          ⌫
+        </button>
+
+        {/* 套索 */}
+        <button
+          type="button"
+          className={`toolbar__btn${tool === 'lasso' ? ' toolbar__btn--on' : ''}`}
+          onClick={() => setTool(tool === 'lasso' ? 'select' : 'lasso')}
+          title="套索：框选后可移动或删除"
+        >
+          ◯
+        </button>
+
+        {/* 图形：点开选种类 */}
+        <div className="toolbar__pop">
+          <button
+            type="button"
+            className={`toolbar__btn${isShapeTool(tool) ? ' toolbar__btn--on' : ''}`}
+            onClick={() => setTool(isShapeTool(tool) ? 'select' : 'rect')}
+            title="图形"
+          >
+            ▭
+          </button>
+          <div className="toolbar__panel">
+            <div className="toolbar__label">图形</div>
+            {(Object.keys(SHAPE_LABELS) as ShapeKind[]).map((k) => (
+              <button
+                key={k}
+                type="button"
+                className={`toolbar__opt${tool === k ? ' toolbar__opt--on' : ''}`}
+                onClick={() => setTool(k)}
+              >
+                {SHAPE_LABELS[k]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 颜色：点开选色 */}
+        <div className="toolbar__pop">
+          <button
+            type="button"
+            className="toolbar__btn"
+            title="颜色"
+            style={{ color }}
+          >
+            ●
+          </button>
+          <div className="toolbar__panel toolbar__panel--row">
+            {INK_COLORS.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className={`toolbar__swatch${color === c.value ? ' toolbar__swatch--on' : ''}`}
+                style={{ background: c.value }}
+                onClick={() => setColor(c.value)}
+                title={c.label}
+                aria-label={`${c.label}色`}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* 文本 */}
+        <button
+          type="button"
+          className="toolbar__btn"
+          onClick={() => void addText()}
+          title="添加文本框"
+        >
+          T
+        </button>
+
+        <span className="toolbar__sep" />
+
+        {/* 选中后的批量操作 */}
+        {hasSelection ? (
+          <>
+            <button type="button" className="toolbar__btn" onClick={() => void moveSelected(-0.02, 0)} title="选中内容左移">
+              ⇠
             </button>
-          ))}
-        </span>
-
-        {/* 图形 */}
-        <span className="annot__group">
-          {(Object.keys(SHAPE_LABELS) as ShapeKind[]).map((k) => (
-            <button
-              key={k}
-              type="button"
-              className={`btn btn--sm${tool === k ? ' btn--primary' : ''}`}
-              onClick={() => setTool(tool === k ? 'none' : k)}
-              title={`画${SHAPE_LABELS[k]}：拖出范围`}
-            >
-              {SHAPE_LABELS[k]}
+            <button type="button" className="toolbar__btn" onClick={() => void moveSelected(0.02, 0)} title="选中内容右移">
+              ⇢
             </button>
-          ))}
-        </span>
+            <button type="button" className="toolbar__btn" onClick={() => void deleteSelected()} title="删除选中">
+              ✕
+            </button>
+            <span className="toolbar__sep" />
+          </>
+        ) : null}
 
-        {/* 工具 */}
-        <span className="annot__group">
-          <button
-            type="button"
-            className={`btn btn--sm${tool === 'eraser' ? ' btn--primary' : ''}`}
-            onClick={() => setTool(tool === 'eraser' ? 'none' : 'eraser')}
-            title="橡皮：划过即擦掉笔迹"
-          >
-            橡皮
-          </button>
-          <button
-            type="button"
-            className={`btn btn--sm${tool === 'lasso' ? ' btn--primary' : ''}`}
-            onClick={() => setTool(tool === 'lasso' ? 'none' : 'lasso')}
-            title="套索：框选后可整体移动或删除"
-          >
-            套索
-          </button>
-          <button type="button" className="btn btn--sm" onClick={() => void addText()}>
-            + 文本
-          </button>
-        </span>
+        <button
+          type="button"
+          className="toolbar__btn"
+          onClick={() => void undo()}
+          disabled={!hasAnything || saving}
+          title="撤销"
+        >
+          ↶
+        </button>
+        <button
+          type="button"
+          className="toolbar__btn"
+          onClick={() => void clearAll()}
+          disabled={!hasAnything}
+          title="清空本页"
+        >
+          ⌦
+        </button>
 
-        {/* 颜色 */}
-        <span className="annot__group">
-          {INK_COLORS.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              className={`annot__swatch${color === c.value ? ' annot__swatch--on' : ''}`}
-              style={{ background: c.value }}
-              onClick={() => setColor(c.value)}
-              title={c.label}
-              aria-label={`${c.label}色`}
-            />
-          ))}
-        </span>
-
-        <span className="annot__group">
-          {hasSelection ? (
-            <>
-              <button
-                type="button"
-                className="btn btn--sm"
-                onClick={() => void moveSelected(-0.02, 0)}
-                title="选中内容左移"
-              >
-                ← 移
-              </button>
-              <button
-                type="button"
-                className="btn btn--sm"
-                onClick={() => void moveSelected(0.02, 0)}
-                title="选中内容右移"
-              >
-                移 →
-              </button>
-              <button
-                type="button"
-                className="btn btn--sm"
-                onClick={() => void deleteSelected()}
-                title="删除选中的内容"
-              >
-                删除选中
-              </button>
-            </>
-          ) : null}
-          <button
-            type="button"
-            className="btn btn--sm"
-            onClick={() => void undo()}
-            disabled={!hasAnything || saving}
-            title="撤销最后一个元素"
-          >
-            撤销
-          </button>
-          <button
-            type="button"
-            className="btn btn--sm"
-            onClick={() => void clearAll()}
-            disabled={!hasAnything}
-            title="清空这一页的全部注释"
-          >
-            清空本页
-          </button>
-        </span>
-
-        {saving ? <span className="page__muted">保存中…</span> : null}
+        {saving ? <span className="toolbar__hint">保存中…</span> : null}
         {!saving && hasAnything ? (
-          <span className="page__muted">
-            已存 {strokeCount} 笔
-            {shapeCount > 0 ? ` · ${shapeCount} 图` : ''}
+          <span className="toolbar__hint">
+            {strokeCount} 笔{shapeCount > 0 ? ` · ${shapeCount} 图` : ''}
             {textCount > 0 ? ` · ${textCount} 文本` : ''}
           </span>
         ) : null}
@@ -568,7 +635,16 @@ export function AnnotationLayer({
         className="annot__canvas"
         width={Math.max(1, Math.round(width))}
         height={Math.max(1, Math.round(height))}
-        style={{ touchAction: 'none', cursor: 'crosshair' }}
+        style={{
+          /**
+           * select 模式下完全不拦事件：鼠标是正常箭头，
+           * 可以选文字、拖滚动、点链接。
+           * 其余工具才接管，并显示十字准星。
+           */
+          pointerEvents: tool === 'select' ? 'none' : 'auto',
+          cursor: tool === 'select' ? 'default' : 'crosshair',
+          touchAction: 'none',
+        }}
         onPointerDown={(e) => void onPointerDown(e)}
         onPointerMove={(e) => void onPointerMove(e)}
         onPointerUp={(e) => void onPointerUp(e)}

@@ -43,6 +43,16 @@ export function SelectionToolbar({
     text: string;
   } | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * pending 的镜像。
+   *
+   * 为什么需要：工具条的按钮在 mousedown 时会被全局「点外部收起」
+   * 监听器影响（React 合成事件与原生事件顺序不一致），
+   * 等 onClick 执行时 pending state 可能已被清空，
+   * 表现为「点了高亮但什么都没发生」。
+   * 用 ref 保存一份，apply 里优先读它。
+   */
+  const pendingRef = useRef<{ start: number; end: number; text: string } | null>(null);
 
   /**
    * 从当前选区算出「页内纯文本偏移」。
@@ -58,6 +68,7 @@ export function SelectionToolbar({
     if (!container || !sel || sel.isCollapsed || sel.rangeCount === 0) {
       setPos(null);
       setPending(null);
+      pendingRef.current = null;
       return;
     }
 
@@ -68,7 +79,22 @@ export function SelectionToolbar({
       return;
     }
 
-    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    /**
+     * 只遍历「正文元素」里的文本，不是整个容器。
+     *
+     * ⚠️ 这一步踩过坑：容器里除了正文还有批注层的工具栏
+     * （「↖ ✎ ⌫ ◯ ▭ ● T」这些图标也是文本节点），
+     * 一起遍历会让偏移量整体偏掉，锚点建在错的位置上 ——
+     * 表现是「点了高亮什么都没发生」，而且很难看出为什么。
+     *
+     * 优先找 .reader__p 这类正文元素；找不到才退回整个容器。
+     */
+    const textRoot =
+      container.querySelector('.reader__p') ??
+      container.querySelector('p') ??
+      container;
+
+    const walker = document.createTreeWalker(textRoot, NodeFilter.SHOW_TEXT);
     const nodes: { node: Text; start: number }[] = [];
     let offset = 0;
     let n: Node | null = walker.nextNode();
@@ -109,7 +135,9 @@ export function SelectionToolbar({
       return;
     }
     setPos({ left: rect.left + rect.width / 2, top: rect.top - 10 });
-    setPending({ start, end, text });
+    const next = { start, end, text };
+    pendingRef.current = next;
+    setPending(next);
   }, [containerRef, fullText]);
 
   useEffect(() => {
@@ -142,8 +170,10 @@ export function SelectionToolbar({
   }, [pos]);
 
   const apply = (kind: TextMarkKind) => {
-    if (!pending) return;
-    const anchor = describeTextAnchor(fullText, pending.start, pending.end, page);
+    // 优先读 ref：state 可能已被「点外部」监听器清空
+    const target = pendingRef.current ?? pending;
+    if (!target) return;
+    const anchor = describeTextAnchor(fullText, target.start, target.end, page);
     if (!anchor) return;
     onCreate({
       id: newId('mark'),
@@ -156,6 +186,7 @@ export function SelectionToolbar({
     window.getSelection()?.removeAllRanges();
     setPos(null);
     setPending(null);
+    pendingRef.current = null;
   };
 
   if (!pos || !pending) return null;
@@ -173,7 +204,11 @@ export function SelectionToolbar({
           key={k}
           type="button"
           className="sel-bar__btn"
-          onClick={() => apply(k)}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            apply(k);
+          }}
           title={`给选中的 ${pending.text.length} 个字加${MARK_LABELS[k]}`}
         >
           {MARK_LABELS[k]}

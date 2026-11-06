@@ -932,7 +932,40 @@ export function SourceReader({
               与尺寸（渲染出来的图），用 AnnotatedBox 反而多一层测量。
             */}
             {isTextDocument ? (
-              <div ref={textBoxRef} className="mark-host">
+              /*
+                ⚠️ 结构很关键：TreeWalker 只能扫到「文字本身」。
+                早先工具条与标记层都放在同一个容器里，它们的按钮文字
+                （「高亮」「下划线」「删除线」）被算进文本节点，
+                算出来的字符偏移整整偏移了 12 个字 ——
+                describeTextAnchor 拿到错位区间，锚点建不起来，
+                表现就是「点了高亮什么都没发生」。
+
+                现在分两层：
+                  mark-host   只承载浮层（标记层、工具条），不含正文
+                  mark-text  只装正文，TreeWalker 扫这一层
+              */
+              <div className="mark-host">
+                <div ref={textBoxRef} className="mark-text">
+                  <AnnotatedBox
+                    sourceId={source.id}
+                    page={currentPageNo}
+                    service={annotations}
+                    onChange={() => void refreshAnnotationPages()}
+                  >
+                    <HighlightedText
+                      text={segment.text}
+                      ranges={highlightRanges}
+                      active={
+                        activeHit && activeHit.segmentId === segment.id
+                          ? { charStart: activeHit.charStart, charEnd: activeHit.charEnd }
+                          : null
+                      }
+                      activeRef={(el) => {
+                        activeMarkRef.current = el;
+                      }}
+                    />
+                  </AnnotatedBox>
+                </div>
                 <TextMarkLayer
                   fullText={segment.text}
                   marks={textMarks}
@@ -944,25 +977,6 @@ export function SourceReader({
                   page={currentPageNo}
                   onCreate={(m) => void createMark(m)}
                 />
-                <AnnotatedBox
-                sourceId={source.id}
-                page={currentPageNo}
-                service={annotations}
-                onChange={() => void refreshAnnotationPages()}
-              >
-                <HighlightedText
-                  text={segment.text}
-                  ranges={highlightRanges}
-                  active={
-                    activeHit && activeHit.segmentId === segment.id
-                      ? { charStart: activeHit.charStart, charEnd: activeHit.charEnd }
-                      : null
-                  }
-                  activeRef={(el) => {
-                    activeMarkRef.current = el;
-                  }}
-                />
-                </AnnotatedBox>
               </div>
             ) : (
               <HighlightedText
