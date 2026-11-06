@@ -1,0 +1,231 @@
+/*
+ * 纸张卡片 —— 整套设计里唯一的「实体」。
+ *
+ * DESIGN.md 原话：「the card is the only physical object;
+ * everything else is type on a desk.」
+ *
+ * 三个必须做对的细节：
+ *  1. 顶部 2px 朱砂横线 —— 取自索引卡的顶栏线
+ *  2. 底下是索引卡横格线（每 32px 一条），不是纯色底
+ *  3. 圆角 16px（--radius-card），比其他面板的 12px 更大，
+ *     因为它是一张「纸」，不是一块「面板」
+ *
+ * 少任何一个都会变成「一个米色的 div」，
+ * 而不是「桌上摊着一张卡片」。
+ */
+
+@layer study.components {
+  .paper {
+    position: relative;
+    background: var(--paper);
+    color: var(--paper-ink);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+    padding: var(--space-6);
+    /*
+     * 索引卡横格线：极淡，斜着看不刺眼，平视时提供「纸」的质感。
+     * 用 repeating-linear-gradient 而不是背景图 ——
+     * 背景图在高 DPI 下会糊，渐变永远清晰。
+     */
+    background-image: repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 31px,
+      var(--paper-rule) 31px,
+      var(--paper-rule) 32px
+    );
+    background-position: 0 var(--space-6);
+    overflow: hidden;
+  }
+
+  /* 顶部朱砂横线 */
+  .paper::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--accent);
+  }
+
+  .paper--plain {
+    /* 少数场景不需要横格线（比如整块说明文字） */
+    background-image: none;
+  }
+
+  /* 纸张上的文字：用 paper-ink 而不是普通 text 色 */
+  .paper h2,
+  .paper h3 {
+    color: var(--paper-ink);
+  }
+
+  .paper__dim {
+    color: var(--paper-dim);
+  }
+
+  /* ---------- 今日卡片叠：后面两张纸露出边角 ---------- */
+  .today-stack {
+    position: relative;
+    min-height: 330px;
+    max-width: 340px;
+  }
+
+  /*
+   * 后面两张「衬纸」。
+   * 不用真元素而用伪元素：它们只是视觉暗示「这里有一叠」，
+   * 不承载任何内容，也不需要可访问性。
+   */
+  .today-stack::before,
+  .today-stack::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--paper);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-sm);
+    z-index: 0;
+  }
+
+  .today-stack::before {
+    transform: rotate(3.6deg) scale(0.97);
+    opacity: 0.55;
+  }
+
+  .today-stack::after {
+    transform: rotate(1.6deg) scale(0.985);
+    opacity: 0.8;
+  }
+
+  .today-stack > .paper {
+    position: relative;
+    z-index: 1;
+    transition: transform 0.24s ease;
+  }
+
+  /* hover 时整叠轻微上浮并逆时针转一点，像被手指按住一角 */
+  .today-stack:hover > .paper {
+    transform: translateY(-2px) rotate(-0.6deg);
+  }
+
+  /* ---------- 主按钮（朱砂实心） ---------- */
+  /*
+   * 一个屏幕只有一个填充主按钮。
+   * 不可用时变中性灰，而不是变暗红 —— 暗红看起来像还能点。
+   */
+  .btn-fill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 10px var(--space-5);
+    border: none;
+    border-radius: var(--radius);
+    background: var(--accent);
+    color: var(--accent-ink);
+    font: inherit;
+    font-size: var(--fs-md);
+    font-weight: 550;
+    cursor: pointer;
+    transition: background 0.14s, transform 0.14s;
+  }
+
+  .btn-fill:hover:not(:disabled) {
+    background: var(--accent-soft);
+  }
+
+  /* 右箭头 hover 位移，暗示「往前走」 */
+  .btn-fill__arrow {
+    transition: transform 0.14s;
+  }
+
+  .btn-fill:hover:not(:disabled) .btn-fill__arrow {
+    transform: translateX(4px);
+  }
+
+  .btn-fill:disabled {
+    background: var(--bg-raised);
+    color: var(--text-faint);
+    cursor: default;
+  }
+
+  /* 次级按钮：中性描边，不抢主按钮 */
+  .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 8px var(--space-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: var(--fs-sm);
+    cursor: pointer;
+  }
+
+  .btn-ghost:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+
+  .btn-ghost:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  /* ---------- 熟练度细条 ---------- */
+  /*
+   * 4px 高、分段、gap 2px。
+   * 颜色语义固定：未学灰 / 薄弱莓红 / 学习中赭黄 / 熟悉玉绿45% / 已掌握玉绿。
+   * 这套配色不是随便挑的 —— 它同时满足「色盲可辨」与「深浅有序」。
+   */
+  .mastery {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .mastery__bar {
+    display: flex;
+    gap: 2px;
+    height: 4px;
+    flex: 1;
+    max-width: 150px;
+    border-radius: var(--radius-xs);
+    overflow: hidden;
+  }
+
+  .mastery__seg {
+    height: 100%;
+    border-radius: 2px;
+  }
+
+  .mastery__seg--unlearned {
+    background: color-mix(in srgb, var(--text) 22%, transparent);
+  }
+  .mastery__seg--weak {
+    background: var(--bad);
+  }
+  .mastery__seg--learning {
+    background: var(--warn);
+  }
+  .mastery__seg--familiar {
+    background: color-mix(in srgb, var(--ok) 45%, transparent);
+  }
+  .mastery__seg--mastered {
+    background: var(--ok);
+  }
+
+  .mastery__pct {
+    font-size: var(--fs-sm);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+    min-width: 34px;
+    text-align: right;
+  }
+
+  /* 0% 时降级为灰破折号，不显示 0% */
+  .mastery__pct--zero {
+    color: var(--text-faint);
+  }
+}

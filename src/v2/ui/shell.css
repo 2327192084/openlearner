@@ -1,0 +1,288 @@
+/*
+ * 应用外壳：侧栏 + 顶栏 + 内容区。
+ *
+ * 尺寸全部取自 StudyHub 的 ui/shell.css 实测值：
+ *   侧栏 244px，顶栏 51px，内容区 max-width 1200px
+ * 这些数字是他们调过的（244 刚好放得下最长的中文导航项 + 计数徽章，
+ * 1200 是长行阅读与双栏布局的平衡点），直接沿用比重新试更好。
+ */
+
+@layer study.components {
+  /* ---------- 侧栏 ---------- */
+  .sidebar {
+    width: var(--sidebar-w);
+    flex: none;
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 26px 14px 16px;
+    border-right: 1px solid var(--line-soft);
+    background: var(--bg-canvas);
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 0 var(--space-2) var(--space-5);
+  }
+
+  .brand__mark {
+    width: 30px;
+    height: 30px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border: 1.5px solid var(--accent);
+    border-radius: var(--radius-xs);
+    color: var(--accent-text);
+    font-weight: 650;
+    font-size: var(--fs-sm);
+    /* 练习本封面的感觉：直角偏方，带一道斜线 */
+    position: relative;
+  }
+
+  .brand__mark::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    right: 4px;
+    top: 8px;
+    height: 1.5px;
+    background: var(--accent);
+    box-shadow: 0 5px 0 var(--accent-soft), 0 10px 0 color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+
+  .brand__text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .brand__name {
+    font-size: var(--fs-lg);
+    font-weight: 650;
+    line-height: var(--lh-tight);
+  }
+
+  .brand__tag {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ---------- 导航 ---------- */
+  .side-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: var(--nav-row);
+    padding: 0 var(--space-2);
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: var(--fs-md);
+    text-align: left;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    /*
+     * 选中态用中性色，不用朱砂。
+     * 朱砂只留给「主操作」和「进度」—— 否则页面上会同时出现两个红，
+     * 用户不知道该看哪个。
+     */
+    transition: background 0.12s, color 0.12s;
+    position: relative;
+  }
+
+  .nav-item:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+
+  .nav-item--on {
+    background: var(--bg-selected);
+    color: var(--text);
+    font-weight: 550;
+  }
+
+  /* 当前页左侧 3px 竖条 —— 比整行变色更克制 */
+  .nav-item--on::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 7px;
+    bottom: 7px;
+    width: 3px;
+    border-radius: var(--radius-pill);
+    background: var(--accent);
+  }
+
+  .nav-item__icon {
+    width: 18px;
+    flex: none;
+    text-align: center;
+    font-size: var(--fs-md);
+    opacity: 0.85;
+  }
+
+  .nav-item__label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 计数徽章：中性色，不用朱砂 */
+  .nav-item__count {
+    flex: none;
+    min-width: 20px;
+    padding: 0 5px;
+    border-radius: var(--radius-pill);
+    background: var(--bg-raised);
+    color: var(--text-muted);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    line-height: 18px;
+  }
+
+  /* 分组标题 */
+  .nav-group {
+    margin-top: var(--space-4);
+    padding: 0 var(--space-2) var(--space-1);
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    letter-spacing: 0.04em;
+  }
+
+  .sidebar__foot {
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line-soft);
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  /* ---------- 主区 ---------- */
+  .main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .topbar {
+    height: var(--topbar-h);
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 0 var(--space-6);
+    border-bottom: 1px solid var(--line-soft);
+    position: sticky;
+    top: 0;
+    background: var(--bg-canvas);
+    z-index: 5;
+  }
+
+  .topbar__title {
+    font-size: var(--fs-md);
+    font-weight: 550;
+  }
+
+  .topbar__crumb {
+    color: var(--text-faint);
+    font-size: var(--fs-sm);
+  }
+
+  .topbar__spacer {
+    flex: 1;
+  }
+
+  .page {
+    width: 100%;
+    max-width: var(--page-max);
+    margin: 0 auto;
+    padding: 32px 36px 56px;
+  }
+
+  /* ---------- 窄面板：侧栏变抽屉 ---------- */
+  /*
+   * StudyHub 的实测决定：≤560px 时侧栏不是收缩成图标条，而是整个变抽屉。
+   * 图标条在 420px 下只能挤出 60px 宽度，还得让用户记图标含义；
+   * 抽屉把整个宽度还给内容，代价是点一次汉堡。
+   */
+  .sidebar-toggle {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-lg);
+  }
+
+  .sidebar-toggle:hover {
+    background: var(--bg-hover);
+  }
+
+  @media (max-width: 560px) {
+    .sidebar {
+      position: fixed;
+      left: 0;
+      top: 0;
+      z-index: 40;
+      transform: translateX(-100%);
+      transition: transform 0.22s ease;
+      background: var(--bg-surface);
+      box-shadow: var(--shadow-md);
+    }
+
+    .sidebar--open {
+      transform: translateX(0);
+    }
+
+    .sidebar-toggle {
+      display: inline-flex;
+    }
+
+    .page {
+      padding: 20px 16px 40px;
+    }
+
+    .topbar {
+      padding: 0 var(--space-3);
+    }
+  }
+
+  /* 抽屉打开时的遮罩 */
+  .scrim {
+    position: fixed;
+    inset: 0;
+    background: #00000080;
+    z-index: 39;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+}

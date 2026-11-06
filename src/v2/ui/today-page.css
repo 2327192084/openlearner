@@ -1,0 +1,243 @@
+/*
+ * 今日页布局。
+ *
+ * 两栏：左 1fr（进度与说明），右 340px（纸张卡片叠）。
+ * gap 76px 是 StudyHub 的原值 —— 比常见的 32px 大得多，
+ * 因为左侧是「读的文字」、右侧是「一张纸」，
+ * 两者需要明显的呼吸空间，否则会显得挤在一起。
+ */
+
+@layer study.features {
+  .today-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(270px, 340px);
+    gap: 40px 76px;
+    align-items: start;
+  }
+
+  /* 窄屏：纸卡移到上方，因为它是「现在该做什么」 */
+  @media (max-width: 900px) {
+    .today-grid {
+      grid-template-columns: 1fr;
+      gap: var(--space-6);
+    }
+
+    .today-stack {
+      order: -1;
+      max-width: 100%;
+      min-height: 260px;
+    }
+  }
+
+  .today-main {
+    min-width: 0;
+    padding-bottom: var(--space-6);
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .today__h1 {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    font-size: var(--fs-3xl);
+    margin-bottom: var(--space-5);
+  }
+
+  .today__date {
+    font-size: var(--fs-sm);
+    font-weight: 400;
+    color: var(--text-faint);
+  }
+
+  .today__lead {
+    font-size: var(--fs-md);
+    line-height: var(--lh-body);
+    color: var(--text-dim);
+    margin-bottom: var(--space-5);
+    max-width: 52ch;
+  }
+
+  .today__lead--bad {
+    color: var(--bad);
+  }
+
+  /* ---------- 掌握度 ---------- */
+  .today__mastery {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-5);
+    flex-wrap: wrap;
+  }
+
+  .today__mastery .mastery__bar {
+    flex: none;
+    width: 180px;
+    max-width: none;
+    height: 6px;
+  }
+
+  .today__mastery-label {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+  }
+
+  /* ---------- 推荐下一步 ---------- */
+  .today__next {
+    padding: var(--space-4) 0 var(--space-4) var(--space-4);
+    border-left: 2px solid var(--line-strong);
+    margin-bottom: var(--space-5);
+  }
+
+  .today__next-title {
+    font-size: var(--fs-lg);
+    font-weight: 550;
+    line-height: var(--lh-snug);
+    margin-bottom: var(--space-1);
+  }
+
+  .today__next-hint {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+  }
+
+  /* ---------- 统计行 ---------- */
+  .today__stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: var(--space-4);
+    padding: var(--space-4) 0;
+  }
+
+  .stat__label {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    margin-bottom: 2px;
+  }
+
+  .stat__value {
+    font-size: var(--fs-2xl);
+    font-weight: 300; /* display 光学尺寸用细字重 */
+    font-variant-numeric: tabular-nums;
+    line-height: var(--lh-tight);
+  }
+
+  .stat__unit {
+    font-size: var(--fs-sm);
+    font-weight: 400;
+    color: var(--text-muted);
+    margin-left: 3px;
+  }
+
+  .today__done {
+    padding: var(--space-3) var(--space-4);
+    background: color-mix(in srgb, var(--ok) 10%, transparent);
+    border-left: 2px solid var(--ok);
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+  }
+
+  /* ---------- 纸张卡片内的排版 ---------- */
+  .paper__eyebrow {
+    font-size: var(--fs-xs);
+    letter-spacing: 0.08em;
+    color: var(--paper-dim);
+    text-transform: uppercase;
+    margin-bottom: var(--space-3);
+  }
+
+  .paper__big {
+    font-size: var(--fs-8xl, 96px);
+    /* display 数字用最细字重：大字号下粗字重会显得笨重 */
+    font-weight: 300;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--paper-ink);
+    margin-bottom: var(--space-1);
+  }
+
+  .paper__big--muted {
+    color: color-mix(in srgb, var(--paper-ink) 30%, transparent);
+  }
+
+  .paper__unit {
+    font-size: var(--fs-lg);
+    font-weight: 550;
+    color: var(--paper-ink);
+    margin-bottom: var(--space-2);
+  }
+
+  .paper__note {
+    font-size: var(--fs-sm);
+    line-height: var(--lh-snug);
+    margin-bottom: var(--space-5);
+  }
+
+  /* 纸张上的主按钮占满宽度：它是这一页唯一的主操作 */
+  .paper .btn-fill {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* 掌握度 0% 时的空槽：明确是「还没开始」，不是一条分隔线 */
+.mastery__empty {
+  width: 180px;
+  height: 6px;
+  border-radius: var(--radius-xs);
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+}
+
+/* ---------- 下方说明区 ---------- */
+.today__explain {
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--line-soft);
+}
+
+.today__explain-title {
+  font-size: var(--fs-md);
+  font-weight: 550;
+  margin-bottom: var(--space-3);
+}
+
+.today__steps {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.today__steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  line-height: var(--lh-snug);
+}
+
+/* 步骤序号：中性描边圆，不用朱砂（朱砂留给主操作） */
+.today__step-n {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.today__explain-note {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  line-height: var(--lh-body);
+  max-width: 52ch;
+}

@@ -10,7 +10,9 @@ import { UsageService } from '@/core/usage.ts';
 import { AnnotationService } from '@/core/annotation-service.ts';
 import { IndexedDbStorage } from '@/core/storage/indexeddb-storage.ts';
 import { ServicesContext, type AppServices } from '@/app/services-context.ts';
-import { AppRouter } from '@/app/router.tsx';
+// v1 路由暂时不用，但保留文件（解析器与业务逻辑仍被 v2 复用）
+import { ReviewService } from '@/v2/core/review-service.ts';
+import { App as V2App } from '@/v2/ui/App.tsx';
 import { ErrorState, LoadingState } from '@/components/states.tsx';
 import { detectEnv } from '@/app/env.ts';
 import '@/styles/base.css';
@@ -26,6 +28,17 @@ import '@/pages/modules.ts';
  */
 function Bootstrap() {
   const [services, setServices] = useState<AppServices | null>(null);
+  /**
+   * v2 界面所需的数据。
+   *
+   * cardPool 现在是「题目 + 知识点」的 id 集合 ——
+   * 间隔复习对两者一视同仁，统一成「卡片」。
+   */
+  const [v2Data, setV2Data] = useState<{
+    review: ReviewService;
+    cardPool: string[];
+    hasSources: boolean;
+  } | null>(null);
   const [failure, setFailure] = useState<{ message: string; hint: string } | null>(null);
 
   useEffect(() => {
@@ -44,8 +57,23 @@ function Bootstrap() {
 
     library
       .init()
-      .then(() => {
+      .then(async () => {
         if (cancelled) return;
+
+        // ---- v2 数据 ----
+        const review = new ReviewService(storage);
+        const [questions, points, srcs] = await Promise.all([
+          storage.getAll('questions'),
+          storage.getAll('knowledgePoints'),
+          storage.getAll('sources'),
+        ]);
+        if (cancelled) return;
+        setV2Data({
+          review,
+          cardPool: [...questions.map((q) => q.id), ...points.map((p) => p.id)],
+          hasSources: srcs.length > 0,
+        });
+
         setServices({
           library,
           backends,
@@ -88,9 +116,24 @@ function Bootstrap() {
     return <LoadingState label="正在准备学习库…" />;
   }
 
+  if (!v2Data) {
+    return <LoadingState label="正在准备学习库…" />;
+  }
+
+  /*
+   * v2 界面接管。
+   *
+   * v1 的 AppRouter 暂时保留在 src/app/ 里 ——
+   * 它承载的解析器、存储、出题逻辑仍然被 v2 复用，
+   * 只是不再作为主界面。
+   */
   return (
     <ServicesContext.Provider value={services}>
-      <AppRouter />
+      <V2App
+        reviewService={v2Data.review}
+        cardPool={v2Data.cardPool}
+        hasSources={v2Data.hasSources}
+      />
     </ServicesContext.Provider>
   );
 }

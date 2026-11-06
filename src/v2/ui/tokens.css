@@ -1,0 +1,217 @@
+/*
+ * OpenLeaner v2 设计系统
+ *
+ * 直接移植自 StudyHub 4.4.3 的 ui/tokens.css（MIT 许可）。
+ * 只保留 OpenLeaner 用得到的部分，色值与字阶保持原值 ——
+ * 那些数字是他们做过对比度测试的（--text-* 全部达 WCAG AA 4.5:1），
+ * 自己改一遍等于把测试重做一遍。
+ *
+ * ## 设计原话（DESIGN.md）
+ *
+ * "the card is the only physical object; everything else is type on a desk."
+ *
+ * 暖黑书桌上摊着米色索引卡，朱砂红只用来点「开始」和标记「在推进」。
+ * 刻意不做仪表盘 —— 每次只面对一张卡和下一步。
+ */
+
+@layer study.reset, study.tokens, study.base;
+
+@layer study.tokens {
+  .app,
+  .seat {
+    /* ---- 深色（默认主题）---- */
+    --bg-canvas: #161412;
+    --bg-sunken: #110f0d;
+    --bg-surface: #1e1b18;
+    --bg-raised: #26231f;
+    --bg-hover: #fff1dc0b;
+    --bg-selected: #292623;
+
+    --line-soft: #f5e6cf12;
+    --line: #332f2a;
+    --line-strong: #4a443c;
+
+    --text: #efe9df;
+    --text-dim: #c5bdb1;
+    --text-muted: #a59d91;
+    --text-faint: #958e84;
+    --decor-faint: #6f685e;
+
+    /* 朱砂：主操作与进度专用 */
+    --accent: #c93d22;
+    --accent-soft: #ec6a4a;
+    --accent-ink: #fff8f2;
+    --accent-text: #ec6a4a;
+
+    /* 语义色：只承载含义，不做装饰 */
+    --ok: #5fb58a;
+    --warn: #d9a441;
+    --bad: #d76c93;
+    --info: #86a9c6;
+
+    /* 纸张：唯一的实体 */
+    --paper: #ece4d6;
+    --paper-ink: #201b15;
+    --paper-dim: #5d5448;
+    --paper-rule: #20160c14;
+    --pdf-page: #fff;
+
+    /* 圆角 */
+    --radius-xs: 4px;
+    --radius-sm: 8px;
+    --radius: 12px;
+    --radius-card: 16px;
+    --radius-pill: 999px;
+
+    /* 字阶（比例约 1.25） */
+    --fs-xs: 12px;
+    --fs-sm: 13px;
+    --fs-md: 15px;
+    --fs-lg: 17px;
+    --fs-xl: 19px;
+    --fs-2xl: 23px;
+    --fs-3xl: 28px;
+    --fs-4xl: 34px;
+    --fs-5xl: 44px;
+    --lh-tight: 1.3;
+    --lh-snug: 1.45;
+    --lh-body: 1.65;
+
+    /* 4px 网格 */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-7: 32px;
+    --space-8: 40px;
+    --space-9: 56px;
+
+    /* 阴影 */
+    --shadow-sm: 0 1px 2px #0000004d, 0 2px 8px -4px #00000080;
+    --shadow-md: 0 14px 34px -20px #000000d9;
+    --shadow-card: inset 0 1px 0 #ffffffb3, 0 0 0 1px var(--paper-rule), 0 2px 4px #00000026,
+      0 30px 70px -30px #000000f2;
+    --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+
+    /* 外壳尺寸（shell.css 原值） */
+    --sidebar-w: 244px;
+    --topbar-h: 51px;
+    --nav-row: 34px;
+    --page-max: 1200px;
+
+    /* 中文字体栈：Inter 只覆盖拉丁与数字，中文落回系统字体 */
+    --font-ui: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC',
+      'Hiragino Sans GB', 'Source Han Sans SC', sans-serif;
+    --font-display: var(--font-ui);
+
+    color-scheme: dark;
+  }
+
+  /* ---- 浅色 ---- */
+  .app[data-theme='light'],
+  .seat[data-theme='light'] {
+    --bg-canvas: #f1ede6;
+    --bg-sunken: #e8e3da;
+    --bg-surface: #faf8f4;
+    --bg-raised: #fffdf8;
+    --bg-hover: #20160c08;
+    --bg-selected: #ebe4d9;
+
+    --line-soft: #20160c0f;
+    --line: #ded6c9;
+    --line-strong: #c4b9a8;
+
+    --text: #1e1a15;
+    --text-dim: #4a423a;
+    --text-muted: #6b6358;
+    --text-faint: #857c70;
+    --decor-faint: #a9a094;
+
+    --accent: #c03a1f;
+    --accent-soft: #d95338;
+    --accent-ink: #fff8f2;
+    --accent-text: #b3341b;
+
+    --ok: #1e724d;
+    --warn: #8b590f;
+    --bad: #ad3966;
+    --info: #3f6b8a;
+
+    --paper: #fffdf8;
+    --paper-ink: #201b15;
+    --paper-dim: #5d5448;
+    --paper-rule: #20160c14;
+
+    color-scheme: light;
+  }
+}
+
+@layer study.base {
+  .app,
+  .app *,
+  .app *::before,
+  .app *::after {
+    box-sizing: border-box;
+  }
+
+  .app {
+    display: flex;
+    min-height: 100vh;
+    background: var(--bg-canvas);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: var(--fs-md);
+    line-height: var(--lh-body);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /*
+   * 字重只有 300 / 400 / 550 / 650 四档。
+   * 没有 500 和 700 —— 相邻两档差异在深色底上几乎看不出来，
+   * 多出来只会让界面显得又乱又没层级。
+   */
+  .app h1,
+  .app h2,
+  .app h3 {
+    margin: 0;
+    font-weight: 550;
+    line-height: var(--lh-tight);
+    letter-spacing: -0.01em;
+  }
+
+  .app p {
+    margin: 0;
+  }
+
+  /* 折叠一律用 details + 自绘 chevron，禁掉原生三角 */
+  .app summary {
+    list-style: none;
+    cursor: pointer;
+  }
+
+  .app summary::-webkit-details-marker {
+    display: none;
+  }
+  .app summary::marker {
+    content: '';
+  }
+
+  /* 焦点环统一用 --ring，保证键盘可达时看得见 */
+  .app :focus-visible {
+    outline: none;
+    box-shadow: var(--ring);
+    border-radius: var(--radius-sm);
+  }
+
+  /* 尊重系统的减少动效偏好 */
+  @media (prefers-reduced-motion: reduce) {
+    .app *,
+    .app *::before,
+    .app *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
