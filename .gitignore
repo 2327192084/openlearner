@@ -24,3 +24,6 @@ coverage/
 
 # esbuild 构建临时目录（Access is denied 时用它绕开）
 .tmp-esbuild/
+
+# v1 资料备份（89MB 二进制，不入库；需要时从桌面程序目录恢复）
+.backup-v1/
