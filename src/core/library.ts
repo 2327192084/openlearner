@@ -2,7 +2,7 @@ import { newId, nowIso } from './id.ts';
 import { DEFAULT_SETTINGS, LIBRARY_SCHEMA_VERSION } from './model.ts';
 import type { AppSettings, LibraryBackup, LibraryMeta } from './model.ts';
 import { migrateBackup } from './migrations.ts';
-import type { StorageAdapter, StoreSnapshot } from './storage/types.ts';
+import type { StorageAdapter, StoreSnapshot, BackupStoreName } from './storage/types.ts';
 import { BACKUP_STORES } from './storage/types.ts';
 
 const META_ID = 'library';
@@ -102,28 +102,18 @@ export class LibraryService {
     const settings = await this.getSettings();
     const snapshot = await this.storage.readAll();
 
+    // 分区清单同样以 BACKUP_STORES 为准（见 validateBackup 里的说明）。
+    // 这样「导出有、导入丢」这类漂移从结构上就不可能发生。
     return {
       format: 'openleaner-library',
       schemaVersion: LIBRARY_SCHEMA_VERSION,
       exportedAt: nowIso(),
       meta,
       settings,
-      courses: snapshot.courses,
-      sources: snapshot.sources,
-      // 切分正文必须跟着走：不导出的话，恢复之后「点回原文」全部失效
-      sourceSegments: snapshot.sourceSegments,
-      knowledgePoints: snapshot.knowledgePoints,
-      generationRuns: snapshot.generationRuns,
-      decks: snapshot.decks,
-      questions: snapshot.questions,
-      answerRecords: snapshot.answerRecords,
-      slideDecks: snapshot.slideDecks,
-      // 用户插入的 PPT 图片跟着走：这些图用户找不回来，不导出等于丢
-      slideImages: snapshot.slideImages,
-      backends: snapshot.backends,
-      // 用量统计跟着走：换机器后账单不该归零（只有数字，不含 Key 与请求内容）
-      usageRecords: snapshot.usageRecords,
-    };
+      ...(Object.fromEntries(
+        BACKUP_STORES.map((store) => [store, snapshot[store]]),
+      ) as Record<BackupStoreName, unknown[]>),
+    } as LibraryBackup;
   }
 
   /**
@@ -225,15 +215,15 @@ export function validateBackup(raw: unknown): LibraryBackup {
     exportedAt: typeof obj.exportedAt === 'string' ? obj.exportedAt : nowIso(),
     meta: obj.meta as LibraryMeta,
     settings: (obj.settings as AppSettings) ?? DEFAULT_SETTINGS,
-    courses: asArray(obj.courses),
-    sources: asArray(obj.sources),
-    knowledgePoints: asArray(obj.knowledgePoints),
-    generationRuns: asArray(obj.generationRuns),
-    decks: asArray(obj.decks),
-    questions: asArray(obj.questions),
-    answerRecords: asArray(obj.answerRecords),
-    slideDecks: asArray(obj.slideDecks),
-    backends: asArray(obj.backends),
+    // 逐个分区从对象里搬过来，而不是在这里再抄一份清单。
+    // 抄清单就会漂：2026-11-06 之前这里漏了 sourceSegments / sourceAnnotations /
+    // reviewRecords / reviewLogs / slideImages / usageRecords 六个分区，
+    // 于是「恢复备份」会把正文、批注、复习进度、PPT 图片、用量统计全部清空，
+    // 而且因为 replaceAll 是整库替换，用户也不会收到任何提示。
+    // 现在以 BACKUP_STORES 为唯一清单：以后加分区只需改那一处。
+    ...(Object.fromEntries(
+      BACKUP_STORES.map((store) => [store, asArray(obj[store])]),
+    ) as Record<BackupStoreName, unknown[]>),
   } as LibraryBackup;
 }
 

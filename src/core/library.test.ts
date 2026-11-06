@@ -261,6 +261,133 @@ describe('validateBackup —— 坏文件必须说清原因', () => {
   });
 });
 
+/**
+ * 导出→导入必须一个分区都不少。
+ *
+ * 这条用「真实导出、真实导入、再读回存储」来测，
+ * 而不是断言导出对象上有哪些键——因为丢数据的其实是
+ * validateBackup() 重建对象那一步：键在导出时有，进到库里就没了。
+ */
+describe('备份必须整库往返，不能悄悄少分区', () => {
+  it('导出后再导入，六个容易漏的分区都还在', async () => {
+    await service.create('往返库');
+
+    const now = new Date().toISOString();
+    await storage.put('sourceSegments', {
+      id: 'seg_1',
+      sourceId: 'src_1',
+      index: 0,
+      page: 1,
+      chapter: null,
+      text: '这是正文，恢复后还得能点回原文',
+      charCount: 16,
+    });
+    await storage.put('sourceAnnotations', {
+      id: 'anno_1',
+      sourceId: 'src_1',
+      page: 3,
+      strokes: [],
+      texts: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+    await storage.put('reviewRecords', {
+      id: 'card_1',
+      cardId: 'card_1',
+      kind: 'question',
+      state: {
+        ease: 2.5,
+        intervalDays: 6,
+        streak: 3,
+        reviewCount: 4,
+        lapseCount: 1,
+        dueAt: '2026-12-01',
+      },
+      firstSeenAt: now,
+      updatedAt: now,
+    });
+    await storage.put('reviewLogs', {
+      id: 'log_1',
+      cardId: 'card_1',
+      kind: 'question',
+      grade: 'good',
+      day: '2026-11-06',
+      prevIntervalDays: 1,
+      newIntervalDays: 6,
+      at: now,
+    });
+    await storage.put('slideImages', {
+      id: 'img_1',
+      imageData: 'data:image/png;base64,iVBORw0KGgo=',
+      width: 800,
+      height: 600,
+      byteSize: 12,
+      createdAt: now,
+    });
+    await storage.put('usageRecords', {
+      id: '2026-11-06|backend_1|questions',
+      day: '2026-11-06',
+      backendId: 'backend_1',
+      provider: 'deepseek',
+      kind: 'questions',
+      tokens: 1234,
+      calls: 2,
+      lastAt: now,
+    });
+
+    const backup = await service.exportBackup();
+    // 导出对象上确实带着这些字段（这一步一直是通的）
+    expect(backup.sourceSegments).toHaveLength(1);
+    expect(backup.slideImages).toHaveLength(1);
+    expect(backup.usageRecords).toHaveLength(1);
+
+    // 关键：走一遍真实的序列化 + 导入，再看存储里还剩什么
+    const target = freshService();
+    await target.service.importBackup(JSON.parse(JSON.stringify(backup)));
+
+    expect(await target.storage.getAll('sourceSegments')).toHaveLength(1);
+    expect(await target.storage.getAll('sourceAnnotations')).toHaveLength(1);
+    expect(await target.storage.getAll('reviewRecords')).toHaveLength(1);
+    expect(await target.storage.getAll('reviewLogs')).toHaveLength(1);
+    expect(await target.storage.getAll('slideImages')).toHaveLength(1);
+    expect(await target.storage.getAll('usageRecords')).toHaveLength(1);
+
+    // 抽查内容本身，避免「有条数但内容被清空」
+    const segs = await target.storage.getAll('sourceSegments');
+    expect(segs[0].text).toContain('点回原文');
+    const usage = await target.storage.getAll('usageRecords');
+    expect(usage[0].tokens).toBe(1234);
+  });
+
+  it('旧备份里没有这些字段时按空数组补，不因此导入失败', async () => {
+    // 2026-11-06 之前的备份缺 reviewRecords / reviewLogs 等字段，
+    // 导入这种备份必须照常成功，只是这些分区为空。
+    const legacy = {
+      format: 'openleaner-library',
+      schemaVersion: LIBRARY_SCHEMA_VERSION,
+      exportedAt: new Date().toISOString(),
+      meta: { id: 'library', name: '老库', createdAt: '', updatedAt: '', schemaVersion: 10 },
+      settings: { locale: 'zh-CN', questionLanguage: 'zh', onboarded: false },
+      courses: [],
+      sources: [],
+      knowledgePoints: [],
+      generationRuns: [],
+      decks: [],
+      questions: [],
+      answerRecords: [],
+      slideDecks: [],
+      backends: [],
+    };
+    const parsed = validateBackup(legacy);
+    expect(parsed.sourceSegments).toEqual([]);
+    expect(parsed.sourceAnnotations).toEqual([]);
+    expect(parsed.reviewRecords).toEqual([]);
+    expect(parsed.reviewLogs).toEqual([]);
+    expect(parsed.slideImages).toEqual([]);
+    expect(parsed.usageRecords).toEqual([]);
+  });
+});
+
 describe('backupFileName', () => {
   it('文件名带日期且是 .json', async () => {
     const meta = await service.create('我的库');
