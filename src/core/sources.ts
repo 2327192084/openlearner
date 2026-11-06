@@ -362,6 +362,25 @@ export class SourceService {
     }
     // 原始字节也要跟着删，否则删掉资料后几十 MB 还占着配额，用户看不到也清不掉
     await this.storage.remove('sourceFiles', id);
+
+    /**
+     * 手写注释也要级联清理。
+     *
+     * 不删的话会留下孤儿记录：界面上永远看不到，却一直占着空间、
+     * 跟着备份文件走；更糟的是如果以后导入一份 id 相同的资料
+     * （从备份恢复就会出现），那些旧笔记会突然冒出来，
+     * 挂在一份用户根本没标注过的资料上 —— 那是很诡异的现象。
+     *
+     * 注释按 `${sourceId}:${page}` 存，所以只能按 sourceId 扫一遍，
+     * 没法像 sourceFiles 那样一次 remove(sourceId)。
+     */
+    const annotations = await this.storage.getAll('sourceAnnotations');
+    for (const a of annotations) {
+      if (a.sourceId === id) {
+        await this.storage.remove('sourceAnnotations', a.id);
+      }
+    }
+
     await this.storage.remove('sources', id);
   }
 

@@ -323,6 +323,41 @@ describe('删除资料：级联清理，不留脏数据', () => {
   it('删除不存在的资料不报错', async () => {
     await expect(sources.remove('不存在')).resolves.toBeUndefined();
   });
+
+  it('**删除资料时连带清掉它的手写注释**（否则留孤儿数据）', async () => {
+    const source = await sources.importBuffer('c.pdf', fixture('course.pdf'));
+    const ts = new Date().toISOString();
+
+    // 造两条注释：一条属于这份资料，一条属于别的资料
+    await storage.put('sourceAnnotations', {
+      id: `${source.id}:1`,
+      sourceId: source.id,
+      page: 1,
+      strokes: [{ points: [{ x: 0.1, y: 0.1 }], color: '#000', width: 0.004 }],
+      texts: [],
+      shapes: [],
+      createdAt: ts,
+      updatedAt: ts,
+    });
+    await storage.put('sourceAnnotations', {
+      id: 'other_src:1',
+      sourceId: 'other_src',
+      page: 1,
+      strokes: [{ points: [{ x: 0.2, y: 0.2 }], color: '#000', width: 0.004 }],
+      texts: [],
+      shapes: [],
+      createdAt: ts,
+      updatedAt: ts,
+    });
+
+    await sources.remove(source.id);
+
+    const left = await storage.getAll('sourceAnnotations');
+    // 该资料的注释没了
+    expect(left.some((a) => a.sourceId === source.id)).toBe(false);
+    // 别的资料的注释不能被误删
+    expect(left.some((a) => a.sourceId === 'other_src')).toBe(true);
+  });
 });
 
 describe('全文搜索', () => {
