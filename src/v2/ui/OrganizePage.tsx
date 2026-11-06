@@ -45,6 +45,14 @@ export interface OrganizePageProps {
   onBack: () => void;
   /** 产出条目后通知上层刷新卡片池与侧栏计数 */
   onChanged: () => void;
+  /** 点「可点回原文」—— 打开阅读器并定位到这条知识点的位置 */
+  onOpenAnchor?: (target: {
+    sourceId: string;
+    page?: number;
+    charStart?: number;
+    charEnd?: number;
+    quote?: string;
+  }) => void;
 }
 
 export function OrganizePage({
@@ -54,6 +62,7 @@ export function OrganizePage({
   initialSourceId,
   onBack,
   onChanged,
+  onOpenAnchor,
 }: OrganizePageProps) {
   const [sources, setSources] = useState<Source[] | null>(null);
   const [selected, setSelected] = useState<string | null>(initialSourceId);
@@ -478,15 +487,41 @@ export function OrganizePage({
               <li key={p.id} className="org-item">
                 <div className="org-item__top">
                   <span className="org-item__level">{LEVEL_LABEL[p.cognitiveLevel]}</span>
-                  <span
-                    className={
-                      p.anchors.length > 0 ? 'org-badge org-badge--ok' : 'org-badge org-badge--warn'
-                    }
-                  >
-                    {p.anchors.length > 0
-                      ? `可点回原文 · 第 ${p.anchors[0]?.page ?? '?'} 页`
-                      : '没找到原文位置'}
-                  </span>
+                  {/*
+                   * 「可点回原文」是真按钮 —— 从这一页做出来之前它只是个徽章，
+                   * 写着「可点」却点不动，比不写更糟。
+                   * 没有 anchor 的保留为静态徽章（点了也没有位置可去）。
+                   */}
+                  {p.anchors.length > 0 && onOpenAnchor ? (
+                    <button
+                      type="button"
+                      className="org-badge org-badge--ok org-badge--link"
+                      onClick={() => {
+                        const a = p.anchors[0]!;
+                        onOpenAnchor({
+                          sourceId: a.sourceId,
+                          page: a.page,
+                          charStart: a.charStart,
+                          charEnd: a.charEnd,
+                          quote: p.quotes[0],
+                        });
+                      }}
+                    >
+                      可点回原文 · 第 {p.anchors[0]?.page ?? '?'} 页
+                    </button>
+                  ) : (
+                    <span
+                      className={
+                        p.anchors.length > 0
+                          ? 'org-badge org-badge--ok'
+                          : 'org-badge org-badge--warn'
+                      }
+                    >
+                      {p.anchors.length > 0
+                        ? `可点回原文 · 第 ${p.anchors[0]?.page ?? '?'} 页`
+                        : '没找到原文位置'}
+                    </span>
+                  )}
                 </div>
                 <p className="org-item__statement">{p.statement}</p>
                 {p.quotes.length > 0 ? (

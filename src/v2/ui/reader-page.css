@@ -1,0 +1,300 @@
+/**
+ * 阅读器样式。
+ *
+ * 配色只用 tokens.css 里已有的变量，不新造颜色 ——
+ * 用户已拍板色值不随意改（--text-* 全达 WCAG AA 4.5:1）。
+ *
+ * ⚠️ 注意层级：src/styles/base.css 里有一条**无层级**的
+ * `button { color: inherit }`。CSS 级联是「层级先于特异性」，
+ * 所以按钮配色规则必须写在 @layer 外面，否则在 @layer 里
+ * 写多少特异性都赢不了它（设置页与资料页都踩过这个坑）。
+ * 本文件里的按钮规则因此全部不套 @layer。
+ */
+
+.reader-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+  min-height: 0;
+  height: 100%;
+  padding-bottom: var(--space-4, 16px);
+}
+
+.reader-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4, 16px);
+}
+
+.reader-title {
+  margin: 0;
+  font-size: var(--fs-2xl, 23px);
+  font-weight: 550;
+  line-height: var(--lh-tight, 1.3);
+  color: var(--text);
+  /* 资料标题可能很长，允许换行但不要撑破布局 */
+  overflow-wrap: anywhere;
+}
+
+.reader-lead {
+  margin: 6px 0 0;
+  font-size: var(--fs-sm, 13px);
+  line-height: var(--lh-body, 1.65);
+  color: var(--text-muted);
+}
+
+/* ---------- 定位状态 ---------- */
+
+.reader-jump {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm, 8px);
+  font-size: var(--fs-sm, 13px);
+  line-height: var(--lh-snug, 1.45);
+}
+
+/* 偏移直接命中：最可靠，给中性色，不用朱砂（朱砂只留给主操作与进度） */
+.reader-jump--anchor {
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  border-left: 2px solid var(--ok);
+}
+
+/* 靠引文找回：可信度次一等，要提示用户 */
+.reader-jump--quote {
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  border-left: 2px solid var(--warn);
+}
+
+/* 没定位到：如实说，别假装 */
+.reader-jump--none {
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  border-left: 2px solid var(--text-faint);
+}
+
+.reader-hint {
+  margin: 0;
+  font-size: var(--fs-sm, 13px);
+  line-height: var(--lh-body, 1.65);
+  color: var(--text-muted);
+}
+
+/* ---------- 翻页 / 搜索条 ---------- */
+
+.reader-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3, 12px);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.reader-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+}
+
+.reader-nav__pos {
+  font-size: var(--fs-sm, 13px);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  min-width: 64px;
+  text-align: center;
+}
+
+.reader-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.reader-search__input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: var(--fs-sm, 13px);
+  color: var(--text);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 8px);
+}
+
+.reader-search__input::placeholder {
+  color: var(--text-faint);
+}
+
+.reader-search__input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---------- 正文 ---------- */
+
+.reader-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4, 16px) var(--space-5, 20px);
+  /* 正文用米色纸感底，和卡片系统一致 */
+  background: var(--bg-surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-card, 16px);
+}
+
+.reader-chapter {
+  margin: 0 0 var(--space-3, 12px);
+  font-size: var(--fs-lg, 17px);
+  font-weight: 550;
+  color: var(--text-dim);
+}
+
+.reader-para {
+  margin: 0;
+  /* 正文用偏大的字号与宽松行高：这是要读的东西，不是界面标签 */
+  font-size: var(--fs-md, 15px);
+  line-height: var(--lh-body, 1.65);
+  color: var(--text);
+  white-space: pre-wrap;
+  /* 长串英文/URL 不撑破容器 */
+  overflow-wrap: anywhere;
+}
+
+.reader-meta {
+  margin: var(--space-4, 16px) 0 0;
+  padding-top: var(--space-3, 12px);
+  border-top: 1px solid var(--line-soft);
+  font-size: var(--fs-xs, 12px);
+  color: var(--text-faint);
+}
+
+/**
+ * 高亮。
+ *
+ * 用 mark 而不是给字符套 span：mark 是语义化的（屏幕阅读器会念），
+ * 且不改变文本内容 —— 用户复制出来还是原文。
+ *
+ * 配色：朱砂只用于主操作与进度，所以高亮用暖黄。
+ * ⚠️ 第一版用 #d9a44140（25% 透明）实测在深色正文上**几乎看不见**
+ * （CDP 截图肉眼复核发现），定位功能等于白做。所以改成：
+ *  - 底色提到 45%，足以在 #1e1b18 上分辨出来；
+ *  - 再加 2px 下划线与一层外扩阴影，扫视时也能一眼找到。
+ * 文字色不改（仍是 --text），保证对比度不下降。
+ */
+.reader-mark {
+  background: #d9a44173;
+  color: inherit;
+  padding: 1px 2px;
+  border-radius: 3px;
+  /* 下划线让「被定位的那几个字」在密排中文里也有边界 */
+  box-shadow:
+    inset 0 -2px 0 0 var(--warn),
+    0 0 0 1px #d9a44159;
+}
+
+/* ---------- 空态 / 错误 ---------- */
+
+.reader-empty,
+.reader-error {
+  padding: var(--space-5, 20px);
+  background: var(--bg-surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-card, 16px);
+}
+
+.reader-empty__title {
+  margin: 0 0 var(--space-2, 8px);
+  font-size: var(--fs-lg, 17px);
+  font-weight: 550;
+  color: var(--text);
+}
+
+.reader-error {
+  color: var(--bad);
+  font-size: var(--fs-sm, 13px);
+  line-height: var(--lh-body, 1.65);
+}
+
+/* ---------- 「整理」按钮（资料行里新增的兄弟按钮）----------
+ *
+ * 配色规则必须写在 @layer 外面，理由见文件头。
+ * 和删除按钮一样是次要操作，但删除是危险操作（灰到底），
+ * 「整理」应该稍微更容易被发现一点，否则用户找不到入口。
+ */
+
+.source-item__organize {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font-size: var(--fs-xs, 12px);
+  font-family: inherit;
+  font-weight: 400;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 8px);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.source-item__organize:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-hover);
+  border-color: var(--line-strong);
+}
+
+.source-item__organize:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.source-item__organize:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 知识点的「可点回原文」从静态徽章变成按钮：要看起来仍像徽章 */
+.org-badge--link {
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.org-badge--link:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.org-badge--link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- 窄屏（≤560px，设计系统第 5 条：侧栏变抽屉）---------- */
+
+@media (max-width: 560px) {
+  .reader-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .reader-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .reader-search {
+    flex-basis: auto;
+  }
+
+  .reader-body {
+    padding: var(--space-3, 12px);
+  }
+}

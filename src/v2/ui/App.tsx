@@ -15,6 +15,8 @@ import type { Card } from '@/v2/core/cards.ts';
 import type { PageId } from './pages.ts';
 import { SettingsPage } from './SettingsPage.tsx';
 import { OrganizePage } from './OrganizePage.tsx';
+import { ReaderPage } from './ReaderPage.tsx';
+import type { ReaderTarget } from './ReaderPage.tsx';
 import { useServices } from '@/app/services-context.ts';
 import './tokens.css';
 import './shell.css';
@@ -26,6 +28,7 @@ import './generate-page.css';
 import './stats-page.css';
 import './settings.css';
 import './organize-page.css';
+import './reader-page.css';
 
 /**
  * v2 应用入口。
@@ -90,6 +93,16 @@ export function App({
    * 从别处进整理页时用上一次残留的选择。
    */
   const [organizeSourceId, setOrganizeSourceId] = useState<string | null>(null);
+
+  /**
+   * 阅读器要打开哪一份资料、定位到哪里。
+   *
+   * 和 organizeSourceId 一样单独存：从知识点列表点「可点回原文」时
+   * 要带上 {sourceId, page, charStart, charEnd, quote}，
+   * 而「打开哪一份」和「定位到哪」是两件事，混在一起会残留上一次的位置。
+   */
+  const [readerSourceId, setReaderSourceId] = useState<string | null>(null);
+  const [readerTarget, setReaderTarget] = useState<ReaderTarget | null>(null);
 
   const { library } = useServices();
 
@@ -209,14 +222,25 @@ export function App({
           service={sourceService}
           onOpenSource={(source) => {
             /*
-             * 阅读器还没做，所以点资料不是「打开原文」，而是
-             * 跳到这份资料的整理页 —— 那是现在真正能对一份资料做的事。
-             * 不摆一个点了没反应的资料行。
+             * 点资料行 = 打开原文。阅读器做出来之前这里跳的是整理页，
+             * 因为那时没有别的事能做；现在能真的打开原文了。
              */
+            setReaderSourceId(source.id);
+            setReaderTarget(null); // 从资料页进来是纯阅读，不定位
+            setPage('reader');
+          }}
+          onOrganizeSource={(source) => {
             setOrganizeSourceId(source.id);
             setPage('organize');
           }}
           onImported={() => void refreshCounts()}
+        />
+      ) : page === 'reader' ? (
+        <ReaderPage
+          sourceService={sourceService}
+          initialSourceId={readerSourceId}
+          target={readerTarget}
+          onBack={() => setPage('sources')}
         />
       ) : page === 'organize' ? (
         <OrganizePage
@@ -228,6 +252,12 @@ export function App({
           onChanged={() => {
             void refreshCounts();
             void refreshShellState();
+          }}
+          onOpenAnchor={(t) => {
+            // 从知识点的「可点回原文」跳到阅读器，并定位到那一句
+            setReaderSourceId(t.sourceId);
+            setReaderTarget(t);
+            setPage('reader');
           }}
         />
       ) : page === 'generate' ? (
@@ -291,6 +321,7 @@ function Placeholder({ page, onBack }: { page: PageId; onBack: () => void }) {
     audio: '音频转写',
     record: '课堂实录',
     organize: '整理知识点',
+    reader: '阅读原文',
     guide: '功能导览',
     settings: '设置',
   };

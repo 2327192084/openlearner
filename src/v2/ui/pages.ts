@@ -51,6 +51,7 @@ export type PageId =
   | 'audio'
   | 'record'
   | 'organize'
+  | 'reader'
   | 'guide'
   | 'settings';
 
@@ -274,6 +275,16 @@ const OFF_NAV: Partial<Record<PageId, PageDef>> = {
     title: '整理知识点',
     icon: IconSkeleton,
     purpose: '把资料的正文整理成一条条能点回原文的知识点',
+    group: 'daily',
+    show: false,
+    ready: true,
+  },
+  reader: {
+    id: 'reader',
+    label: '阅读原文',
+    title: '阅读原文',
+    icon: IconSources,
+    purpose: '看资料的正文，并把知识点定位到具体那一句',
     group: 'daily',
     show: false,
     ready: true,

@@ -274,9 +274,25 @@ async function main() {
       await wait(1200);
       const row = document.querySelector('.source-row');
       if (!row) return { error: '资料列表是空的', text: (document.querySelector('.sources-page')?.innerText ?? '').slice(0, 120) };
+
+      // 阅读器做出来之后，点资料行 = 打开原文。整理走独立的「整理」按钮。
       row.click();
-      await wait(1500);
+      await wait(1600);
+      const reader = {
+        title: document.querySelector('.reader-title')?.textContent ?? '',
+        hasBody: Boolean(document.querySelector('.reader-body')),
+      };
+
+      // 回资料页，走「整理」按钮
+      nav.click();
+      await wait(1000);
+      const orgBtn = document.querySelector('.source-item__organize');
+      if (!orgBtn) return { error: '资料行没有「整理」按钮', reader };
+      orgBtn.click();
+      await wait(1600);
+
       return {
+        reader,
         title: document.querySelector('.org-title')?.textContent ?? '',
         topbar: document.querySelector('.topbar__title')?.textContent ?? '',
         backendOptions: [...(document.querySelectorAll('.org-select')[1]?.options ?? [])].map(o => o.textContent),
@@ -284,7 +300,12 @@ async function main() {
     })()`);
 
     record(
-      '点资料行能进「整理知识点」（本轮新页面真的在包里）',
+      '点资料行能打开「阅读原文」（阅读器真的在包里）',
+      (organize.reader?.hasBody ?? false) === true && (organize.reader?.title ?? '').includes('桌面包验证资料'),
+      organize.error ?? JSON.stringify(organize.reader),
+    );
+    record(
+      '点「整理」能进「整理知识点」（新页面真的在包里）',
       organize.title === '整理知识点',
       organize.error ?? organize.title ?? '',
     );

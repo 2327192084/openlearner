@@ -25,12 +25,20 @@ type Tab = 'file' | 'paste' | 'audio';
 
 export interface SourcesPageProps {
   service: SourceService;
+  /** 点资料行 —— 打开阅读器看原文 */
   onOpenSource: (source: Source) => void;
+  /** 点「整理」—— 把这份资料整理成知识点 */
+  onOrganizeSource?: (source: Source) => void;
   /** 导入成功后通知上层刷新卡片池 */
   onImported?: () => void;
 }
 
-export function SourcesPage({ service, onOpenSource, onImported }: SourcesPageProps) {
+export function SourcesPage({
+  service,
+  onOpenSource,
+  onOrganizeSource,
+  onImported,
+}: SourcesPageProps) {
   const [tab, setTab] = useState<Tab>('file');
   const [sources, setSources] = useState<Source[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -337,12 +345,29 @@ export function SourcesPage({ service, onOpenSource, onImported }: SourcesPagePr
         <ul className="source-list">
           {sources.map((s) => (
             <li key={s.id} className="source-item">
-              <button type="button" className="source-row" onClick={() => onOpenSource(s)}>
+              <button
+                type="button"
+                className="source-row"
+                onClick={() => onOpenSource(s)}
+                title="打开原文"
+              >
                 <span className="source-row__title">{s.title}</span>
                 <span className="source-row__meta">
                   {s.kind.toUpperCase()} · {s.pageCount ?? '?'} 页 · {s.segmentCount} 段
                 </span>
               </button>
+              {onOrganizeSource ? (
+                <button
+                  type="button"
+                  className="source-item__organize"
+                  aria-label={`整理「${s.title}」`}
+                  title="整理成知识点"
+                  disabled={busy}
+                  onClick={() => onOrganizeSource(s)}
+                >
+                  整理
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="source-item__delete"
