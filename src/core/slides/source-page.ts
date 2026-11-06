@@ -110,6 +110,21 @@ export async function renderSourcePage(
           cMapUrl: `${assetBase}cmaps/`,
           cMapPacked: true,
           standardFontDataUrl: `${assetBase}standard_fonts/`,
+          /**
+           * JBIG2 / JPX / ICC 的解码器是 wasm，pdfjs 6 **必须**显式给 wasmUrl。
+           *
+           * 不给的后果极其隐蔽：控制台只有一行
+           *   "Ensure that the `wasmUrl` API parameter is provided."
+           * 然后 `getOperatorList - ignoring XObject: JBig2 failed to initialize`
+           * —— 图像被**静默跳过**，页面渲染成一张纯白图，
+           * 不抛错、不显示任何提示。
+           *
+           * 这个坑的表现就是「PDF 只能看前两页」：用户那份教材前两页是
+           * DCTDecode（JPEG，纯 JS 可解），第 3 页起 597 页都是 JBIG2，
+           * 于是全部渲染成白板。DOM 检查、尺寸检查、PNG 有效性检查全都「通过」，
+           * 只有真的采样像素（nonWhiteRatio=0）才能发现。
+           */
+          wasmUrl: `${assetBase}wasm/`,
         }
       : {}),
   });
@@ -149,8 +164,24 @@ export async function renderSourcePage(
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, width, height);
 
+    /**
+     * ⚠️ 关键：只传 `canvasContext`，并把 `canvas` 显式设为 null。
+     *
+     * pdfjs 6 的文档写明：
+     *   "If the context must absolutely be used to render the page,
+     *    the canvas must be null."
+     *
+     * 一旦同时传了 `canvas`，pdfjs 会**忽略** `canvasContext`，
+     * 自己从 canvas 上取一个新的 2D context 去画。而我们在外面
+     * 用的是 `ctx` 引用 —— 于是 `canvas.toDataURL()` 拿到的是
+     * 我们自己填的白底，页面内容根本没画上来。
+     *
+     * 表现：图有、尺寸对、PNG 有效（47KB），但整张全白。
+     * 这个坑特别隐蔽 —— 所有 DOM 检查都会「通过」，
+     * 只有真的去采样像素才能发现（nonWhiteRatio = 0）。
+     */
     await pdfPage.render({
-      canvas: canvas as unknown as HTMLCanvasElement,
+      canvas: null,
       canvasContext: ctx,
       viewport,
     }).promise;

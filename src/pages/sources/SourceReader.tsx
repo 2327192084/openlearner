@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ScanNotice } from './ScanNotice.tsx';
 import { Badge, ErrorState, LoadingState, Notice } from '@/components/states.tsx';
 import type { Source, SourceSegment } from '@/core/model.ts';
 import type { SearchHit } from '@/core/sources.ts';
 import type { SourceService } from '@/core/sources.ts';
-import type { BackendService } from '@/core/backends.ts';
 import { HighlightedText } from './HighlightedText.tsx';
 import type { HighlightRange } from './HighlightedText.tsx';
 import {
@@ -31,13 +29,11 @@ import { describeError } from './types.ts';
 export function SourceReader({
   source: initialSource,
   service,
-  backends,
   onBack,
   onOpenDetail,
 }: {
   source: Source;
   service: SourceService;
-  backends: BackendService;
   onBack: () => void;
   /** 打开资料详情抽屉（详情里含删除入口） */
   onOpenDetail: () => void;
@@ -196,10 +192,24 @@ export function SourceReader({
    *   - 该页有正文 → 显示文字（更清晰、更省内存）
    *   - 该页没正文 → 显示页面图（否则翻到那里就是白板）
    */
-  const needsPageImage =
-    source.kind === 'pdf' &&
-    segments.length > 0 &&
-    (segment?.text ?? '').trim().length === 0;
+  /**
+   * PDF 一律显示**原页**，不看有没有文字层。
+   *
+   * ## 为什么改成这样（2026-11-06 方向调整）
+   *
+   * 用户要的是「像 Obsidian 打开 PDF 一样，看到文件原本的样子」。
+   * 之前的逻辑是「有文字就显示文字、没文字才渲染图」，那是把 PDF
+   * 当成文本资料在处理 —— 排版、图表、公式位置全丢了。
+   *
+   * 现在的规则简单且一致：
+   *   - PDF    → 永远渲染当前页的原图（所见即文件本身）
+   *   - 图片   → 直接显示原图
+   *   - 文档类 → 显示提取出的文字（docx/pptx/md/txt 没有可渲染的页面）
+   *
+   * 文字层仍然有用：有文字层时搜索可用，且正文可作为无障碍阅读的文本。
+   * 但那不影响「显示什么」这个决定。
+   */
+  const needsPageImage = source.kind === 'pdf' && segments.length > 0;
 
   /**
    * 当前页号（扫描件渲染用）。按 segment.page 取，不用数组下标 ——
@@ -399,27 +409,28 @@ export function SourceReader({
       <ReaderHeader source={source} onBack={onBack} onOpenDetail={onOpenDetail} />
 
       {/*
-        两种「读不出字」必须说不同的话：
-          - 扫描件：文件里本来就没字，用户该换电子版 / 等 OCR
-          - 解码失败：文件里有字，是我们没解开，该我们修
+        没有文字层时只说明「能看、不能搜」，**不再提供 OCR 入口**。
+        资料库的定位是「看到文件本来的样子」，把扫描件转成文字是另一件事，
+        不该混在阅读界面里（2026-11-06 按用户要求摘除）。
+
+        两种「读不出字」仍要说不同的话：
+          - 扫描件：文件里本来就没字，这是正常状态，翻页看图即可
+          - 解码失败：文件里有字但我们没解开，该我们修
         早先统一写成「这是扫描件」，对后者是错误结论。
       */}
       {searchDisabled ? (
-        <ScanNotice
-          source={source}
-          hint={TEXT_STATUS_LABEL[source.textStatus].hint}
-          sources={service}
-          backends={backends}
-          onDone={() => {
-            // 重新读一次资料与分段：状态变了，正文也换成了识别结果
-            void (async () => {
-              const fresh = await service.get(source.id);
-              if (fresh) setSource(fresh);
-              // load 读的是 source.id，同一个资料，直接重读即可
-              await load();
-            })();
-          }}
-        />
+        <Notice
+          tone={source.textStatus === 'decode-failed' ? 'danger' : 'info'}
+          title={
+            source.textStatus === 'decode-failed'
+              ? '这份资料有文字，但没能解析出来'
+              : '这份资料的内容是图片，可以直接查看'
+          }
+        >
+          {TEXT_STATUS_LABEL[source.textStatus].hint}
+          <br />
+          搜索栏已停用；翻页可以正常查看每一页的原样内容。
+        </Notice>
       ) : null}
 
       <div className="reader__layout">
@@ -575,9 +586,7 @@ export function SourceReader({
                 <figure className="reader__figure">
                   <img src={imageUrl} alt={source.title} className="reader__image" />
                   <figcaption className="page__muted">
-                    {source.textStatus === 'ready'
-                      ? '这张图已经识别出文字，下方正文可与原图对照。'
-                      : '这是一张图片资料。识别成文字后才能搜索、出题和做 PPT。'}
+                    这是图片资料的原图，按实际尺寸显示。
                   </figcaption>
                 </figure>
               ) : (
@@ -631,8 +640,7 @@ export function SourceReader({
             */}
             {source.kind === 'image' && source.textStatus !== 'ready' ? (
               <p className="page__muted">
-                这张图还没有文字。用上方的「识别」把图里的字读出来，
-                之后就能搜索、出题、做 PPT。
+                图片资料按原样显示。图里的文字无法直接搜索，需要的话可以另存一份带文字的版本。
               </p>
             ) : null}
           </article>

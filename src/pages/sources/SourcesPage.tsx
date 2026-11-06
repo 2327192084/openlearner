@@ -30,7 +30,7 @@ import './reader.css';
  *  - 结果用 Flash（单条）或 outcomes（多条）如实显示，不吞失败。
  */
 export function SourcesPage() {
-  const { sources: sourceService, courses: courseService, backends: backendService } = useServices();
+  const { sources: sourceService, courses: courseService } = useServices();
 
   const [view, setView] = useState<
     { kind: 'list' } | { kind: 'reader'; sourceId: string }
@@ -287,7 +287,6 @@ export function SourcesPage() {
         <SourceReader
           source={activeSource}
           service={sourceService}
-          backends={backendService}
           onBack={() => {
             setDetailOpen(false);
             setView({ kind: 'list' });
@@ -592,7 +591,7 @@ function CourseSection({
                         <span title={status.hint}>
                           {source.textStatus === 'decode-failed'
                             ? '有字但读不出，见详情'
-                            : '扫描件 · 打开后可识别成文字'}
+                            : '图片型 PDF · 打开可逐页查看'}
                         </span>
                       </>
                     ) : null}
