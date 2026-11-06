@@ -144,7 +144,9 @@ export class DeckService {
    */
   async generate(input: GenerateQuestionsInput): Promise<GenerateQuestionsOutput> {
     if (input.points.length === 0) {
-      throw new Error('没有可出题的知识点。请先在「知识点」页把资料整理成知识点。');
+      throw new Error(
+        '没有可出题的知识点。请先在「整理知识点」页把资料整理成知识点，再回来出题。',
+      );
     }
 
     // 只取已定位的知识点：没有位置的题目无法「点回原文」，
@@ -153,7 +155,7 @@ export class DeckService {
 
     if (usable.length === 0) {
       throw new Error(
-        '这些知识点都没有定位到原文位置，出题后无法「点回原文」。请先在校对页把至少几条标为「已定位」，再来出题。',
+        '这些知识点都没有定位到原文位置，出题后无法「点回原文」。请先到「整理知识点」把资料重新整理一遍，让每条都带上原文位置，再来出题。',
       );
     }
 

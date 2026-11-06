@@ -148,7 +148,57 @@ describe('出题', () => {
         options: { kinds: ['single'], count: 3, levels: null, language: 'zh' },
         signal: new AbortController().signal,
       }),
-    ).rejects.toThrow(/先在「知识点」页/);
+    // 断言的是「真实的页名」：v2 里叫「整理知识点」，没有叫「知识点」的页。
+    // 原文案指向不存在的页面，已修；测试跟着改成约束新文案。
+    ).rejects.toThrow(/先在「整理知识点」页/);
+  });
+
+  /*
+   * 两条用户可见的报错都**不能指向不存在的页面**。
+   *
+   * 这是本项目的一条硬约束（交接文档「几条不能碰的约束」第 4 条：
+   * 说「去 X 页面做 Y」前先确认 X 真有 Y 入口）。曾经这两句分别写着
+   * 「知识点」页和「校对页」，而 v2 里前者叫「整理知识点」、后者根本不存在。
+   * 用户照着做会找不到地方。这条测试把这件事钉住。
+   */
+  it('报错文案不指向不存在的页面', async () => {
+    const messages: string[] = [];
+
+    // ① 完全没有知识点
+    try {
+      await decks.generate({
+        points: [],
+        title: 't',
+        backend: backend(),
+        options: { kinds: ['single'], count: 3, levels: null, language: 'zh' },
+        signal: new AbortController().signal,
+      });
+    } catch (err) {
+      messages.push(err instanceof Error ? err.message : String(err));
+    }
+
+    // ② 有知识点但都没定位
+    try {
+      await decks.generate({
+        points: [makePoint({ anchors: [], anchorStatus: 'unlocated' })],
+        title: 't',
+        backend: backend(),
+        options: { kinds: ['single'], count: 3, levels: null, language: 'zh' },
+        signal: new AbortController().signal,
+      });
+    } catch (err) {
+      messages.push(err instanceof Error ? err.message : String(err));
+    }
+
+    expect(messages.length).toBe(2);
+    for (const m of messages) {
+      // 「校对页」在 v2 里不存在
+      expect(m).not.toContain('校对页');
+      // 「知识点」页不存在；只有「整理知识点」这一页
+      expect(m).not.toMatch(/「知识点」/);
+      // 反过来，必须指向真实存在的页
+      expect(m).toContain('整理知识点');
+    }
   });
 
   it('中途停止时已产出的题目保留', async () => {

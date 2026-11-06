@@ -66,6 +66,13 @@ export interface ReviewPageProps {
   service: ReviewService;
   /** 本轮要复习的卡片 */
   queue: Card[];
+  /**
+   * 今天到期的**真实总数**（≥ queue.length）。
+   *
+   * 复习队列一批最多 30 张，但到期数可能远大于它。不告诉用户的话，
+   * 做完 30 张就显示「完成」，而实际还有 50 张 —— 那是在骗人。
+   */
+  dueTotal?: number;
   /** 练习开始时该组的掌握度（用于显示 +N% 胶囊） */
   groupMasteryBefore?: number;
   onFinish: () => void;
@@ -75,6 +82,7 @@ export interface ReviewPageProps {
 export function ReviewPage({
   service,
   queue,
+  dueTotal,
   groupMasteryBefore,
   onFinish,
   onExit,
@@ -202,6 +210,12 @@ export function ReviewPage({
         </button>
         <span className="review-progress-text">
           {index + 1} / {total}
+          {/* 一批最多 30 张；还有更多时在进度旁就说清楚，别等做完才说 */}
+          {typeof dueTotal === 'number' && dueTotal > queue.length ? (
+            <span className="review-progress-extra" title="今天到期的总数">
+              （今日到期 {dueTotal} 张）
+            </span>
+          ) : null}
         </span>
         {masteryNow !== null ? (
           <span
@@ -395,6 +409,13 @@ export function ReviewPage({
       {done > 0 ? (
         <div className="review-stats">
           本轮已评 {done} 张 · 答对 {correctCount} 张
+          {/*
+           * 如实交代「这一批之外还有多少」。没有这句，用户做完 30 张
+           * 会以为今天清空了，而实际可能还剩几十张。
+           */}
+          {typeof dueTotal === 'number' && dueTotal > queue.length
+            ? ` · 今天到期共 ${dueTotal} 张，还剩 ${dueTotal - queue.length} 张没做`
+            : ''}
         </div>
       ) : null}
     </div>

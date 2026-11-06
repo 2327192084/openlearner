@@ -63,6 +63,14 @@ export interface AppProps {
   modelName?: string | null;
 }
 
+/**
+ * 一批复习最多给多少张。
+ *
+ * 上限本身是合理的（不把几百张一次塞进页面），但**必须让用户知道
+ * 后面还有多少** —— 见 navigate('review') 里对 queueTotal 的处理。
+ */
+const REVIEW_BATCH = 30;
+
 export function App({
   reviewService,
   loadCards,
@@ -83,6 +91,12 @@ export function App({
    * 而不是缓存一份（用户可能中途答完几张又回来）。
    */
   const [queue, setQueue] = useState<Card[] | null>(null);
+  /**
+   * 今天到期的**真实总数**（可能大于 queue.length）。
+   * 复习页据此如实说「今天到期 80 张，这一批先做 30 张」，
+   * 而不是让用户以为今天只有 30 张。
+   */
+  const [queueTotal, setQueueTotal] = useState<number>(0);
   const [queueError, setQueueError] = useState<string | null>(null);
   const [overviewCounts, setOverviewCounts] = useState<Partial<Record<PageId, number>>>({});
   /**
@@ -184,7 +198,17 @@ export function App({
             if (!r) return true; // 没学过也算今天可学
             return r.state.dueAt <= today;
           });
-          setQueue(due.slice(0, 30));
+          /*
+           * 一批最多做 REVIEW_BATCH 张。
+           *
+           * 为什么不是「把全部到期的一次给完」：几百张一次塞进复习页，
+           * 页面要一次渲染完，而且用户看不到「做完这批还剩多少」。
+           * 但**截断必须说出来** —— 原来这里直接 slice(0,30) 且界面不提，
+           * 到期 80 张时用户以为今天只有 30 张，做完就显示「完成」，
+           * 那是在骗人。所以把真实总数一起存下来，由复习页如实显示。
+           */
+          setQueue(due.slice(0, REVIEW_BATCH));
+          setQueueTotal(due.length);
         } catch (err) {
           setQueueError(err instanceof Error ? err.message : '读不出卡片');
           setQueue([]);
@@ -213,6 +237,7 @@ export function App({
           <ReviewPage
             service={reviewService}
             queue={queue}
+            dueTotal={queueTotal}
             onFinish={() => setPage('today')}
             onExit={() => setPage('today')}
           />

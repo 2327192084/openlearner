@@ -1,7 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   GROUPS,
-  PAGES,
   pagesInGroup,
   pageById,
   SETTINGS_ITEM,
@@ -295,10 +294,4 @@ function BackGlyph() {
       />
     </svg>
   );
-}
-
-/** 供外部判断某页是否已实现 */
-export function isReady(id: PageId): boolean {
-  const p = PAGES.find((x) => x.id === id);
-  return p?.ready === true;
 }
