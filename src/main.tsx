@@ -38,6 +38,8 @@ function Bootstrap() {
     review: ReviewService;
     cardPool: string[];
     hasSources: boolean;
+    connected: boolean;
+    modelName: string | null;
   } | null>(null);
   const [failure, setFailure] = useState<{ message: string; hint: string } | null>(null);
 
@@ -68,10 +70,17 @@ function Bootstrap() {
           storage.getAll('sources'),
         ]);
         if (cancelled) return;
+        // 读后端配置判断是否已接入模型
+        const backendList = await backends.list();
+        const ready = backendList.filter((b) => b.status === 'ready');
+        const first = ready[0] ?? null;
+
         setV2Data({
           review,
           cardPool: [...questions.map((q) => q.id), ...points.map((p) => p.id)],
           hasSources: srcs.length > 0,
+          connected: ready.length > 0,
+          modelName: first ? `${first.label} · ${first.model || '未填模型'}` : null,
         });
 
         setServices({
@@ -133,6 +142,8 @@ function Bootstrap() {
         reviewService={v2Data.review}
         cardPool={v2Data.cardPool}
         hasSources={v2Data.hasSources}
+        connected={v2Data.connected}
+        modelName={v2Data.modelName}
       />
     </ServicesContext.Provider>
   );

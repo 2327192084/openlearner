@@ -1,36 +1,43 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReviewService, TodayOverview } from '@/v2/core/review-service.ts';
 import { masteryLabel } from '@/v2/core/srs.ts';
+import { IconCheck, IconUpload } from './icons.tsx';
 
 /**
- * 今日页 —— 「打开就知道该干什么」。
+ * 学习库首页。
  *
- * ## 布局参照 StudyHub 的学习库首页
+ * 按截图还原两种状态：
+ *  1. **首次使用**：欢迎 + 编号步骤引导（② 添加资料 ③ 用资料出题）
+ *  2. **已有资料**：今日概览（掌握度、待复习、纸张卡片）
  *
- * 左栏是进度与推荐（宽，1fr），右栏是一叠纸张卡片（窄，340px）。
- * 纸张卡是整页唯一的「实体」，其余都是桌面上的字。
- *
- * 刻意不做等权重统计卡片矩阵 ——
- * 那种布局每张卡一样大，用户找不到重点在哪。
+ * 为什么要有两种状态：新用户打开看到一堆 0 会不知道从哪开始；
+ * 截图里那个「添加一份资料」的引导才是正确的第一屏。
  */
 
 export interface TodayPageProps {
   service: ReviewService;
-  /** 当前资料库里的全部卡片 id */
   cardPool: readonly string[];
+  hasSources: boolean;
+  /** 是否已接入模型 */
+  connected: boolean;
+  /** 已接入的模型名，如 "Qoder (中国版) · DeepSeek-Flash - x0.1" */
+  modelName?: string | null;
   onStartReview: () => void;
   onStartNew: () => void;
   onOpenSources: () => void;
-  hasSources: boolean;
+  onOpenGenerate?: () => void;
 }
 
 export function TodayPage({
   service,
   cardPool,
+  hasSources,
+  connected,
+  modelName,
   onStartReview,
   onStartNew,
   onOpenSources,
-  hasSources,
+  onOpenGenerate,
 }: TodayPageProps) {
   const [overview, setOverview] = useState<TodayOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -49,26 +56,77 @@ export function TodayPage({
     void load();
   }, [load]);
 
-  // ---- 没有资料：引导，而不是显示一堆 0 ----
+  // ==================== 首次使用：欢迎引导 ====================
   if (!hasSources) {
     return (
-      <div className="today-grid">
-        <div>
-          <h1 className="today__h1">开始学习</h1>
-          <p className="today__lead">
-            还没有资料。先导入一份课件或教材，之后就能从中出题，并按遗忘规律安排复习。
-          </p>
-          <button type="button" className="btn-fill" onClick={onOpenSources}>
-            去导入资料
-            <span className="btn-fill__arrow" aria-hidden="true">
-              →
-            </span>
+      <div className="welcome">
+        <div className="welcome__eyebrow">开始使用</div>
+        <h1 className="welcome__title">欢迎使用 OpenLeaner</h1>
+        <p className="welcome__lead">
+          把老师的课件变成题，每道题都点得回原页；做完一轮，看得见自己变熟。
+        </p>
+        <p className="welcome__sub">
+          开源免费，资料存在你电脑上；模型自己选，按用量付费。
+        </p>
+
+        {/* 连接状态条 */}
+        <div className={`welcome__conn${connected ? ' welcome__conn--on' : ''}`}>
+          <span className="welcome__conn-icon" aria-hidden="true">
+            <IconCheck size={14} />
+          </span>
+          {connected ? (
+            <>已连接：{modelName ?? '模型'}</>
+          ) : (
+            <>还没接入模型 —— 去「设置」里添加一个就能开始出题</>
+          )}
+        </div>
+
+        <ol className="welcome__steps">
+          {/* 步骤 2：添加资料（第 1 步「接模型」由上面的连接条承载） */}
+          <li className="wstep">
+            <span className="wstep__n">2</span>
+            <div className="wstep__body">
+              <div className="wstep__title">添加一份资料：讲义、课件或笔记</div>
+              <p className="wstep__desc">
+                PDF、Word、PowerPoint、Markdown、保存下来的网页文件（.html）或文本都可以。
+                原文件会保留，添加后就能用它出题。
+              </p>
+              <button type="button" className="btn-fill btn-fill--sm" onClick={onOpenSources}>
+                <IconUpload size={15} />
+                添加资料
+              </button>
+            </div>
+          </li>
+
+          {/* 步骤 3：用资料出题 */}
+          <li className="wstep">
+            <span className="wstep__n">3</span>
+            <div className="wstep__body">
+              <div className="wstep__title">用资料出一组题</div>
+              <p className="wstep__desc">
+                选好资料，AI 读原文后出题，每道题都标出出处。出之前会先告诉你要花多少。
+              </p>
+            </div>
+          </li>
+        </ol>
+
+        <div className="welcome__foot">
+          <button
+            type="button"
+            className="btn-text"
+            onClick={onOpenGenerate ?? onStartNew}
+          >
+            想先看看效果？载入示例并开始导览
+          </button>
+          <button type="button" className="btn-text" onClick={() => void load()}>
+            以后再说
           </button>
         </div>
       </div>
     );
   }
 
+  // ==================== 已有资料：今日概览 ====================
   if (error) {
     return (
       <div className="today-grid">
@@ -98,14 +156,12 @@ export function TodayPage({
 
   return (
     <div className="today-grid">
-      {/* ---------- 左栏：进度与下一步 ---------- */}
       <div className="today-main">
         <h1 className="today__h1">
           今日
           <span className="today__date">{new Date().toLocaleDateString('zh-CN')}</span>
         </h1>
 
-        {/* 掌握度：细条 + 百分比，这是「看得见变熟」的主入口 */}
         <div className="today__mastery">
           <MasteryBar value={overview.avgMastery} />
           <span className="today__mastery-label">
@@ -113,7 +169,6 @@ export function TodayPage({
           </span>
         </div>
 
-        {/* 推荐下一步：一句话说清现在该做什么 */}
         <div className="today__next">
           {overview.dueCount > 0 ? (
             <>
@@ -124,7 +179,9 @@ export function TodayPage({
             </>
           ) : overview.freshCount > 0 ? (
             <>
-              <div className="today__next-title">今天没有到期的，可以学 {overview.freshCount} 张新卡</div>
+              <div className="today__next-title">
+                今天没有到期的，可以学 {overview.freshCount} 张新卡
+              </div>
               <div className="today__next-hint">每天最多 20 张，避免明天堆积</div>
             </>
           ) : (
@@ -135,15 +192,12 @@ export function TodayPage({
           )}
         </div>
 
-        {/* 今天的实况：四个数字，等宽对齐但不等权重 */}
         <div className="today__stats">
           <Stat label="今天已复习" value={`${overview.doneToday}`} unit="张" />
           <Stat
             label="今天的正确率"
             value={
-              overview.accuracyToday === null
-                ? '—'
-                : `${Math.round(overview.accuracyToday * 100)}`
+              overview.accuracyToday === null ? '—' : `${Math.round(overview.accuracyToday * 100)}`
             }
             unit={overview.accuracyToday === null ? '' : '%'}
           />
@@ -155,11 +209,6 @@ export function TodayPage({
           <p className="today__done">今天的学习任务已完成。明天再来。</p>
         ) : null}
 
-        {/*
-          下方补充说明。不是装饰 —— 第一次用的人需要知道
-          「这些卡片从哪来、为什么这么排」，否则「9 张可学」
-          是个没有上下文的数字。
-        */}
         <div className="today__explain">
           <h2 className="today__explain-title">这些卡片从哪来</h2>
           <ol className="today__steps">
@@ -169,7 +218,7 @@ export function TodayPage({
             </li>
             <li>
               <span className="today__step-n">2</span>
-              在「出题」里让 AI 读资料，生成题目与知识点
+              在「创建题组」里让 AI 读资料，生成题目与知识点
             </li>
             <li>
               <span className="today__step-n">3</span>
@@ -182,7 +231,6 @@ export function TodayPage({
         </div>
       </div>
 
-      {/* ---------- 右栏：纸张卡片叠 ---------- */}
       <div className="today-stack">
         <div className="paper">
           <div className="paper__eyebrow">下一步</div>
@@ -190,9 +238,7 @@ export function TodayPage({
             <>
               <div className="paper__big">{overview.dueCount}</div>
               <div className="paper__unit">张待复习</div>
-              <div className="paper__dim paper__note">
-                做完这一轮，大约 5 分钟
-              </div>
+              <div className="paper__dim paper__note">做完这一轮，大约 5 分钟</div>
               <button type="button" className="btn-fill" onClick={onStartReview}>
                 开始复习
                 <span className="btn-fill__arrow" aria-hidden="true">
@@ -228,18 +274,9 @@ export function TodayPage({
   );
 }
 
-/** 熟练度细条（4px 五段配色） */
 function MasteryBar({ value }: { value: number }) {
-  // 按掌握度映射到段数：0 → 全灰；1 → 全绿
   const filled = Math.round(value * 5);
 
-  /**
-   * 0% 时不画分段条，改画一条明确的空槽。
-   *
-   * 早先直接用五段灰色 —— 平视时看起来就是一条虚线分隔线，
-   * 用户根本不会认为那是「进度」。空槽 + 文字说明才读得出
-   * 「这里本来会有进度，但还没开始」。
-   */
   if (value === 0) {
     return (
       <div className="mastery">

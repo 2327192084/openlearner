@@ -1,121 +1,247 @@
+import type { ReactElement } from 'react';
+import {
+  IconBack,
+  IconBoard,
+  IconBook,
+  IconAudio,
+  IconExam,
+  IconFlow,
+  IconGenerate,
+  IconGlobe,
+  IconHelp,
+  IconLibrary,
+  IconNotes,
+  IconRecord,
+  IconSettings,
+  IconSkeleton,
+  IconSources,
+  IconStats,
+  IconTarget,
+  IconTasks,
+  IconWrongbook,
+} from './icons.tsx';
+
 /**
  * 导航注册表 —— 界面的唯一真源。
  *
- * 结构照搬 StudyHub 的 ui/pages.js：
- * 每一项带 label / purpose / main，
- * 侧栏、顶栏标题、快捷键全部从这里推导，不各写一份。
+ * 按你给的真实截图还原：
+ *  - 顶部单行「回到题目」（带进度 chip）
+ *  - 三组可折叠：每天 / 阶段性 / 课程准备与管理
+ *  - 底部固定：语言切换、功能导览
  *
- * `purpose` 不是装饰：它会出现在 hover 提示与「找功能」搜索里。
- * 写它的时候要回答「用户为什么要去这一页」，而不是复述标签。
+ * 组的顺序与命名照截图，不自创。
  */
 
 export type PageId =
   | 'today'
+  | 'review'
   | 'sources'
   | 'generate'
-  | 'review'
+  | 'tasks'
   | 'wrongbook'
+  | 'flow'
+  | 'notes'
+  | 'board'
+  | 'exam'
+  | 'examprep'
+  | 'book'
   | 'stats'
+  | 'skeleton'
+  | 'audio'
+  | 'record'
   | 'settings';
+
+export type NavGroup = 'daily' | 'staged' | 'prep';
 
 export interface PageDef {
   id: PageId;
-  /** 侧栏显示的文字 */
   label: string;
-  /** 顶栏标题 */
   title: string;
-  /** 侧栏图标（单个字符，避免引入图标库） */
-  glyph: string;
-  /** 一句话说明这一页解决什么问题，用于提示与搜索 */
+  icon: (p: { size?: number }) => ReactElement;
+  /** 一句话说明这一页解决什么问题 */
   purpose: string;
-  /** 是否进主导航（false 的只出现在「更多」里） */
-  main: boolean;
-  /** 分组 */
-  group: 'practice' | 'material' | 'system';
+  group: NavGroup;
+  /** 是否进主导航（false 的暂不显示，或只在占位里出现） */
+  show: boolean;
+  /** 是否已实现（未实现的点了给占位说明） */
+  ready?: boolean;
 }
 
-/**
- * 页面定义。
- *
- * 只有 6 项进主导航 —— 与 StudyHub 的「默认 6 项」一致。
- * 导航超过 6 项时，用户的点击分布会明显分散；
- * 剩下的一律收进「更多」或底部。
- */
 export const PAGES: PageDef[] = [
+  // ---------- 每天 ----------
   {
     id: 'today',
-    label: '今日',
-    title: '今日',
-    glyph: '◈',
-    purpose: '每次打开先看这里：今天该复习几张、可以学几张、昨天做得怎样',
-    main: true,
-    group: 'practice',
+    label: '学习库',
+    title: '学习库',
+    icon: IconLibrary,
+    purpose: '每次打开先看这里：今天的安排、各门课的进度和最近在练的题',
+    group: 'daily',
+    show: true,
+    ready: true,
   },
   {
     id: 'sources',
     label: '资料',
     title: '资料',
-    glyph: '▤',
-    purpose: '导入讲义、课件和教材，也可以在这里读原文、做批注',
-    main: true,
-    group: 'material',
+    icon: IconSources,
+    purpose: '导入讲义、课件和笔记，也可以在这里读原文',
+    group: 'daily',
+    show: true,
   },
   {
     id: 'generate',
-    label: '出题',
+    label: '创建题组',
     title: '创建题组',
-    glyph: '✦',
+    icon: IconGenerate,
     purpose: '选好资料出题；出之前能看到大概要花多少',
-    main: true,
-    group: 'material',
+    group: 'daily',
+    show: true,
   },
   {
-    id: 'review',
-    label: '复习',
-    title: '复习',
-    glyph: '▷',
-    purpose: '按遗忘曲线做今天该复习的卡片，做完能看见自己变熟',
-    main: true,
-    group: 'practice',
+    id: 'tasks',
+    label: '任务',
+    title: '任务',
+    icon: IconTasks,
+    purpose: '后台正在做什么、做完没有，都可以在这里看',
+    group: 'daily',
+    show: true,
   },
   {
     id: 'wrongbook',
-    label: '错题',
+    label: '错题与待巩固',
     title: '错题与待巩固',
-    glyph: '⚑',
+    icon: IconWrongbook,
     purpose: '答错的题和还没巩固的题收在这里，可以只练它们',
-    main: true,
-    group: 'practice',
+    group: 'daily',
+    show: true,
+  },
+  {
+    id: 'flow',
+    label: '学习流',
+    title: '学习流',
+    icon: IconFlow,
+    purpose: '按一门课从头到尾走一遍固定的学习流程',
+    group: 'daily',
+    show: true,
+  },
+  {
+    id: 'notes',
+    label: '学习笔记',
+    title: '学习笔记',
+    icon: IconNotes,
+    purpose: '把做过的题写成笔记，也可以发布出去',
+    group: 'daily',
+    show: true,
+  },
+  {
+    id: 'board',
+    label: '待办',
+    title: '待办看板',
+    icon: IconBoard,
+    purpose: '把要做的事排成看板，可以设截止日期',
+    group: 'daily',
+    show: true,
+  },
+
+  // ---------- 阶段性 ----------
+  {
+    id: 'exam',
+    label: '模拟考试',
+    title: '模拟考试',
+    icon: IconExam,
+    purpose: '按考试的时间和题型做一整套，交卷后看批改',
+    group: 'staged',
+    show: true,
+  },
+  {
+    id: 'examprep',
+    label: '备考补习',
+    title: '备考补习',
+    icon: IconTarget,
+    purpose: '按考试大纲整理要复习的清单，缺什么补什么',
+    group: 'staged',
+    show: true,
+  },
+  {
+    id: 'book',
+    label: '复习全书',
+    title: '复习全书',
+    icon: IconBook,
+    purpose: '把这门课的题和讲解串成一本能读的书',
+    group: 'staged',
+    show: true,
   },
   {
     id: 'stats',
     label: '统计',
     title: '学习统计',
-    glyph: '▦',
+    icon: IconStats,
     purpose: '练了多少、掌握得怎么样、哪一块还薄弱',
-    main: true,
-    group: 'practice',
+    group: 'staged',
+    show: true,
+  },
+
+  // ---------- 课程准备与管理 ----------
+  {
+    id: 'skeleton',
+    label: '知识骨架',
+    title: '知识骨架',
+    icon: IconSkeleton,
+    purpose: '把一门课的知识点连成结构图，看清整体脉络',
+    group: 'prep',
+    show: true,
   },
   {
-    id: 'settings',
-    label: '设置',
-    title: '设置',
-    glyph: '⚙',
-    purpose: '接入模型、选择主题、导出备份',
-    main: false,
-    group: 'system',
+    id: 'audio',
+    label: '音频转写',
+    title: '音频转写',
+    icon: IconAudio,
+    purpose: '把课堂录音转成文字，之后能像资料一样出题',
+    group: 'prep',
+    show: true,
+  },
+  {
+    id: 'record',
+    label: '课堂实录',
+    title: '课堂实录',
+    icon: IconRecord,
+    purpose: '边上课边记，课后自动整理成资料与题目',
+    group: 'prep',
+    show: true,
   },
 ];
 
-/** 主导航（侧栏上半部分） */
-export const MAIN_PAGES = PAGES.filter((p) => p.main);
+/** 分组定义（顺序照截图） */
+export const GROUPS: { id: NavGroup; label: string }[] = [
+  { id: 'daily', label: '每天' },
+  { id: 'staged', label: '阶段性' },
+  { id: 'prep', label: '课程准备与管理' },
+];
 
 /** 底部固定项 */
-export const FOOT_PAGES = PAGES.filter((p) => !p.main);
+export const FOOT_ITEMS: { id: PageId; label: string; icon: (p: { size?: number }) => ReactElement }[] = [
+  { id: 'settings', label: '功能导览', icon: IconHelp },
+];
 
-/** 按 id 取定义 */
+export const SETTINGS_ITEM = { id: 'settings' as PageId, label: '设置', icon: IconSettings };
+export const LANG_ICON = IconGlobe;
+export const BACK_ICON = IconBack;
+
 export function pageById(id: PageId): PageDef {
   const p = PAGES.find((x) => x.id === id);
-  if (!p) throw new Error(`未知页面：${id}`);
-  return p;
+  if (p) return p;
+  // settings 不在 PAGES 里，单独给一个
+  return {
+    id,
+    label: '设置',
+    title: '设置',
+    icon: IconSettings,
+    purpose: '接入模型、选择主题、导出备份',
+    group: 'prep',
+    show: true,
+  };
+}
+
+export function pagesInGroup(group: NavGroup): PageDef[] {
+  return PAGES.filter((p) => p.group === group && p.show);
 }
