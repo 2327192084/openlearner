@@ -177,6 +177,27 @@ export class KnowledgeService {
   }
 
   /**
+   * 全部生成记录（整理知识点 + 出题），按开始时间倒序。
+   *
+   * 为什么加这个方法而不是让「任务」页自己连 IndexedDB：
+   *  - 页面直连数据库会绕过 StorageAdapter，测试里（MemoryStorage）跑不起来；
+   *  - DB 名与版本号会被复制到界面层，将来升级 schema 要改两处；
+   *  - 只读查询也该收敛到服务层，和 `latestRun` 放在一起。
+   *
+   * 只读，不改任何状态。
+   */
+  async listRuns(): Promise<GenerationRun[]> {
+    const runs = await this.storage.getAll('generationRuns');
+    return runs.sort((a, b) => {
+      const ta = new Date(a.startedAt).getTime();
+      const tb = new Date(b.startedAt).getTime();
+      /* 时间相同（同一毫秒）时保持稳定顺序，避免列表抖动 */
+      if (ta === tb) return a.id < b.id ? 1 : -1;
+      return tb - ta;
+    });
+  }
+
+  /**
    * 取某份资料最近一次的生成记录。
    *
    * 界面需要它来显示「上次整理：产出 N 条、其中 M 条待处理、用了 X tokens」。

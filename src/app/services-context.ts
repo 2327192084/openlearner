@@ -7,6 +7,9 @@ import type { DeckService } from '@/core/questions/service.ts';
 import type { SlideService } from '@/core/slides/service.ts';
 import type { UsageService } from '@/core/usage.ts';
 import type { AnnotationService } from '@/core/annotation-service.ts';
+import type { NoteService } from '@/core/notes.ts';
+import type { ExamService } from '@/core/exam.ts';
+import type { TodoService } from '@/core/todos.ts';
 
 /**
  * 应用运行时上下文。
@@ -23,6 +26,12 @@ export interface AppServices {
   courses: CourseService;
   /** 资料页面上的手写注释（画笔 + 文本框） */
   annotations: AnnotationService;
+  /** 学习笔记（挂在卡片或资料上的短笔记） */
+  notes: NoteService;
+  /** 模拟考试（出卷、判分、成绩记录） */
+  exam: ExamService;
+  /** 待办（带截止日的学习计划） */
+  todos: TodoService;
   /** P2：知识点整理与校对 */
   knowledge: KnowledgeService;
   /** P3：习题集、作答与错题 */

@@ -16,7 +16,10 @@ const DB_NAME = 'openleaner';
  */
 /** v3：新增 sourceAnnotations（用户在资料上的手写注释） */
 /** v4：新增 reviewRecords(reviewLogs) —— 间隔复习进度与历史 */
-const DB_VERSION = 4;
+/** v5：新增 notes（学习笔记） */
+/** v6：新增 examAttempts（模拟考试记录） */
+/** v7：新增 todos（待办） */
+const DB_VERSION = 7;
 
 /**
  * IndexedDB 存储适配器（浏览器与 Electron 渲染进程用）。

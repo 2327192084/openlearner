@@ -1,8 +1,10 @@
 import type {
   BackendConfig,
+  ExamAttempt,
   Course,
   Deck,
   KnowledgePoint,
+  Note,
   LibraryMeta,
   Question,
   SettingsRecord,
@@ -10,6 +12,7 @@ import type {
   SlideImageRecord,
   Source,
   SourceAnnotation,
+  Todo,
   SourceSegment,
   GenerationRun,
   AnswerRecord,
@@ -101,6 +104,19 @@ export const STORES = [
    * 这里从存储层面就把它和可导出数据隔开，而不是靠导出时记得剔除。
    */
   'secrets',
+  /**
+   * 学习笔记。
+   *
+   * 挂在卡片或资料上的短笔记 —— 见 model.ts 里 Note 的说明。
+   *
+   * **进备份**：笔记是用户自己写的，丢了找不回来，
+   * 与 sourceFiles（可从原文件重新渲染）性质完全不同。
+   */
+  'notes',
+  /** 模拟考试记录（每次交卷一条） */
+  'examAttempts',
+  /** 待办（带截止日的学习计划） */
+  'todos',
 ] as const;
 
 export type StoreName = (typeof STORES)[number];
@@ -126,6 +142,26 @@ export const BACKUP_STORES = [
   'backends',
   /** 用量统计。进备份：换机器后账单不该归零。只有数字，不含 Key 与请求内容 */
   'usageRecords',
+  /**
+   * 学习笔记。进备份。
+   *
+   * 理由同 sourceAnnotations：这是**用户自己敲的字**，
+   * 不是能重新算出来的东西 —— 漏了它就等于换机器后全丢。
+   */
+  'notes',
+  /**
+   * 模拟考试记录。进备份。
+   *
+   * 它和 reviewRecords 一样属于「学习历史」——
+   * 换机器后考试成绩不该归零，否则看不出自己有没有进步。
+   */
+  'examAttempts',
+  /**
+   * 待办。进备份。
+   *
+   * 这是用户自己排的计划，和笔记一样属于「丢了找不回来」的东西。
+   */
+  'todos',
 ] as const;
 
 export type BackupStoreName = (typeof BACKUP_STORES)[number];
@@ -151,6 +187,9 @@ export interface StoreRecordMap {
   backends: BackendConfig;
   usageRecords: UsageRecord;
   secrets: SecretRecord;
+  notes: Note;
+  examAttempts: ExamAttempt;
+  todos: Todo;
 }
 
 /**

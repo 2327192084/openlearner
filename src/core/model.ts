@@ -9,7 +9,7 @@
  */
 
 /** 当前学习库结构版本。改动实体结构时递增，并在 migrations.ts 补一段迁移。 */
-export const LIBRARY_SCHEMA_VERSION = 10;
+export const LIBRARY_SCHEMA_VERSION = 13;
 
 /**
  * 位置信息 —— 全项目「点回原文」的唯一依据。
@@ -255,6 +255,31 @@ export interface Deck {
   sourceId: string | null;
   /** 生成用的后端，便于回溯「这批题是谁出的」 */
   backendId: string | null;
+  /**
+   * 这个题组的题型。
+   *
+   * 用户要求「生成题组时要标注题目类型」——原来 Deck 上没有任何题型信息，
+   * 列表里只能看到「8 道题」，看不出是单选还是简答。
+   *
+   * `null` 表示**混合题型**（或者旧数据还没标）。用数组而不是单值，
+   * 是为了将来支持「一次出单选+多选」这种组合。
+   *
+   * 旧数据没有这个字段 ⇒ 读取时按 `undefined` 处理，界面显示「题型未标注」，
+   * 不猜、不伪造。
+   */
+  kinds?: QuestionKind[];
+  /**
+   * 是不是**随机题组**。
+   *
+   * 用户要求「随机题组要特意标注」。两种随机来源都记在这里：
+   *  - 出题时选了「整库随机抽取素材」→ `randomSource: true`
+   *  - 每次开始做题时临时抽一批 → 见 `PracticeMode`，那种不落库成题组
+   *
+   * 为什么单独一个布尔而不是只看 sourceId 是否为空：
+   * sourceId 为空还有「手工建的空题组」这种情况，语义不同 ——
+   * 那类不是随机，而是「还没选资料」。
+   */
+  randomSource?: boolean;
   /** 题数缓存，列表页直接显示，不必每次数 */
   questionCount: number;
   /** 发布前校验发现的阻塞问题数（0 才能发布） */
@@ -270,6 +295,17 @@ export type QuestionKind =
   | 'single'
   /** 多选：多个正确选项 */
   | 'multiple'
+  /**
+   * 判断题：一句话判对错。
+   *
+   * 单独一个类型而不是「只有两个选项的单选题」，理由是**数据要能表达语义**：
+   *  - 导出成 Markdown 时能写成「判断：…（对/错）」而不是列两个选项；
+   *  - 统计里「判断题」和「单选题」不是同一件事；
+   *  - 选项固定为 对/错，不允许模型自己编别的选项。
+   *
+   * 选项的 key 固定为 `T` / `F`，答案存 `T` 或 `F`。
+   */
+  | 'truefalse'
   /** 填空：文本答案 */
   | 'blank'
   /** 问答：长文本答案，需自评 */
@@ -673,6 +709,127 @@ export interface BackendConfig {
   updatedAt: string;
 }
 
+/**
+ * 一条待办。
+ *
+ * ## 为什么学习软件需要这个
+ *
+ * 「周三前把第三章复习完」这类计划不属于任何一道题、也不属于某份资料 ——
+ * 它是**人对时间的安排**。没有它，前面所有功能都只能回答
+ * 「现在有什么可做」，回答不了「我本来打算这周做什么」。
+ *
+ * ## 状态只有两种，不做「进行中」
+ *
+ * 看板软件常见「待办 / 进行中 / 已完成」三列，但学习任务几乎都是
+ * 「做完了/没做完」—— 加一个中间态只会让用户多拖一次鼠标。
+ * 所以只有 done 布尔值。将来真需要再加，加字段比删字段容易。
+ */
+export interface Todo {
+  id: string;
+  title: string;
+  /** 备注（可空） */
+  note: string;
+  /** 截止日期 YYYY-MM-DD；null 表示不限期 */
+  dueAt: string | null;
+  done: boolean;
+  /** 完成时间；未完成时为 null */
+  doneAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** 排序序号：小的在前（用户手动排序用） */
+  order: number;
+}
+
+/**
+ * 一次模拟考试的记录。
+ *
+ * ## 为什么要落库，而不是只在内存里算完就丢
+ *
+ * 「考了多少分」这件事必须能回头看 —— 用户想知道自己是不是在进步，
+ * 而只看当次分数看不出趋势。也要能复盘错题。
+ *
+ * ## 为什么把逐题作答存进来，而不是只存分数
+ *
+ * 只存分数的话，考完之后点进来看不到「我错了哪几道、当时选了什么」，
+ * 复盘就无从谈起。存逐题结果让这个记录变成一份可复盘的卷子。
+ *
+ * 体积上没问题：一次考试几十道题，一条记录几 KB。
+ */
+export interface ExamAttempt {
+  id: string;
+  /** 试卷名（通常是「模拟考试 · 资料名」或题组名） */
+  title: string;
+  /** 参加了哪些题（按出题顺序） */
+  questionIds: string[];
+  /** 开始 / 交卷时间 */
+  startedAt: string;
+  finishedAt: string;
+  /** 限时（秒）；0 表示不限时 */
+  limitSec: number;
+  /** 实际用时（秒） */
+  usedSec: number;
+  /** 逐题作答结果 */
+  answers: ExamAnswer[];
+  /** 答对数 / 总题数 */
+  correct: number;
+  total: number;
+  /**
+   * 是否超时自动交卷。
+   *
+   * 单独标记而不是只看 usedSec > limitSec：用户主动提前交卷时
+   * usedSec 一定小于 limitSec，两者不会混；但超时那一刻的 usedSec
+   * 可能因为计时粒度差一两秒，靠比较数值判断不可靠。
+   */
+  timedOut: boolean;
+}
+
+/** 单题的作答结果 */
+export interface ExamAnswer {
+  questionId: string;
+  /** 用户写的答案（选项 key 或文本） */
+  response: string;
+  /** 判定结果；essay 类为 null（需自评，但模拟考里按未答对计） */
+  correct: boolean | null;
+}
+
+/**
+ * 一条学习笔记。
+ *
+ * ## 为什么挂在「卡片」或「资料」上，而不是独立的笔记本
+ *
+ * 写笔记的实际场景是：做题时想到「这个结论和上一章那个公式是一回事」，
+ * 或者读原文时想给某一段留句话。脱离上下文的笔记本在复习工具里
+ * 很少被翻开 —— 而挂在具体卡片/资料上的笔记，复习到那一题时就会看到。
+ *
+ * `cardId` 与 `sourceId` 至少有一个非空：
+ *  - 挂在题目/知识点上：复习时能看到
+ *  - 挂在资料上：在阅读器里能看到
+ *
+ * 两者都为空是不可能的（界面上没有这种入口），但读取时不崩 —— 归到「未关联」。
+ */
+export interface Note {
+  id: string;
+  /** 归属卡片（题目或知识点 id）；与 sourceId 至少一个非空 */
+  cardId: string | null;
+  /** 归属资料 id；与 cardId 至少一个非空 */
+  sourceId: string | null;
+  /** 笔记正文（纯文本，允许换行） */
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  /**
+   * 单调递增的编辑序号。
+   *
+   * 为什么不能只靠 updatedAt：`new Date().toISOString()` 精度只到毫秒，
+   * 连续两次操作（用户手快、或脚本批量写）时间戳会**完全相同**，
+   * 于是「最近更新的排前面」排不出先后 —— 列表顺序会抖。
+   *
+   * 这与 AnswerRecord.sequence 是同一个问题、同一个解法
+   * （项目里已经因为毫秒精度踩过一次）。
+   */
+  sequence: number;
+}
+
 /** 应用设置（与学习库一起导出，但不含任何凭据）。 */
 export interface AppSettings {
   /** 界面语言，P0 固定 zh-CN */
@@ -681,12 +838,28 @@ export interface AppSettings {
   questionLanguage: 'zh' | 'en';
   /** 是否已看过首次引导 */
   onboarded: boolean;
+  /**
+   * 计时评分规则（宽容度总档 + 按题型覆盖）。
+   *
+   * 存成宽松的结构而不是四个秒数：自定义的入口是「判得松还是严」，
+   * 具体倍率阈值由 `src/v2/core/grading.ts` 统一推导 ——
+   * 这样「按题目长度归一」不会被用户填的固定秒数破坏。
+   *
+   * 旧备份里没有这个字段，读取时由 `normalizeGradingRules` 兜底成默认值。
+   */
+  gradingRules: import('../v2/core/grading.ts').GradingRules;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   locale: 'zh-CN',
   questionLanguage: 'zh',
   onboarded: false,
+  /*
+   * 用字面量而不是 import：model.ts 是被最广泛引用的基础模块，
+   * 在这里 import grading.ts 会让依赖图绕回 v2（grading 又 import cards），
+   * 容易形成循环。结构相同即可，值保持在 grading.ts 单一来源。
+   */
+  gradingRules: { strictness: 'standard', perKind: {} },
 };
 
 /**
@@ -765,6 +938,17 @@ export interface LibraryBackup {
    * 不含 Key、不含任何请求内容。
    */
   usageRecords: UsageRecord[];
+  /**
+   * 学习笔记。
+   *
+   * 可选以兼容旧备份（v10 及之前的备份没有这个字段），
+   * 导入时按空数组处理 —— 不让旧备份因为缺一个字段而导入失败。
+   */
+  notes?: Note[];
+  /** 模拟考试记录。可选以兼容旧备份，导入时按空数组处理。 */
+  examAttempts?: ExamAttempt[];
+  /** 待办。可选以兼容旧备份。 */
+  todos?: Todo[];
 }
 
 // ---------------------------------------------------------------------------

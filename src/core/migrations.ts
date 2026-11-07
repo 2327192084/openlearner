@@ -333,6 +333,55 @@ const migrations: Record<number, Migration> = {
       }),
     };
   },
+
+  /**
+   * v10 → v11
+   *
+   * 新增 `notes`（学习笔记）分区。
+   *
+   * 只做加法：旧备份没有这个字段，补一个空数组。
+   * **绝不造内容** —— 不能因为「笔记区是空的不好看」就塞一条示例进来，
+   * 用户会把那当成自己写过的。
+   *
+   * 为什么不给旧备份里的题目/知识点补空笔记：
+   * 笔记是用户主动写的，没有就是没有。补出来只会让「有没有写过笔记」
+   * 这个判断永远为真，之后就没法靠它筛选了。
+   */
+  10: (backup) => ({
+    ...backup,
+    schemaVersion: 11,
+    notes: Array.isArray(backup.notes) ? backup.notes : [],
+  }),
+
+  /**
+   * v11 → v12
+   *
+   * 新增 `examAttempts`（模拟考试记录）。
+   *
+   * 同样只做加法、不造内容：旧备份里没有考试记录，
+   * 补空数组即可。**绝不能补一条示例成绩** ——
+   * 用户会把它当成自己考过的分数，那比没有更糟。
+   */
+  11: (backup) => ({
+    ...backup,
+    schemaVersion: 12,
+    examAttempts: Array.isArray(backup.examAttempts) ? backup.examAttempts : [],
+  }),
+
+  /**
+   * v12 → v13
+   *
+   * 新增 `todos`（待办）。
+   *
+   * 只做加法：旧备份补空数组。
+   * 同样不造内容 —— 待办是用户自己排的计划，
+   * 塞一条示例进去会被当成真的待办，比空着更糟。
+   */
+  12: (backup) => ({
+    ...backup,
+    schemaVersion: 13,
+    todos: Array.isArray(backup.todos) ? backup.todos : [],
+  }),
 };
 
 /**

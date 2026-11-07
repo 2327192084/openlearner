@@ -2,6 +2,7 @@ import { newId, nowIso } from './id.ts';
 import { DEFAULT_SETTINGS, LIBRARY_SCHEMA_VERSION } from './model.ts';
 import type { AppSettings, LibraryBackup, LibraryMeta } from './model.ts';
 import { migrateBackup } from './migrations.ts';
+import { normalizeGradingRules } from '../v2/core/grading.ts';
 import type { StorageAdapter, StoreSnapshot, BackupStoreName } from './storage/types.ts';
 import { BACKUP_STORES } from './storage/types.ts';
 
@@ -69,10 +70,23 @@ export class LibraryService {
 
   async getSettings(): Promise<AppSettings> {
     const row = await this.storage.get('settings', SETTINGS_ID);
-    if (!row) return { ...DEFAULT_SETTINGS };
+    if (!row) return { ...DEFAULT_SETTINGS, gradingRules: { ...DEFAULT_SETTINGS.gradingRules, perKind: {} } };
     // settings 分区存的是带 id 的记录（分区统一以 id 为主键），对上层剥掉 id
     const { id: _id, ...rest } = row;
-    return { ...DEFAULT_SETTINGS, ...rest };
+    /*
+     * gradingRules 必须过一遍 normalize，不能只靠 `{...DEFAULT, ...rest}`。
+     *
+     * 原因：旧库里这条记录的 gradingRules 字段**根本不存在**，
+     * 展开后得到的是 undefined 而不是默认值（`...rest` 里没有这个键，
+     * 但 record 里呈现为 undefined 时同样是 undefined）。
+     * 更糟的是「存在但形状不对」（被人手改过备份）：展开会原样带出来，
+     * 于是界面上出现一个不存在的宽容度。normalize 两种情况都收敛到默认。
+     */
+    return {
+      ...DEFAULT_SETTINGS,
+      ...rest,
+      gradingRules: normalizeGradingRules((rest as Partial<AppSettings>).gradingRules),
+    };
   }
 
   async saveSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
@@ -150,6 +164,15 @@ export class LibraryService {
       locale: backup.settings?.locale ?? DEFAULT_SETTINGS.locale,
       questionLanguage: backup.settings?.questionLanguage ?? DEFAULT_SETTINGS.questionLanguage,
       onboarded: backup.settings?.onboarded ?? DEFAULT_SETTINGS.onboarded,
+      /*
+       * 评分规则要显式带上，不能只列前三个字段。
+       *
+       * 这里原来是「逐字段白名单」，漏一个新字段的后果是：
+       * 用户恢复备份后自定义评分悄悄退回默认，而备份文件里明明存着 ——
+       * 属于「数据在、但没生效」的那类最难发现的问题。
+       * 用 normalize 兜底：旧备份没有这个字段时得到默认值，不会变成 undefined。
+       */
+      gradingRules: normalizeGradingRules(backup.settings?.gradingRules),
       id: SETTINGS_ID,
     });
 
