@@ -94,13 +94,18 @@ export const PAGES: PageDef[] = [
     show: true,
   },
   {
+    /*
+     * 「创建题组」不再是独立入口 —— 用户要求把它和「我的题组」
+     * 整合成一页。出题表单内嵌在 DecksPage 里，点「新建题组」就地展开。
+     * show: false 让它从侧栏消失，PageId 保留以兼容旧状态。
+     */
     id: 'generate',
     label: '创建题组',
     title: '创建题组',
     icon: IconGenerate,
     purpose: '选好资料出题；出之前能看到大概要花多少',
     group: 'daily',
-    show: true,
+    show: false,
   },
   {
     /*

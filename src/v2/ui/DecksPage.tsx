@@ -2,11 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Deck, Question, Source } from '@/core/model.ts';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { SourceService } from '@/core/sources.ts';
+import type { KnowledgeService } from '@/core/knowledge/service.ts';
+import type { BackendService } from '@/core/backends.ts';
+import { GeneratePage } from './GeneratePage.tsx';
 import { ConfirmDialog } from './dialog.tsx';
 import { IconGenerate } from './icons.tsx';
 
 /**
- * 「我的题组」—— 列出现有题组，看题、检查草稿、发布。
+ * 「我的题组」—— 列出现有题组，看题、检查待审核、发布。
  *
  * ## 为什么这一页必须有
  *
@@ -14,7 +17,7 @@ import { IconGenerate } from './icons.tsx';
  * 然后**找不到那 8 道题**。查下来是：
  *  - `decks.list()` 这个方法一直存在，但**界面从来没调用过**
  *  - 侧栏只有「创建题组」，没有「我的题组」
- *  - 生成出来的题组是 `draft`（草稿），而计划书要求
+ *  - 生成出来的题组是 `draft`（待审核），而计划书要求
  *    「生成 → 人工检查 → 发布」，这一步在界面里完全没做
  *
  * 结果就是：题在库里，但用户看不到、检查不了、也不知道它在哪。
@@ -22,7 +25,7 @@ import { IconGenerate } from './icons.tsx';
  *
  * ## 三条不能省的规矩
  *
- * 1. **草稿与已发布必须分清**。草稿是给用户检查的，不该直接混进复习。
+ * 1. **待审核与已发布必须分清**。待审核是给用户检查的，不该直接混进复习。
  * 2. **每道题都要能看到出处**（第几页 / 哪个知识点），否则「检查」无从谈起。
  * 3. **删除要二次确认**，并说清会连带删掉什么。
  */
@@ -32,6 +35,16 @@ type Tab = 'all' | 'draft' | 'published';
 export interface DecksPageProps {
   decks: DeckService;
   sourceService: SourceService;
+  /** 出题要用：知识点服务 */
+  knowledge: KnowledgeService;
+  /** 出题要用：后端 */
+  backends: BackendService;
+  /** 出完题刷新侧栏计数 */
+  onGenerated: () => void;
+  /** 去资料页（没有资料时引导用） */
+  onOpenSources: () => void;
+  /** 去整理知识点页 */
+  onOpenOrganize: (sourceId: string | null) => void;
   /** 生成完题后跳到这一页时，要自动展开那个题组 */
   initialDeckId?: string | null;
   /** 去这一份资料的阅读器（看原文对照） */
@@ -42,6 +55,11 @@ export interface DecksPageProps {
 export function DecksPage({
   decks,
   sourceService,
+  knowledge,
+  backends,
+  onGenerated,
+  onOpenSources,
+  onOpenOrganize,
   initialDeckId,
   onOpenSource,
   onChanged,
@@ -55,6 +73,15 @@ export function DecksPage({
   const [openId, setOpenId] = useState<string | null>(initialDeckId ?? null);
   const [questions, setQuestions] = useState<Record<string, Question[]>>({});
   const [loadingQuestions, setLoadingQuestions] = useState<string | null>(null);
+
+  /**
+   * 是不是在「新建题组」模式。
+   *
+   * 用户要求把「创建题组」和「我的题组」整合成一页：默认看到题组列表，
+   * 点「新建题组」就地展开出题表单，出完回到列表并展开新题组。
+   * 这样侧栏少一个入口，出题与查看也不用来回跳。
+   */
+  const [creating, setCreating] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -158,7 +185,7 @@ export function DecksPage({
     setNotice(null);
     try {
       await decks.unpublish(deck.id);
-      setNotice(`已把「${deck.title}」撤回草稿。它不会再出现在复习里。`);
+      setNotice(`已把「${deck.title}」撤回待审核。它不会再出现在复习里。`);
       await load();
       onChanged();
     } catch (err) {
@@ -199,15 +226,53 @@ export function DecksPage({
     );
   }
 
+  /*
+   * 「新建题组」模式：就地展开出题表单。
+   *
+   * 用户要求「创建题组和我的题组整合成一个界面，就叫我的题组」。
+   * 所以不再有独立页面 —— 点这里的「新建题组」按钮就地切换，
+   * 出完题回到列表并自动展开那一组。
+   */
+  if (creating) {
+    return (
+      <div className="decks-page">
+        <GeneratePage
+          sourceService={sourceService}
+          knowledge={knowledge}
+          decks={decks}
+          backends={backends}
+          onGenerated={onGenerated}
+          onOpenSources={onOpenSources}
+          onOpenOrganize={onOpenOrganize}
+          onOpenDecks={(deckId) => {
+            // 出完题：回到列表并展开这一组，让用户立刻检查
+            setCreating(false);
+            void load().then(() => {
+              if (deckId) void openDeck(deckId);
+            });
+          }}
+          onBack={() => setCreating(false)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="decks-page">
       <header className="decks-head">
         <div>
           <h1 className="decks-title">我的题组</h1>
           <p className="decks-lead">
-            这里能看到所有生成过的题组。草稿需要先检查、发布，才会进入复习队列。
+            这里能看到所有生成过的题组。待审核的题组要先检查、发布，才会进入复习队列。
           </p>
         </div>
+        <button
+          type="button"
+          className="btn-fill btn-fill--sm"
+          onClick={() => setCreating(true)}
+        >
+          新建题组
+        </button>
       </header>
 
       {error ? <div className="decks-error">{error}</div> : null}
@@ -222,7 +287,7 @@ export function DecksPage({
         {(
           [
             ['all', `全部 ${counts.all}`],
-            ['draft', `草稿 ${counts.draft}`],
+            ['draft', `待审核 ${counts.draft}`],
             ['published', `已发布 ${counts.published}`],
           ] as Array<[Tab, string]>
         ).map(([key, label]) => (
@@ -276,7 +341,7 @@ export function DecksPage({
                   <span
                     className={`deck-badge deck-badge--${deck.status === 'published' ? 'ok' : 'warn'}`}
                   >
-                    {deck.status === 'published' ? '已发布' : '草稿'}
+                    {deck.status === 'published' ? '已发布' : '待审核'}
                   </span>
                 </div>
 
@@ -297,7 +362,7 @@ export function DecksPage({
                       onClick={() => void unpublish(deck)}
                       disabled={busy}
                     >
-                      撤回成草稿
+                      撤回成待审核
                     </button>
                   )}
                   {deck.sourceId && onOpenSource ? (

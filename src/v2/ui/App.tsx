@@ -5,7 +5,6 @@ import { AppShell } from './AppShell.tsx';
 import { TodayPage } from './TodayPage.tsx';
 import { ReviewPage } from './ReviewPage.tsx';
 import { SourcesPage } from './SourcesPage.tsx';
-import { GeneratePage } from './GeneratePage.tsx';
 import { DecksPage } from './DecksPage.tsx';
 import { StatsPage } from './StatsPage.tsx';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
@@ -117,8 +116,14 @@ export function App({
    * 要带上 {sourceId, page, charStart, charEnd, quote}，
    * 而「打开哪一份」和「定位到哪」是两件事，混在一起会残留上一次的位置。
    */
-  /** 出完题后要自动展开的题组 id */
-  const [openedDeckId, setOpenedDeckId] = useState<string | null>(null);
+  /**
+   * 要自动展开的题组 id。
+   *
+   * 出完题时的展开现在由 DecksPage 内部处理（表单嵌在那一页里），
+   * 所以这里改成只读常量 —— 保留是因为将来「从别处跳到某个题组」
+   * 还需要它。setter 暂时没有调用方，故用下划线前缀标注。
+   */
+  const [openedDeckId] = useState<string | null>(null);
   const [readerSourceId, setReaderSourceId] = useState<string | null>(null);
   const [readerTarget, setReaderTarget] = useState<ReaderTarget | null>(null);
 
@@ -293,7 +298,15 @@ export function App({
         <DecksPage
           decks={decks}
           sourceService={sourceService}
+          knowledge={knowledge}
+          backends={backends}
           initialDeckId={openedDeckId}
+          onGenerated={() => void refreshCounts()}
+          onOpenSources={() => setPage('sources')}
+          onOpenOrganize={(sourceId) => {
+            setOrganizeSourceId(sourceId);
+            setPage('organize');
+          }}
           onOpenSource={(sourceId) => {
             setReaderSourceId(sourceId);
             setReaderTarget(null);
@@ -302,30 +315,6 @@ export function App({
           onChanged={() => {
             void refreshCounts();
             void refreshShellState();
-          }}
-        />
-      ) : page === 'generate' ? (
-        <GeneratePage
-          sourceService={sourceService}
-          knowledge={knowledge}
-          decks={decks}
-          backends={backends}
-          onGenerated={() => void refreshCounts()}
-          onOpenSources={() => setPage('sources')}
-          onOpenOrganize={(sourceId) => {
-            setOrganizeSourceId(sourceId);
-            setPage('organize');
-          }}
-          onOpenDecks={(deckId) => {
-            /*
-             * 生成完直接跳到「我的题组」并展开这一组。
-             *
-             * 为什么不让用户自己去侧栏找：原来那句「可以去复习里做了」
-             * 是空话 —— 复习页只显示卡片正反面，看不到题单。
-             * 现在出完题就把人带到能看见题的地方。
-             */
-            setOpenedDeckId(deckId ?? null);
-            setPage('decks');
           }}
         />
       ) : page === 'stats' ? (

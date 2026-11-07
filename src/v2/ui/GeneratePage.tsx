@@ -18,7 +18,7 @@ import { IconDoc, IconGenerate, IconUpload } from './icons.tsx';
  *
  * ## 流程
  *
- * 选资料 → 选题型/数量 → 生成前显示预估 token → 生成 → 进草稿
+ * 选资料 → 选题型/数量 → 生成前显示预估 token → 生成 → 进待审核
  *
  * 预估 token 是 StudyHub 明确做了的事（「出之前可以看到大概要花多少」），
  * 用户在点下去之前应该知道会花多少钱。
@@ -35,6 +35,13 @@ export interface GeneratePageProps {
   onOpenOrganize: (sourceId: string | null) => void;
   /** 出完题跳到「我的题组」并展开这一组 —— 否则用户找不到刚生成的题 */
   onOpenDecks: (deckId?: string | null) => void;
+  /**
+   * 返回题组列表。
+   *
+   * 这个组件现在**嵌在「我的题组」页里**（用户要求把「创建题组」
+   * 和「我的题组」整合成一页），所以需要一条回去的路。
+   */
+  onBack?: () => void;
 }
 
 type Mode = 'from-source' | 'import-json' | 'case' | 'capture';
@@ -75,6 +82,7 @@ export function GeneratePage({
   onOpenSources,
   onOpenOrganize,
   onOpenDecks,
+  onBack,
 }: GeneratePageProps) {
   const [mode, setMode] = useState<Mode>('from-source');
   const [sources, setSources] = useState<Source[] | null>(null);
@@ -240,6 +248,15 @@ export function GeneratePage({
           <button type="button" className="btn-text" onClick={() => setMode('import-json')}>
             已有题目？导入 JSON 题组
           </button>
+          {/*
+           * 这个组件现在嵌在「我的题组」页里，空态也必须有一条回去的路 ——
+           * 否则用户点进「新建题组」发现没资料，就困在这一屏了。
+           */}
+          {onBack ? (
+            <button type="button" className="btn-text" onClick={onBack}>
+              返回题组列表
+            </button>
+          ) : null}
         </div>
       </div>
     );
@@ -248,8 +265,15 @@ export function GeneratePage({
   return (
     <div className="gen-page">
       <div className="gen-head">
-        <h1 className="gen-title">出一组新题</h1>
-        <p className="gen-sub">用你的资料让 AI 出题；已经有现成的题目，也可以直接导入。</p>
+        <div>
+          <h2 className="gen-title">出一组新题</h2>
+          <p className="gen-sub">用你的资料让 AI 出题；已经有现成的题目，也可以直接导入。</p>
+        </div>
+        {onBack ? (
+          <button type="button" className="btn-ghost" onClick={onBack}>
+            返回题组列表
+          </button>
+        ) : null}
       </div>
 
       {/* 四种方式 */}
@@ -357,12 +381,12 @@ export function GeneratePage({
                 ✓ 已生成「{done.deck}」，共 {done.questions} 道题。
               </p>
               {/*
-               * 说清「草稿 vs 已发布」——生成出来是草稿，要先检查再发布才进复习。
-               * 原来只写「可以去复习里做了」，而当时题组是草稿、界面又没有题组列表，
+               * 说清「待审核 vs 已发布」——生成出来是待审核，要先检查再发布才进复习。
+               * 原来只写「可以去复习里做了」，而当时题组是待审核、界面又没有题组列表，
                * 用户照着做只会扑空。
                */}
               <p className="gen-done__hint">
-                它现在是<strong>草稿</strong>，先检查一遍题，发布之后才会进入复习。
+                它现在是<strong>待审核</strong>，先检查一遍题，发布之后才会进入复习。
               </p>
               <button
                 type="button"

@@ -19,7 +19,7 @@ import { IconChevron, IconDot, IconMail } from './icons.tsx';
  *
  * 先前我做的是「扁平 7 项 + unicode 图标」，与真实界面差得远。
  * 现在改成截图里的结构：
- *  - 顶部单行「回到题目」+ 进度 chip
+ *  - 顶部单行「开始学习」+ 进度 chip
  *  - 三组可折叠：每天 / 阶段性 / 课程准备与管理
  *  - 底部：语言切换（中文/EN）+ 功能导览 + 设置
  *  - 顶栏右侧：「工作库: openleaner」+「● 已连接」+ 信封图标
@@ -29,7 +29,7 @@ export interface AppShellProps {
   current: PageId;
   onNavigate: (id: PageId) => void;
   counts?: Partial<Record<PageId, number>>;
-  /** 复习进度，显示在「回到题目」后面，如 3/12 */
+  /** 复习进度，显示在「开始学习」后面，如 3/12 */
   reviewProgress?: { done: number; total: number } | null;
   /** 模型连接状态 */
   connected?: boolean;
@@ -101,7 +101,7 @@ export function AppShell({
           </div>
         </div>
 
-        {/* 回到题目（顶部单行） */}
+        {/* 开始学习（顶部单行） */}
         <button
           type="button"
           className={`nav-item nav-item--back${current === 'review' ? ' nav-item--on' : ''}`}
@@ -111,7 +111,7 @@ export function AppShell({
           <span className="nav-item__icon" aria-hidden="true">
             <BackGlyph />
           </span>
-          <span className="nav-item__label">回到题目</span>
+          <span className="nav-item__label">开始学习</span>
           {reviewProgress ? (
             <span className="nav-item__chip">
               {reviewProgress.done}/{reviewProgress.total}
@@ -281,7 +281,7 @@ function BrandGlyph() {
   );
 }
 
-/** 返回箭头（回到题目） */
+/** 返回箭头（开始学习） */
 function BackGlyph() {
   return (
     <svg width={18} height={18} viewBox="0 0 24 24" fill="none" aria-hidden="true">
