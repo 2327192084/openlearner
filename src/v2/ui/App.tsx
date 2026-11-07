@@ -7,6 +7,7 @@ import { ReviewPage } from './ReviewPage.tsx';
 import { SourcesPage } from './SourcesPage.tsx';
 import { DecksPage } from './DecksPage.tsx';
 import { StudyPage } from './StudyPage.tsx';
+import { KnowledgePage } from './KnowledgePage.tsx';
 import { StatsPage } from './StatsPage.tsx';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { DeckService } from '@/core/questions/service.ts';
@@ -32,6 +33,7 @@ import './organize-page.css';
 import './reader-page.css';
 import './decks-page.css';
 import './study-page.css';
+import './knowledge-page.css';
 
 /**
  * v2 应用入口。
@@ -241,11 +243,27 @@ export function App({
       libraryName={libName}
       reviewProgress={null}
     >
-      {page === 'study' ? (
+      {page === 'knowledge' ? (
+        <KnowledgePage
+          knowledge={knowledge}
+          sourceService={sourceService}
+          onOpenAnchor={(t) => {
+            setReaderSourceId(t.sourceId);
+            setReaderTarget(t);
+            setPage('reader');
+          }}
+          onOpenOrganize={(sourceId) => {
+            setOrganizeSourceId(sourceId);
+            setPage('organize');
+          }}
+        />
+      ) : page === 'study' ? (
         <StudyPage
           service={reviewService}
+          cardPool={cardPool}
           dueCount={queueTotal || null}
           onStartQuiz={() => void navigate('review')}
+          onOpenKnowledge={() => setPage('knowledge')}
           onOpenDecks={() => setPage('decks')}
         />
       ) : page === 'review' ? (
@@ -360,6 +378,7 @@ function Placeholder({ page, onBack }: { page: PageId; onBack: () => void }) {
     today: '学习库',
     review: '做题',
     study: '开始学习',
+    knowledge: '知识库',
     sources: '资料',
     generate: '创建题组',
     decks: '我的题组',

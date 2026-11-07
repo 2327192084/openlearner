@@ -1,0 +1,276 @@
+/**
+ * 知识库：按文件 → 章节 → 知识点三层展示。
+ *
+ * 文件头用可折叠按钮，展开后按章节分组。配色只用 tokens。
+ */
+
+.kb-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 82ch;
+}
+
+.kb-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.kb-title {
+  margin: 0;
+  font-size: var(--fs-2xl);
+  font-weight: 550;
+  line-height: var(--lh-tight);
+  color: var(--text);
+}
+
+.kb-lead {
+  margin: 6px 0 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+}
+
+.kb-hint {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+}
+
+.kb-error {
+  padding: var(--space-3);
+  border-left: 2px solid var(--bad);
+  background: var(--bg-sunken);
+  border-radius: var(--radius-sm);
+  color: var(--bad);
+  font-size: var(--fs-sm);
+}
+
+/* ---------- 搜索 ---------- */
+
+.kb-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.kb-search__input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 11px;
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  color: var(--text);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.kb-search__input::placeholder {
+  color: var(--text-faint);
+}
+
+.kb-search__input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---------- 空态 ---------- */
+
+.kb-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  background: var(--bg-surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-card);
+  color: var(--text-faint);
+}
+
+.kb-empty__title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 550;
+  color: var(--text);
+}
+
+/* ---------- 文件分组 ---------- */
+
+.kb-files {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.kb-file {
+  background: var(--bg-surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+
+.kb-file__head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  font-family: inherit;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.kb-file__head:hover {
+  background: var(--bg-hover);
+}
+
+.kb-file__head:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.kb-file__name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-md);
+  font-weight: 550;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-file__meta {
+  flex: 0 0 auto;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+
+.kb-file__chevron {
+  flex: 0 0 auto;
+  font-size: var(--fs-sm);
+  color: var(--text-faint);
+}
+
+.kb-file__body {
+  padding: 0 var(--space-4) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.kb-file__hint {
+  margin: 0;
+  padding: var(--space-2);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+  background: var(--bg-sunken);
+  border-radius: var(--radius-xs);
+}
+
+.kb-file__relink {
+  margin: 0 4px;
+  font-size: var(--fs-xs);
+  color: var(--accent-text);
+  text-decoration: underline;
+}
+
+/* ---------- 章节 ---------- */
+
+.kb-chapter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.kb-chapter__name {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  color: var(--text-dim);
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+/* ---------- 知识点 ---------- */
+
+.kb-points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.kb-point {
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--line);
+}
+
+.kb-point__statement {
+  margin: 0 0 4px;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.kb-point__quote {
+  margin: 0 0 6px;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.kb-point__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-xs);
+}
+
+.kb-point__level {
+  padding: 1px 7px;
+  color: var(--text-faint);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+}
+
+.kb-point__link {
+  padding: 0;
+  font-size: var(--fs-xs);
+  font-family: inherit;
+  color: var(--accent-text);
+  text-decoration: underline;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.kb-point__nolink {
+  color: var(--warn);
+}
+
+/* 窄屏：文件头允许换行 */
+@media (max-width: 560px) {
+  .kb-file__head {
+    flex-wrap: wrap;
+  }
+
+  .kb-file__name {
+    flex-basis: 100%;
+    white-space: normal;
+  }
+}

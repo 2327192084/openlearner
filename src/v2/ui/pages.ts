@@ -37,6 +37,7 @@ export type PageId =
   | 'today'
   | 'review'
   | 'study'
+  | 'knowledge'
   | 'sources'
   | 'generate'
   | 'decks'
@@ -107,6 +108,22 @@ export const PAGES: PageDef[] = [
     purpose: '选好资料出题；出之前能看到大概要花多少',
     group: 'daily',
     show: false,
+  },
+  /**
+   * 知识库 —— 按来源文件归类全部知识点。
+   *
+   * 用户要求：「做个知识库界面，将不同文件产生的知识点放进去，
+   * 然后把文件对应的知识点归属到那个文件名下」。
+   */
+  {
+    id: 'knowledge',
+    label: '知识库',
+    title: '知识库',
+    icon: IconBook,
+    purpose: '按资料文件归类看所有整理出来的知识点',
+    group: 'daily',
+    show: true,
+    ready: true,
   },
   {
     /*

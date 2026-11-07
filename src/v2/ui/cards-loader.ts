@@ -57,7 +57,29 @@ function questionToCard(q: Question, sourceId: string | null): Card {
 }
 
 /** 建一个从存储读取卡片的加载器 */
-export function createCardLoader(storage: StorageAdapter): CardLoader {
+/**
+ * 卡片池的取法。
+ *
+ * ## 为什么要分开（2026-11-07 用户实测暴露）
+ *
+ * 用户点了「开始做题」，界面说「今天有 95 张卡片可以做」——
+ * 但那 95 张里**大部分是知识点**，不是题。
+ *
+ * 根因：卡片池原来把知识点也算进去（为了让「复习」也能推送只读知识点）。
+ * 但「开始做题」这个入口按名思义只该出**题**。把知识点混进来有两个问题：
+ *  1. 数字骗人：用户以为有 95 道题要做，其实题没那么多；
+ *  2. 做题体验被打断：做两道题插一条只读知识点，节奏全乱。
+ *
+ * 所以分两个池：
+ *  - `'questions'`：只含题（做题入口用这个）
+ *  - `'all'`：题 + 知识点（学习知识 / 统计用这个）
+ */
+export type CardPoolMode = 'questions' | 'all';
+
+export function createCardLoader(
+  storage: StorageAdapter,
+  mode: CardPoolMode = 'questions',
+): CardLoader {
   return async () => {
     const [questions, decks, points] = await Promise.all([
       storage.getAll('questions'),
@@ -96,13 +118,21 @@ export function createCardLoader(storage: StorageAdapter): CardLoader {
         .filter((s): s is string => Boolean(s)),
     );
 
-    const cards: Card[] = [
-      ...usableQuestions.map((q) => questionToCard(q, deckSource.get(q.deckId) ?? null)),
-      ...points
-        .filter((p) => !sourcesWithQuestions.has(p.sourceId ?? ''))
-        .map(pointToCard),
-    ];
+    const questionCards = usableQuestions.map((q) =>
+      questionToCard(q, deckSource.get(q.deckId) ?? null),
+    );
 
-    return cards;
+    // 只要题的入口（开始做题）到此为止 —— 不要把知识点混进去
+    if (mode === 'questions') return questionCards;
+
+    /*
+     * 'all' 模式才带上知识点：
+     * 有题的资料不再单独出「只读」知识点卡（同一段内容会连着出现好几次），
+     * 只整理过知识点、还没出题的资料才把知识点当卡片读。
+     */
+    return [
+      ...questionCards,
+      ...points.filter((p) => !sourcesWithQuestions.has(p.sourceId ?? '')).map(pointToCard),
+    ];
   };
 }

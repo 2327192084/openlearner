@@ -70,7 +70,7 @@ function Bootstrap() {
 
         // ---- v2 数据 ----
         const review = new ReviewService(storage);
-        const [questions, points, srcs] = await Promise.all([
+        const [questions, , srcs] = await Promise.all([
           storage.getAll('questions'),
           storage.getAll('knowledgePoints'),
           storage.getAll('sources'),
@@ -83,11 +83,21 @@ function Bootstrap() {
 
         setV2Data({
           review,
-          cardPool: [...questions.map((q) => q.id), ...points.map((p) => p.id)],
+          /*
+           * 卡片池只放**题目**，不放知识点。
+           *
+           * 原来这里是 `[...questions, ...points]`，于是顶栏和「开始做题」
+           * 显示「今天有 95 张卡片可以做」，而其中大部分是只读知识点 ——
+           * 用户以为有 95 道题，实际做题时被知识点打断节奏。
+           *
+           * 知识点仍然会被「学习知识」和统计用到，但那是另一条路径
+           * （createCardLoader 的 'all' 模式），不从这里走。
+           */
+          cardPool: questions.map((q) => q.id),
           hasSources: srcs.length > 0,
           connected: ready.length > 0,
           modelName: first ? `${first.label} · ${first.model || '未填模型'}` : null,
-          loadCards: createCardLoader(storage),
+          loadCards: createCardLoader(storage, 'questions'),
           sourceService: sources,
           knowledge,
           decks,

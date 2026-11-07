@@ -187,7 +187,7 @@ export function buildUserPrompt(options: PromptBuildOptions): string {
     sourceTitle,
     segments,
     maxCharsPerSegment = 4000,
-    maxPointsPerSegment = 4,
+    maxPointsPerSegment = 3,
     language = 'zh',
   } = options;
 
@@ -209,6 +209,17 @@ export function buildUserPrompt(options: PromptBuildOptions): string {
     '',
     '请从中整理出知识点。要求：',
     `- 每段最多整理 ${maxPointsPerSegment} 条，宁少勿滥；没有值得考查内容的段可以跳过。`,
+    /*
+     * 以下是 2026-11-07 根据用户反馈新增的两条。
+     *
+     * 用户原话：「单次产生的太多了，有些可以整合在一起的知识点也拆分成好几个」。
+     * 根因是原来的提示词只说「宁少勿滥」，没告诉模型**什么叫一条**，
+     * 于是它把「线性表」「线性表的顺序存储」「线性表的链式存储」拆成三条，
+     * 而这三条本该是一条「线性表的存储方式」。
+     */
+    '- **一条知识点应当是一个可以独立提问的概念**，不是一句话一个条目。',
+    '- **同一主题下的并列内容合并成一条**（例如「顺序存储与链式存储的区别」写一条，不要拆成两条）。',
+    '- 如果两条知识点说的是同一件事的不同侧面，合并它们；只有确实互相独立才分开。',
     '- 每条知识点的 quotes 必须逐字复制其中某一段的连续原文（15～120 字）。',
     '- 不要输出页码或位置信息。',
     '',
@@ -227,6 +238,9 @@ export function buildUserPrompt(options: PromptBuildOptions): string {
     '',
     'Extract knowledge points from it:',
     `- At most ${maxPointsPerSegment} points per segment; fewer is better than padding.`,
+    '- **One point = one concept that can be asked about on its own**, not one sentence per point.',
+    '- **Merge parallel items under the same topic** (e.g. sequential vs linked storage belongs in ONE point).',
+    '- If two points describe different sides of the same thing, merge them. Split only when genuinely independent.',
     '- Each quote MUST be copied verbatim from one segment (15-120 chars).',
     '- Do NOT output page numbers or positions.',
     '',

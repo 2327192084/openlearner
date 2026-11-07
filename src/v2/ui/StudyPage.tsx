@@ -26,8 +26,17 @@ import { IconBook, IconGenerate, IconStats, IconWrongbook } from './icons.tsx';
 
 export interface StudyPageProps {
   service: ReviewService;
+  /**
+   * 题库里所有卡的 id（用于统计「今天有多少可以做」）。
+   *
+   * 不传就会算出 0 —— `todayOverview` 只统计池子里的卡，
+   * 传空数组等于告诉它「一张卡都没有」。
+   */
+  cardPool?: readonly string[];
   /** 去做题（复习队列） */
   onStartQuiz: () => void;
+  /** 去知识库看知识点 */
+  onOpenKnowledge: () => void;
   /** 去我的题组（挑题组做） */
   onOpenDecks: () => void;
   /** 当前题库里有到期卡片吗 —— 用来决定「开始做题」旁边的提示 */
@@ -51,7 +60,7 @@ const OPTIONS: Option[] = [
     id: 'knowledge',
     title: '学习知识',
     desc: '把整理好的知识点一条条过一遍，看原文出处',
-    ready: false,
+    ready: true,
     icon: IconBook,
   },
   {
@@ -77,10 +86,21 @@ const OPTIONS: Option[] = [
   },
 ];
 
-export function StudyPage({ service, onStartQuiz, onOpenDecks, dueCount }: StudyPageProps) {
+export function StudyPage({
+  service,
+  cardPool,
+  onStartQuiz,
+  onOpenKnowledge,
+  onOpenDecks,
+  dueCount,
+}: StudyPageProps) {
   const [overview, setOverview] = useState<{
+    /** 到期且有复习记录的卡 */
     due: number;
-    learnable: number;
+    /** 还没做过的新卡 */
+    fresh: number;
+    /** 池子里一共多少张 */
+    total: number;
     doneToday: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -88,13 +108,22 @@ export function StudyPage({ service, onStartQuiz, onOpenDecks, dueCount }: Study
 
   const load = useCallback(async () => {
     try {
-      const o = await service.todayOverview([]);
-      setOverview({ due: o.dueCount, learnable: o.freshCount, doneToday: o.doneToday });
+      /*
+       * 必须传真实卡片池。传 [] 时 todayOverview 一个卡都不会数，
+       * 于是「今天有 N 张可以做」永远是 0 —— 而题库里明明有题。
+       */
+      const o = await service.todayOverview(cardPool ?? []);
+      setOverview({
+        due: o.dueCount,
+        fresh: o.freshCount,
+        total: o.totalCards,
+        doneToday: o.doneToday,
+      });
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : '读不出今天的学习情况');
     }
-  }, [service]);
+  }, [service, cardPool]);
 
   useEffect(() => {
     void load();
@@ -105,6 +134,10 @@ export function StudyPage({ service, onStartQuiz, onOpenDecks, dueCount }: Study
       onStartQuiz();
       return;
     }
+    if (opt.id === 'knowledge') {
+      onOpenKnowledge();
+      return;
+    }
     /*
      * 还没做的三样：**不跳转**，就地说明。
      * 跳到一个占位页再让用户退回来是更差的选择 —— 那等于骗了他一次。
@@ -112,7 +145,15 @@ export function StudyPage({ service, onStartQuiz, onOpenDecks, dueCount }: Study
     setNotice(`「${opt.title}」还没做。现在能用的是「开始做题」和「我的题组」。`);
   }
 
-  const due = dueCount ?? overview?.due ?? null;
+  /*
+   * 可以做 = 到期的 + 还没做过的新卡。
+   *
+   * dueCount 只统计**已有复习记录且到期**的卡；
+   * 从来没做过的新卡算在 freshCount 里。只看 dueCount 会让
+   * 「题库里有 2 道新题」被显示成「今天没有卡片」。
+   */
+  const available =
+    overview !== null ? overview.due + overview.fresh : dueCount ?? null;
 
   return (
     <div className="study-page">
@@ -152,9 +193,11 @@ export function StudyPage({ service, onStartQuiz, onOpenDecks, dueCount }: Study
                 </span>
                 <span className="study-option__desc">{opt.desc}</span>
                 {/* 只有做题这一项带实时数字 —— 用户最关心的就是这个 */}
-                {isQuiz && due !== null ? (
+                {isQuiz && available !== null ? (
                   <span className="study-option__meta">
-                    {due > 0 ? `今天有 ${due} 张卡片可以做` : '今天暂时没有到期卡片，也可以自己挑题组做'}
+                    {available > 0
+                      ? `题库里有 ${available} 道题可以做`
+                      : '题库里还没有可做的题，先到「我的题组」发布一个题组'}
                   </span>
                 ) : null}
               </span>
