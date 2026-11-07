@@ -76,8 +76,16 @@ interface WrongRow {
   sourceTitle: string | null;
 }
 
-/** 归类维度 */
-type GroupBy = 'chapter' | 'kind';
+/**
+ * 归类维度。
+ *
+ * `deck` 默认 —— 用户 2026-11-07 反馈：按知识点分组仍然臃肿，
+ * 根因是「知识点太多太散」，一个题组能炸出十几个章节分组。
+ * 题组是出题的自然单位，数量天然少（用户库里 3 个），一屏就能看完。
+ * 章节/知识点保留为可切换项 —— 用户说「后续再思考能不能做」，
+ * 所以不做删减，只把默认换掉。
+ */
+type GroupBy = 'deck' | 'chapter' | 'kind';
 /** 组内排序 */
 type SortKey = 'wrongCount' | 'lastWrong' | 'wrongRate';
 
@@ -108,7 +116,7 @@ export function WrongBookPage({
 }: WrongBookPageProps) {
   const [rows, setRows] = useState<WrongRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [groupBy, setGroupBy] = useState<GroupBy>('chapter');
+  const [groupBy, setGroupBy] = useState<GroupBy>('deck');
   const [sort, setSort] = useState<SortKey>('wrongCount');
   /** 展开的分组 key 集合（默认空 = 全部收起） */
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -213,7 +221,11 @@ export function WrongBookPage({
        * 用户点开发现跟标题说的不是一回事。章节名只在**同一份资料内**唯一。
        */
       const key =
-        groupBy === 'chapter' ? `${r.card.sourceId}\u0000${r.chapter}` : kindLabel(r.card);
+        groupBy === 'deck'
+          ? r.card.deckId
+          : groupBy === 'chapter'
+            ? `${r.card.sourceId}::${r.chapter}`
+            : kindLabel(r.card);
       const list = byKey.get(key) ?? [];
       list.push(r);
       byKey.set(key, list);
@@ -226,15 +238,26 @@ export function WrongBookPage({
       else if (sort === 'wrongRate') sorted.sort((a, b) => b.wrongRate - a.wrongRate);
       else sorted.sort((a, b) => (a.lastWrongDay < b.lastWrongDay ? 1 : -1));
 
+      /*
+       * 标题：
+       *  - 按题组 → 题组名（没有就退回 id 末段，绝不编造）
+       *  - 按章节 → 章节名，资料名放 note
+       *  - 按题型 → 题型名
+       * 标题要能被扫描，所以章节名和资料名分开两栏，
+       * 「第 9 页 信号与系统（第二版）第1章…」混在一起会让每行都长得一样。
+       */
+      const title =
+        groupBy === 'deck'
+          ? (sorted[0]!.deckTitle ?? '未命名题组')
+          : groupBy === 'chapter'
+            ? sorted[0]!.chapter
+            : key;
+      const note = groupBy === 'deck' ? null : groupBy === 'chapter' ? sourceNote(sorted) : null;
+
       out.push({
         key,
-        /*
-         * 标题只放章节名/题型名；资料名放 note。
-         * 两者分开是因为标题要能被扫描，而「第 9 页 信号与系统（第二版）第1章…」
-         * 混在一起会让每行都长得一样，扫不出区别。
-         */
-        title: groupBy === 'chapter' ? sorted[0]!.chapter : key,
-        note: groupBy === 'chapter' ? sourceNote(sorted) : null,
+        title,
+        note,
         rows: sorted,
         worst: Math.max(...sorted.map((r) => r.wrongCount)),
       });
@@ -321,7 +344,11 @@ export function WrongBookPage({
             <span className="wbk-stat">
               <span className="wbk-stat__n">{groups.length}</span>
               <span className="wbk-stat__label">
-                {groupBy === 'chapter' ? '个章节/知识点' : '种题型'}
+                {groupBy === 'deck'
+                  ? '个题组'
+                  : groupBy === 'chapter'
+                    ? '个章节/知识点'
+                    : '种题型'}
               </span>
             </span>
             {repeatWrong > 0 ? (
@@ -335,6 +362,17 @@ export function WrongBookPage({
           {/* ---- 归类维度 + 排序 ---- */}
           <div className="wbk-toolbar">
             <div className="wbk-seg" role="group" aria-label="归类方式">
+              <button
+                type="button"
+                className={`wbk-seg__btn${groupBy === 'deck' ? ' wbk-seg__btn--on' : ''}`}
+                aria-pressed={groupBy === 'deck'}
+                onClick={() => {
+                  setGroupBy('deck');
+                  setOpen(new Set());
+                }}
+              >
+                按题组
+              </button>
               <button
                 type="button"
                 className={`wbk-seg__btn${groupBy === 'chapter' ? ' wbk-seg__btn--on' : ''}`}
@@ -405,7 +443,10 @@ export function WrongBookPage({
                       className={`wbk-caret${isOpen ? ' wbk-caret--open' : ''}`}
                       aria-hidden="true"
                     />
-                    <span className="wbk-group__title">{g.title}</span>
+                    {/* title 属性：题组名太长被省略号截断时，悬停能看全 */}
+                    <span className="wbk-group__title" title={g.title}>
+                      {g.title}
+                    </span>
                     {g.note ? <span className="wbk-group__note">{g.note}</span> : null}
                     <span className="wbk-group__count">
                       {g.rows.length} 道{g.worst > 1 ? ` · 最多错 ${g.worst} 次` : ''}

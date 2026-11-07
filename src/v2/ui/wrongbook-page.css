@@ -390,9 +390,18 @@
     transform: rotate(90deg);
   }
 
+  /*
+   * 组标题。
+   *
+   * 按章分组时标题是「第 9 页」这种短串，右边还要放资料名；
+   * 按题组分组时标题就是题组名（可能很长），此时不需要和谁并排。
+   * 这里统一给「可伸缩 + 省略号」，由 .wbk-group__note 是否存在决定观感：
+   * 没有 note 时标题会占满剩余宽度，看到的部分更多。
+   */
   .wbk-group__title {
-    flex: 0 0 auto;
-    max-width: 46%;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 70%;
     font-size: var(--fs-sm);
     font-weight: 600;
     color: var(--text);

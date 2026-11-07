@@ -202,6 +202,109 @@
     padding: 1px 5px;
   }
 
+
+  /* ---------- 最近在练的题组 ---------- */
+  .dash-decks {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  /* 整行是按钮：可点，有 hover 反馈 */
+  /*
+   * 整行是按钮。
+   *
+   * 加一层淡背景 + 圆角，让它**看起来就是能点的条目** ——
+   * 只靠 hover 变色不够：截图复核时这一行在默认状态下
+   * 和旁边的静态文字没区别，用户不知道那是入口。
+   * 项目踩过「禁用按钮看起来能点」，反向也要避免「能点的看起来不能点」。
+   */
+  .dash-deck {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    width: 100%;
+    padding: 10px var(--space-3);
+    background: color-mix(in srgb, var(--text) 4%, transparent);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm, 6px);
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+    transition: background 0.12s, border-color 0.12s;
+  }
+
+  .dash-deck:hover {
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+    border-color: color-mix(in srgb, var(--text) 14%, transparent);
+  }
+
+  .dash-deck__title {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: var(--fs-sm);
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 细进度条：只表示「碰过几道」，不叫进度百分比 */
+  .dash-deck__bar {
+    flex: 0 0 auto;
+    width: 64px;
+    height: 3px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--text) 12%, transparent);
+    overflow: hidden;
+  }
+
+  .dash-deck__bar > span {
+    display: block;
+    height: 100%;
+    border-radius: 2px;
+    background: var(--warn);
+  }
+
+  .dash-deck__meta {
+    flex: 0 0 auto;
+    font-size: var(--fs-xs, 11px);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .dash-deck__go {
+    flex: 0 0 auto;
+    font-size: var(--fs-xs, 11px);
+    color: var(--text-faint);
+    transition: transform 0.12s, color 0.12s;
+  }
+
+  .dash-deck:hover .dash-deck__go {
+    color: var(--ok);
+    transform: translateX(2px);
+  }
+
+  /* 错题行现在也是按钮，去掉按钮的默认外观但保留可点感 */
+  .dash-recent__row {
+    width: 100%;
+    background: none;
+    border: 0;
+    border-bottom: 1px solid var(--line-soft);
+    border-radius: 0;
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+  }
+
+  .dash-recent__row:hover .dash-recent__prompt {
+    color: var(--ok);
+  }
+
   /* ---------- 右侧：错题入口（纸张卡下方的一条） ---------- */
   .paper-side {
     display: flex;
@@ -262,4 +365,13 @@
 
 .paper-side .paper-side__label {
   color: var(--text-dim);
+}
+
+/* 题组行与错题行都是 <button>，颜色必须写在层外 */
+.dash-deck {
+  color: inherit;
+}
+
+.dash-deck:hover .dash-deck__title {
+  color: var(--ok);
 }

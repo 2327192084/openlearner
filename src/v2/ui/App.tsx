@@ -165,11 +165,13 @@ export function App({
   /**
    * 要自动展开的题组 id。
    *
-   * 出完题时的展开现在由 DecksPage 内部处理（表单嵌在那一页里），
-   * 所以这里改成只读常量 —— 保留是因为将来「从别处跳到某个题组」
-   * 还需要它。setter 暂时没有调用方，故用下划线前缀标注。
+   * 出完题时的展开现在由 DecksPage 内部处理（表单嵌在那一页里）。
+   *
+   * 2026-11-07 起有了真正的调用方：首页「最近在练的题组」点某一行，
+   * 要跳到「我的题组」并展开那一个 —— 否则用户点进去看到一列题组，
+   * 还得自己再找一遍「我刚才点的是哪个」。
    */
-  const [openedDeckId] = useState<string | null>(null);
+  const [openedDeckId, setOpenedDeckId] = useState<string | null>(null);
   const [readerSourceId, setReaderSourceId] = useState<string | null>(null);
   const [readerTarget, setReaderTarget] = useState<ReaderTarget | null>(null);
 
@@ -550,6 +552,15 @@ export function App({
           onOpenSources={() => setPage('sources')}
           onStartReview={() => setPage('review')}
           onOpenDecks={() => setPage('decks')}
+          onOpenDeck={(deckId) => {
+            /*
+             * 首页点「最近在练的题组」某一行：跳过去并展开那一个。
+             * 必须先设 openedDeckId 再切页 —— DecksPage 的展开是由
+             * initialDeckId 驱动的 effect，顺序反了它拿到的还是旧值。
+             */
+            setOpenedDeckId(deckId);
+            setPage('decks');
+          }}
           onOpenMap={() => setPage('flow')}
           onOpenWrongBook={() => setPage('wrongbook')}
           loadCards={loadCards}

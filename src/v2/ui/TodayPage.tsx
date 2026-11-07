@@ -24,10 +24,11 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ReviewService, ReviewLog, TodayOverview } from '@/v2/core/review-service.ts';
+import type { ReviewService, TodayOverview } from '@/v2/core/review-service.ts';
 import { masteryLabel } from '@/v2/core/srs.ts';
 import { mapLabel, weakestChapter, type StudyMap } from '@/v2/core/study-map.ts';
 import type { Card } from '@/v2/core/cards.ts';
+import { recentDecksOf, type RecentDeck } from './recent-decks.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { SourceService } from '@/core/sources.ts';
@@ -45,6 +46,8 @@ export interface TodayPageProps {
   modelName?: string | null;
   /** 打开「我的题组」 */
   onOpenDecks: () => void;
+  /** 打开「我的题组」并展开指定题组 */
+  onOpenDeck: (deckId: string) => void;
   /** 去「资料」页 */
   onOpenSources: () => void;
   /** 开始今日题组 */
@@ -60,12 +63,11 @@ export interface TodayPageProps {
   sourceService: SourceService;
 }
 
-/** 最近在练的一题 */
-interface RecentItem {
+/** 错题预览一项 */
+interface WrongPreview {
   card: Card;
-  day: string;
-  /** 这次做错了？ */
-  wrong: boolean;
+  wrongCount: number;
+  lastWrongDay: string;
 }
 
 export function TodayPage(props: TodayPageProps) {
@@ -76,6 +78,7 @@ export function TodayPage(props: TodayPageProps) {
     connected,
     modelName,
     onOpenDecks,
+    onOpenDeck,
     onOpenSources,
     onStartReview,
     onOpenMap,
@@ -88,7 +91,8 @@ export function TodayPage(props: TodayPageProps) {
 
   const [overview, setOverview] = useState<TodayOverview | null>(null);
   const [snapshot, setSnapshot] = useState<StudySnapshot | null>(null);
-  const [recent, setRecent] = useState<RecentItem[]>([]);
+  const [recentDecks, setRecentDecks] = useState<RecentDeck[]>([]);
+  const [wrongPreview, setWrongPreview] = useState<WrongPreview[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -100,7 +104,7 @@ export function TodayPage(props: TodayPageProps) {
 
       const titleById = new Map(sources.map((s) => [s.id, s.title]));
 
-      const [snap, logs] = await Promise.all([
+      const [snap, logs, wrongRows, deckList] = await Promise.all([
         buildSnapshot({
           loadCards,
           decks,
@@ -110,10 +114,33 @@ export function TodayPage(props: TodayPageProps) {
           today,
         }),
         service.listLogs(),
+        service.wrongCardsDetailed(),
+        decks.list(),
       ]);
 
       setSnapshot(snap);
-      setRecent(recentOf(logs, snap.cardById));
+      /*
+       * 错题数按题组统计：错题明细里每条都有 cardId，
+       * 而卡片上有 deckId —— 一次遍历就够，不必再查库。
+       */
+      const wrongByDeck = new Map<string, number>();
+      for (const w of wrongRows) {
+        const card = snap.cardById.get(w.cardId);
+        if (!card) continue;
+        wrongByDeck.set(card.deckId, (wrongByDeck.get(card.deckId) ?? 0) + 1);
+      }
+      setRecentDecks(recentDecksOf(logs, snap.cardById, deckList, wrongByDeck));
+      setWrongPreview(
+        wrongRows
+          .map((w) => {
+            const card = snap.cardById.get(w.cardId);
+            return card
+              ? { card, wrongCount: w.wrongCount, lastWrongDay: w.lastWrongDay }
+              : null;
+          })
+          .filter((x): x is WrongPreview => x !== null)
+          .slice(0, 5),
+      );
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : '读不出复习进度');
@@ -266,10 +293,15 @@ export function TodayPage(props: TodayPageProps) {
           </section>
         ) : null}
 
-        {/* ==================== 三、最近在练的题 ==================== */}
+        {/* ==================== 三、最近在练的题组（未完成） ==================== */}
         <section className="dash-section">
-          <h2 className="dash-h2">最近在练的题</h2>
-          {recent.length === 0 ? (
+          <h2 className="dash-h2">
+            最近在练的题组
+            <button type="button" className="dash-more" onClick={onOpenDecks}>
+              我的题组 →
+            </button>
+          </h2>
+          {recentDecks.length === 0 ? (
             <p className="dash-empty">
               这个库还没练过题。
               <button type="button" className="btn-text" onClick={onOpenDecks}>
@@ -277,13 +309,60 @@ export function TodayPage(props: TodayPageProps) {
               </button>
             </p>
           ) : (
+            <ul className="dash-decks">
+              {recentDecks.map((d) => (
+                <li key={d.deckId}>
+                  <button
+                    type="button"
+                    className="dash-deck"
+                    /*
+                     * 跳到「我的题组」并展开这一组。
+                     * 不直接开始做题：从首页点一下就在没看题的情况下
+                     * 掉进做题界面，用户会失去「我在哪」的感觉；
+                     * 展开题组能看到题目列表与进度，再决定做不做。
+                     */
+                    onClick={() => onOpenDeck(d.deckId)}
+                  >
+                    <span className="dash-deck__title">{d.title}</span>
+                    <span className="dash-deck__bar" aria-hidden="true">
+                      <span style={{ width: `${Math.round(d.ratio * 100)}%` }} />
+                    </span>
+                    <span className="dash-deck__meta">
+                      练过 {d.done}/{d.total}
+                      {d.wrong > 0 ? ` · ${d.wrong} 道错着` : ''}
+                    </span>
+                    <span className="dash-deck__go" aria-hidden="true">
+                      →
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {/* ==================== 四、错题（可跳转） ==================== */}
+        <section className="dash-section">
+          <h2 className="dash-h2">
+            错题
+            <button type="button" className="dash-more" onClick={onOpenWrongBook}>
+              全部错题 →
+            </button>
+          </h2>
+          {wrongPreview.length === 0 ? (
+            <p className="dash-empty">
+              现在没有错题。做错的题会自动进来，重做答对之后就会从这里消失。
+            </p>
+          ) : (
             <ul className="dash-recent">
-              {recent.map((r) => (
-                <li key={r.card.id} className="dash-recent__row">
-                  <span className={`dash-recent__dot${r.wrong ? ' dash-recent__dot--wrong' : ''}`} aria-hidden="true" />
-                  <span className="dash-recent__prompt">{r.card.prompt}</span>
-                  <span className="dash-recent__day">{r.day}</span>
-                  {r.wrong ? <span className="dash-recent__tag">答错</span> : null}
+              {wrongPreview.map((w) => (
+                <li key={w.card.id}>
+                  <button type="button" className="dash-recent__row" onClick={onOpenWrongBook}>
+                    <span className="dash-recent__dot dash-recent__dot--wrong" aria-hidden="true" />
+                    <span className="dash-recent__prompt">{w.card.prompt}</span>
+                    <span className="dash-recent__day">{w.lastWrongDay}</span>
+                    <span className="dash-recent__tag">错 {w.wrongCount} 次</span>
+                  </button>
                 </li>
               ))}
             </ul>
@@ -398,28 +477,6 @@ function SourceProgress({ map, onOpenMap }: { map: StudyMap; onOpenMap: () => vo
       ) : null}
     </>
   );
-}
-
-/**
- * 「最近在练的题」：最近 5 条复习记录里的题。
- *
- * 为什么按 reviewLogs 而不是 reviewRecords：
- * 后者只有最终状态，不知道「最近」是多久以前。
- * 反转后取前几条即可 —— 日志本身是按写入顺序追加的。
- */
-function recentOf(logs: readonly ReviewLog[], cardById: Map<string, Card>): RecentItem[] {
-  const out: RecentItem[] = [];
-  const seen = new Set<string>();
-  for (let i = logs.length - 1; i >= 0 && out.length < 5; i--) {
-    const log = logs[i]!;
-    if (log.kind !== 'question') continue;
-    if (seen.has(log.cardId)) continue; // 同一题只显示最近一次
-    const card = cardById.get(log.cardId);
-    if (!card) continue; // 题已被删：不显示点不开的空壳
-    seen.add(log.cardId);
-    out.push({ card, day: log.day, wrong: log.grade === 'again' });
-  }
-  return out;
 }
 
 function Stat({ label, value, unit }: { label: string; value: string; unit?: string }) {
