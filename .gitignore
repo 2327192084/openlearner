@@ -31,3 +31,7 @@ coverage/
 # StudyHub 参考仓库（67MB，子代理 clone 用于对照设计系统）
 # 需要时重新 clone：git clone --depth 1 https://github.com/EricWang1358/dsh-web-studyhub
 .tmp/
+
+# Python 缓存（_patch.py 生成的）
+__pycache__/
+*.pyc

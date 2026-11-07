@@ -13,6 +13,16 @@ import {
   isPresetLabel,
 } from '@/core/ai/presets.ts';
 import { downloadBlob } from '@/pages/slides/download.ts';
+import type { CardKind } from '@/v2/core/cards.ts';
+import type { GradingRules, GradingStrictness } from '@/v2/core/grading.ts';
+import {
+  DEFAULT_GRADING_RULES,
+  STRICTNESS_HINT,
+  STRICTNESS_LABEL,
+  isDefaultRules,
+  normalizeGradingRules,
+  strictnessFor,
+} from '@/v2/core/grading.ts';
 import { useServices } from '@/app/services-context.ts';
 import { ConfirmDialog } from './dialog.tsx';
 
@@ -38,10 +48,11 @@ import { ConfirmDialog } from './dialog.tsx';
  * 不做「保存即成功」的假绿灯。
  */
 
-type Category = 'library' | 'model' | 'backup';
+type Category = 'library' | 'grading' | 'model' | 'backup';
 
 const CATEGORIES: { id: Category; label: string; group: string }[] = [
   { id: 'library', label: '学习库', group: '常用' },
+  { id: 'grading', label: '做题评分', group: '常用' },
   { id: 'model', label: '模型与出题', group: '常用' },
   { id: 'backup', label: '备份与恢复', group: '数据' },
 ];
@@ -212,6 +223,8 @@ export function SettingsPage({ onChanged }: SettingsPageProps) {
               onRefresh={refreshAll}
               onFlash={setFlash}
             />
+          ) : cat === 'grading' ? (
+            <GradingPane settings={settings} onRefresh={refreshAll} onFlash={setFlash} />
           ) : cat === 'model' ? (
             <ModelPane
               backends={backends}
@@ -229,6 +242,243 @@ export function SettingsPage({ onChanged }: SettingsPageProps) {
         </div>
       </div>
     </div>
+  );
+}
+
+/* ============================ 做题评分 ============================ */
+
+/**
+ * 计时评分规则设置。
+ *
+ * ## 为什么自定义只给「宽容度」三档，而不是让用户填秒数
+ *
+ * 评分先把「这道题正常要花多久」按题型与题干长度估出来，
+ * 再看实际耗时是它的几倍。所以用户能调的只能是
+ * 「判得松一点还是严一点」—— 填固定秒数会和「按题目长度归一」直接打架：
+ * 用户填的数对某一道题合适，对另一道就不合适了。
+ *
+ * ## 为什么还要按题型单独设（C3）
+ *
+ * 有人读中文长句慢、算选择题快。一刀切会让他两边都不舒服：
+ * 判松了选择题总是「一眼就会」，判严了简答永远「想久了」。
+ * 所以每个题型可以单独覆盖总档，没覆盖的沿用总档。
+ *
+ * ## 界面必须给出「这套标准是什么」
+ *
+ * 只说「宽松/标准/严格」用户没有任何参照。所以下面把
+ * 每一档在实际做题时的判定边界列出来（秒数按一道典型题算），
+ * 让他能对上号。
+ */
+interface GradingPaneProps {
+  settings: AppSettings | null;
+  onRefresh: () => Promise<void>;
+  onFlash: (f: Flash | null) => void;
+}
+
+/** 界面上展示的题型顺序与名字 */
+const GRADING_KINDS: { kind: CardKind; label: string; example: string }[] = [
+  { kind: 'single', label: '单选题', example: '30 字题干 + 4 个短选项' },
+  { kind: 'multiple', label: '多选题', example: '同上，略慢一点' },
+  { kind: 'blank', label: '填空题', example: '30 字题干' },
+  { kind: 'short', label: '简答题', example: '60 字题干，要自己写' },
+  { kind: 'point', label: '知识点', example: '100 字正文，只阅读' },
+];
+
+const STRICTNESS_OPTIONS: GradingStrictness[] = ['lenient', 'standard', 'strict'];
+
+function GradingPane({ settings, onRefresh, onFlash }: GradingPaneProps) {
+  const { library } = useServices();
+  const [busy, setBusy] = useState(false);
+
+  /*
+   * 本地草稿。改完点「保存」才落库 —— 而不是改一下存一下。
+   *
+   * 理由：宽容度和别的设置不同，它直接影响复习间隔。
+   * 用户拖来拖去试探时不该把每一次中间态都写进库。
+   */
+  const rules = useMemo(
+    () => normalizeGradingRules(settings?.gradingRules),
+    [settings?.gradingRules],
+  );
+  const [draft, setDraft] = useState<GradingRules>(rules);
+
+  useEffect(() => {
+    setDraft(rules);
+  }, [rules]);
+
+  const dirty =
+    draft.strictness !== rules.strictness ||
+    JSON.stringify(draft.perKind) !== JSON.stringify(rules.perKind);
+
+  async function save() {
+    setBusy(true);
+    try {
+      await library.saveSettings({ gradingRules: draft });
+      await onRefresh();
+      onFlash({ tone: 'ok', text: '评分标准已保存，下次做题就按这个判。' });
+    } catch (err) {
+      onFlash({
+        tone: 'error',
+        text: '保存失败',
+        hint: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetToDefault() {
+    setBusy(true);
+    try {
+      await library.saveSettings({ gradingRules: DEFAULT_GRADING_RULES });
+      await onRefresh();
+      onFlash({ tone: 'ok', text: '已恢复默认评分标准（标准宽容度）。' });
+    } catch (err) {
+      onFlash({
+        tone: 'error',
+        text: '恢复失败',
+        hint: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** 覆盖某个题型：选「跟随总档」时从 perKind 里删掉这个键 */
+  function setKindOverride(kind: CardKind, value: GradingStrictness | '') {
+    setDraft((d) => {
+      const perKind = { ...d.perKind };
+      if (value === '') delete perKind[kind];
+      else perKind[kind] = value;
+      return { ...d, perKind };
+    });
+  }
+
+  return (
+    <>
+      <div className="set-section">
+        <h2 className="set-section__title">做题评分</h2>
+        <p className="set-section__lead">
+          做题时会自动计时。系统先按题型和题目长度估出「这道题大概要花多久」，
+          再看你实际用了它的几倍，据此决定下次什么时候再考你。
+        </p>
+        <p className="set-hint">
+          答错永远是「需要重来」，不看时间 —— 答错了就是没会。
+          切到别的窗口时计时会暂停，那段时间不算。
+        </p>
+      </div>
+
+      <div className="set-section">
+        <h2 className="set-section__title">判得松还是严</h2>
+        <p className="set-section__lead">
+          这一档决定「多快算一眼就会、多慢算想久了」。它不会改变基准时长的算法，
+          只改变判定的门槛。
+        </p>
+        <div className="grading-tiers">
+          {STRICTNESS_OPTIONS.map((s) => (
+            <button
+              key={s}
+              type="button"
+              className={`grading-tier${draft.strictness === s ? ' grading-tier--on' : ''}`}
+              onClick={() => setDraft((d) => ({ ...d, strictness: s }))}
+              aria-pressed={draft.strictness === s}
+            >
+              <span className="grading-tier__name">{STRICTNESS_LABEL[s]}</span>
+              <span className="grading-tier__hint">{STRICTNESS_HINT[s]}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="set-section">
+        <h2 className="set-section__title">按题型单独设置</h2>
+        <p className="set-section__lead">
+          留空表示跟随上面的总档。常见用法：选择题判严一点（一眼就会才是真会），
+          简答题判松一点（写字本来就花时间）。
+        </p>
+        <div className="grading-grid">
+          {GRADING_KINDS.map(({ kind, label, example }) => (
+            <label key={kind} className="set-field grading-row">
+              <span className="set-label">
+                {label}
+                <span className="grading-row__eg">{example}</span>
+              </span>
+              <select
+                className="set-select"
+                value={draft.perKind[kind] ?? ''}
+                onChange={(e) => setKindOverride(kind, e.target.value as GradingStrictness | '')}
+              >
+                <option value="">跟随总档（{STRICTNESS_LABEL[draft.strictness]}）</option>
+                {STRICTNESS_OPTIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {STRICTNESS_LABEL[s]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="set-section">
+        <h2 className="set-section__title">各题型现在怎么判</h2>
+        <p className="set-section__lead">
+          每题都会按「题型 + 题目长度」各自归一，所以长题慢一点、短题快一点都算正常，
+          不会被同一个秒数卡住。下表只说明每种题型当前落在哪一档。
+        </p>
+        {/*
+          这里原来有一张「典型用时 / 快于这个算一眼就会 / 慢于这个算想久了」
+          的秒数表。现在**去掉了秒数**：
+          按题型和字数估出来的基准时长，用来做归一化可以，
+          但当作「建议时长」摆给用户看是不可靠的（每道题、每个人的差异都很大）。
+          改成只展示「这一档判得松还是严」，不再公布任何秒数。
+        */}
+        <table className="grading-table">
+          <thead>
+            <tr>
+              <th>题型</th>
+              <th>当前判定宽松度</th>
+              <th>是否单独设置</th>
+            </tr>
+          </thead>
+          <tbody>
+            {GRADING_KINDS.map(({ kind, label }) => {
+              const s = strictnessFor(kind, draft);
+              const overridden = draft.perKind[kind] !== undefined;
+              return (
+                <tr key={kind}>
+                  <td>{label}</td>
+                  <td>
+                    <span className={`grading-tag grading-tag--${s}`}>{STRICTNESS_LABEL[s]}</span>
+                  </td>
+                  <td>{overridden ? '是' : `跟随总档（${STRICTNESS_LABEL[draft.strictness]}）`}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <p className="set-hint">
+          「宽松」更容易判成「一眼就会」，「严格」更容易判成「想久了」。
+          判得最差也只到「想了一会儿」，不会因为你花的时间长就当成答错。
+          切到别的窗口时计时暂停，中途离开不会被算进去。
+        </p>
+      </div>
+
+      <div className="set-actions">
+        <button type="button" className="btn-fill" onClick={() => void save()} disabled={busy || !dirty}>
+          {busy ? '保存中…' : '保存评分标准'}
+        </button>
+        <button
+          type="button"
+          className="btn-ghost"
+          onClick={() => void resetToDefault()}
+          disabled={busy || isDefaultRules(rules)}
+        >
+          恢复默认
+        </button>
+        {dirty ? <span className="set-hint">有未保存的改动</span> : null}
+      </div>
+    </>
   );
 }
 
