@@ -1,0 +1,388 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { Deck, Question, Source } from '@/core/model.ts';
+import type { DeckService } from '@/core/questions/service.ts';
+import type { SourceService } from '@/core/sources.ts';
+import { ConfirmDialog } from './dialog.tsx';
+import { IconGenerate } from './icons.tsx';
+
+/**
+ * 「我的题组」—— 列出现有题组，看题、检查草稿、发布。
+ *
+ * ## 为什么这一页必须有
+ *
+ * 用户出完题后看到「已生成 XXX，共 8 道题，可以去复习里做了」，
+ * 然后**找不到那 8 道题**。查下来是：
+ *  - `decks.list()` 这个方法一直存在，但**界面从来没调用过**
+ *  - 侧栏只有「创建题组」，没有「我的题组」
+ *  - 生成出来的题组是 `draft`（草稿），而计划书要求
+ *    「生成 → 人工检查 → 发布」，这一步在界面里完全没做
+ *
+ * 结果就是：题在库里，但用户看不到、检查不了、也不知道它在哪。
+ * 这一页把这条链路补齐。
+ *
+ * ## 三条不能省的规矩
+ *
+ * 1. **草稿与已发布必须分清**。草稿是给用户检查的，不该直接混进复习。
+ * 2. **每道题都要能看到出处**（第几页 / 哪个知识点），否则「检查」无从谈起。
+ * 3. **删除要二次确认**，并说清会连带删掉什么。
+ */
+
+type Tab = 'all' | 'draft' | 'published';
+
+export interface DecksPageProps {
+  decks: DeckService;
+  sourceService: SourceService;
+  /** 生成完题后跳到这一页时，要自动展开那个题组 */
+  initialDeckId?: string | null;
+  /** 去这一份资料的阅读器（看原文对照） */
+  onOpenSource?: (sourceId: string) => void;
+  onChanged: () => void;
+}
+
+export function DecksPage({
+  decks,
+  sourceService,
+  initialDeckId,
+  onOpenSource,
+  onChanged,
+}: DecksPageProps) {
+  const [list, setList] = useState<Deck[] | null>(null);
+  const [sources, setSources] = useState<Source[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>('all');
+
+  /** 当前展开的题组 id */
+  const [openId, setOpenId] = useState<string | null>(initialDeckId ?? null);
+  const [questions, setQuestions] = useState<Record<string, Question[]>>({});
+  const [loadingQuestions, setLoadingQuestions] = useState<string | null>(null);
+
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<Deck | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const [d, s] = await Promise.all([decks.list(), sourceService.list()]);
+      setList(d);
+      setSources(s);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '读不出题组');
+    }
+  }, [decks, sourceService]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // 从出题页跳过来时自动展开并加载那个题组
+  useEffect(() => {
+    if (!initialDeckId) return;
+    setOpenId(initialDeckId);
+    void openDeck(initialDeckId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialDeckId]);
+
+  const titleOf = useCallback(
+    (sourceId: string | null) => sources.find((s) => s.id === sourceId)?.title ?? null,
+    [sources],
+  );
+
+  const filtered = useMemo(() => {
+    const all = list ?? [];
+    if (tab === 'draft') return all.filter((d) => d.status === 'draft');
+    if (tab === 'published') return all.filter((d) => d.status === 'published');
+    return all;
+  }, [list, tab]);
+
+  const counts = useMemo(() => {
+    const all = list ?? [];
+    return {
+      all: all.length,
+      draft: all.filter((d) => d.status === 'draft').length,
+      published: all.filter((d) => d.status === 'published').length,
+    };
+  }, [list]);
+
+  async function openDeck(deckId: string) {
+    setOpenId(deckId);
+    if (questions[deckId]) return; // 已经加载过
+    setLoadingQuestions(deckId);
+    try {
+      const qs = await decks.getQuestions(deckId);
+      setQuestions((prev) => ({ ...prev, [deckId]: qs }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '读不出题目');
+    } finally {
+      setLoadingQuestions(null);
+    }
+  }
+
+  async function publish(deck: Deck) {
+    setBusy(true);
+    setNotice(null);
+    try {
+      /*
+       * 发布前会逐题再校验一遍（计划书 P3 第 2 条）。
+       *
+       * 阻塞问题（blocking）必须修 —— 抛错就原样显示。
+       * 但「提醒」（warning，如某题没写解析）不该挡住发布：
+       * publish() 默认遇到 warning 也会抛错，这里用 allowWarnings 放行，
+       * 并把提醒列出来让用户自己去检查。
+       */
+      let warningNote = '';
+      try {
+        await decks.publish(deck.id);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('条提醒')) {
+          // 只是提醒 → 放行，但如实说出来
+          await decks.publish(deck.id, { allowWarnings: true });
+          warningNote = `（有提醒：${msg}）`;
+        } else {
+          throw err;
+        }
+      }
+      setNotice(`已发布「${deck.title}」，现在复习里能做到了。${warningNote}`);
+      await load();
+      onChanged();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : '发布失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function unpublish(deck: Deck) {
+    setBusy(true);
+    setNotice(null);
+    try {
+      await decks.unpublish(deck.id);
+      setNotice(`已把「${deck.title}」撤回草稿。它不会再出现在复习里。`);
+      await load();
+      onChanged();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : '撤回失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!deleting) return;
+    setBusy(true);
+    try {
+      await decks.removeDeck(deleting.id);
+      setQuestions((prev) => {
+        const next = { ...prev };
+        delete next[deleting.id];
+        return next;
+      });
+      setNotice(`已删除「${deleting.title}」。`);
+      setDeleting(null);
+      await load();
+      onChanged();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : '删除失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ---------- 渲染 ----------
+
+  if (list === null && !error) {
+    return (
+      <div className="decks-page">
+        <p className="decks-lead">正在读题组…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="decks-page">
+      <header className="decks-head">
+        <div>
+          <h1 className="decks-title">我的题组</h1>
+          <p className="decks-lead">
+            这里能看到所有生成过的题组。草稿需要先检查、发布，才会进入复习队列。
+          </p>
+        </div>
+      </header>
+
+      {error ? <div className="decks-error">{error}</div> : null}
+      {notice ? (
+        <div className="decks-notice" role="status">
+          {notice}
+        </div>
+      ) : null}
+
+      {/* 筛选 */}
+      <div className="decks-tabs" role="tablist">
+        {(
+          [
+            ['all', `全部 ${counts.all}`],
+            ['draft', `草稿 ${counts.draft}`],
+            ['published', `已发布 ${counts.published}`],
+          ] as Array<[Tab, string]>
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            className={`decks-tab${tab === key ? ' decks-tab--on' : ''}`}
+            onClick={() => setTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="decks-empty">
+          <IconGenerate size={30} />
+          <p className="decks-empty__title">
+            {counts.all === 0 ? '还没有题组' : '这个分类里没有题组'}
+          </p>
+          <p className="decks-hint">
+            {counts.all === 0
+              ? '到「创建题组」页选一份已整理过知识点的资料，就能生成第一批题目。'
+              : '换个分类看看。'}
+          </p>
+        </div>
+      ) : (
+        <ul className="decks-list">
+          {filtered.map((deck) => {
+            const isOpen = openId === deck.id;
+            const qs = questions[deck.id];
+            const fromSource = titleOf(deck.sourceId);
+
+            return (
+              <li key={deck.id} className={`deck-item${isOpen ? ' deck-item--open' : ''}`}>
+                <div className="deck-item__top">
+                  <button
+                    type="button"
+                    className="deck-item__main"
+                    onClick={() => (isOpen ? setOpenId(null) : void openDeck(deck.id))}
+                    aria-expanded={isOpen}
+                  >
+                    <span className="deck-item__title">{deck.title}</span>
+                    <span className="deck-item__meta">
+                      {deck.questionCount} 道题
+                      {fromSource ? ` · 来自「${fromSource}」` : ''}
+                    </span>
+                  </button>
+                  <span
+                    className={`deck-badge deck-badge--${deck.status === 'published' ? 'ok' : 'warn'}`}
+                  >
+                    {deck.status === 'published' ? '已发布' : '草稿'}
+                  </span>
+                </div>
+
+                <div className="deck-item__actions">
+                  {deck.status === 'draft' ? (
+                    <button
+                      type="button"
+                      className="btn-fill btn-fill--sm"
+                      onClick={() => void publish(deck)}
+                      disabled={busy}
+                    >
+                      发布（发布后才能复习）
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      onClick={() => void unpublish(deck)}
+                      disabled={busy}
+                    >
+                      撤回成草稿
+                    </button>
+                  )}
+                  {deck.sourceId && onOpenSource ? (
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      onClick={() => onOpenSource(deck.sourceId!)}
+                    >
+                      看原文
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="deck-item__delete"
+                    onClick={() => setDeleting(deck)}
+                    disabled={busy}
+                  >
+                    删除
+                  </button>
+                </div>
+
+                {isOpen ? (
+                  <div className="deck-questions">
+                    {loadingQuestions === deck.id ? (
+                      <p className="decks-hint">正在读题目…</p>
+                    ) : (qs ?? []).length === 0 ? (
+                      <p className="decks-hint">这个题组里没有题目。</p>
+                    ) : (
+                      <ol className="deck-q-list">
+                        {(qs ?? []).map((q, i) => (
+                          <li key={q.id} className="deck-q">
+                            <span className="deck-q__no">{i + 1}</span>
+                            <div className="deck-q__body">
+                              <p className="deck-q__prompt">{q.prompt}</p>
+                              {q.options.length > 0 ? (
+                                <ul className="deck-q__options">
+                                  {q.options.map((o) => (
+                                    <li
+                                      key={o.key}
+                                      className={
+                                        o.key === q.answer ? 'deck-q__opt deck-q__opt--right' : 'deck-q__opt'
+                                      }
+                                    >
+                                      <span className="deck-q__key">{o.key}</span>
+                                      {o.text}
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <p className="deck-q__answer">答案：{q.answer}</p>
+                              )}
+                              {q.anchors.length > 0 ? (
+                                <p className="deck-q__anchor">
+                                  出处：第 {q.anchors[0]?.page ?? '?'} 页
+                                </p>
+                              ) : (
+                                <p className="deck-q__anchor deck-q__anchor--none">没找到原文位置</p>
+                              )}
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {deleting ? (
+        <ConfirmDialog
+          title={`删除「${deleting.title}」？`}
+          description="这个题组和它里面的题目会一起删掉，不能撤销。"
+          confirmLabel="删除"
+          onConfirm={() => void confirmDelete()}
+          onClose={() => setDeleting(null)}
+        >
+          <p className="set-hint" style={{ marginTop: 0 }}>
+            已经做过的复习记录会保留（它们不跟题组走），但题目本身没了，
+            那些记录也就点不回题目了。
+          </p>
+        </ConfirmDialog>
+      ) : null}
+    </div>
+  );
+}

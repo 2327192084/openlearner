@@ -38,6 +38,7 @@ export type PageId =
   | 'review'
   | 'sources'
   | 'generate'
+  | 'decks'
   | 'tasks'
   | 'wrongbook'
   | 'flow'
@@ -100,6 +101,21 @@ export const PAGES: PageDef[] = [
     purpose: '选好资料出题；出之前能看到大概要花多少',
     group: 'daily',
     show: true,
+  },
+  {
+    /*
+     * 「我的题组」—— 用户出完题找不到题的根因就是缺这一页。
+     * 生成后给的那句「可以去复习里做了」在当时是空话：
+     * 复习只显示卡片正反面，看不到题单，也看不到题组。
+     */
+    id: 'decks',
+    label: '我的题组',
+    title: '我的题组',
+    icon: IconGenerate,
+    purpose: '查看生成过的题组，检查草稿并发布',
+    group: 'daily',
+    show: true,
+    ready: true,
   },
   {
     id: 'tasks',

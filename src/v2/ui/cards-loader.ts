@@ -65,8 +65,22 @@ export function createCardLoader(storage: StorageAdapter): CardLoader {
       storage.getAll('knowledgePoints'),
     ]);
 
+    /*
+     * **只取已发布题组里的题。**
+     *
+     * 为什么必须过滤（2026-11-07 查出的问题）：
+     * 计划书 P3 第 2 条要求「生成 → 人工检查 → 发布后学生才开始刷」。
+     * 但原来这里不看 deck.status，草稿题直接进了复习队列 ——
+     * 用户没检查过的题就被当成正式题做了，等于跳过了那道关。
+     *
+     * 现在草稿留在「我的题组」里等检查，发布后才进复习。
+     */
+    const publishedDecks = decks.filter((d) => d.status === 'published');
+    const publishedIds = new Set(publishedDecks.map((d) => d.id));
+    const usableQuestions = questions.filter((q) => publishedIds.has(q.deckId));
+
     // 题目的 sourceId 要去 deck 上取（Question 自己没存）
-    const deckSource = new Map(decks.map((d) => [d.id, d.sourceId]));
+    const deckSource = new Map(publishedDecks.map((d) => [d.id, d.sourceId]));
 
     /**
      * 知识点与题目的关系：
@@ -77,11 +91,13 @@ export function createCardLoader(storage: StorageAdapter): CardLoader {
      * 没有题目的资料（只整理过知识点、还没出题）才把知识点当卡片读。
      */
     const sourcesWithQuestions = new Set(
-      questions.map((q) => deckSource.get(q.deckId)).filter((s): s is string => Boolean(s)),
+      usableQuestions
+        .map((q) => deckSource.get(q.deckId))
+        .filter((s): s is string => Boolean(s)),
     );
 
     const cards: Card[] = [
-      ...questions.map((q) => questionToCard(q, deckSource.get(q.deckId) ?? null)),
+      ...usableQuestions.map((q) => questionToCard(q, deckSource.get(q.deckId) ?? null)),
       ...points
         .filter((p) => !sourcesWithQuestions.has(p.sourceId ?? ''))
         .map(pointToCard),

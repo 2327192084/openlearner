@@ -1,0 +1,326 @@
+/**
+ * 「我的题组」页样式。
+ *
+ * 只用 tokens.css 里已有的变量，不新造颜色。
+ * 按钮配色规则不套 @layer —— base.css 有无限层级的
+ * `button{color:inherit}`，套了 @layer 就赢不了（项目里踩过两次）。
+ */
+
+.decks-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 78ch;
+}
+
+.decks-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.decks-title {
+  margin: 0;
+  font-size: var(--fs-2xl);
+  font-weight: 550;
+  line-height: var(--lh-tight);
+  color: var(--text);
+}
+
+.decks-lead {
+  margin: 6px 0 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+}
+
+.decks-hint {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+}
+
+.decks-error {
+  padding: var(--space-3);
+  border-left: 2px solid var(--bad);
+  background: var(--bg-sunken);
+  border-radius: var(--radius-sm);
+  color: var(--bad);
+  font-size: var(--fs-sm);
+}
+
+.decks-notice {
+  padding: var(--space-3);
+  border-left: 2px solid var(--ok);
+  background: var(--bg-raised);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+
+/* ---------- 筛选标签 ---------- */
+
+.decks-tabs {
+  display: flex;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--line-soft);
+  padding-bottom: var(--space-2);
+}
+
+.decks-tab {
+  padding: 5px 12px;
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.decks-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-dim);
+}
+
+/* 选中态用中性色，不用朱砂（设计约束：朱砂只给主操作与进度） */
+.decks-tab--on {
+  background: var(--bg-selected);
+  color: var(--text);
+}
+
+.decks-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---------- 空态 ---------- */
+
+.decks-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  background: var(--bg-surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-card);
+  color: var(--text-faint);
+}
+
+.decks-empty__title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 550;
+  color: var(--text);
+}
+
+/* ---------- 题组列表 ---------- */
+
+.decks-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.deck-item {
+  padding: var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-card);
+}
+
+.deck-item--open {
+  border-color: var(--line-strong);
+}
+
+.deck-item__top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.deck-item__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.deck-item__title {
+  font-size: var(--fs-md);
+  font-weight: 550;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deck-item__meta {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+
+.deck-badge {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  font-size: var(--fs-xs);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line);
+}
+
+.deck-badge--ok {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+}
+
+.deck-badge--warn {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+}
+
+.deck-item__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.deck-item__delete {
+  padding: 4px 10px;
+  font-size: var(--fs-xs);
+  font-family: inherit;
+  color: var(--text-faint);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.deck-item__delete:hover:not(:disabled) {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+
+.deck-item__delete:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---------- 题目列表 ---------- */
+
+.deck-questions {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line-soft);
+}
+
+.deck-q-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  counter-reset: q;
+}
+
+.deck-q {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.deck-q__no {
+  flex: 0 0 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+}
+
+.deck-q__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.deck-q__prompt {
+  margin: 0 0 6px;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.deck-q__options {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.deck-q__opt {
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+  color: var(--text-dim);
+}
+
+/* 正确答案标出来：检查草稿时最需要一眼看到 */
+.deck-q__opt--right {
+  color: var(--ok);
+}
+
+.deck-q__key {
+  display: inline-block;
+  min-width: 1.4em;
+  color: var(--text-faint);
+}
+
+.deck-q__answer {
+  margin: 0 0 6px;
+  font-size: var(--fs-sm);
+  color: var(--ok);
+}
+
+.deck-q__anchor {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+
+.deck-q__anchor--none {
+  color: var(--warn);
+}
+
+/* 生成完成提示 */
+.gen-done__text {
+  margin: 0 0 var(--space-2);
+}
+
+.gen-done__hint {
+  margin: 0 0 var(--space-3);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+}

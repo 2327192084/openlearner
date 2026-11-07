@@ -33,6 +33,8 @@ export interface GeneratePageProps {
   onOpenSources: () => void;
   /** 知识点不够时跳去整理页，带上当前选中的资料 */
   onOpenOrganize: (sourceId: string | null) => void;
+  /** 出完题跳到「我的题组」并展开这一组 —— 否则用户找不到刚生成的题 */
+  onOpenDecks: (deckId?: string | null) => void;
 }
 
 type Mode = 'from-source' | 'import-json' | 'case' | 'capture';
@@ -72,6 +74,7 @@ export function GeneratePage({
   onGenerated,
   onOpenSources,
   onOpenOrganize,
+  onOpenDecks,
 }: GeneratePageProps) {
   const [mode, setMode] = useState<Mode>('from-source');
   const [sources, setSources] = useState<Source[] | null>(null);
@@ -89,7 +92,7 @@ export function GeneratePage({
    * 这些建议在 chat-client 里已经按错误码写好了，不能在这一层丢掉。
    */
   const [errorHint, setErrorHint] = useState<string | null>(null);
-  const [done, setDone] = useState<{ deck: string; questions: number } | null>(null);
+  const [done, setDone] = useState<{ deck: string; deckId: string; questions: number } | null>(null);
 
   /** 统一的报错入口：带上 hint 就一起显示，没带就清掉上一条的 */
   const reportError = useCallback((err: unknown, fallback: string) => {
@@ -208,7 +211,7 @@ export function GeneratePage({
         signal: controller.signal,
       });
 
-      setDone({ deck: out.deck.title, questions: out.questions.length });
+      setDone({ deck: out.deck.title, deckId: out.deck.id, questions: out.questions.length });
       onGenerated();
     } catch (err) {
       reportError(err, '出题失败');
@@ -350,7 +353,24 @@ export function GeneratePage({
           ) : null}
           {done ? (
             <div className="gen-done">
-              ✓ 已生成「{done.deck}」，共 {done.questions} 道题。可以去「复习」里做了。
+              <p className="gen-done__text">
+                ✓ 已生成「{done.deck}」，共 {done.questions} 道题。
+              </p>
+              {/*
+               * 说清「草稿 vs 已发布」——生成出来是草稿，要先检查再发布才进复习。
+               * 原来只写「可以去复习里做了」，而当时题组是草稿、界面又没有题组列表，
+               * 用户照着做只会扑空。
+               */}
+              <p className="gen-done__hint">
+                它现在是<strong>草稿</strong>，先检查一遍题，发布之后才会进入复习。
+              </p>
+              <button
+                type="button"
+                className="btn-fill btn-fill--sm"
+                onClick={() => onOpenDecks(done.deckId)}
+              >
+                去看这 {done.questions} 道题
+              </button>
             </div>
           ) : null}
 

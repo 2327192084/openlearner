@@ -6,6 +6,7 @@ import { TodayPage } from './TodayPage.tsx';
 import { ReviewPage } from './ReviewPage.tsx';
 import { SourcesPage } from './SourcesPage.tsx';
 import { GeneratePage } from './GeneratePage.tsx';
+import { DecksPage } from './DecksPage.tsx';
 import { StatsPage } from './StatsPage.tsx';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { DeckService } from '@/core/questions/service.ts';
@@ -29,6 +30,7 @@ import './stats-page.css';
 import './settings.css';
 import './organize-page.css';
 import './reader-page.css';
+import './decks-page.css';
 
 /**
  * v2 应用入口。
@@ -115,6 +117,8 @@ export function App({
    * 要带上 {sourceId, page, charStart, charEnd, quote}，
    * 而「打开哪一份」和「定位到哪」是两件事，混在一起会残留上一次的位置。
    */
+  /** 出完题后要自动展开的题组 id */
+  const [openedDeckId, setOpenedDeckId] = useState<string | null>(null);
   const [readerSourceId, setReaderSourceId] = useState<string | null>(null);
   const [readerTarget, setReaderTarget] = useState<ReaderTarget | null>(null);
 
@@ -285,6 +289,21 @@ export function App({
             setPage('reader');
           }}
         />
+      ) : page === 'decks' ? (
+        <DecksPage
+          decks={decks}
+          sourceService={sourceService}
+          initialDeckId={openedDeckId}
+          onOpenSource={(sourceId) => {
+            setReaderSourceId(sourceId);
+            setReaderTarget(null);
+            setPage('reader');
+          }}
+          onChanged={() => {
+            void refreshCounts();
+            void refreshShellState();
+          }}
+        />
       ) : page === 'generate' ? (
         <GeneratePage
           sourceService={sourceService}
@@ -296,6 +315,17 @@ export function App({
           onOpenOrganize={(sourceId) => {
             setOrganizeSourceId(sourceId);
             setPage('organize');
+          }}
+          onOpenDecks={(deckId) => {
+            /*
+             * 生成完直接跳到「我的题组」并展开这一组。
+             *
+             * 为什么不让用户自己去侧栏找：原来那句「可以去复习里做了」
+             * 是空话 —— 复习页只显示卡片正反面，看不到题单。
+             * 现在出完题就把人带到能看见题的地方。
+             */
+            setOpenedDeckId(deckId ?? null);
+            setPage('decks');
           }}
         />
       ) : page === 'stats' ? (
@@ -333,6 +363,7 @@ function Placeholder({ page, onBack }: { page: PageId; onBack: () => void }) {
     review: '复习',
     sources: '资料',
     generate: '创建题组',
+    decks: '我的题组',
     tasks: '任务',
     wrongbook: '错题与待巩固',
     flow: '学习流',
