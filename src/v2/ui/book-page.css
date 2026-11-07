@@ -1,0 +1,287 @@
+/**
+ * 「复习全书」页样式。
+ *
+ * 取向：这是**要读**的页面，不是管理页。
+ * 所以正文用纸感排版（行高宽松、题干字号偏大），
+ * 工具条压在上方、不喧宾夺主。
+ */
+
+@layer study.features {
+  .book-page {
+    max-width: 72ch;
+    margin: var(--space-7) auto var(--space-9);
+    padding: 0 var(--space-4);
+  }
+
+  .bk-head {
+    margin-bottom: var(--space-5);
+  }
+
+  .bk-title {
+    font-size: var(--fs-2xl);
+    font-weight: 650;
+    margin-bottom: var(--space-2);
+    letter-spacing: -0.01em;
+  }
+
+  .bk-lead {
+    color: var(--text-muted);
+    font-size: var(--fs-md);
+    line-height: var(--lh-body);
+    max-width: 64ch;
+  }
+
+  .bk-hint {
+    color: var(--text-faint);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-body);
+  }
+
+  .bk-error {
+    padding: var(--space-3) var(--space-4);
+    border-left: 2px solid var(--bad, #c0392b);
+    background: color-mix(in srgb, var(--bad, #c0392b) 10%, transparent);
+    color: var(--text);
+    font-size: var(--fs-sm);
+  }
+
+  .bk-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-6) 0;
+    color: var(--text-muted);
+    font-size: var(--fs-md);
+  }
+
+  /* ---------- 工具条 ---------- */
+  .bk-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    padding: var(--space-3) 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    margin-bottom: var(--space-6);
+  }
+
+  /*
+   * 导出按钮推到最右，避免它跟在勾选框后面换行时孤零零占一行。
+   * 这一页的主操作就是「导出」，放右端符合阅读终点。
+   */
+  .bk-toolbar .btn-fill {
+    margin-left: auto;
+  }
+
+  .bk-count {
+    font-size: var(--fs-sm);
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    font-weight: 550;
+  }
+
+  .bk-field {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .bk-field__label {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+  }
+
+  .bk-select {
+    padding: 4px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--bg-canvas);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--fs-sm);
+    max-width: 32ch;
+  }
+
+  /*
+   * 复选框：这里直接让原生控件显示（appearance 保持默认）。
+   *
+   * 之前项目里踩过「原生控件颜色被无层级规则压掉」的坑，
+   * 所以只改文字与间距，不去动 checkbox 自身外观 ——
+   * 那样在深浅两套主题下都不用重新调。
+   */
+  .bk-check {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+
+  /* ---------- 卷 / 题组 ---------- */
+  .bk-volume {
+    margin-bottom: var(--space-8);
+  }
+
+  .bk-volume__head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    padding-bottom: var(--space-2);
+    border-bottom: 2px solid var(--line-strong);
+    margin-bottom: var(--space-4);
+  }
+
+  .bk-volume__title {
+    font-size: var(--fs-lg);
+    font-weight: 650;
+    color: var(--text);
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .bk-volume__meta {
+    font-size: var(--fs-sm);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bk-deck {
+    margin-bottom: var(--space-6);
+  }
+
+  .bk-deck__title {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    font-size: var(--fs-md);
+    font-weight: 550;
+    color: var(--text-dim);
+    margin-bottom: var(--space-3);
+  }
+
+  .bk-deck__meta,
+  .bk-deck__kind {
+    font-size: var(--fs-xs);
+    font-weight: 400;
+    color: var(--text-faint);
+  }
+
+  .bk-deck__kind {
+    padding: 0 6px;
+    border-radius: var(--radius-xs);
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+  }
+
+  /* ---------- 单题 ---------- */
+  .bk-questions {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .bk-q {
+    list-style: none;
+    padding: var(--space-4);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+  }
+
+  .bk-q__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+  }
+
+  .bk-q__no {
+    font-size: var(--fs-sm);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bk-q__kind {
+    padding: 0 6px;
+    border-radius: var(--radius-xs);
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+    color: var(--text-faint);
+    font-size: var(--fs-xs);
+    line-height: 1.7;
+  }
+
+  /* 题干：整页最该看清的东西，字号比正文大一档 */
+  .bk-q__prompt {
+    font-size: var(--fs-md);
+    line-height: 1.6;
+    color: var(--text);
+    margin-bottom: var(--space-3);
+    overflow-wrap: anywhere;
+  }
+
+  .bk-q__options {
+    list-style: none;
+    margin: 0 0 var(--space-3);
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .bk-q__option {
+    list-style: none;
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    padding: 4px 0;
+    border-top: 1px solid var(--line);
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+  }
+
+  .bk-q__option:first-child {
+    border-top: none;
+  }
+
+  .bk-q__option--right {
+    color: var(--ok);
+  }
+
+  .bk-q__key {
+    flex: none;
+    width: 1.4em;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bk-q__option--right .bk-q__key {
+    color: var(--ok);
+  }
+
+  .bk-q__answer {
+    font-size: var(--fs-sm);
+    color: var(--ok);
+    margin-bottom: var(--space-2);
+  }
+
+  .bk-q__explain {
+    padding: var(--space-2) var(--space-3);
+    border-left: 2px solid var(--line);
+    color: var(--text-muted);
+    font-size: var(--fs-sm);
+    line-height: 1.65;
+    margin-bottom: var(--space-2);
+  }
+
+  .bk-q__from {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+}

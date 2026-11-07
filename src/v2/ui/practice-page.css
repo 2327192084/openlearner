@@ -1,0 +1,280 @@
+/**
+ * 做题入口页（三种模式）的样式。
+ *
+ * 设计取向：这是「选一件事做」的页面，不是题目本身。
+ * 所以用标签页 + 面板，而不是把三个入口都摆成一个巨大的卡片 ——
+ * 三个大卡片会让用户以为要「三选一」才敢点，实际上它们是并列的三种做法。
+ */
+
+@layer study.features {
+  .practice-page {
+    max-width: 78ch;
+    margin: var(--space-7) auto var(--space-9);
+    padding: 0 var(--space-4);
+  }
+
+  .practice-head {
+    margin-bottom: var(--space-5);
+  }
+
+  .practice-title {
+    font-size: var(--fs-2xl);
+    font-weight: 650;
+    margin-bottom: var(--space-2);
+    letter-spacing: -0.01em;
+  }
+
+  .practice-lead {
+    color: var(--text-muted);
+    font-size: var(--fs-md);
+    line-height: var(--lh-body);
+    max-width: 60ch;
+  }
+
+  /* ---------- 三个模式标签 ---------- */
+  .practice-tabs {
+    display: flex;
+    gap: var(--space-1);
+    border-bottom: 1px solid var(--line);
+    margin-bottom: var(--space-5);
+  }
+
+  .practice-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: var(--fs-md);
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s;
+    /* 让下划线紧贴容器底部，视觉上连成一条 */
+    margin-bottom: -1px;
+  }
+
+  .practice-tab:hover {
+    color: var(--text);
+  }
+
+  /*
+   * 选中态：中性色 + 底部朱砂线。
+   * 这里用朱砂是合适的 —— 它标的是「当前在哪一页」这个进度/位置，
+   * 符合项目「朱砂只给主操作与进度」的约定。
+   */
+  .practice-tab--on {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+    font-weight: 550;
+  }
+
+  .practice-tab__count {
+    padding: 0 6px;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--text) 10%, transparent);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.7;
+  }
+
+  .practice-tab--on .practice-tab__count {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    color: var(--accent-text);
+  }
+
+  /* ---------- 面板 ---------- */
+  .practice-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .practice-hint {
+    color: var(--text-dim);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-body);
+    max-width: 62ch;
+  }
+
+  .practice-hint strong {
+    color: var(--text);
+    font-weight: 550;
+  }
+
+  .practice-empty {
+    color: var(--text-muted);
+    font-size: var(--fs-md);
+    line-height: var(--lh-body);
+    max-width: 58ch;
+  }
+
+  .practice-subtitle {
+    font-size: var(--fs-md);
+    font-weight: 550;
+    color: var(--text);
+    margin-top: var(--space-3);
+  }
+
+  .practice-actions {
+    display: flex;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+
+  .practice-error {
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-sm);
+    border-left: 2px solid var(--bad, #c0392b);
+    background: color-mix(in srgb, var(--bad, #c0392b) 10%, transparent);
+    color: var(--text);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-body);
+  }
+
+  /* ---------- 题组列表 ---------- */
+  .practice-decks {
+    list-style: none;
+    /* 清掉 ul 默认的 padding-left —— 否则整行会被往右推，
+       左边留出的那条空隙在深色底上看起来像「多了一个竖块」 */
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    /* 分隔线用每行自己的 border-top，不用容器背景 + gap：
+       后者会在圆角处露出容器底色，形成截图里那圈弧形的"竖块" */
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+
+  .practice-deck {
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    background: transparent;
+  }
+
+  /* 除第一行外都加分隔线；第一行贴着容器上边框，不用重复画 */
+  .practice-deck + .practice-deck {
+    border-top: 1px solid var(--line);
+  }
+
+  /* li 的 marker 在某些内核下即使 list-style:none 仍会占位 */
+  .practice-deck::marker,
+  .practice-wrong__item::marker {
+    content: none;
+  }
+
+  .practice-deck__main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .practice-deck__title {
+    color: var(--text);
+    font-size: var(--fs-md);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .practice-deck__meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    color: var(--text-faint);
+    font-size: var(--fs-xs);
+  }
+
+  /*
+   * 题型标签与随机标签。
+   *
+   * 用户明确要求「生成题组时要标注题目类型，随机题组要特意标注」。
+   * 两者都做成小徽标，但**随机用朱砂**：它是这批题的特殊属性，
+   * 值得一眼看见；题型是中性信息，用灰底即可。
+   */
+  .deck-kind-tag {
+    padding: 0 6px;
+    border-radius: var(--radius-xs);
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+    color: var(--text-dim);
+    line-height: 1.7;
+  }
+
+  .deck-random-tag {
+    padding: 0 6px;
+    border-radius: var(--radius-xs);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    color: var(--accent-text);
+    font-weight: 550;
+    line-height: 1.7;
+  }
+
+  /* ---------- 错题列表 ---------- */
+  .practice-wrong {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .practice-wrong__item {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .practice-wrong__count {
+    flex: 0 0 auto;
+    padding: 0 6px;
+    border-radius: var(--radius-xs);
+    background: color-mix(in srgb, var(--bad, #c0392b) 14%, transparent);
+    color: var(--bad, #c0392b);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.7;
+  }
+
+  .practice-wrong__prompt {
+    color: var(--text-dim);
+    font-size: var(--fs-sm);
+    line-height: 1.5;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .practice-foot {
+    margin-top: var(--space-6);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--line);
+    color: var(--text-faint);
+    font-size: var(--fs-sm);
+  }
+}
+
+/*
+ * 顶部的「当前模式」标签（在 ReviewPage 里）。
+ *
+ * 放在 @layer 外面：它内部没有原生控件，但颜色需要稳定压过
+ * base.css 的继承色，放在层外更省心（本项目已因层级踩过三次）。
+ */
+.review-mode {
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}

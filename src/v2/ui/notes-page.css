@@ -1,0 +1,324 @@
+/**
+ * 「学习笔记」页样式。
+ *
+ * 取向：笔记是要**读**的、也是要**改**的。
+ * 所以正文用正常行高与偏宽松的字距，编辑态直接是 textarea（不是弹窗）——
+ * 就地改完就保存，少一层跳转。
+ */
+
+@layer study.features {
+  .notes-page {
+    max-width: 74ch;
+    margin: var(--space-7) auto var(--space-9);
+    padding: 0 var(--space-4);
+  }
+
+  .nt-head {
+    margin-bottom: var(--space-5);
+  }
+
+  .nt-title {
+    font-size: var(--fs-2xl);
+    font-weight: 650;
+    margin-bottom: var(--space-2);
+    letter-spacing: -0.01em;
+  }
+
+  .nt-lead {
+    color: var(--text-muted);
+    font-size: var(--fs-md);
+    line-height: var(--lh-body);
+    max-width: 64ch;
+  }
+
+  .nt-hint {
+    color: var(--text-faint);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-body);
+  }
+
+  .nt-error {
+    padding: var(--space-3) var(--space-4);
+    border-left: 2px solid var(--bad, #c0392b);
+    background: color-mix(in srgb, var(--bad, #c0392b) 10%, transparent);
+    color: var(--text);
+    font-size: var(--fs-sm);
+  }
+
+  /* 操作反馈：短命提示，2 秒后自动消失（见组件里的 setTimeout） */
+  .nt-flash {
+    padding: var(--space-2) var(--space-3);
+    margin-bottom: var(--space-3);
+    border-radius: var(--radius-sm);
+    background: var(--bg-raised);
+    color: var(--text-dim);
+    font-size: var(--fs-sm);
+  }
+
+  .nt-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-6) 0;
+    color: var(--text-muted);
+    font-size: var(--fs-md);
+  }
+
+  /* ---------- 工具条 ---------- */
+  .nt-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    margin-bottom: var(--space-4);
+  }
+
+  .nt-search {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 6px var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--bg-canvas);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--fs-sm);
+  }
+
+  .nt-search:focus-visible {
+    outline: none;
+    border-color: var(--line-strong);
+  }
+
+  .nt-count {
+    flex: none;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- 列表 ---------- */
+  .nt-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .nt-item {
+    list-style: none;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+  }
+
+  .nt-item__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: var(--space-2);
+  }
+
+  .nt-item__belong {
+    font-size: var(--fs-xs);
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  /*
+   * 归属内容已删除：压暗 + 去掉强调。
+   * 不隐藏它 —— 笔记是用户写的，内容还在，
+   * 只是它挂靠的那道题没了，这一点要说清楚而不是假装正常。
+   */
+  .nt-item__belong--gone {
+    color: var(--text-faint);
+    font-style: italic;
+  }
+
+  .nt-item__time {
+    flex: none;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 笔记正文：保留换行（white-space: pre-wrap），行高宽松便于阅读 */
+  .nt-item__body {
+    color: var(--text);
+    font-size: var(--fs-md);
+    line-height: 1.7;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    margin-bottom: var(--space-2);
+  }
+
+  .nt-textarea {
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    background: var(--bg-canvas);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--fs-md);
+    line-height: 1.7;
+    resize: vertical;
+    margin-bottom: var(--space-2);
+  }
+
+  .nt-textarea:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .nt-item__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+
+  /* 删除：中性灰，悬停转莓红。不做成常驻的红按钮，
+     免得一屏笔记里全是红字，像在报警。 */
+  .nt-item__delete {
+    border: none;
+    background: transparent;
+    color: var(--text-faint);
+    font: inherit;
+    font-size: var(--fs-sm);
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .nt-item__delete:hover {
+    color: var(--bad, #c0392b);
+  }
+}
+
+/*
+ * 「记一笔」区域（在做题页与阅读器里用）。
+ *
+ * 放在 @layer 外面：它内部有 textarea 和按钮，
+ * 而 base.css 里那条无层级的
+ * `button, input, select, textarea { font: inherit; color: inherit }`
+ * 会压过层内所有规则（项目里踩过三次）。
+ * 放层外才能保证输入框的颜色与字号按这里写的样子来。
+ */
+.notebox {
+  margin-top: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.notebox__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.notebox__toggle:hover {
+  color: var(--text-dim);
+}
+
+.notebox__caret {
+  display: inline-block;
+  width: 1em;
+  font-size: var(--fs-xs);
+}
+
+.notebox__count {
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+}
+
+.notebox__body {
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+
+.notebox__item {
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line-soft, var(--line));
+  margin-bottom: var(--space-2);
+}
+
+.notebox__item:last-of-type {
+  border-bottom: none;
+}
+
+/* 笔记正文保留换行 */
+.notebox__text {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-bottom: var(--space-1, 4px);
+}
+
+.notebox__input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-canvas);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  line-height: 1.65;
+  resize: vertical;
+}
+
+.notebox__input:focus-visible {
+  outline: none;
+  border-color: var(--line-strong);
+}
+
+.notebox__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.notebox__delete {
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  padding: 0;
+}
+
+.notebox__delete:hover {
+  color: var(--bad, #c0392b);
+}
+
+.notebox__err {
+  margin-top: var(--space-2);
+  color: var(--bad, #c0392b);
+  font-size: var(--fs-xs);
+}

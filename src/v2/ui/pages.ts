@@ -56,6 +56,7 @@ export type PageId =
   | 'organize'
   | 'reader'
   | 'guide'
+  | 'practice'
   | 'settings';
 
 export type NavGroup = 'daily' | 'staged' | 'prep';
@@ -94,6 +95,7 @@ export const PAGES: PageDef[] = [
     purpose: '导入讲义、课件和笔记，也可以在这里读原文',
     group: 'daily',
     show: true,
+    ready: true,
   },
   {
     /*
@@ -145,45 +147,50 @@ export const PAGES: PageDef[] = [
     label: '任务',
     title: '任务',
     icon: IconTasks,
-    purpose: '后台正在做什么、做完没有，都可以在这里看',
+    purpose: '整理与出题的每一次运行：成没成、产出多少、花了多少',
     group: 'daily',
     show: true,
+    ready: true,
   },
   {
     id: 'wrongbook',
     label: '错题与待巩固',
     title: '错题与待巩固',
     icon: IconWrongbook,
-    purpose: '答错的题和还没巩固的题收在这里，可以只练它们',
+    purpose: '答错的题收在这里：看错几次、错在哪天，也能直接去练',
     group: 'daily',
     show: true,
+    ready: true,
   },
   {
     id: 'flow',
     label: '学习流',
     title: '学习流',
     icon: IconFlow,
-    purpose: '按一门课从头到尾走一遍固定的学习流程',
+    purpose: '按每份资料看走到哪一步、下一步该做什么',
     group: 'daily',
     show: true,
+    ready: true,
   },
   {
     id: 'notes',
     label: '学习笔记',
     title: '学习笔记',
     icon: IconNotes,
-    purpose: '把做过的题写成笔记，也可以发布出去',
+    purpose: '挂在题、知识点或资料上的笔记，能搜能改',
     group: 'daily',
     show: true,
+    ready: true,
   },
   {
     id: 'board',
     label: '待办',
-    title: '待办看板',
+    title: '待办',
     icon: IconBoard,
-    purpose: '把要做的事排成看板，可以设截止日期',
+    purpose: '记下这周要做什么，可设截止日；逾期会单独标出',
     group: 'daily',
     show: true,
+    ready: true,
   },
 
   // ---------- 阶段性 ----------
@@ -192,27 +199,39 @@ export const PAGES: PageDef[] = [
     label: '模拟考试',
     title: '模拟考试',
     icon: IconExam,
-    purpose: '按考试的时间和题型做一整套，交卷后看批改',
+    purpose: '限时整卷，交卷后统一批改，成绩单独记录',
     group: 'staged',
     show: true,
+    ready: true,
   },
   {
     id: 'examprep',
     label: '备考补习',
     title: '备考补习',
     icon: IconTarget,
-    purpose: '按考试大纲整理要复习的清单，缺什么补什么',
+    /*
+     * 从侧栏摘掉。
+     *
+     * 这一页需要「考试大纲」作为输入：知道要考哪些点，才能算「缺什么补什么」。
+     * 项目里目前没有任何导入考纲的入口，也没有考纲的数据结构 ——
+     * 做出来只会是一个让人填不出东西的空壳。
+     *
+     * 按项目一贯的规矩：不摆点了没反应的入口。
+     * 等真的要做了（并确定考纲从哪来），再把 show 打开。
+     */
+    purpose: '按考试大纲整理要复习的清单（需要先支持导入考纲，暂未做）',
     group: 'staged',
-    show: true,
+    show: false,
   },
   {
     id: 'book',
     label: '复习全书',
     title: '复习全书',
     icon: IconBook,
-    purpose: '把这门课的题和讲解串成一本能读的书',
+    purpose: '把已发布的题按资料聚成一册，可整本导出 Markdown',
     group: 'staged',
     show: true,
+    ready: true,
   },
   {
     id: 'stats',
@@ -222,6 +241,7 @@ export const PAGES: PageDef[] = [
     purpose: '练了多少、掌握得怎么样、哪一块还薄弱',
     group: 'staged',
     show: true,
+    ready: true,
   },
 
   // ---------- 课程准备与管理 ----------
@@ -230,27 +250,36 @@ export const PAGES: PageDef[] = [
     label: '知识骨架',
     title: '知识骨架',
     icon: IconSkeleton,
-    purpose: '把一门课的知识点连成结构图，看清整体脉络',
+    purpose: '按资料与章节摊开知识点，看清层级分布与薄弱处',
     group: 'prep',
     show: true,
+    ready: true,
   },
   {
     id: 'audio',
     label: '音频转写',
     title: '音频转写',
     icon: IconAudio,
-    purpose: '把课堂录音转成文字，之后能像资料一样出题',
+    /*
+     * 从侧栏摘掉：需要接一个语音转写引擎（Whisper / 云端 API 等），
+     * 选哪个是产品决策，得由用户定。在那之前做不了，也就没有入口。
+     */
+    purpose: '把课堂录音转成文字（需要先定用哪个转写引擎，暂未做）',
     group: 'prep',
-    show: true,
+    show: false,
   },
   {
     id: 'record',
     label: '课堂实录',
     title: '课堂实录',
     icon: IconRecord,
-    purpose: '边上课边记，课后自动整理成资料与题目',
+    /*
+     * 从侧栏摘掉：它依赖音频转写（先录下来再转文字），
+     * 而转写引擎还没定。链路上游没有，下游就不能摆出来。
+     */
+    purpose: '边上课边记，课后自动整理（依赖音频转写，暂未做）',
     group: 'prep',
-    show: true,
+    show: false,
   },
 ];
 
@@ -305,7 +334,24 @@ const OFF_NAV: Partial<Record<PageId, PageDef>> = {
     label: '做题',
     title: '做题',
     icon: IconLibrary,
-    purpose: '做题库里的题，每题都能点回原文',
+    purpose: '选一种做法：今日该复习的、自由练习、或错题巩固',
+    group: 'daily',
+    show: false,
+    ready: true,
+  },
+  /**
+   * 正在做题的那一页。
+   *
+   * 与 review（选题页）分开：review 是「选哪种模式、练哪个题组」，
+   * practice 是「正在一道一道做」。两者混在一起会导致
+   * 「做完一轮回到选题页」时状态残留（上一轮的队列还在）。
+   */
+  practice: {
+    id: 'practice',
+    label: '做题中',
+    title: '做题',
+    icon: IconLibrary,
+    purpose: '正在做这一轮的题',
     group: 'daily',
     show: false,
     ready: true,
@@ -325,9 +371,10 @@ const OFF_NAV: Partial<Record<PageId, PageDef>> = {
     label: '功能导览',
     title: '功能导览',
     icon: IconHelp,
-    purpose: '每一页能做什么、快捷键有哪些',
+    purpose: '每一页能做什么、从哪里进、哪些还没做',
     group: 'prep',
     show: false,
+    ready: true,
   },
   organize: {
     id: 'organize',

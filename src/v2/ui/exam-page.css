@@ -1,0 +1,544 @@
+/**
+ * 「模拟考试」页样式。
+ *
+ * 取向：考试界面要**安静且明确** —— 顶部一条状态栏（进度 + 倒计时 + 交卷），
+ * 中间一张题卡，底部题号导航。不要花哨动效，考场上多一个动的东西都是干扰。
+ */
+
+@layer study.features {
+  .exam-page {
+    max-width: 74ch;
+    margin: var(--space-7) auto var(--space-9);
+    padding: 0 var(--space-4);
+  }
+
+  .ex-head {
+    margin-bottom: var(--space-5);
+  }
+
+  .ex-title {
+    font-size: var(--fs-2xl);
+    font-weight: 650;
+    margin-bottom: var(--space-2);
+    letter-spacing: -0.01em;
+  }
+
+  .ex-lead {
+    color: var(--text-muted);
+    font-size: var(--fs-md);
+    line-height: var(--lh-body);
+    max-width: 64ch;
+  }
+
+  .ex-lead strong {
+    color: var(--text);
+    font-weight: 550;
+  }
+
+  .ex-h2 {
+    font-size: var(--fs-lg);
+    font-weight: 550;
+    color: var(--text);
+    margin: var(--space-6) 0 var(--space-3);
+  }
+
+  .ex-hint {
+    color: var(--text-faint);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-body);
+  }
+
+  .ex-hint--center {
+    text-align: center;
+    margin-top: var(--space-4);
+  }
+
+  .ex-error {
+    padding: var(--space-3) var(--space-4);
+    border-left: 2px solid var(--bad, #c0392b);
+    background: color-mix(in srgb, var(--bad, #c0392b) 10%, transparent);
+    color: var(--text);
+    font-size: var(--fs-sm);
+    margin-bottom: var(--space-4);
+  }
+
+  .ex-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-6) 0;
+    color: var(--text-muted);
+    font-size: var(--fs-md);
+  }
+
+  /* ---------- 设置 ---------- */
+  .ex-setup {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+    padding: var(--space-5);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+  }
+
+  .ex-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .ex-field__label {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    letter-spacing: 0.02em;
+  }
+
+  .ex-select {
+    padding: 6px var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--bg-canvas);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--fs-sm);
+    max-width: 46ch;
+  }
+
+  .ex-options {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  /* 选项 chip：选中态用中性底，不用朱砂（一组等价选项，不是主操作） */
+  .ex-chip {
+    padding: 4px var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: var(--fs-sm);
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+  }
+
+  .ex-chip:hover:not(:disabled) {
+    border-color: var(--line-strong);
+    color: var(--text);
+  }
+
+  .ex-chip--on {
+    background: var(--bg-selected);
+    border-color: var(--line-strong);
+    color: var(--text);
+    font-weight: 550;
+  }
+
+  .ex-chip:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .ex-summary {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ex-summary strong {
+    color: var(--text);
+    font-weight: 650;
+  }
+
+  .ex-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+
+  /* ---------- 考试中：顶栏 ---------- */
+  .ex-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-4);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+    /* 粘顶：题长时下滑仍能看见倒计时 */
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+
+  .ex-bar__title {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ex-bar__progress {
+    flex: none;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /*
+   * 倒计时：等宽数字 + 大字。
+   * 最后 60 秒转赭黄 —— 这是全站唯一的「时间压力」提示，
+   * 用朱砂会与「交卷」按钮争注意力。
+   */
+  .ex-bar__clock {
+    flex: none;
+    font-size: var(--fs-lg);
+    font-weight: 550;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
+
+  .ex-bar__clock--urgent {
+    color: var(--warn);
+  }
+
+  /* ---------- 题卡 ---------- */
+  .ex-card {
+    padding: var(--space-5);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+  }
+
+  .ex-card__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+  }
+
+  .ex-card__no {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ex-card__kind {
+    padding: 0 6px;
+    border-radius: var(--radius-xs);
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+    color: var(--text-faint);
+    font-size: var(--fs-xs);
+    line-height: 1.7;
+  }
+
+  .ex-card__prompt {
+    font-size: var(--fs-lg);
+    line-height: 1.6;
+    color: var(--text);
+    margin-bottom: var(--space-4);
+    overflow-wrap: anywhere;
+  }
+
+  .ex-choices {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: var(--space-4);
+  }
+
+  /*
+   * 选项行：与做题页一致（border-top 分隔、左侧字母圆标）。
+   * 考试里不显示对错着色 —— 那是交卷后的事，
+   * 所以这里只有「选/没选」两种状态，用边框与底色表示。
+   */
+  .ex-choice {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-2);
+    border: none;
+    border-top: 1px solid var(--line);
+    background: transparent;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: var(--fs-md);
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+  }
+
+  .ex-choice:first-child {
+    border-top: none;
+  }
+
+  .ex-choice:hover {
+    background: var(--bg-hover);
+  }
+
+  .ex-choice--on {
+    color: var(--text);
+    background: var(--bg-selected);
+  }
+
+  .ex-choice__key {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 1px solid var(--line-strong);
+    font-size: var(--fs-sm);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ex-choice--on .ex-choice__key {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .ex-input {
+    width: 100%;
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--bg-canvas);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--fs-md);
+    margin-bottom: var(--space-4);
+  }
+
+  .ex-input:focus-visible {
+    outline: none;
+    border-color: var(--line-strong);
+  }
+
+  .ex-card__nav {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line);
+  }
+
+  /* ---------- 题号导航 ---------- */
+  .ex-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: var(--space-4);
+  }
+
+  .ex-nav__dot {
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xs);
+    background: transparent;
+    color: var(--text-faint);
+    font: inherit;
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    transition: border-color 0.12s, color 0.12s, background 0.12s;
+  }
+
+  /* 已答：实心浅底。未答保持空框 —— 一眼看出还剩几道 */
+  .ex-nav__dot--done {
+    background: color-mix(in srgb, var(--text) 12%, transparent);
+    color: var(--text);
+  }
+
+  /* 当前题：朱砂描边（这里是「位置」提示，符合朱砂的使用约定） */
+  .ex-nav__dot--cur {
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 550;
+  }
+
+  /* ---------- 成绩 ---------- */
+  .ex-score {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    padding: var(--space-5);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+  }
+
+  .ex-score__num {
+    font-size: 56px;
+    font-weight: 300;
+    line-height: 1;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ex-score__unit {
+    font-size: var(--fs-lg);
+    color: var(--text-dim);
+  }
+
+  .ex-score__detail {
+    flex-basis: 100%;
+    margin-top: var(--space-3);
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ex-review {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .ex-review__item {
+    list-style: none;
+    padding: var(--space-4);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+    border-left: 2px solid var(--bad, #c0392b);
+  }
+
+  .ex-review__item--ok {
+    border-left-color: var(--ok);
+  }
+
+  .ex-review__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+  }
+
+  .ex-review__no {
+    font-size: var(--fs-sm);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ex-review__mark {
+    color: var(--bad, #c0392b);
+    font-weight: 650;
+  }
+
+  .ex-review__mark--ok {
+    color: var(--ok);
+  }
+
+  .ex-review__kind {
+    padding: 0 6px;
+    border-radius: var(--radius-xs);
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+    color: var(--text-faint);
+    font-size: var(--fs-xs);
+    line-height: 1.7;
+  }
+
+  .ex-review__prompt {
+    font-size: var(--fs-md);
+    line-height: 1.6;
+    color: var(--text);
+    margin-bottom: var(--space-2);
+    overflow-wrap: anywhere;
+  }
+
+  .ex-review__your {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    margin-bottom: 2px;
+  }
+
+  .ex-review__right {
+    font-size: var(--fs-sm);
+    color: var(--ok);
+    margin-bottom: var(--space-2);
+  }
+
+  .ex-review__explain {
+    padding: var(--space-2) var(--space-3);
+    border-left: 2px solid var(--line);
+    color: var(--text-muted);
+    font-size: var(--fs-sm);
+    line-height: 1.6;
+  }
+
+  /* ---------- 历史成绩 ---------- */
+  .ex-history__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .ex-history__item {
+    list-style: none;
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    padding: var(--space-2) 0;
+    border-top: 1px solid var(--line);
+    font-size: var(--fs-sm);
+  }
+
+  .ex-history__item:first-child {
+    border-top: none;
+  }
+
+  .ex-history__score {
+    flex: none;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    font-weight: 550;
+  }
+
+  .ex-history__rate {
+    flex: none;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+    min-width: 3.5ch;
+  }
+
+  .ex-history__title {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--text-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ex-history__time {
+    flex: none;
+    color: var(--text-faint);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ex-history__flag {
+    flex: none;
+    padding: 0 6px;
+    border-radius: var(--radius-xs);
+    background: color-mix(in srgb, var(--warn) 16%, transparent);
+    color: var(--warn);
+    font-size: var(--fs-xs);
+    line-height: 1.7;
+  }
+}

@@ -4,6 +4,17 @@ import type { CardLoader } from './cards-loader.ts';
 import { AppShell } from './AppShell.tsx';
 import { TodayPage } from './TodayPage.tsx';
 import { ReviewPage } from './ReviewPage.tsx';
+import { PracticePage } from './PracticePage.tsx';
+import { WrongBookPage } from './WrongBookPage.tsx';
+import { TasksPage } from './TasksPage.tsx';
+import { SkeletonPage } from './SkeletonPage.tsx';
+import { GuidePage } from './GuidePage.tsx';
+import { BookPage } from './BookPage.tsx';
+import { NotesPage } from './NotesPage.tsx';
+import { ExamPage } from './ExamPage.tsx';
+import { FlowPage } from './FlowPage.tsx';
+import { BoardPage } from './BoardPage.tsx';
+import type { PracticeStart } from './PracticePage.tsx';
 import { SourcesPage } from './SourcesPage.tsx';
 import { DecksPage } from './DecksPage.tsx';
 import { StudyPage } from './StudyPage.tsx';
@@ -20,6 +31,8 @@ import { OrganizePage } from './OrganizePage.tsx';
 import { ReaderPage } from './ReaderPage.tsx';
 import type { ReaderTarget } from './ReaderPage.tsx';
 import { useServices } from '@/app/services-context.ts';
+import type { GradingRules } from '@/v2/core/grading.ts';
+import { DEFAULT_GRADING_RULES } from '@/v2/core/grading.ts';
 import './tokens.css';
 import './shell.css';
 import './paper.css';
@@ -34,6 +47,16 @@ import './reader-page.css';
 import './decks-page.css';
 import './study-page.css';
 import './knowledge-page.css';
+import './practice-page.css';
+import './wrongbook-page.css';
+import './tasks-page.css';
+import './skeleton-page.css';
+import './guide-page.css';
+import './book-page.css';
+import './notes-page.css';
+import './exam-page.css';
+import './flow-page.css';
+import './board-page.css';
 
 /**
  * v2 应用入口。
@@ -68,13 +91,11 @@ export interface AppProps {
   modelName?: string | null;
 }
 
-/**
- * 一批复习最多给多少张。
- *
- * 上限本身是合理的（不把几百张一次塞进页面），但**必须让用户知道
- * 后面还有多少** —— 见 navigate('review') 里对 queueTotal 的处理。
+/*
+ * 「一批最多多少张」的上限挪到 PracticePage 了 ——
+ * 现在三种模式（今日 / 自由 / 错题）各自决定分批，
+ * 阈值放在选模式的地方比放在 App 里更合理。
  */
-const REVIEW_BATCH = 30;
 
 export function App({
   reviewService,
@@ -90,12 +111,32 @@ export function App({
 }: AppProps) {
   const [page, setPage] = useState<PageId>('today');
   /**
+   * 计时评分规则（用户在设置里选的宽容度）。
+   *
+   * 为什么不放进 AppProps 由外层传：这样一改，main.tsx 的启动流程
+   * 就要多读一次设置、还要在设置页保存后同步给 App ——
+   * 那条链路跨了三个文件，中间任何一环忘了刷新，用户就会觉得
+   * 「我在设置里改了，做题时没生效」。这里自己读、并在进入做题时重读一次，
+   * 保证「改完立刻生效」这件事只取决于一处。
+   */
+  const [gradingRules, setGradingRules] = useState<GradingRules>(DEFAULT_GRADING_RULES);
+  /**
    * 本轮复习队列。
    *
    * 进「复习」时才构造 —— 每次进入都重新算今日到期，
    * 而不是缓存一份（用户可能中途答完几张又回来）。
    */
   const [queue, setQueue] = useState<Card[] | null>(null);
+  /**
+   * 今日到期的卡（供选题页显示与「今日题组」模式使用）。
+   *
+   * 与 queue 分开：queue 是「正在做的那一轮」，dueCards 是「今天一共有多少」。
+   * 原来两者混用，导致做完一轮后 queue 变了、选题页拿不到正确的数字。
+   */
+  const [dueCards, setDueCards] = useState<Card[]>([]);
+  /** 这一轮的模式（影响提示语与小结） */
+  const [practiceMode, setPracticeMode] = useState<'due' | 'free' | 'wrong'>('due');
+  const [practiceLabel, setPracticeLabel] = useState<string>('');
   /**
    * 今天到期的**真实总数**（可能大于 queue.length）。
    * 复习页据此如实说「今天到期 80 张，这一批先做 30 张」，
@@ -131,7 +172,17 @@ export function App({
   const [readerSourceId, setReaderSourceId] = useState<string | null>(null);
   const [readerTarget, setReaderTarget] = useState<ReaderTarget | null>(null);
 
-  const { library } = useServices();
+  /*
+   * 从服务上下文取用量服务：App 的 props 里没有它（那是 v2Data 之外的层）。
+   * 只取需要的那个，不整体解构 —— 免得将来上下文变大时这里跟着受影响。
+   */
+  const {
+    library,
+    usage: usageService,
+    notes: notesService,
+    exam: examService,
+    todos: todoService,
+  } = useServices();
 
   /**
    * 后端状态与库名的本地副本。
@@ -198,9 +249,27 @@ export function App({
     async (id: PageId) => {
       setPage(id);
       if (id === 'review') {
-        // 进复习就现取今日到期队列
+        /*
+         * 进做题前重读一次评分规则。
+         *
+         * 用户可能刚在设置里把宽容度从「标准」改成「严格」，
+         * 然后直接点开始做题 —— 不重读就会用上一次的值，
+         * 而他没有任何办法察觉（评分数值看着都正常）。
+         */
+        try {
+          const s = await library.getSettings();
+          setGradingRules(s.gradingRules ?? DEFAULT_GRADING_RULES);
+        } catch {
+          /* 读不到就沿用当前值：不能因为设置读取失败就做不了题 */
+        }
+        /*
+         * 进选题页时**不再直接把队列塞进做题界面**。
+         *
+         * 现在先进 PracticePage 让用户选三种模式（今日题组 / 自由练习 / 错题巩固），
+         * 选完才由 startPractice() 构造队列并跳到 practice 页。
+         * 这里只把「今日到期」算出来，供选题页显示数量。
+         */
         setQueueError(null);
-        setQueue(null);
         try {
           const all = await loadCards();
           const today = new Date().toISOString().slice(0, 10);
@@ -220,15 +289,34 @@ export function App({
            * 到期 80 张时用户以为今天只有 30 张，做完就显示「完成」，
            * 那是在骗人。所以把真实总数一起存下来，由复习页如实显示。
            */
-          setQueue(due.slice(0, REVIEW_BATCH));
+          setDueCards(due);
           setQueueTotal(due.length);
         } catch (err) {
           setQueueError(err instanceof Error ? err.message : '读不出卡片');
-          setQueue([]);
+          setDueCards([]);
         }
       }
     },
-    [loadCards, reviewService],
+    [loadCards, reviewService, library],
+  );
+
+  /**
+   * 开始一轮练习。
+   *
+   * 由 PracticePage 在用户选好模式与范围后调用。
+   * 这里只负责「把队列放进做题界面并跳过去」，
+   * 具体选哪些题由 PracticePage 决定 —— 它知道三种模式的差别。
+   */
+  const startPractice = useCallback(
+    (start: PracticeStart) => {
+      setQueueError(null);
+      setQueue(start.cards);
+      setQueueTotal(start.dueTotal ?? start.cards.length);
+      setPracticeMode(start.mode);
+      setPracticeLabel(start.label);
+      setPage('practice');
+    },
+    [],
   );
 
   // 卡片池是数组，每次渲染都可能是新引用 —— 用内容做 key 避免无谓重算
@@ -243,7 +331,95 @@ export function App({
       libraryName={libName}
       reviewProgress={null}
     >
-      {page === 'knowledge' ? (
+      {page === 'board' ? (
+        <BoardPage todos={todoService} />
+      ) : page === 'flow' ? (
+        <FlowPage
+          sourceService={sourceService}
+          decks={decks}
+          knowledge={knowledge}
+          reviewService={reviewService}
+          onOpenOrganize={(sourceId) => {
+            setOrganizeSourceId(sourceId);
+            setPage('organize');
+          }}
+          onOpenSources={() => setPage('sources')}
+          onOpenSource={(sourceId) => {
+            setReaderSourceId(sourceId);
+            setReaderTarget(null);
+            setPage('reader');
+          }}
+          onOpenDecks={() => setPage('decks')}
+          onOpenPractice={() => void navigate('review')}
+        />
+      ) : page === 'exam' ? (
+        <ExamPage
+          exam={examService}
+          decks={decks}
+          sourceService={sourceService}
+          onOpenDecks={() => setPage('decks')}
+        />
+      ) : page === 'notes' ? (
+        <NotesPage
+          notes={notesService}
+          decks={decks}
+          sourceService={sourceService}
+          knowledge={knowledge}
+          onOpenSource={(sourceId) => {
+            setReaderSourceId(sourceId);
+            setReaderTarget(null);
+            setPage('reader');
+          }}
+          onOpenKnowledge={() => setPage('knowledge')}
+        />
+      ) : page === 'book' ? (
+        <BookPage
+          decks={decks}
+          sourceService={sourceService}
+          onOpenSource={(sourceId) => {
+            setReaderSourceId(sourceId);
+            setReaderTarget(null);
+            setPage('reader');
+          }}
+          onOpenDecks={() => setPage('decks')}
+        />
+      ) : page === 'guide' ? (
+        <GuidePage onNavigate={(id) => setPage(id)} />
+      ) : page === 'tasks' ? (
+        <TasksPage
+          sourceService={sourceService}
+          decks={decks}
+          usage={usageService}
+          knowledge={knowledge}
+          onOpenOrganize={(sourceId) => {
+            setOrganizeSourceId(sourceId);
+            setPage('organize');
+          }}
+          onOpenDecks={() => setPage('decks')}
+        />
+      ) : page === 'skeleton' ? (
+        <SkeletonPage
+          knowledge={knowledge}
+          sourceService={sourceService}
+          onOpenKnowledge={() => setPage('knowledge')}
+          onOpenOrganize={(sourceId) => {
+            setOrganizeSourceId(sourceId);
+            setPage('organize');
+          }}
+        />
+      ) : page === 'wrongbook' ? (
+        <WrongBookPage
+          reviewService={reviewService}
+          decks={decks}
+          loadCards={loadCards}
+          onOpenSource={(sourceId) => {
+            setReaderSourceId(sourceId);
+            setReaderTarget(null);
+            setPage('reader');
+          }}
+          onOpenPractice={() => void navigate('review')}
+        />
+      ) : page === 'knowledge' ? (
         <KnowledgePage
           knowledge={knowledge}
           sourceService={sourceService}
@@ -267,15 +443,34 @@ export function App({
           onOpenDecks={() => setPage('decks')}
         />
       ) : page === 'review' ? (
+        <PracticePage
+          decks={decks}
+          sourceService={sourceService}
+          reviewService={reviewService}
+          loadCards={loadCards}
+          dueCards={dueCards}
+          dueTotal={queueTotal}
+          onStart={startPractice}
+          onOpenDecks={() => setPage('decks')}
+          onOpenOrganize={() => {
+            setOrganizeSourceId(null);
+            setPage('organize');
+          }}
+        />
+      ) : page === 'practice' ? (
         queue === null ? (
-          <p className="today__lead">{queueError ?? '正在准备今天要做的题…'}</p>
+          <p className="today__lead">{queueError ?? '正在准备这一轮的题…'}</p>
         ) : (
           <ReviewPage
             service={reviewService}
             queue={queue}
             dueTotal={queueTotal}
-            onFinish={() => setPage('study')}
-            onExit={() => setPage('study')}
+            gradingRules={gradingRules}
+            mode={practiceMode}
+            modeLabel={practiceLabel}
+            notes={notesService}
+            onFinish={() => void navigate('review')}
+            onExit={() => void navigate('review')}
           />
         )
       ) : page === 'sources' ? (
@@ -396,6 +591,7 @@ function Placeholder({ page, onBack }: { page: PageId; onBack: () => void }) {
     record: '课堂实录',
     organize: '整理知识点',
     reader: '阅读原文',
+    practice: '做题中',
     guide: '功能导览',
     settings: '设置',
   };

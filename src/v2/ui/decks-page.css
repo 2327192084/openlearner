@@ -324,3 +324,25 @@
   line-height: var(--lh-body);
   color: var(--text-muted);
 }
+
+/*
+ * 「实际题型」那一行。
+ *
+ * 存在的意义是如实交代：用户勾了三种题型，模型可能只给出其中两种。
+ * 不说的话他会以为都生效了，去列表里才发现少了 —— 那是「界面在骗人」。
+ */
+.gen-done__kinds {
+  margin: 0 0 var(--space-3);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 「这几种没出成」用赭黄：不是错误，是需要知道的事实 */
+.gen-done__missing {
+  display: block;
+  margin-top: 2px;
+  color: var(--warn);
+  font-size: var(--fs-xs);
+}

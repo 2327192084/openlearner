@@ -1,0 +1,282 @@
+/**
+ * 「待办」页样式。
+ *
+ * 取向：记一件事要**最快** —— 输入框在顶部、回车即加。
+ * 列表每行只有「勾选框 + 标题 + 截止日 + 删除」，不堆按钮。
+ *
+ * 复选框与日期输入用原生控件（不动 appearance）：
+ * 项目里踩过「原生控件颜色被无层级规则压掉」的坑，
+ * 只改文字与排布、不重画控件，深浅两套主题都不用重新调。
+ */
+
+@layer study.features {
+  .board-page {
+    max-width: 70ch;
+    margin: var(--space-7) auto var(--space-9);
+    padding: 0 var(--space-4);
+  }
+
+  .bd-head {
+    margin-bottom: var(--space-5);
+  }
+
+  .bd-title {
+    font-size: var(--fs-2xl);
+    font-weight: 650;
+    margin-bottom: var(--space-2);
+    letter-spacing: -0.01em;
+  }
+
+  .bd-lead {
+    color: var(--text-muted);
+    font-size: var(--fs-md);
+    line-height: var(--lh-body);
+    max-width: 62ch;
+  }
+
+  .bd-hint {
+    color: var(--text-faint);
+    font-size: var(--fs-sm);
+  }
+
+  .bd-error {
+    padding: var(--space-2) var(--space-3);
+    margin-bottom: var(--space-3);
+    border-left: 2px solid var(--bad, #c0392b);
+    background: color-mix(in srgb, var(--bad, #c0392b) 10%, transparent);
+    color: var(--text);
+    font-size: var(--fs-sm);
+  }
+
+  .bd-empty {
+    padding: var(--space-6) 0;
+    color: var(--text-faint);
+    font-size: var(--fs-md);
+    text-align: center;
+  }
+
+  /* ---------- 快速添加 ---------- */
+  .bd-add {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    padding: var(--space-3) 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    margin-bottom: var(--space-4);
+  }
+
+  .bd-input {
+    flex: 1 1 24ch;
+    min-width: 0;
+    padding: 7px var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--bg-canvas);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--fs-md);
+  }
+
+  .bd-input:focus-visible,
+  .bd-date:focus-visible {
+    outline: none;
+    border-color: var(--line-strong);
+  }
+
+  .bd-input--inline {
+    flex: 1 1 auto;
+    font-size: var(--fs-sm);
+    padding: 4px var(--space-2);
+  }
+
+  .bd-due {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .bd-due__label {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+  }
+
+  .bd-date {
+    padding: 5px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--bg-canvas);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--fs-sm);
+  }
+
+  /* ---------- 概览 ---------- */
+  .bd-stats {
+    display: flex;
+    gap: var(--space-6);
+    margin-bottom: var(--space-4);
+  }
+
+  .bd-stat {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+  }
+
+  .bd-stat__n {
+    font-size: var(--fs-xl);
+    font-weight: 300;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+  }
+
+  /* 逾期用赭黄：它比普通待办更该被注意，但不是错误 */
+  .bd-stat--warn .bd-stat__n {
+    color: var(--warn);
+  }
+
+  .bd-stat__label {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+  }
+
+  /* ---------- 列表 ---------- */
+  .bd-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .bd-item {
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-2);
+    border-top: 1px solid var(--line);
+  }
+
+  .bd-item:first-child {
+    border-top: none;
+  }
+
+  /* 逾期整条左侧加一道赭黄竖线，扫一眼就知道哪几条拖了 */
+  .bd-item--overdue {
+    box-shadow: inset 2px 0 0 var(--warn);
+  }
+
+  .bd-check {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--ok);
+  }
+
+  .bd-item__title {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--text);
+    font-size: var(--fs-md);
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    cursor: default;
+  }
+
+  /* 已完成的标题划掉并压暗 */
+  .bd-item--done .bd-item__title {
+    color: var(--text-faint);
+    text-decoration: line-through;
+  }
+
+  .bd-item__due {
+    flex: none;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .bd-item__due--overdue {
+    color: var(--warn);
+    font-weight: 550;
+  }
+
+  .bd-item__due--today {
+    color: var(--accent);
+  }
+
+  /* 「不限期」压得更淡：它是常态，不需要被强调 */
+  .bd-item__due--none {
+    opacity: 0.6;
+  }
+
+  /* 删除：常驻淡灰，悬停转莓红 */
+  .bd-item__del {
+    flex: none;
+    border: none;
+    background: transparent;
+    color: var(--text-faint);
+    font: inherit;
+    font-size: var(--fs-xs);
+    cursor: pointer;
+    padding: 0;
+    opacity: 0;
+    transition: opacity 0.12s, color 0.12s;
+  }
+
+  /* 悬停整行才露出删除 —— 一屏待办里不该全是「删除」二字 */
+  .bd-item:hover .bd-item__del,
+  .bd-item__del:focus-visible {
+    opacity: 1;
+  }
+
+  .bd-item__del:hover {
+    color: var(--bad, #c0392b);
+  }
+
+  /* ---------- 已完成 ---------- */
+  .bd-done {
+    margin-top: var(--space-6);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line);
+  }
+
+  .bd-done__toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-faint);
+    font: inherit;
+    font-size: var(--fs-sm);
+    cursor: pointer;
+  }
+
+  .bd-done__toggle:hover {
+    color: var(--text-dim);
+  }
+
+  .bd-caret {
+    display: inline-block;
+    width: 1em;
+    font-size: var(--fs-xs);
+  }
+
+  .bd-list--done {
+    margin-top: var(--space-2);
+    opacity: 0.75;
+  }
+
+  .bd-clear {
+    margin-top: var(--space-3);
+    margin-left: var(--space-2);
+  }
+}

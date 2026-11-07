@@ -1,0 +1,351 @@
+/**
+ * 「知识骨架」页样式。
+ *
+ * 取向：这是一张**结构图**，不是阅读页。
+ * 所以层级分布用条形、章节用紧凑的行、标签用 chip ——
+ * 让人一眼看出「哪一层薄、哪一章多」。
+ */
+
+@layer study.features {
+  .skeleton-page {
+    max-width: 80ch;
+    margin: var(--space-7) auto var(--space-9);
+    padding: 0 var(--space-4);
+  }
+
+  .sk-head {
+    margin-bottom: var(--space-5);
+  }
+
+  .sk-title {
+    font-size: var(--fs-2xl);
+    font-weight: 650;
+    margin-bottom: var(--space-2);
+    letter-spacing: -0.01em;
+  }
+
+  .sk-lead {
+    color: var(--text-muted);
+    font-size: var(--fs-md);
+    line-height: var(--lh-body);
+    max-width: 64ch;
+  }
+
+  .sk-subtitle {
+    font-size: var(--fs-md);
+    font-weight: 550;
+    color: var(--text);
+    margin: var(--space-6) 0 var(--space-3);
+  }
+
+  .sk-hint {
+    color: var(--text-faint);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-body);
+  }
+
+  .sk-error {
+    padding: var(--space-3) var(--space-4);
+    border-left: 2px solid var(--bad, #c0392b);
+    background: color-mix(in srgb, var(--bad, #c0392b) 10%, transparent);
+    color: var(--text);
+    font-size: var(--fs-sm);
+  }
+
+  .sk-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-6) 0;
+    color: var(--text-muted);
+    font-size: var(--fs-md);
+  }
+
+  /* ---------- 层级分布 ---------- */
+  .sk-overview {
+    padding: var(--space-4);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+  }
+
+  .sk-overview__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+  }
+
+  .sk-overview__total {
+    font-size: var(--fs-md);
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sk-levels {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .sk-level__top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-bottom: 3px;
+  }
+
+  .sk-level__label {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+  }
+
+  .sk-level__n {
+    font-size: var(--fs-sm);
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 细条形：4px 高，与首页掌握度条同一套视觉语言 */
+  .sk-level__bar {
+    height: 4px;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--text) 10%, transparent);
+    overflow: hidden;
+  }
+
+  .sk-level__fill {
+    height: 100%;
+    border-radius: var(--radius-pill);
+    transition: width 0.3s ease;
+  }
+
+  /*
+   * 四层用由浅到深的暖色：记忆→理解→应用→分析。
+   * 不用四种彩色 —— 这不是分类，是同一维度的程度递进，
+   * 用同一色系的明度变化更准确。
+   */
+  .sk-level__fill--remember {
+    background: color-mix(in srgb, var(--text) 45%, transparent);
+  }
+
+  .sk-level__fill--understand {
+    background: color-mix(in srgb, var(--text) 62%, transparent);
+  }
+
+  .sk-level__fill--apply {
+    background: var(--ok);
+  }
+
+  .sk-level__fill--analyze {
+    background: var(--accent);
+  }
+
+  .sk-level__hint {
+    display: block;
+    margin-top: 3px;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+  }
+
+  /*
+   * 数据质量提示。
+   *
+   * 用赭黄（warn）而不是朱砂：它不是主操作，也不是错误，
+   * 而是「这块数据不完整，你可能想处理一下」。
+   */
+  .sk-notice {
+    margin-top: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius);
+    border-left: 2px solid var(--warn);
+    background: color-mix(in srgb, var(--warn) 8%, transparent);
+  }
+
+  .sk-notice__title {
+    font-size: var(--fs-sm);
+    font-weight: 550;
+    color: var(--warn);
+    margin-bottom: var(--space-2);
+  }
+
+  .sk-notice__body {
+    font-size: var(--fs-sm);
+    line-height: var(--lh-body);
+    color: var(--text-dim);
+    margin-bottom: var(--space-3);
+  }
+
+  /* ---------- 标签 ---------- */
+  .sk-tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .sk-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+    color: var(--text-dim);
+    font-size: var(--fs-xs);
+    line-height: 1.8;
+  }
+
+  .sk-tag__n {
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- 资料 → 章节 ---------- */
+  .sk-tree {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .sk-source {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  .sk-source__head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-3) var(--space-4);
+    border: none;
+    background: var(--bg-surface);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--fs-md);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .sk-source__head:hover {
+    background: var(--bg-hover);
+  }
+
+  .sk-caret {
+    flex: none;
+    display: inline-block;
+    width: 1em;
+    color: var(--text-faint);
+    transition: transform 0.15s ease;
+  }
+
+  .sk-caret--open {
+    transform: rotate(90deg);
+  }
+
+  .sk-source__title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sk-source__meta {
+    flex: none;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sk-warn {
+    color: var(--warn);
+  }
+
+  .sk-chapters {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .sk-chapter {
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-4);
+    border-top: 1px solid var(--line);
+    font-size: var(--fs-sm);
+  }
+
+  .sk-chapter:first-child {
+    border-top: none;
+  }
+
+  .sk-chapter__head {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+  }
+
+  .sk-chapter__name {
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sk-chapter__n {
+    flex: none;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 四个层级小格 */
+  .sk-chapter__levels {
+    flex: none;
+    display: flex;
+    gap: 3px;
+  }
+
+  .sk-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 5px;
+    border-radius: var(--radius-xs);
+    font-size: 11px;
+    line-height: 1.7;
+    color: var(--text-faint);
+    background: color-mix(in srgb, var(--text) 5%, transparent);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 有数量的格子才着色，0 保持灰 —— 一眼能看出哪一层是空的 */
+  .sk-chip--on.sk-chip--remember {
+    background: color-mix(in srgb, var(--text) 22%, transparent);
+    color: var(--text);
+  }
+
+  .sk-chip--on.sk-chip--understand {
+    background: color-mix(in srgb, var(--text) 32%, transparent);
+    color: var(--text);
+  }
+
+  .sk-chip--on.sk-chip--apply {
+    background: color-mix(in srgb, var(--ok) 22%, transparent);
+    color: var(--ok);
+  }
+
+  .sk-chip--on.sk-chip--analyze {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    color: var(--accent-text);
+  }
+}

@@ -187,6 +187,28 @@ function loadWindowState() {
       state.height = Math.max(state.height, WINDOW_DEFAULTS.minHeight);
     }
 
+    /*
+     * ---- 窗口位置必须真的落在某块屏幕上 ----
+     *
+     * 这里原来只校验了尺寸，**完全没管 x/y**。实测用户的 window-state.json 是：
+     *   {"width":1490,"height":876,"x":-85,"y":48}
+     * x = -85 意味着窗口左边有 85px 在屏幕外，
+     * 表现是「左半边露不出来、右边留一条边」—— 用户看到的就是白边/错位。
+     *
+     * 成因通常是：上次把窗口拖到副屏、或者改了屏幕分辨率/拔了外接屏。
+     * 那种状态下保存的坐标，换回单屏后就是越界的。
+     *
+     * 处理：先用主屏的工作区判断，越界就**丢掉保存的坐标**让系统自己居中；
+     * 这里拿不到 screen 模块的完整信息（可能在 ready 之前），
+     * 所以用保守策略 —— 坐标明显为负或大得离谱就直接不用。
+     */
+    const suspiciousX = state.x !== undefined && (state.x < -40 || state.x > 10000);
+    const suspiciousY = state.y !== undefined && (state.y < -40 || state.y > 10000);
+    if (suspiciousX || suspiciousY) {
+      delete state.x;
+      delete state.y;
+    }
+
     return state;
   } catch {
     return {};
@@ -550,8 +572,19 @@ function createWindow() {
       : {}),
     // 先隐藏，等首帧画完再显示 —— 避免白屏闪一下再出现内容
     show: false,
-    // 背景色对齐 --c-bg (#f7f8fa)，窗口出现时不会闪白/闪黑
-    backgroundColor: '#f7f8fa',
+    /*
+     * 背景色必须对齐**深色**主题的 --bg-canvas (#161412)。
+     *
+     * 这里原来写的是 '#f7f8fa' —— 那是 v1 浅色主题的底色，
+     * 主题改成深色之后忘了同步。后果是：
+     *  1. 窗口出现的一瞬间会闪一下浅色；
+     *  2. 内容没铺满时（窗口被拖窄、滚动条区域、页面右侧留白）
+     *     会露出这条浅色边 —— 用户看到的就是「界面右边有白边」。
+     *
+     * 修法有两个方向：把底色改成深色（这里），以及保证内容铺满（App 层的 CSS）。
+     * 两个都要做：只改底色，内容没铺满时会露出深色板，仍然像缺一块。
+     */
+    backgroundColor: '#161412',
     title: 'OpenLeaner',
     autoHideMenuBar: false,
     webPreferences: {

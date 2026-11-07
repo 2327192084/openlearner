@@ -165,6 +165,18 @@
     font-size: var(--fs-md);
     line-height: var(--lh-body);
     -webkit-font-smoothing: antialiased;
+    /*
+     * 内容区最小宽度保护。
+     *
+     * 侧栏是 flex:none 的固定宽度，主内容区里又有一堆不换行的长标题
+     * （题组名可以很长）。窗口被拖窄时，这些会把 .app 撑得比视口宽 ——
+     * 于是出现横向滚动条，而滚动条右侧露出的就是页面底色。
+     *
+     * `min-width: 0` 让主内容区可以被压缩（配合内部的 overflow 处理），
+     * 而不是把整个容器顶宽。这是 flex 布局里最常见的一个坑：
+     * 默认 min-width 是 auto，子项不会缩到内容以下。
+     */
+    min-width: 0;
   }
 
   /*

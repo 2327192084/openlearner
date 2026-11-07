@@ -1,0 +1,189 @@
+/**
+ * 「任务」页样式。
+ *
+ * 取向：这是一页**核对**用的界面（我花的钱和刚才那次操作对得上吗），
+ * 所以时间、状态、产出数量要清晰可扫，不宜有大色块抢注意力。
+ */
+
+@layer study.features {
+  .tasks-page {
+    max-width: 76ch;
+    margin: var(--space-7) auto var(--space-9);
+    padding: 0 var(--space-4);
+  }
+
+  .tk-head {
+    margin-bottom: var(--space-5);
+  }
+
+  .tk-title {
+    font-size: var(--fs-2xl);
+    font-weight: 650;
+    margin-bottom: var(--space-2);
+    letter-spacing: -0.01em;
+  }
+
+  .tk-lead {
+    color: var(--text-muted);
+    font-size: var(--fs-md);
+    line-height: var(--lh-body);
+    max-width: 64ch;
+  }
+
+  .tk-hint {
+    color: var(--text-faint);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-body);
+  }
+
+  .tk-error {
+    padding: var(--space-3) var(--space-4);
+    border-left: 2px solid var(--bad, #c0392b);
+    background: color-mix(in srgb, var(--bad, #c0392b) 10%, transparent);
+    color: var(--text);
+    font-size: var(--fs-sm);
+  }
+
+  /* ---------- 用量概览 ---------- */
+  .tk-usage {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-4);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+  }
+
+  .tk-usage__total strong {
+    color: var(--text);
+    font-weight: 550;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tk-usage__item {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-faint);
+    font-size: var(--fs-xs);
+  }
+
+  .tk-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-6) 0;
+    color: var(--text-muted);
+    font-size: var(--fs-md);
+  }
+
+  /* ---------- 运行记录 ---------- */
+  .tk-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .tk-item {
+    list-style: none;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+  }
+
+  .tk-item__head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-2);
+  }
+
+  /*
+   * 状态徽标。四档颜色语义：
+   *   完成 → 玉绿 / 进行中 → 中性 / 已停止 → 赭黄 / 失败 → 莓红
+   * 这是全站统一的语义色，别处也是这套。
+   */
+  .tk-badge {
+    padding: 1px 7px;
+    border-radius: var(--radius-xs);
+    font-size: var(--fs-xs);
+    font-weight: 550;
+    line-height: 1.7;
+  }
+
+  .tk-badge--completed {
+    background: color-mix(in srgb, var(--ok) 16%, transparent);
+    color: var(--ok);
+  }
+
+  .tk-badge--running {
+    background: color-mix(in srgb, var(--text) 12%, transparent);
+    color: var(--text-dim);
+  }
+
+  .tk-badge--stopped {
+    background: color-mix(in srgb, var(--warn) 16%, transparent);
+    color: var(--warn);
+  }
+
+  .tk-badge--failed {
+    background: color-mix(in srgb, var(--bad, #c0392b) 16%, transparent);
+    color: var(--bad, #c0392b);
+  }
+
+  .tk-item__kind {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+  }
+
+  .tk-item__time,
+  .tk-item__dur {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tk-item__target {
+    color: var(--text);
+    font-size: var(--fs-md);
+    line-height: 1.5;
+    margin-bottom: var(--space-2);
+    overflow-wrap: anywhere;
+  }
+
+  .tk-item__meta {
+    display: flex;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tk-item__warn {
+    color: var(--warn);
+  }
+
+  .tk-item__error {
+    margin-top: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-left: 2px solid var(--bad, #c0392b);
+    background: color-mix(in srgb, var(--bad, #c0392b) 8%, transparent);
+    color: var(--text-dim);
+    font-size: var(--fs-sm);
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+  }
+
+  .tk-item__foot {
+    margin-top: var(--space-2);
+  }
+}

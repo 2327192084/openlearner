@@ -1,0 +1,217 @@
+/**
+ * 「功能导览」页样式。
+ *
+ * 取向：这是说明书，不是营销页。
+ * 排版以「能扫读」为第一优先 —— 分组标题清楚、每项两行（名字 + 一句话），
+ * 不要卡片套卡片那种视觉噪音。
+ */
+
+@layer study.features {
+  .guide-page {
+    max-width: 78ch;
+    margin: var(--space-7) auto var(--space-9);
+    padding: 0 var(--space-4);
+  }
+
+  .gd-head {
+    margin-bottom: var(--space-5);
+  }
+
+  .gd-title {
+    font-size: var(--fs-2xl);
+    font-weight: 650;
+    margin-bottom: var(--space-2);
+    letter-spacing: -0.01em;
+  }
+
+  .gd-lead {
+    color: var(--text-muted);
+    font-size: var(--fs-md);
+    line-height: var(--lh-body);
+    max-width: 66ch;
+  }
+
+  /* ---------- 概览数字 ---------- */
+  .gd-stats {
+    display: flex;
+    gap: var(--space-7);
+    padding: var(--space-4) 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    margin-bottom: var(--space-5);
+  }
+
+  .gd-stat {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+  }
+
+  .gd-stat__n {
+    font-size: var(--fs-2xl);
+    font-weight: 300;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+  }
+
+  /* 「还没做」那一档压暗：不是成就，只是状态 */
+  .gd-stat--dim .gd-stat__n {
+    color: var(--text-faint);
+  }
+
+  .gd-stat__label {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+  }
+
+  /* ---------- 标题层级 ---------- */
+  .gd-h2 {
+    font-size: var(--fs-lg);
+    font-weight: 550;
+    color: var(--text);
+    margin: var(--space-7) 0 var(--space-3);
+  }
+
+  .gd-h2--pending {
+    color: var(--text-dim);
+  }
+
+  .gd-group {
+    margin-bottom: var(--space-4);
+  }
+
+  .gd-group__title {
+    font-size: var(--fs-xs);
+    font-weight: 550;
+    color: var(--text-faint);
+    letter-spacing: 0.06em;
+    margin-bottom: var(--space-2);
+  }
+
+  .gd-hint {
+    color: var(--text-faint);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-body);
+    margin-bottom: var(--space-3);
+    max-width: 64ch;
+  }
+
+  /* ---------- 每一项 ---------- */
+  .gd-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    /* 用 1px 分隔线而不是间距堆叠：说明书要紧凑，一屏能看更多 */
+    border-top: 1px solid var(--line);
+  }
+
+  .gd-item {
+    list-style: none;
+    border-bottom: 1px solid var(--line);
+  }
+
+  /*
+   * 能用的项做成整行可点（按钮撑满一行）。
+   * 悬停给一点底色，暗示「点得动」—— 这是这一页唯一的交互，
+   * 不需要朱砂按钮那么强的强调。
+   */
+  .gd-item__btn {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    padding: var(--space-3) var(--space-3);
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+
+  .gd-item__btn:hover {
+    background: var(--bg-hover);
+  }
+
+  .gd-item--static,
+  .gd-item--pending {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-3) var(--space-3);
+  }
+
+  .gd-item__name {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--text);
+    font-size: var(--fs-md);
+    font-weight: 550;
+  }
+
+  /* 还没做的项名字压暗，一眼能分出来 */
+  .gd-item--pending .gd-item__name {
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+
+  .gd-item__purpose {
+    color: var(--text-dim);
+    font-size: var(--fs-sm);
+    line-height: 1.55;
+  }
+
+  .gd-item--pending .gd-item__purpose {
+    color: var(--text-faint);
+  }
+
+  .gd-item__how {
+    color: var(--text-faint);
+    font-size: var(--fs-xs);
+    margin-top: 2px;
+  }
+
+  /* 「还没做」徽标：中性灰，不用彩色（它不是警告，只是事实） */
+  .gd-badge {
+    padding: 0 6px;
+    border-radius: var(--radius-xs);
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+    color: var(--text-faint);
+    font-size: var(--fs-xs);
+    font-weight: 400;
+    line-height: 1.7;
+  }
+
+  /* ---------- 要点 ---------- */
+  .gd-tips {
+    margin-top: var(--space-8);
+  }
+
+  .gd-tip-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .gd-tip-list li {
+    list-style: none;
+    padding-left: var(--space-4);
+    border-left: 2px solid var(--line);
+    color: var(--text-dim);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-body);
+  }
+
+  .gd-tip-list strong {
+    color: var(--text);
+    font-weight: 550;
+  }
+}

@@ -22,7 +22,21 @@ body {
   font-size: var(--fs-base);
   line-height: 1.6;
   color: var(--c-text);
-  background: var(--c-bg);
+  /*
+   * 底色必须用 v2 主题的 --bg-canvas，不能用 v1 的 --c-bg。
+   *
+   * --c-bg 是浅色 (#f7f8fa)，而 v2 是深色书桌。
+   * 页面主体（.app）自己有深色底，看起来正常；但只要出现
+   * **任何没被 .app 盖住的区域**，露出来的就是这条浅色：
+   *   - 窗口比内容宽一点时的右侧留白
+   *   - 滚动条轨道
+   *   - 内容高度不足 100vh 时的下方
+   *   - 窗口把内容挤窄、出现横向溢出时
+   * 用户看到的就是「界面右边有一条白边」。
+   *
+   * 这里改成深色之后，即使内容没铺满，露出的也是同色 —— 视觉上无缝。
+   */
+  background: #161412;
   -webkit-font-smoothing: antialiased;
   /* 桌面端禁用整页回弹，像应用而不像网页 */
   overscroll-behavior: none;
