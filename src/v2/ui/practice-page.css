@@ -277,4 +277,29 @@
   color: var(--text-dim);
   font-size: var(--fs-xs);
   white-space: nowrap;
+
+  /*
+   * 新卡区（2026-11-08 新增）。
+   *
+   * 与「今日到期」分开呈现：到期是「该复习」，新卡是「还没开始」。
+   * 视觉上用一条虚线分隔 —— 说明它们不是同一件事，
+   * 但又都属于「今天可以练」的范围。
+   */
+  .practice-fresh {
+    margin-top: var(--space-5);
+    padding-top: var(--space-4);
+    border-top: 1px dashed var(--line);
+  }
+
+  .practice-fresh__hint {
+    font-size: var(--fs-sm);
+    line-height: var(--lh-body);
+    color: var(--text-dim);
+    margin-bottom: var(--space-3);
+  }
+
+  .practice-fresh__hint strong {
+    color: var(--text);
+    font-weight: 600;
+  }
 }

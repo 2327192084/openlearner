@@ -147,11 +147,24 @@
     margin-bottom: var(--space-3);
   }
 
+  /*
+   * 大数字（待复习张数）。
+   *
+   * 用户 2026-11-08 反馈截图里「8」竖着断成两行 —— 看着像「88」。
+   * 根因不是字号小，而是**没有禁止换行**：卡片内宽不够时，
+   * 单个数位也能被挤到下一行。所以调大字号的同时必须 nowrap。
+   *
+   *   1. white-space: nowrap —— 数字永远不断行（根因）
+   *   2. clamp 随视口缩放 —— 窄卡片自动变小，不会被裁切
+   *   3. tabular-nums + 收紧字距 —— 两位数（12、100）也整齐
+   */
   .paper__big {
-    font-size: var(--fs-8xl, 96px);
+    font-size: clamp(72px, 20vw, 128px);
     /* display 数字用最细字重：大字号下粗字重会显得笨重 */
     font-weight: 300;
-    line-height: 1;
+    line-height: 0.92;
+    letter-spacing: -0.02em;
+    white-space: nowrap;
     font-variant-numeric: tabular-nums;
     color: var(--paper-ink);
     margin-bottom: var(--space-1);

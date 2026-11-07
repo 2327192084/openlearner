@@ -19,7 +19,8 @@ const DB_NAME = 'openleaner';
 /** v5：新增 notes（学习笔记） */
 /** v6：新增 examAttempts（模拟考试记录） */
 /** v7：新增 todos（待办） */
-const DB_VERSION = 7;
+/** v8：新增 focusSessions（专注记录 / 番茄钟） */
+const DB_VERSION = 8;
 
 /**
  * IndexedDB 存储适配器（浏览器与 Electron 渲染进程用）。

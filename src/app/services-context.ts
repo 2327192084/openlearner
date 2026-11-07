@@ -10,6 +10,7 @@ import type { AnnotationService } from '@/core/annotation-service.ts';
 import type { NoteService } from '@/core/notes.ts';
 import type { ExamService } from '@/core/exam.ts';
 import type { TodoService } from '@/core/todos.ts';
+import type { FocusService } from '@/core/focus.ts';
 
 /**
  * 应用运行时上下文。
@@ -32,6 +33,8 @@ export interface AppServices {
   exam: ExamService;
   /** 待办（带截止日的学习计划） */
   todos: TodoService;
+  /** 专注记录（番茄钟） */
+  focus: FocusService;
   /** P2：知识点整理与校对 */
   knowledge: KnowledgeService;
   /** P3：习题集、作答与错题 */

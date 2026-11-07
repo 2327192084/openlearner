@@ -14,6 +14,7 @@ import { NotesPage } from './NotesPage.tsx';
 import { ExamPage } from './ExamPage.tsx';
 import { MapPage } from './MapPage.tsx';
 import { BoardPage } from './BoardPage.tsx';
+import { FocusPage } from './FocusPage.tsx';
 import type { PracticeStart } from './PracticePage.tsx';
 import { SourcesPage } from './SourcesPage.tsx';
 import { DecksPage } from './DecksPage.tsx';
@@ -57,6 +58,7 @@ import './book-page.css';
 import './notes-page.css';
 import './exam-page.css';
 import './map-page.css';
+import './focus-page.css';
 import './board-page.css';
 
 /**
@@ -135,6 +137,13 @@ export function App({
    * 原来两者混用，导致做完一轮后 queue 变了、选题页拿不到正确的数字。
    */
   const [dueCards, setDueCards] = useState<Card[]>([]);
+  /**
+   * 今天可以学、但**从没练过**的卡（首页的「没学过」）。
+   *
+   * 与 dueCards 分开：到期和没学过是两种不同的状态，
+   * 混在一起会让「今天到期 8 张」变成「14 张到期」。
+   */
+  const [freshCards, setFreshCards] = useState<Card[]>([]);
   /** 这一轮的模式（影响提示语与小结） */
   const [practiceMode, setPracticeMode] = useState<'due' | 'free' | 'wrong'>('due');
   const [practiceLabel, setPracticeLabel] = useState<string>('');
@@ -146,6 +155,20 @@ export function App({
   const [queueTotal, setQueueTotal] = useState<number>(0);
   const [queueError, setQueueError] = useState<string | null>(null);
   const [overviewCounts, setOverviewCounts] = useState<Partial<Record<PageId, number>>>({});
+  /**
+   * 待办页「现在可以做」的数据来源。
+   *
+   * 为什么在 App 里算：它需要「题组 → 总题数 / 练过几道 / 错几道」，
+   * 这与首页和学习地图用的是同一类聚合。放在 page 组件里各算一遍，
+   * 迟早会出现三个界面的数字不一致（项目踩过）。
+   *
+   * 初值全空 —— 待办页在数据就绪前显示「暂无建议」，不编内容。
+   */
+  const [suggestionInput, setSuggestionInput] = useState<{
+    decks: { id: string; title: string; total: number; done: number; wrong: number }[];
+    sourcesWithoutQuestions: number;
+    wrongTotal: number;
+  }>({ decks: [], sourcesWithoutQuestions: 0, wrongTotal: 0 });
   /**
    * 从资料列表点进来时，要带上是哪一份。
    *
@@ -185,6 +208,7 @@ export function App({
     notes: notesService,
     exam: examService,
     todos: todoService,
+    focus: focusService,
   } = useServices();
 
   /**
@@ -248,6 +272,63 @@ export function App({
     void refreshCounts();
   }, [refreshCounts]);
 
+  /**
+   * 进待办页前重算「现在可以做」。
+   *
+   * 与 refreshCounts 分开放：那个是侧栏徽标的轻量计数，
+   * 这个要读题组与复习记录，重一些，只在真的要看那一页时算。
+   */
+  const refreshSuggestions = useCallback(async () => {
+    try {
+      const [cards, deckList, records, wrong, srcs] = await Promise.all([
+        loadCards(),
+        decks.list(),
+        reviewService.listRecords(),
+        reviewService.wrongCardsDetailed(),
+        sourceService.list(),
+      ]);
+      const learned = new Set(records.filter((r) => r.state.reviewCount > 0).map((r) => r.cardId));
+      const wrongByDeck = new Map<string, number>();
+      const cardById = new Map(cards.map((c) => [c.id, c]));
+      for (const w of wrong) {
+        const c = cardById.get(w.cardId);
+        if (!c) continue;
+        wrongByDeck.set(c.deckId, (wrongByDeck.get(c.deckId) ?? 0) + 1);
+      }
+
+      const totalByDeck = new Map<string, number>();
+      const doneByDeck = new Map<string, number>();
+      for (const c of cards) {
+        totalByDeck.set(c.deckId, (totalByDeck.get(c.deckId) ?? 0) + 1);
+        if (learned.has(c.id)) doneByDeck.set(c.deckId, (doneByDeck.get(c.deckId) ?? 0) + 1);
+      }
+
+      /* 有资料、但没有任何题组的资料数 */
+      const deckSourceIds = new Set(deckList.map((d) => d.sourceId).filter(Boolean));
+      const sourcesWithoutQuestions = srcs.filter((s) => !deckSourceIds.has(s.id)).length;
+
+      setSuggestionInput({
+        decks: deckList
+          .filter((d) => d.status === 'published')
+          .map((d) => ({
+            id: d.id,
+            title: d.title,
+            total: totalByDeck.get(d.id) ?? 0,
+            done: doneByDeck.get(d.id) ?? 0,
+            wrong: wrongByDeck.get(d.id) ?? 0,
+          })),
+        sourcesWithoutQuestions,
+        wrongTotal: wrong.length,
+      });
+    } catch {
+      /* 读不出来就保持上一次的值：待办页本身仍然能用 */
+    }
+  }, [loadCards, decks, reviewService, sourceService]);
+
+  useEffect(() => {
+    if (page === 'board') void refreshSuggestions();
+  }, [page, refreshSuggestions]);
+
   const navigate = useCallback(
     async (id: PageId) => {
       setPage(id);
@@ -278,11 +359,27 @@ export function App({
           const today = new Date().toISOString().slice(0, 10);
           const records = await reviewService.listRecords();
           const byId = new Map(records.map((r) => [r.cardId, r]));
+
+          /*
+           * ⚠️ 这里必须与首页 `todayOverview().dueCount` 口径一致（2026-11-08 修）。
+           *
+           * 原来的写法把「没学过的新卡」也算进到期：
+           *   if (!r) return true; // 没学过也算今天可学
+           * 于是首页写「8 张待复习」（只数有记录的到期卡），
+           * 点进去却是「今天有 14 道题到了该复习的时候」（8 到期 + 6 新卡）——
+           * 用户看到的 8 凭空变了 14，而且新卡被说成「到期」，两句话都不对。
+           *
+           * 现在分开算：
+           *  - due   = 有记录且 dueAt <= today      ↔ 首页的 dueCount
+           *  - fresh = 从没练过                       ↔ 首页的 freshCount
+           * 两块在选题页分别呈现，各自说各自的话。
+           */
           const due = all.filter((c) => {
             const r = byId.get(c.id);
-            if (!r) return true; // 没学过也算今天可学
-            return r.state.dueAt <= today;
+            return r ? r.state.dueAt <= today : false;
           });
+          const fresh = all.filter((c) => !byId.has(c.id));
+
           /*
            * 一批最多做 REVIEW_BATCH 张。
            *
@@ -293,10 +390,12 @@ export function App({
            * 那是在骗人。所以把真实总数一起存下来，由复习页如实显示。
            */
           setDueCards(due);
+          setFreshCards(fresh);
           setQueueTotal(due.length);
         } catch (err) {
           setQueueError(err instanceof Error ? err.message : '读不出卡片');
           setDueCards([]);
+          setFreshCards([]);
         }
       }
     },
@@ -335,7 +434,24 @@ export function App({
       reviewProgress={null}
     >
       {page === 'board' ? (
-        <BoardPage todos={todoService} />
+        <BoardPage
+          todos={todoService}
+          suggestionInput={suggestionInput}
+          onSuggestion={(kind) => {
+            /*
+             * 三种建议分别去三个地方：
+             *  - 出题 → 我的题组（新建题组就地展开）
+             *  - 练题组 → 做题（选题页）
+             *  - 巩固错题 → 做题（选题页里选错题巩固）
+             * 错题没有独立入口页，走做题页是对的 ——
+             * 那里本来就有「错题巩固」这一档。
+             */
+            if (kind === 'make-questions') setPage('decks');
+            else void navigate('review');
+          }}
+        />
+      ) : page === 'focus' ? (
+        <FocusPage focus={focusService} />
       ) : page === 'flow' ? (
         <MapPage
           reviewService={reviewService}
@@ -447,6 +563,7 @@ export function App({
           reviewService={reviewService}
           loadCards={loadCards}
           dueCards={dueCards}
+          freshCards={freshCards}
           dueTotal={queueTotal}
           onStart={startPractice}
           onOpenDecks={() => setPage('decks')}
@@ -550,7 +667,15 @@ export function App({
           connected={conn.connected}
           modelName={conn.modelName}
           onOpenSources={() => setPage('sources')}
-          onStartReview={() => setPage('review')}
+          /*
+           * 必须走 navigate，不能 setPage('review')。
+           *
+           * 用户 2026-11-08 报：「界面显示 8 张待复习，点进去没有任何关于 8 的内容」。
+           * 根因就在这里 —— navigate 里有「进做题前重算今日到期」那一段
+           * （读卡片、算 due、setDueCards / setQueueTotal），setPage 全绕过了。
+           * 于是选题页拿到 dueCards=[]、dueTotal=0，而首页明明写着 8 张。
+           */
+          onStartReview={() => void navigate('review')}
           onOpenDecks={() => setPage('decks')}
           onOpenDeck={(deckId) => {
             /*
@@ -626,6 +751,7 @@ function Placeholder({ page, onBack }: { page: PageId; onBack: () => void }) {
     flow: '学习流',
     notes: '学习笔记',
     board: '待办',
+    focus: '专注',
     exam: '模拟考试',
     examprep: '备考补习',
     book: '复习全书',

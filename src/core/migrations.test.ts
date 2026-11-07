@@ -997,3 +997,87 @@ describe('migrateBackup：v9 → v10（PPT 出处从知识点换成原文段落�
     expect(decks[0]!.citations[0]!.segmentId).toBe('');
   });
 });
+
+/**
+ * v13 → v14：新增 focusSessions（专注记录）。
+ *
+ * 这一组是本次唯一动数据库版本的地方，必须验到底 ——
+ * 上一轮就漏过 DB_VERSION，导致新分区在老用户库上根本没建出来，
+ * 而类型检查抓不到（那些是数字，不是类型）。
+ */
+describe('v13 → v14：专注记录', () => {
+  function makeV13Backup(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      format: 'openleaner-library',
+      schemaVersion: 13,
+      exportedAt: '2026-11-07T00:00:00.000Z',
+      meta: { id: 'meta', name: 'v13 库', schemaVersion: 13, createdAt: '', updatedAt: '' },
+      settings: { id: 'settings', locale: 'zh-CN', questionLanguage: 'zh', onboarded: true },
+      courses: [],
+      sources: [],
+      sourceSegments: [],
+      knowledgePoints: [],
+      generationRuns: [],
+      decks: [],
+      questions: [],
+      answerRecords: [],
+      backends: [],
+      usageRecords: [],
+      slideImages: [],
+      slideDecks: [],
+      sourceAnnotations: [],
+      reviewRecords: [],
+      reviewLogs: [],
+      notes: [],
+      examAttempts: [],
+      todos: [{ id: 'todo_1', title: '旧待办', note: '', dueAt: null, done: false, doneAt: null, createdAt: '', updatedAt: '', order: 0 }],
+      ...overrides,
+    };
+  }
+
+  it('旧备份补空的 focusSessions，不造内容', () => {
+    const migrated = migrateBackup(makeV13Backup() as unknown as LibraryBackup);
+    expect(migrated.schemaVersion).toBe(14);
+    expect(migrated.focusSessions).toEqual([]);
+  });
+
+  it('已经有的 focusSessions 不被覆盖', () => {
+    const existing = [
+      {
+        id: 'focus_1',
+        task: '复习',
+        plannedSec: 1500,
+        elapsedSec: 1500,
+        completed: true,
+        startedAt: '2026-11-07T10:00:00.000Z',
+        localDay: '2026-11-07',
+        manual: false,
+      },
+    ];
+    const migrated = migrateBackup(makeV13Backup({ focusSessions: existing }) as unknown as LibraryBackup);
+    expect(migrated.focusSessions).toHaveLength(1);
+    expect(migrated.focusSessions![0]!.localDay).toBe('2026-11-07');
+  });
+
+  it('focusSessions 是坏值（非数组）时补空数组，不抛错', () => {
+    const migrated = migrateBackup(makeV13Backup({ focusSessions: 'oops' }) as unknown as LibraryBackup);
+    expect(migrated.focusSessions).toEqual([]);
+  });
+
+  it('旧待办原样保留（迁移只做加法）', () => {
+    const migrated = migrateBackup(makeV13Backup() as unknown as LibraryBackup);
+    expect(migrated.todos).toHaveLength(1);
+    expect(migrated.todos![0]!.title).toBe('旧待办');
+  });
+
+  it('v13 备份能真正导入学习库', async () => {
+    const storage = new MemoryStorage();
+    const service = new LibraryService(storage);
+    await service.create('目标');
+
+    const meta = await service.importBackup(makeV13Backup() as unknown as LibraryBackup);
+    expect(meta.name).toBe('v13 库');
+    // 新分区在库里建出来了，且能读（空数组）
+    expect(await storage.getAll('focusSessions')).toEqual([]);
+  });
+});

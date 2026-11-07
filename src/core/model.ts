@@ -9,7 +9,7 @@
  */
 
 /** 当前学习库结构版本。改动实体结构时递增，并在 migrations.ts 补一段迁移。 */
-export const LIBRARY_SCHEMA_VERSION = 13;
+export const LIBRARY_SCHEMA_VERSION = 14;
 
 /**
  * 位置信息 —— 全项目「点回原文」的唯一依据。
@@ -738,6 +738,62 @@ export interface Todo {
   updatedAt: string;
   /** 排序序号：小的在前（用户手动排序用） */
   order: number;
+  /**
+   * 优先级。
+   *
+   * 为什么是三档而不是 1–5：学习任务的优先级判断本来就粗
+   * （「这个急 / 一般 / 想起来再说」），五档会强迫用户做无意义的区分。
+   * 缺失/未知一律当 `normal` —— 旧数据没有这个字段。
+   */
+  priority?: 'high' | 'normal' | 'low';
+  /**
+   * 标签（如「数学」「第3章」）。
+   *
+   * 为什么不做成一个独立的标签表：标签在这里只是筛选用的字串，
+   * 没有颜色、没有层级、没有跨对象引用。建表只会多一层维护成本。
+   * 去重与规范化在 `TodoService` 里做。
+   */
+  tags?: string[];
+}
+
+/**
+ * 一次专注（番茄钟）记录。
+ *
+ * ## 为什么落库而不是只存在内存
+ *
+ * 「今天专注了几轮」是用户坚持的证据。只在内存里数，
+ * 关掉窗口就归零 —— 那这个功能只会让人以为自己什么都没做。
+ *
+ * ## 为什么不叫「番茄」
+ *
+ * 时长可配置（25/45/50 分钟都有人用），硬叫「番茄」会暗示固定 25 分钟。
+ * 界面用语是「专注」，时长由用户选。
+ */
+export interface FocusSession {
+  id: string;
+  /**
+   * 这一轮进行什么。
+   *
+   * 自由填写（可为空）。与 Todo 不做外键关联 ——
+   * 专注时想专注什么就专注什么，不应该强迫用户先去建一条待办。
+   */
+  task: string;
+  /** 计划时长（秒） */
+  plannedSec: number;
+  /** 实际专注时长（秒）。中止的轮次小于 plannedSec */
+  elapsedSec: number;
+  /** 是否完整走完 */
+  completed: boolean;
+  /** 开始时间 ISO；localDay 是本地日历日，供「今天专注了几轮」直接统计 */
+  startedAt: string;
+  localDay: string;
+  /**
+   * 是否属于实况。
+   *
+   * 用户可能手动补记（「刚才在图书馆专注了 40 分钟」），
+   * 那种 elapsedSec 是自报的。留一个标记，统计时能区分。
+   */
+  manual: boolean;
 }
 
 /**
@@ -949,6 +1005,13 @@ export interface LibraryBackup {
   examAttempts?: ExamAttempt[];
   /** 待办。可选以兼容旧备份。 */
   todos?: Todo[];
+  /**
+   * 专注记录（番茄钟）。
+   *
+   * 可选以兼容旧备份（v13 及之前没有这个字段），导入时按空数组处理。
+   * 进备份的理由与 todos 相同：这是用户坚持的证据，换机器不该归零。
+   */
+  focusSessions?: FocusSession[];
 }
 
 // ---------------------------------------------------------------------------

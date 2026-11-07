@@ -382,6 +382,20 @@ const migrations: Record<number, Migration> = {
     schemaVersion: 13,
     todos: Array.isArray(backup.todos) ? backup.todos : [],
   }),
+
+  /**
+   * v13 → v14
+   *
+   * 新增 `focusSessions`（专注记录 / 番茄钟）。
+   *
+   * 只做加法：旧备份补空数组。同样不造内容 ——
+   * 伪造一条「今天专注了 25 分钟」比空着更糟，用户会以为是真的。
+   */
+  13: (backup) => ({
+    ...backup,
+    schemaVersion: 14,
+    focusSessions: Array.isArray(backup.focusSessions) ? backup.focusSessions : [],
+  }),
 };
 
 /**

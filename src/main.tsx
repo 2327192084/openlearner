@@ -11,6 +11,7 @@ import { AnnotationService } from '@/core/annotation-service.ts';
 import { NoteService } from '@/core/notes.ts';
 import { ExamService } from '@/core/exam.ts';
 import { TodoService } from '@/core/todos.ts';
+import { FocusService } from '@/core/focus.ts';
 import { IndexedDbStorage } from '@/core/storage/indexeddb-storage.ts';
 import { ServicesContext, type AppServices } from '@/app/services-context.ts';
 // v1 路由暂时不用，但保留文件（解析器与业务逻辑仍被 v2 复用）
@@ -64,6 +65,7 @@ function Bootstrap() {
     const notes = new NoteService(storage);
     const exam = new ExamService(storage);
     const todos = new TodoService(storage);
+    const focus = new FocusService(storage);
     const usage = new UsageService(storage);
     const knowledge = new KnowledgeService(storage, sources, usage);
     const decks = new DeckService(storage, usage);
@@ -141,6 +143,7 @@ function Bootstrap() {
           notes,
           exam,
           todos,
+          focus,
           usage,
           knowledge,
           decks,

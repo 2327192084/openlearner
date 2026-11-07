@@ -55,8 +55,10 @@ export interface PracticePageProps {
   sourceService: SourceService;
   reviewService: ReviewService;
   loadCards: CardLoader;
-  /** 今日到期的卡（由外层算好，含知识点过滤） */
+  /** 今日到期（有复习记录且 dueAt 已到）。口径与首页 dueCount 一致 */
   dueCards: Card[];
+  /** 从没练过的新卡（口径与首页 freshCount 一致）。与到期分开呈现 */
+  freshCards: Card[];
   dueTotal: number;
   /** 开始练习 */
   onStart: (start: PracticeStart) => void;
@@ -80,6 +82,7 @@ export function PracticePage({
   reviewService,
   loadCards,
   dueCards,
+  freshCards,
   dueTotal,
   onStart,
   onOpenDecks,
@@ -285,10 +288,16 @@ export function PracticePage({
       {/* ---------- 今日题组 ---------- */}
       {tab === 'due' ? (
         <section className="practice-panel">
+          {/*
+            到期与新卡分开呈现（2026-11-08 用户报「8 张待复习，点进去没有 8」）。
+            以前这一句把两者混在一起说「今天有 N 道题到了该复习的时候」，
+            而首页那个 8 只数到期的 —— 点进来变成 14，用户自然找不到 8。
+            现在：到期就是首页那个数字，新卡另说另做。
+          */}
           {dueCards.length > 0 ? (
             <>
               <p className="practice-hint">
-                今天有 {dueTotal} 道题到了该复习的时候。
+                今天有 <strong>{dueTotal}</strong> 道题到了该复习的时候。
                 {dueCards.length < dueTotal
                   ? ` 这一批先做 ${dueCards.length} 道，做完可以再来取。`
                   : ''}
@@ -311,7 +320,7 @@ export function PracticePage({
           ) : (
             <>
               <p className="practice-empty">
-                今天到期的都做完了。想继续练的话用「自由练习」——
+                今天没有到期的题。想继续练的话用「自由练习」——
                 那里不受到期限制，随时可以刷。
               </p>
               <div className="practice-actions">
@@ -321,6 +330,36 @@ export function PracticePage({
               </div>
             </>
           )}
+
+          {/*
+            新卡：「没学过」的题。与到期分开，所以有自己的按钮和自己的说明。
+            为什么放在这里而不是塞进「开始复习」：它们的状态不同 ——
+            到期是「该复习」，新卡是「还没开始」。
+            混在一起会让人以为首页那个数字算错了。
+          */}
+          {freshCards.length > 0 ? (
+            <div className="practice-fresh">
+              <p className="practice-fresh__hint">
+                另外还有 <strong>{freshCards.length}</strong> 道题<strong>从没练过</strong>。
+                它们还没进入遗忘曲线，做一遍之后才会开始按间隔安排。
+              </p>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() =>
+                  onStart({
+                    mode: 'due',
+                    cards: freshCards.slice(0, BATCH),
+                    label: '新卡',
+                    /* 新卡没有「到期总数」的概念，传 null，界面不会显示截断提示 */
+                    dueTotal: null,
+                  })
+                }
+              >
+                先练这 {Math.min(freshCards.length, BATCH)} 道新卡
+              </button>
+            </div>
+          ) : null}
         </section>
       ) : null}
 

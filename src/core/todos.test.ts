@@ -162,4 +162,82 @@ describe('TodoService', () => {
       expect(await svc.list()).toHaveLength(0);
     });
   });
+
+  describe('优先级与标签（2026-11-08 新增）', () => {
+    it('默认优先级是 normal', async () => {
+      const t = await svc.create({ title: '随便一件事' });
+      expect(t.priority).toBe('normal');
+      expect(t.tags).toEqual([]);
+    });
+
+    it('优先级高的排在前面，即使截止日更远', async () => {
+      /*
+       * 用户标「高」就是要求「先看到它」。
+       * 如果截止日更近的永远压上面，优先级就白标了。
+       */
+      await svc.create({ title: '明天到期但要紧度普通', dueAt: '2026-11-09', priority: 'normal' });
+      await svc.create({ title: '高优先级无期限', priority: 'high' });
+
+      const list = await svc.list();
+      expect(list[0]!.title).toBe('高优先级无期限');
+    });
+
+    it('同优先级内仍按截止日排', async () => {
+      await svc.create({ title: '后天', dueAt: '2026-11-10', priority: 'high' });
+      await svc.create({ title: '明天', dueAt: '2026-11-09', priority: 'high' });
+      const list = await svc.list();
+      expect(list[0]!.title).toBe('明天');
+    });
+
+    it('低优先级排在普通之后', async () => {
+      await svc.create({ title: '低的', priority: 'low' });
+      await svc.create({ title: '普通的', priority: 'normal' });
+      const list = await svc.list();
+      expect(list[0]!.title).toBe('普通的');
+    });
+
+    it('未知优先级当 normal，不报错', async () => {
+      const t = await svc.create({ title: 'x', priority: 'URGENT' as never });
+      expect(t.priority).toBe('normal');
+    });
+
+    it('标签去空、去重（大小写不敏感）、限 8 个', async () => {
+      const t = await svc.create({
+        title: 'x',
+        tags: ['数学', '  数学 ', 'Math', 'math', '', '   ', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'],
+      });
+      expect(t.tags).toEqual(['数学', 'Math', 'a', 'b', 'c', 'd', 'e', 'f']);
+    });
+
+    it('标签单词限长 24', async () => {
+      const long = 'x'.repeat(50);
+      const t = await svc.create({ title: 'y', tags: [long] });
+      expect(t.tags?.[0]?.length).toBe(24);
+    });
+
+    it('update 能改优先级与标签', async () => {
+      const t = await svc.create({ title: 'x' });
+      const u = await svc.update(t.id, { priority: 'high', tags: ['第3章'] });
+      expect(u.priority).toBe('high');
+      expect(u.tags).toEqual(['第3章']);
+    });
+
+    it('旧数据没有 priority 字段时按 normal 排序，不崩', async () => {
+      // 模拟一条 v13 及之前的旧记录（没有 priority / tags）
+      await storage.put('todos', {
+        id: 'old_1',
+        title: '旧待办',
+        note: '',
+        dueAt: null,
+        done: false,
+        doneAt: null,
+        createdAt: '2026-11-01T00:00:00Z',
+        updatedAt: '2026-11-01T00:00:00Z',
+        order: 0,
+      } as never);
+      const list = await svc.list();
+      expect(list).toHaveLength(1);
+      expect(list[0]!.title).toBe('旧待办');
+    });
+  });
 });

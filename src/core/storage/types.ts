@@ -13,6 +13,7 @@ import type {
   Source,
   SourceAnnotation,
   Todo,
+  FocusSession,
   SourceSegment,
   GenerationRun,
   AnswerRecord,
@@ -117,6 +118,13 @@ export const STORES = [
   'examAttempts',
   /** 待办（带截止日的学习计划） */
   'todos',
+  /**
+   * 专注记录（番茄钟每一轮一条）。
+   *
+   * **进备份**：这是用户坚持的证据，换机器时不该归零。
+   * 一条记录只有几十字节，不像 sourceFiles 那样会撑大备份。
+   */
+  'focusSessions',
 ] as const;
 
 export type StoreName = (typeof STORES)[number];
@@ -162,6 +170,8 @@ export const BACKUP_STORES = [
    * 这是用户自己排的计划，和笔记一样属于「丢了找不回来」的东西。
    */
   'todos',
+  /** 专注记录。进备份 —— 坚持的证据不该换机器就丢。 */
+  'focusSessions',
 ] as const;
 
 export type BackupStoreName = (typeof BACKUP_STORES)[number];
@@ -170,6 +180,7 @@ export type BackupStoreName = (typeof BACKUP_STORES)[number];
 export interface StoreRecordMap {
   meta: LibraryMeta;
   sourceFiles: SourceFileRecord;
+  focusSessions: FocusSession;
   settings: SettingsRecord;
   courses: Course;
   sources: Source;

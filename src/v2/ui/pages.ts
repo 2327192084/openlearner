@@ -46,6 +46,7 @@ export type PageId =
   | 'flow'
   | 'notes'
   | 'board'
+  | 'focus'
   | 'exam'
   | 'examprep'
   | 'book'
@@ -210,6 +211,22 @@ export const PAGES: PageDef[] = [
   },
 
   // ---------- 阶段性 ----------
+  {
+    id: 'focus',
+    label: '专注',
+    title: '专注',
+    icon: IconStats,
+    /*
+     * 为什么单独一页而不是并进待办（用户 2026-11-08 提的建议，采纳）：
+     * 待办是「回顾与规划」，专注是「执行」—— 两种状态互斥。
+     * 专注时最不该看到的就是一列「还有 8 件事没做」。
+     * 并在一页里，用户一点开始计时就被自己的待办列表压住。
+     */
+    purpose: '选一段时间只做一件事；走完一轮记下来，能看今天专注了多久',
+    group: 'daily',
+    show: true,
+    ready: true,
+  },
   {
     id: 'exam',
     label: '模拟考试',
