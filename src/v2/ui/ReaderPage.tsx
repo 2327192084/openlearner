@@ -79,6 +79,31 @@ export function ReaderPage({ sourceService, initialSourceId, target, onBack }: R
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const markRef = useRef<HTMLElement | null>(null);
 
+  /**
+   * 原图查看。
+   *
+   * ## 为什么必须有
+   *
+   * 用户报的原话是「PDF 文件依旧查看不了」。在此之前阅读器只显示
+   * **提取出来的文字** —— 对扫描件是空的，对图文混排的教材则丢掉了所有
+   * 图、公式、表格。而这正是用户要「对照检查 OCR 有没有错」时最需要看的。
+   *
+   * ## 实现取舍
+   *
+   * 用现成的 `renderSourcePage`（pdfjs → canvas → PNG dataURL），
+   * 而不是嵌一个 `<embed src=blob:>` 让浏览器自己渲染：
+   *  - 后者在 Electron 的 file:// 下有 CSP 与插件限制，实测不可靠；
+   *  - 而且拿不到「渲染到第几页」的控制权。
+   *
+   * 只渲染**当前这一页**：整本 628 页一次性渲染会吃掉几百 MB 内存。
+   */
+  const [showOriginal, setShowOriginal] = useState(false);
+  const [originalImage, setOriginalImage] = useState<string | null>(null);
+  const [originalError, setOriginalError] = useState<string | null>(null);
+  const [originalLoading, setOriginalLoading] = useState(false);
+  /** 有没有原文件可供渲染（没有就藏掉这个开关，不摆假按钮） */
+  const [canShowOriginal, setCanShowOriginal] = useState(false);
+
   // ---------- 载入资料与正文 ----------
   useEffect(() => {
     let cancelled = false;
@@ -194,6 +219,69 @@ export function ReaderPage({ sourceService, initialSourceId, target, onBack }: R
     // block:'center' 让上下文同时在视野里，而不是把高亮顶到最上边
     el.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [highlight, pageNo]);
+
+  // ---------- 原图渲染 ----------
+  // 只在「打开原图」且是 PDF 时按需渲染当前页。整本预渲染会吃几百 MB 内存。
+  useEffect(() => {
+    if (phase.kind !== 'ready') return;
+    if (!showOriginal) return;
+    if (phase.source.kind !== 'pdf') return;
+
+    let cancelled = false;
+    setOriginalLoading(true);
+    setOriginalError(null);
+
+    async function render() {
+      if (phase.kind !== 'ready') return;
+      try {
+        const bytes = await sourceService.getOriginalFile(phase.source.id);
+        if (cancelled) return;
+        if (!bytes || bytes.byteLength === 0) {
+          setCanShowOriginal(false);
+          setOriginalError('这份资料没有保存原始文件，看不了原图。');
+          return;
+        }
+        const { renderSourcePage } = await import('@/core/slides/source-page.ts');
+        // 目标宽度 1100px：够看清正文与图表，又不至于把 628 页的教材撑爆内存
+        const rendered = await renderSourcePage(bytes, pageNo, { targetWidth: 1100 });
+        if (cancelled) return;
+        setOriginalImage(rendered.imageData);
+      } catch (err) {
+        if (cancelled) return;
+        setOriginalError(
+          err instanceof Error ? err.message : '这一页渲染不出来（文件可能损坏或缺字体）。',
+        );
+      } finally {
+        if (!cancelled) setOriginalLoading(false);
+      }
+    }
+
+    void render();
+    return () => {
+      cancelled = true;
+    };
+  }, [phase, showOriginal, pageNo, sourceService]);
+
+  // 载入后判断有没有原文件可看（PDF 才有意义）
+  useEffect(() => {
+    if (phase.kind !== 'ready') return;
+    if (phase.source.kind !== 'pdf') {
+      setCanShowOriginal(false);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const has = await sourceService.hasOriginalFile(phase.source.id);
+        if (!cancelled) setCanShowOriginal(has);
+      } catch {
+        if (!cancelled) setCanShowOriginal(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [phase, sourceService]);
 
   const seg: SourceSegment | null = useMemo(() => {
     if (phase.kind !== 'ready') return null;
@@ -387,6 +475,21 @@ export function ReaderPage({ sourceService, initialSourceId, target, onBack }: R
             搜索
           </button>
         </div>
+
+        {/*
+         * 看原图 / 看文字 的切换。
+         * 只在真的有原文件时出现 —— 没有就藏掉，不摆一个点了没反应的按钮。
+         */}
+        {canShowOriginal ? (
+          <button
+            type="button"
+            className={`btn-ghost${showOriginal ? ' reader-toggle--on' : ''}`}
+            onClick={() => setShowOriginal((v) => !v)}
+            title="对照原书检查文字识别有没有错"
+          >
+            {showOriginal ? '看文字' : '看原图'}
+          </button>
+        ) : null}
       </div>
       {searchNote ? <p className="reader-hint">{searchNote}</p> : null}
 
@@ -398,7 +501,28 @@ export function ReaderPage({ sourceService, initialSourceId, target, onBack }: R
        * 所以：只有当正文不以这行开头时才单独显示章节标题。
        */}
       <div className="reader-body" ref={bodyRef}>
-        {seg ? (
+        {showOriginal ? (
+          /*
+           * 原图模式：只渲染当前这一页。
+           *
+           * 为什么不做成「连续滚动整本」：628 页的教材一次性渲染
+           * 会吃掉几百 MB 内存并卡死界面。按页渲染 + 用上面的翻页控制
+           * 已经足够「对照检查 OCR 有没有错」这个真实用途。
+           */
+          <div className="reader-original">
+            {originalLoading ? <p className="reader-hint">正在把这一页画出来…</p> : null}
+            {originalError ? (
+              <p className="reader-error reader-error--inline">{originalError}</p>
+            ) : null}
+            {originalImage && !originalLoading ? (
+              <img
+                className="reader-original__img"
+                src={originalImage}
+                alt={`第 ${seg?.page ?? pageNo} 页的原图`}
+              />
+            ) : null}
+          </div>
+        ) : seg ? (
           renderBody(seg, highlight, markRef)
         ) : null}
       </div>

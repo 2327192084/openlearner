@@ -63,6 +63,11 @@ interface OpenLeanerBridge {
     rememberPath: (sourceId: string, filePath: string) => Promise<boolean>;
     /** 按 sourceId 取回原文件路径；没登记或文件已不在返回 null */
     sourcePath: (sourceId: string) => Promise<string | null>;
+    /**
+     * 弹出系统文件选择框让用户指一次原文件。
+     * 兜底：升级前导入的资料没有路径记录。用户取消返回 null。
+     */
+    pickSourceFile: (sourceId: string, title?: string) => Promise<string | null>;
     /** 跑一次转换 */
     run: (request: {
       filePath: string;

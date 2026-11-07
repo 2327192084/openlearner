@@ -711,6 +711,40 @@ function registerMineru() {
     }
   });
 
+  /**
+   * 让用户当场挑一次原文件，用于转换扫描件。
+   *
+   * 为什么需要它（2026-11-07 用户实测暴露）：
+   * 路径登记是后加的功能，**升级前导入的资料一条记录都没有**，
+   * 点转换只会看到「拿不到原文件路径」。而一份 45MB 的扫描教材
+   * 让用户「重新导入一次」代价太大 —— 还会丢掉已有的知识点与题目引用。
+   * 让他指一次原文件，比逼他重导合理得多。
+   *
+   * 挑完顺手把路径登记进表，下次就不用再挑。
+   */
+  ipcMain.handle('openleaner:pick-source-file', async (event, payload) => {
+    const body = payload && typeof payload === 'object' ? payload : {};
+    const sourceId = typeof body.sourceId === 'string' ? body.sourceId : '';
+    const title = typeof body.title === 'string' ? body.title : '';
+
+    const owner = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+    const result = await dialog.showOpenDialog(owner, {
+      title: title ? `找到「${title}」的原文件` : '选择这份资料的原文件',
+      properties: ['openFile'],
+      filters: [
+        { name: 'PDF 与图片', extensions: ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'tif', 'tiff'] },
+        { name: '所有文件', extensions: ['*'] },
+      ],
+    });
+
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const picked = result.filePaths[0];
+
+    // 顺手登记，下次直接命中
+    if (sourceId && picked) sourcePaths.set(sourceId, picked);
+    return picked;
+  });
+
   ipcMain.handle('openleaner:mineru-convert', async (event, payload) => {
     const mineru = require('./mineru.cjs');
 
@@ -744,11 +778,18 @@ function registerMineru() {
     const result = await mineru.runMineru(checked.value, {
       exePath: mineruStatus.exePath,
       /*
-       * home 必须一起传：不传时 mineru-kit 会退回 ~/.mineru，
-       * 那里可能是空的或写不进去，实测会卡在模型锁上报
-       * `[WinError 5] 拒绝访问` —— 看起来像 PDF 坏了，其实是用错了模型目录。
+       * 有意**不传** MINERU_HOME。
+       *
+       * 2026-11-07 实测结论（推翻上一版注释）：
+       *  - `mineru parse` 走本地常驻服务，**服务自己知道用哪个 home**
+       *    （`mineru config show` 里 model.base_dir 就是它）。
+       *    外部再塞一个 MINERU_HOME，反而让 CLI 与服务用的 home 不一致，
+       *    报 `invalid_doclib_token`（token 在两个 home 里是不同的）。
+       *  - 只有当用户没装服务、退回 `mineru-kit` 那种一次性 CLI 时，
+       *    才需要显式指定 home。
+       *
+       * 所以：不传。让服务自己管。
        */
-      ...(mineruStatus.mineruHome ? { mineruHome: mineruStatus.mineruHome } : {}),
       onProgress: (p) => {
         // 窗口可能已经关了
         if (!event.sender.isDestroyed()) {

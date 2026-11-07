@@ -73,7 +73,19 @@ export function ConvertPanel({
        * 真实路径由主进程通过导入流程记住（见 electron 的导入 handler）。
        * 拿不到路径时如实说清楚，不要让用户以为点了没反应。
        */
-      const absolutePath = await resolveSourcePath(source, sourceService);
+      /*
+       * 拿原文件路径。登记表里没有就请用户当场指一次 ——
+       * 升级前导入的资料没有记录，而重导一份 45MB 教材代价太大。
+       */
+      const absolutePath = await resolveSourcePath(source, async () => {
+        const bridge = typeof window !== 'undefined' ? window.openleaner?.mineru : undefined;
+        if (!bridge || typeof bridge.pickSourceFile !== 'function') return null;
+        try {
+          return await bridge.pickSourceFile(source.id, source.title);
+        } catch {
+          return null;
+        }
+      });
       if (!absolutePath) {
         setPhase({
           kind: 'failed',
@@ -197,7 +209,6 @@ export function ConvertPanel({
           ) : null}
           <p className="convert-panel__meta">
             档位 {phase.report.tier}
-            {phase.report.parseMode === 'ocr' ? ' · 走了 OCR' : ' · 原生文字层'}
             {phase.report.producer !== 'unknown' ? ` · MinerU ${phase.report.producer}` : ''}
           </p>
           {onOpenPage ? (
@@ -248,15 +259,23 @@ function hintForTrouble(trouble?: string): string {
 /**
  * 取资料原文件的绝对路径。
  *
- * 为什么需要单独一步：`Source` 里只有 `fileName`（文件名），没有绝对路径 ——
- * 那是刻意的（浏览器环境根本没有路径概念）。桌面版在导入时会把真实路径
- * 记在主进程侧，这里通过 preload 取。
+ * ## 两条路
  *
- * 拿不到时返回 null，由调用方如实告知用户，不猜一个路径去调用。
+ * 1. **查主进程的登记表**：导入时记下的 `sourceId → 路径`。
+ *    只在「导入那一刻」拿得到 File 的路径，过了就没了（浏览器安全设计）。
+ * 2. **让用户当场选一次原文件**：兜底。
+ *
+ * 为什么必须有第 2 条（2026-11-07 用户实测暴露的）：
+ * 路径登记是后加的功能，**升级前导入的资料一条记录都没有**，
+ * 于是点转换只会看到「拿不到原文件路径」，而一份 45MB 的扫描教材
+ * 让他「重新导入一次」代价太大 —— 还会丢掉已有的知识点与题目引用。
+ * 让他指一次原文件，比逼他重导合理得多。
+ *
+ * 拿不到时返回 null，由调用方如实告知，不猜一个路径去调用。
  */
 async function resolveSourcePath(
   source: Source,
-  _sourceService: SourceService,
+  pickFile: () => Promise<string | null>,
 ): Promise<string | null> {
   const bridge = typeof window !== 'undefined' ? window.openleaner : undefined;
   const lookup = (bridge as unknown as {
@@ -265,10 +284,13 @@ async function resolveSourcePath(
 
   if (typeof lookup === 'function') {
     try {
-      return await lookup(source.id);
+      const remembered = await lookup(source.id);
+      if (remembered) return remembered;
     } catch {
-      return null;
+      /* 落到下面的手动选择 */
     }
   }
-  return null;
+
+  // 登记表里没有（升级前导入的、或原文件被移动/删除）→ 请用户指一次
+  return await pickFile();
 }

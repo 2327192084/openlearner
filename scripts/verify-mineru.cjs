@@ -100,8 +100,7 @@ async function main() {
     { filePath: FIXTURE, outDir, tier: 'standard' },
     {
       exePath: detected.exePath,
-      // home 必须传：不传会退回 ~/.mineru，那里可能不可写
-      ...(detected.mineruHome ? { mineruHome: detected.mineruHome } : {}),
+      // 有意不传 home：走本地服务时由服务自己管（传了会 token 不匹配）
       onProgress: (p) => progressEvents.push(p),
     },
   );
@@ -110,39 +109,25 @@ async function main() {
   record('真实转换成功退出', run.ok === true, run.ok ? `${Math.round(elapsed / 1000)}s` : run.message);
   if (!run.ok) return summarize();
 
-  record('拿到了 middle_json', Boolean(run.result && run.result.pages), `pages=${run.result?.pages?.length ?? 0}`);
+  record('拿到了转换结果', Boolean(run.result && run.result.markdown), `长度=${run.result?.markdown?.length ?? 0}`);
   record('真的推了进度事件', progressEvents.length > 0, `${progressEvents.length} 条`);
 
-  // ---------- 5. 用适配层解析并校验页码 1:1 ----------
-  // 用编译后的 TS 逻辑不方便；这里直接照 parseMiddleJson 的规则断言关键点
-  const raw = run.result;
-  const pageCountMeta = raw.metadata?.document?.page_count;
-  const idxs = (raw.pages ?? []).map((p) => p.page_idx).sort((a, b) => a - b);
+  // ---------- 5. 校验分页标记与内容 ----------
+  const markdown = run.result.markdown;
 
-  record('页数与原文件一致', idxs.length === pageCountMeta, `pages=${idxs.length} meta=${pageCountMeta}`);
-  record(
-    'page_idx 从 0 开始且连续',
-    idxs.every((v, i) => v === i),
-    `idx=[${idxs.join(',')}]`,
-  );
+  // MinerU 的 Markdown 自带 <!-- page N of M --> 分页标记
+  const markers = [...markdown.matchAll(/<!--\s*page\s+(\d+)\s+of\s+(\d+)\s*-->/gi)];
+  record('有分页标记（按页写回的依据）', markers.length > 0, `${markers.length} 个标记`);
 
-  // 抽出每页文字，确认真的有中文
-  const pageTexts = idxs.map((i) => {
-    const p = raw.pages.find((x) => x.page_idx === i);
-    return (p?.blocks ?? [])
-      .flatMap((b) => b.content ?? [])
-      .filter((c) => c.type === 'text')
-      .map((c) => c.content)
-      .join('');
-  });
-  const withText = pageTexts.filter((t) => t.trim().length > 0).length;
-  record('多数页识别出了文字', withText >= 1, `${withText}/${pageTexts.length} 页有文字`);
+  const declared = markers.length ? Number(markers[0][2]) : 0;
+  record('页数与原文件一致', declared === 3, `声明 ${declared} 页，实际标记 ${markers.length} 个`);
 
-  // fixture 里的真实内容（见 scripts 生成脚本 / 测试断言）
-  const joined = pageTexts.join('\n');
-  record('识别内容对得上原书（含「数据结构」）', joined.includes('数据结构'), joined.slice(0, 60));
-  record('识别内容不是乱码（中文字符占比高）', ratioCjk(joined) > 0.5, `中文占比 ${(ratioCjk(joined) * 100).toFixed(0)}%`);
-  record('识别出了标题层级块', JSON.stringify(raw.pages).includes('paragraph_title'), '');
+  const pageNos = markers.map((m) => Number(m[1]));
+  record('页号连续从 1 开始', pageNos.every((v, i) => v === i + 1), JSON.stringify(pageNos));
+
+  record('识别内容对得上原书（含「数据结构」）', markdown.includes('数据结构'), markdown.slice(0, 50).replace(/\n/g, ' '));
+  record('识别内容不是乱码（中文字符占比高）', ratioCjk(markdown) > 0.5, `中文占比 ${(ratioCjk(markdown) * 100).toFixed(0)}%`);
+  record('保留了标题层级（Markdown #）', /^#{1,6}\s+\S/m.test(markdown), '');
 
   // 清理这次产出
   try {

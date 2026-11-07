@@ -1,196 +1,163 @@
 import { describe, expect, it } from 'vitest';
-import {
-  MinerUError,
-  needsConversion,
-  parseMiddleJson,
-} from './convert.ts';
-import { summarize, toSegments } from './write-back.ts';
+import { needsConversion } from './convert.ts';
+import { parseMarkdown } from './markdown.ts';
+import { toSegments, summarize } from './write-back.ts';
 
 /**
- * 这些测试的核心是**页码 1:1 对应**。
+ * 核心是**页码 1:1 对应**。
  *
- * 用户的原话是「转换的文档要与原文件对应的转换页数一一相对，
+ * 用户原话：「转换的文档要与原文件对应的转换页数一一相对，
  * 方便用户对照生成的文档是否有错误」。
- * 所以任何「跳过空页」「按数组下标编页」的行为都是 bug，
+ * 任何「跳过空页」「按内容猜着切页」的行为都是 bug，
  * 而这类 bug 在界面上看不出来 —— 只有拿页码去比才发现错位。
- * 下面每条断言都在钉这件事。
  */
 
-/** 造一份最简 middle_json（形状照 2026-11-06 本机 MinerU 4.1.7 实测输出） */
-function makeRaw(pages: Array<{ idx: number; texts: string[] }>, pageCount?: number) {
-  return {
-    metadata: {
-      producer: { name: 'mineru', version: '4.1.7' },
-      document: { page_count: pageCount ?? pages.length },
-    },
-    extensions: { mineru: { tier: 'standard', parse_mode: 'ocr' } },
-    pages: pages.map((p) => ({
-      page_idx: p.idx,
-      blocks: p.texts.map((t, i) => ({
-        type: i === 0 ? 'paragraph_title' : 'text',
-        index: i,
-        bbox: [0.1, 0.1, 0.9, 0.2],
-        content: [{ type: 'text', content: t }],
-      })),
-    })),
-  };
+/** 造一段 MinerU 风格的 Markdown（形状照 2026-11-07 实测输出） */
+function md(
+  pages: Array<{ no: number; total?: number; title?: string; body?: string }>,
+  total?: number,
+): string {
+  const t = total ?? pages.length;
+  return pages
+    .map((p) => {
+      const head = `<!-- page ${p.no} of ${p.total ?? t} -->`;
+      const title = p.title ? `\n## ${p.title}\n` : '\n';
+      const body = p.body ? `\n${p.body}\n` : '\n';
+      return `${head}${title}${body}`;
+    })
+    .join('');
 }
 
-describe('parseMiddleJson', () => {
-  it('page_idx 从 0 开始，转成我们的 1-based 页码', () => {
-    const r = parseMiddleJson(makeRaw([{ idx: 0, texts: ['第一页'] }, { idx: 1, texts: ['第二页'] }]));
-    expect(r.pages[0]?.page).toBe(1);
-    expect(r.pages[1]?.page).toBe(2);
-    expect(r.pageCount).toBe(2);
-  });
-
-  it('页数与页码严格 1:1：空页占位，不让后面的页前移', () => {
-    // 第 2 页是整页插图（MinerU 没给 blocks）
-    const r = parseMiddleJson(
-      makeRaw([
-        { idx: 0, texts: ['第一页正文'] },
-        { idx: 1, texts: [] },
-        { idx: 2, texts: ['第三页正文'] },
+describe('parseMarkdown：分页标记', () => {
+  it('按 <!-- page N of M --> 拆成多页', () => {
+    const r = parseMarkdown(
+      md([
+        { no: 1, title: '第一章 绪论', body: '第一页正文。' },
+        { no: 2, title: '第二章 线性表', body: '第二页正文。' },
       ]),
     );
-    expect(r.pages).toHaveLength(3);
-    expect(r.pages[1]?.text).toBe('');
-    // 关键：第三页仍然是 page 3，不是 2
-    expect(r.pages[2]?.page).toBe(3);
-    expect(r.pages[2]?.text).toBe('第三页正文');
+    expect(r.pageCount).toBe(2);
+    expect(r.pages.map((p) => p.page)).toEqual([1, 2]);
+    expect(r.pages[0]!.text).toBe('第一页正文。');
+    expect(r.pages[1]!.text).toBe('第二页正文。');
   });
 
-  it('MinerU 跳页时按它给的页码建结果，不按数组下标', () => {
-    // MinerU 漏了 page_idx 1，只给了 0 和 2
-    const r = parseMiddleJson(
-      makeRaw([
-        { idx: 0, texts: ['第一页'] },
-        { idx: 2, texts: ['第三页'] },
+  it('页首标题抽成 chapter，且不重复出现在正文里', () => {
+    const r = parseMarkdown(md([{ no: 1, title: '第一章 数据结构绪论', body: '正文一句。' }]));
+    expect(r.pages[0]!.chapter).toBe('第一章 数据结构绪论');
+    expect(r.pages[0]!.text).toBe('正文一句。');
+    expect(r.pages[0]!.text).not.toContain('第一章');
+  });
+
+  it('没有分页标记时整段算第 1 页（不猜着切）', () => {
+    const r = parseMarkdown('## 标题\n\n一段正文。\n\n另一段。');
+    expect(r.pageCount).toBe(1);
+    expect(r.pages).toHaveLength(1);
+    expect(r.pages[0]!.text).toContain('一段正文');
+  });
+
+  it('声明页数比实际多时补空页，不让后面的页前移', () => {
+    const r = parseMarkdown(
+      md([
+        { no: 1, total: 3, body: '第一页' },
+        { no: 3, total: 3, body: '第三页' },
       ]),
     );
     expect(r.pageCount).toBe(3);
-    expect(r.pages[1]?.text).toBe(''); // 补出来的空页
-    expect(r.pages[2]?.text).toBe('第三页'); // 没有前移到第 2 页
+    expect(r.pages[1]!.text).toBe(''); // 第 2 页占位
+    expect(r.pages[2]!.text).toBe('第三页'); // 仍是第 3 页
   });
 
-  it('metadata.page_count 比实际给的多时，以 metadata 为准补齐', () => {
-    const r = parseMiddleJson(makeRaw([{ idx: 0, texts: ['只有一页有内容'] }], 5));
+  it('实际页号超过声明页数时以实际为准（宁可多留也不少）', () => {
+    const r = parseMarkdown(
+      md([
+        { no: 1, total: 2, body: 'a' },
+        { no: 5, total: 2, body: 'e' },
+      ]),
+    );
     expect(r.pageCount).toBe(5);
-    expect(r.pages).toHaveLength(5);
-    expect(r.pages[4]?.page).toBe(5);
-    expect(r.pages[4]?.text).toBe('');
+    expect(r.pages[4]!.page).toBe(5);
   });
 
-  it('数组顺序被打乱时仍按 page_idx 排序', () => {
-    const raw = makeRaw([
-      { idx: 2, texts: ['三'] },
-      { idx: 0, texts: ['一'] },
-      { idx: 1, texts: ['二'] },
-    ]);
-    const r = parseMiddleJson(raw);
-    expect(r.pages.map((p) => p.text)).toEqual(['一', '二', '三']);
-    expect(r.pages.map((p) => p.page)).toEqual([1, 2, 3]);
+  it('空输入报错而不是静默返回空结果', () => {
+    expect(() => parseMarkdown('')).toThrow();
+    expect(() => parseMarkdown('   \n  ')).toThrow();
+  });
+});
+
+describe('parseMarkdown：内容清理', () => {
+  it('丢掉图片链接行（会污染搜索与锚点）', () => {
+    const r = parseMarkdown(md([{ no: 1, body: '正文。\n\n![](images/a.png)\n\n继续。' }]));
+    expect(r.pages[0]!.text).not.toContain('images/a.png');
+    expect(r.pages[0]!.text).toContain('正文');
+    expect(r.pages[0]!.text).toContain('继续');
   });
 
-  it('如实带出 tier / parse_mode / 生产者版本', () => {
-    const r = parseMiddleJson(makeRaw([{ idx: 0, texts: ['x'] }]));
-    expect(r.tier).toBe('standard');
-    expect(r.parseMode).toBe('ocr');
-    expect(r.producer).toBe('4.1.7');
+  it('页中间的标题保留文字、去掉井号', () => {
+    const r = parseMarkdown(
+      md([{ no: 1, title: '章标题', body: '正文。\n\n## 小节标题\n\n更多正文。' }]),
+    );
+    expect(r.pages[0]!.chapter).toBe('章标题');
+    expect(r.pages[0]!.text).toContain('小节标题');
+    expect(r.pages[0]!.text).not.toContain('##');
   });
 
-  it('没有 pages 时报 bad-output，而不是静默返回空', () => {
-    expect(() => parseMiddleJson({ metadata: {} })).toThrow(MinerUError);
-    try {
-      parseMiddleJson({ pages: [] });
-    } catch (err) {
-      expect((err as MinerUError).trouble).toBe('bad-output');
-    }
+  it('页首是正文时，中间的标题不算本章标题（不猜）', () => {
+    const r = parseMarkdown(md([{ no: 1, body: '开头正文。\n\n## 中间的标题\n\n后续。' }]));
+    expect(r.pages[0]!.chapter).toBeNull();
+    expect(r.pages[0]!.text).toContain('中间的标题');
   });
 
-  it('非对象输入报错而不是崩在属性访问上', () => {
-    expect(() => parseMiddleJson(null)).toThrow(MinerUError);
-    expect(() => parseMiddleJson('字符串')).toThrow(MinerUError);
+  it('合并多余空行，去掉首尾空白', () => {
+    const r = parseMarkdown(md([{ no: 1, body: '正文。\n\n\n\n\n结尾。' }]));
+    expect(r.pages[0]!.text).toBe('正文。\n\n结尾。');
   });
 
-  it('表格/公式块不进纯文本正文，但类型记在 kinds 里', () => {
-    const raw = {
-      metadata: { producer: { name: 'mineru', version: '4.1.7' }, document: { page_count: 1 } },
-      extensions: { mineru: { tier: 'standard', parse_mode: 'ocr' } },
-      pages: [
-        {
-          page_idx: 0,
-          blocks: [
-            { type: 'text', index: 0, content: [{ type: 'text', content: '正文一句' }] },
-            // 表格块：content 是 HTML，不该塞进纯文本
-            { type: 'table', index: 1, content: [{ type: 'text', content: '<table><tr><td>1</td></tr></table>' }] },
-          ],
-        },
-      ],
-    };
-    const r = parseMiddleJson(raw);
-    expect(r.pages[0]?.text).toBe('正文一句');
-    expect(r.pages[0]?.kinds).toContain('table');
+  it('保留段落之间的空行（可读性）', () => {
+    const r = parseMarkdown(md([{ no: 1, body: '第一段。\n\n第二段。' }]));
+    expect(r.pages[0]!.text).toBe('第一段。\n\n第二段。');
   });
 });
 
 describe('toSegments：与原文逐页对应', () => {
   it('段数等于页数，页号连续从 1 开始', () => {
-    const r = parseMiddleJson(makeRaw([{ idx: 0, texts: ['a'] }, { idx: 1, texts: ['b'] }, { idx: 2, texts: ['c'] }]));
+    const r = parseMarkdown(
+      md([{ no: 1, body: 'a' }, { no: 2, body: 'b' }, { no: 3, body: 'c' }]),
+    );
     const segs = toSegments(r);
     expect(segs).toHaveLength(3);
     expect(segs.map((s) => s.page)).toEqual([1, 2, 3]);
   });
 
-  it('空页也占一个段（关键：供用户对照原书）', () => {
-    const r = parseMiddleJson(
-      makeRaw([{ idx: 0, texts: ['a'] }, { idx: 1, texts: [] }, { idx: 2, texts: ['c'] }]),
+  it('空页也占一个段（供用户对照原书）', () => {
+    const r = parseMarkdown(
+      md([
+        { no: 1, total: 3, body: 'a' },
+        { no: 2, total: 3, body: '' },
+        { no: 3, total: 3, body: 'c' },
+      ]),
     );
     const segs = toSegments(r);
     expect(segs).toHaveLength(3);
-    expect(segs[1]?.text).toBe('');
-    expect(segs[2]?.page).toBe(3);
-  });
-
-  it('页首是标题时用作 chapter', () => {
-    const r = parseMiddleJson(makeRaw([{ idx: 0, texts: ['第一章 绪论', '正文'] }]));
-    const segs = toSegments(r);
-    expect(segs[0]?.chapter).toBe('第一章 绪论');
-  });
-
-  it('标题在页中间时不当作本章标题（不猜）', () => {
-    const raw = {
-      metadata: { producer: { name: 'mineru', version: '4.1.7' }, document: { page_count: 1 } },
-      extensions: { mineru: { tier: 'standard', parse_mode: 'ocr' } },
-      pages: [
-        {
-          page_idx: 0,
-          blocks: [
-            { type: 'text', index: 0, content: [{ type: 'text', content: '这一页开头是正文' }] },
-            { type: 'paragraph_title', index: 1, content: [{ type: 'text', content: '中间的小标题' }] },
-          ],
-        },
-      ],
-    };
-    const segs = toSegments(parseMiddleJson(raw));
-    expect(segs[0]?.chapter).toBeNull();
+    expect(segs[1]!.text).toBe('');
+    expect(segs[2]!.page).toBe(3);
   });
 });
 
 describe('summarize：如实汇报', () => {
   it('空页页码单独列出来', () => {
-    const source = {
-      id: 's1',
-      title: '测试资料',
-    } as Parameters<typeof summarize>[0];
-    const r = parseMiddleJson(
-      makeRaw([{ idx: 0, texts: ['a'] }, { idx: 1, texts: [] }, { idx: 2, texts: ['c'] }]),
+    const source = { id: 's1', title: '测试资料' } as unknown as Parameters<typeof summarize>[0];
+    const r = parseMarkdown(
+      md([
+        { no: 1, total: 3, body: 'a' },
+        { no: 2, total: 3, body: '' },
+        { no: 3, total: 3, body: 'c' },
+      ]),
     );
     const report = summarize(source, r, toSegments(r));
     expect(report.pageCount).toBe(3);
     expect(report.pagesWithText).toBe(2);
     expect(report.emptyPages).toEqual([2]);
-    expect(report.tier).toBe('standard');
   });
 });
 

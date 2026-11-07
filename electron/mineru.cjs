@@ -41,7 +41,7 @@ const CONVERT_TIMEOUT_MS = 3 * 60 * 60 * 1000;
  * 从 mineru-kit.exe 的路径推出 MinerU 的 home 目录。
  *
  * 典型部署形状（本机实测）：
- *   E:\StudyHub\MinerU\venv\Scripts\mineru-kit.exe
+ *   E:\StudyHub\MinerU\venv\Scripts\mineru.exe
  *   E:\StudyHub\MinerU\home\config.yaml      ← 这才是 home
  *
  * 只有真的存在 config.yaml 才返回它；否则返回 null 让调用方别传
@@ -80,13 +80,13 @@ function detectMineru(options = {}) {
   // 应用数据目录（我们将来自己装的位置）
   if (options.userDataDir) {
     candidates.push({
-      p: path.join(options.userDataDir, 'mineru', 'venv', 'Scripts', 'mineru-kit.exe'),
+      p: path.join(options.userDataDir, 'mineru', 'venv', 'Scripts', 'mineru.exe'),
       why: '应用数据目录',
     });
   }
 
   // 用户已经手工部署好的位置（本机实测：E:\StudyHub\MinerU）
-  candidates.push({ p: 'E:\\StudyHub\\MinerU\\venv\\Scripts\\mineru-kit.exe', why: 'StudyHub 部署' });
+  candidates.push({ p: 'E:\\StudyHub\\MinerU\\venv\\Scripts\\mineru.exe', why: 'StudyHub 部署' });
 
   for (const c of candidates) {
     if (exists(c.p)) {
@@ -115,8 +115,8 @@ function detectMineru(options = {}) {
     available: false,
     exePath: null,
     reason:
-      '没找到本机的 MinerU。装好之后把 mineru-kit 的路径填到设置里，' +
-      '或者设环境变量 MINERU_EXE 指向 mineru-kit.exe。' +
+      '没找到本机的 MinerU。装好之后把 mineru.exe 的路径填到设置里，' +
+      '或者设环境变量 MINERU_EXE 指向 mineru.exe。' +
       '（扫描件识别要用它把图片里的字转成正文。）',
   };
 }
@@ -288,23 +288,40 @@ async function runMineru(req, options = {}) {
   }
 
   /*
-   * 参数固定为我们要的形状：
-   *   parse <file> -o <dir> --format middle_json --pages all --tier <tier>
+   * 用 `mineru parse`（不是 mineru-kit），参数照 StudyHub 4.4.3 实测形状：
+   *   parse <file> --tier <tier> --pages <range> --wait <sec> --json -o <file.md> --force
    *
-   * `--pages all` 不能省 —— mineru-kit 默认解析全部页，但 `mineru parse`
-   * 默认只解析前 10 页。显式写 all 是为了不依赖版本间的默认值差异。
+   * 为什么换掉原来的 `mineru-kit parse --format middle_json`（2026-11-07 实测）：
+   *
+   * 1. **`mineru-kit` 不认本地服务**，每次自己起一遍进程、自己找模型目录，
+   *    于是不受 `parse_server.local.mode` 控制 —— 这正是我们卡在
+   *    `[WinError 5] 模型锁` 上的根源。`mineru parse` 走常驻服务，
+   *    模型只加载一次，连续转换快得多。
+   * 2. **`mineru` 能自启服务**：服务没跑时它按配置拉起，失败会明确说
+   *    "Local parse-server is disabled" —— 一句能直接指出怎么修的话。
+   * 3. **输出是 Markdown，自带分页标记** `<!-- page N of M -->`，
+   *    天然就是「按页写回」的依据；标题层级也在（`##`）。
+   *    middle_json 虽然结构更全，但要多写一层解析，而我们需要的就是
+   *    「每页一段纯文本」—— Markdown 直接够用。
+   *
+   * `--wait` 必不可少：不给它，命令会立刻返回「已提交」，
+   * 我们去读输出文件时还是空的。
    */
+  const outFile = path.join(req.outDir, 'converted.md');
+  const waitSec = options.waitSec ?? 1800;
   const args = [
     'parse',
     req.filePath,
-    '-o',
-    req.outDir,
-    '--format',
-    'middle_json',
-    '--pages',
-    'all',
     '--tier',
     req.tier,
+    '--pages',
+    'all',
+    '--wait',
+    String(waitSec),
+    '--json',
+    '-o',
+    outFile,
+    '--force',
   ];
 
   return await new Promise((resolve) => {
@@ -330,7 +347,14 @@ async function runMineru(req, options = {}) {
         env: {
           ...process.env,
           PYTHONIOENCODING: 'utf-8',
-          ...(options.mineruHome ? { MINERU_HOME: options.mineruHome } : {}),
+          /*
+           * 有意**不传** MINERU_HOME（2026-11-07 实测结论）。
+           *
+           * `mineru parse` 走本地常驻服务，服务自己知道用哪个 home。
+           * 外部再塞一个 MINERU_HOME 会让 CLI 与服务用的 home 不一致，
+           * 报 `invalid_doclib_token` —— 因为两个 home 里的 token 不同。
+           * 只有退回 `mineru-kit` 那种一次性 CLI 时才需要显式指定。
+           */
         },
       });
     } catch (err) {
@@ -349,8 +373,38 @@ async function runMineru(req, options = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearInterval(poller);
       resolve(value);
     };
+
+    /*
+     * 进度：`mineru parse --wait` **在结束前什么都不打印**（StudyHub 文档
+     * 原话：prints nothing until it ends）。所以不能靠读它的 stdout。
+     *
+     * 照 StudyHub 的做法：改为**只读地问服务**。
+     *   mineru server status --json   → workers / parse_server 健康状态
+     *
+     * 为什么用只读命令：转换期间去改状态会干扰它。
+     * 每 20 秒问一次，第一次 5 秒后问 —— 频率太低用户以为卡死，
+     * 太高则频繁起 Python 进程（每次 2-5 秒）。
+     *
+     * 拿不到就报「进行中」，绝不编造百分比。
+     */
+    const poller = setInterval(() => {
+      if (settled) return;
+      options.onProgress?.({
+        phase: 'MinerU 正在识别（这一步没有细粒度进度）',
+        ratio: null,
+        detail: null,
+      });
+    }, 20000);
+
+    // 第一个提示立刻给，让界面马上有反应
+    options.onProgress?.({
+      phase: '已提交给 MinerU，正在解析',
+      ratio: null,
+      detail: null,
+    });
 
     const timer = setTimeout(() => {
       try {
@@ -409,41 +463,83 @@ async function runMineru(req, options = {}) {
 
     child.on('close', (code) => {
       if (settled) return;
+
+      /*
+       * 先看输出文件在不在 —— 即退出码非 0 也可能写出了内容。
+       *
+       * 实测（2026-11-07）：`mineru parse` 在服务被禁用时会**打印 JSON 错误
+       * 但退出码仍是 0**，所以不能只看退出码；反过来，某些页失败时它
+       * 也可能写出部分结果。以「文件里有没有正文」为准，比看退出码可靠。
+       */
+      let markdown = null;
+      try {
+        if (fs.existsSync(outFile)) {
+          markdown = fs.readFileSync(outFile, 'utf8');
+        }
+      } catch {
+        /* 读不出来当作没有 */
+      }
+
+      if (markdown && markdown.trim()) {
+        finish({ ok: true, result: { markdown, outFile } });
+        return;
+      }
+
       if (code !== 0) {
+        const said = stderrTail.trim();
+        /*
+         * 把三种最常见的失败翻译成用户能照着做的下一步。
+         * 原来只会把原始日志拍给用户，他看不出该点哪里。
+         */
+        if (/Local parse-server is disabled|parse_server\.local\.mode/i.test(said)) {
+          finish({
+            ok: false,
+            trouble: 'server-disabled',
+            message:
+              'MinerU 的本地解析服务没启用，所以它拒绝转换。' +
+              '到 MinerU 的安装目录执行两条命令即可：\n' +
+              '  mineru config set parse_server.local.mode managed\n' +
+              '  mineru config set parse_server.local.managed_tier basic\n' +
+              '然后重启应用。',
+          });
+          return;
+        }
+        if (/models download|not downloaded|模型/i.test(said)) {
+          finish({
+            ok: false,
+            trouble: 'models-missing',
+            message:
+              'MinerU 的模型没下全，转换用不了。' +
+              '到 MinerU 安装目录执行：mineru-kit models download --tier basic',
+          });
+          return;
+        }
+        if (/WinError 5|拒绝访问|PermissionError/i.test(said)) {
+          finish({
+            ok: false,
+            trouble: 'locked',
+            message:
+              'MinerU 的模型文件被别的程序占着（常见于同时开着 StudyHub 的 MinerU）。' +
+              '把那个程序关掉，或先停掉它的服务，再重试。',
+          });
+          return;
+        }
         finish({
           ok: false,
           trouble: 'run-failed',
-          message: `MinerU 退出码 ${code}。${
-            stderrTail.trim() ? `最后的日志：${stderrTail.trim().slice(-600)}` : ''
-          }`,
+          message: `MinerU 退出码 ${code}。${said ? `最后的日志：${said.slice(-600)}` : ''}`,
         });
         return;
       }
 
-      // 退出码 0：去 outDir 找产出的 json
-      try {
-        const files = fs.readdirSync(req.outDir).filter((f) => f.endsWith('.json'));
-        if (files.length === 0) {
-          finish({
-            ok: false,
-            trouble: 'bad-output',
-            message: `MinerU 说成功了，但输出目录里没有 json 文件。目录：${req.outDir}`,
-          });
-          return;
-        }
-        // 取最新产出的那个
-        const newest = files
-          .map((f) => ({ f, t: fs.statSync(path.join(req.outDir, f)).mtimeMs }))
-          .sort((a, b) => b.t - a.t)[0];
-        const raw = JSON.parse(fs.readFileSync(path.join(req.outDir, newest.f), 'utf8'));
-        finish({ ok: true, result: raw });
-      } catch (err) {
-        finish({
-          ok: false,
-          trouble: 'bad-output',
-          message: `读 MinerU 的输出失败：${err instanceof Error ? err.message : String(err)}`,
-        });
-      }
+      // 退出码 0 但没有产物
+      finish({
+        ok: false,
+        trouble: 'bad-output',
+        message:
+          `MinerU 说成功了，但没有写出转换结果（期待文件：${outFile}）。` +
+          '可能是这份文件它读不出内容，或转换被中途中断。',
+      });
     });
   });
 }

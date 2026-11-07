@@ -25,7 +25,7 @@
 
 import type { Source } from '../model.ts';
 import type { SourceService } from '../sources.ts';
-import type { MinerUResult, MinerUPage } from './convert.ts';
+import type { MinerUResult, MinerUPage } from './markdown.ts';
 import { needsConversion } from './convert.ts';
 
 /** 转换后写回的段（与 SourceService.writeSegments 的入参对齐） */
@@ -48,7 +48,6 @@ export interface ConversionReport {
   /** 实际用的 tier */
   tier: string;
   /** 解析模式：ocr 表示真的走了 OCR */
-  parseMode: string;
   /** 生产者版本 */
   producer: string;
   /** 写回后的段数 */
@@ -71,25 +70,15 @@ export function toSegments(result: MinerUResult): ConvertedSegment[] {
     page: i + 1,
     // 章节标题：这一页若以标题块开头，用它做 chapter；否则 null。
     // 不猜 —— 猜错会让目录跳转指错地方。
-    chapter: pickChapter(p),
+    chapter: p.chapter ?? null,
     text: p.text,
   }));
 }
 
 /**
- * 从一页的块类型里推断章节标题。
- *
- * 只在**这一页的第一个块是标题**时采用。为什么这么保守：
- * 一页中间出现的标题属于正文结构，把它当成「本章标题」会让整页的
- * 归属都错；而页首的标题，恰好就是「这一页属于哪章」的最强信号。
+ * 章节标题已由 markdown.ts 判断好（只有页首是标题时才算），
+ * 这一层直接用，不再二次猜测 —— 猜错会让目录跳转指错地方。
  */
-function pickChapter(page: MinerUPage): string | null {
-  if (page.kinds[0] !== 'paragraph_title' && page.kinds[0] !== 'doc_title') return null;
-  // 标题文字就是这一页正文的第一行
-  const firstLine = page.text.split('\n')[0]?.trim();
-  if (!firstLine || firstLine.length > 60) return null;
-  return firstLine;
-}
 
 /** 统计报告里那几个如实数字 */
 export function summarize(
@@ -105,7 +94,6 @@ export function summarize(
     pagesWithText: segments.length - emptyPages.length,
     emptyPages,
     tier: result.tier,
-    parseMode: result.parseMode,
     producer: result.producer,
     segmentCount: segments.length,
   };

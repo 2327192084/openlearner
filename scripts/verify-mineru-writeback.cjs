@@ -155,8 +155,8 @@ async function main() {
   console.log('\n真实调用 MinerU 转换 3 页扫描件…');
 
   const run = await mineru.runMineru(
-    { filePath: FIXTURE, outDir, tier: 'standard' },
-    { exePath: detected.exePath, ...(detected.mineruHome ? { mineruHome: detected.mineruHome } : {}) },
+    { filePath: FIXTURE, outDir, tier: 'basic' },
+    { exePath: detected.exePath },
   );
   record('真实转换成功', run.ok === true, run.ok ? '' : run.message);
   if (!run.ok) return summarize();

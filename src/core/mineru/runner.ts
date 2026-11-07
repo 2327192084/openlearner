@@ -18,7 +18,7 @@
  * 而不是转一半失败、或者给一个点了没反应的按钮。
  */
 
-import type { MinerUResult } from './convert.ts';
+import type { MinerUResult } from './markdown.ts';
 
 /** 一次转换请求 */
 export interface MinerURequest {
@@ -82,8 +82,16 @@ export function getMinerURunner(): MinerURunner {
             if (res.trouble) err.trouble = res.trouble;
             throw err;
           }
-          const { parseMiddleJson } = await import('./convert.ts');
-          return parseMiddleJson(res.result);
+          /*
+           * 主进程现在回的是 `{ markdown, outFile }` —— 它已经把 Markdown
+           * 读成字符串传过来了（`mineru parse -o x.md` 的产物）。
+           * 解析成按页结构由我们这边做：纯函数，可单测，不必占主进程。
+           */
+          const { parseMarkdown } = await import('./markdown.ts');
+          const payload = res.result as { markdown?: string } | undefined;
+          return parseMarkdown(payload?.markdown ?? '', {
+            tier: request.tier ?? 'unknown',
+          });
         } finally {
           unsubscribe?.();
         }

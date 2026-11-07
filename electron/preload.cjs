@@ -190,6 +190,16 @@ const openleanerApi = Object.freeze({
     /** 取回某份资料的原文件路径。没有登记过就返回 null。 */
     sourcePath: (sourceId) => ipcRenderer.invoke('openleaner:source-path', sourceId),
 
+    /**
+     * 弹出系统文件选择框，让用户指一次原文件。
+     *
+     * 兜底用：升级前导入的资料没有路径记录，或原文件被移动过。
+     * 挑完主进程会顺手登记，下次直接命中。
+     * 用户取消返回 null（不当作错误）。
+     */
+    pickSourceFile: (sourceId, title) =>
+      ipcRenderer.invoke('openleaner:pick-source-file', { sourceId, title }),
+
     /** 跑一次转换。返回值形状与主进程 handler 一致。 */
     run: (request) => ipcRenderer.invoke('openleaner:mineru-convert', request),
 
