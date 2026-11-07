@@ -9,6 +9,7 @@ import type {
   SourceLocation,
 } from '../model.ts';
 import type { StorageAdapter } from '../storage/types.ts';
+import { pointsToMaterials, toSourcePoint, type QuestionMaterial } from './materials.ts';
 import type { UsageService } from '../usage.ts';
 import {
   DEFAULT_EXPORT_OPTIONS,
@@ -53,6 +54,19 @@ export interface GenerateProgress {
 export interface GenerateQuestionsInput {
   /** 出题依据的知识点（由调用方从 KnowledgeService 取） */
   points: KnowledgePoint[];
+  /**
+   * 用「归一后的素材」出题（2026-11-07 新增）。
+   *
+   * 为什么加这个而不是改 points：用户要求出题可以来自**两处** ——
+   *  - 知识库（知识点）
+   *  - 资料原文（正文段落，不再经过知识点）
+   *
+   * 两者形状不同，但出题后端只认 QuestionSourcePoint。把「素材」抽出来之后，
+   * 后端与提示词一行都不用改，调用方只要给出 materials，走哪条来源都行。
+   *
+   * 传了 materials 就**优先用它**；都没传则报错。
+   */
+  materials?: QuestionMaterial[];
   title: string;
   courseId?: string | null;
   sourceId?: string | null;
@@ -143,23 +157,39 @@ export class DeckService {
    *  - 生成结果一律是**草稿**状态，必须人工检查后发布
    */
   async generate(input: GenerateQuestionsInput): Promise<GenerateQuestionsOutput> {
-    if (input.points.length === 0) {
+    /*
+     * 两条来源统一成 materials：
+     *  - 给了 materials（知识库出题 / 从原文出题）就直接用
+     *  - 没给就退回老路径：从知识点映射
+     */
+    const materials: QuestionMaterial[] =
+      input.materials && input.materials.length > 0
+        ? input.materials
+        : pointsToMaterials(input.points);
+
+    if (materials.length === 0) {
+      /*
+       * 三种情况必须分开说，用户才知道下一步做什么：
+       *  1. 给了 materials 但为空 → 原文太短/没解析出字
+       *  2. 有知识点，但全都没定位到原文 → 重新整理一遍
+       *  3. 一条知识点都没有 → 先整理，或从原文字出题
+       */
+      if (input.materials) {
+        throw new Error(
+          '没有可用于出题的素材。资料正文可能太短，或者都还没有解析出文字。',
+        );
+      }
+      if (input.points.length > 0) {
+        throw new Error(
+          '这些知识点都没有定位到原文位置，出题后无法「点回原文」。请先到「整理知识点」把资料重新整理一遍，让每条都带上原文位置，再来出题。',
+        );
+      }
       throw new Error(
-        '没有可出题的知识点。请先在「整理知识点」页把资料整理成知识点，再回来出题。',
+        '没有可出题的知识点。可以到「我的题组」从知识库出题，或到「整理知识点」把资料整理成知识点。',
       );
     }
 
-    // 只取已定位的知识点：没有位置的题目无法「点回原文」，
-    // 而 P3 验收要求题题可点通。未定位的留在待处理列表里，不该被悄悄用来出题。
-    const usable = input.points.filter((p) => p.anchorStatus === 'located' && p.anchors.length > 0);
-
-    if (usable.length === 0) {
-      throw new Error(
-        '这些知识点都没有定位到原文位置，出题后无法「点回原文」。请先到「整理知识点」把资料重新整理一遍，让每条都带上原文位置，再来出题。',
-      );
-    }
-
-    const sourcePoints: QuestionSourcePoint[] = usable.map(toSourcePoint);
+    const sourcePoints: QuestionSourcePoint[] = materials.map(toSourcePoint);
     const estimated = input.backend.estimateTokens(sourcePoints, input.options);
 
     const ts = nowIso();
@@ -182,7 +212,7 @@ export class DeckService {
 
     const questions: Question[] = [];
     // 知识点 id → 原对象，用于继承 anchors
-    const pointById = new Map(usable.map((p) => [p.id, p]));
+    const materialById = new Map(materials.map((m) => [m.id, m]));
 
     /**
      * 出题失败（含用户中途停止）时，**草稿已经建好了**，不能就这么丢掉引用。
@@ -201,18 +231,18 @@ export class DeckService {
         ...input.options,
         signal: input.signal,
         onDraft: async (draft) => {
-          const point = pointById.get(draft.knowledgePointId);
-          // 模型指了一个不存在的知识点：丢弃这道题，不要瞎猜出处
-          if (!point) return;
+          const material = materialById.get(draft.knowledgePointId);
+          // 模型指了一个不存在的素材：丢弃这道题，不要瞎猜出处
+          if (!material) return;
 
-          const question = this.materialize(draft, point, deckId, questions.length);
+          const question = this.materialize(draft, material, deckId, questions.length);
           await this.storage.put('questions', question);
           questions.push(question);
 
           input.onProgress?.({
             produced: questions.length,
             estimatedTotal: Math.max(input.options.count, 1),
-            pointTotal: usable.length,
+            pointTotal: materials.length,
           });
         },
       });
@@ -279,7 +309,7 @@ export class DeckService {
    */
   private materialize(
     draft: QuestionDraft,
-    point: KnowledgePoint,
+    material: QuestionMaterial,
     deckId: string,
     order: number,
   ): Question {
@@ -293,10 +323,10 @@ export class DeckService {
       answer: draft.answer.trim(),
       explanation: draft.explanation?.trim() ?? '',
       // 继承，不是采信。模型输出的任何位置信息都不进入这里。
-      anchors: point.anchors.map((a) => ({ ...a })),
-      knowledgePointId: point.id,
-      cognitiveLevel: point.cognitiveLevel,
-      topic: point.chapter,
+      anchors: material.anchors.map((a) => ({ ...a })),
+      knowledgePointId: material.id,
+      cognitiveLevel: material.cognitiveLevel,
+      topic: material.chapter,
       order,
       createdAt: ts,
       updatedAt: ts,
@@ -790,17 +820,6 @@ export class DeckService {
 // ---------------------------------------------------------------------------
 // 辅助
 // ---------------------------------------------------------------------------
-
-function toSourcePoint(p: KnowledgePoint): QuestionSourcePoint {
-  return {
-    id: p.id,
-    statement: p.statement,
-    quotes: p.quotes,
-    cognitiveLevel: p.cognitiveLevel,
-    chapter: p.chapter,
-    page: p.anchors[0]?.page ?? null,
-  };
-}
 
 /** 填空答案归一化：去空白、去首尾标点、统一大小写 */
 function normalizeBlank(s: string): string {

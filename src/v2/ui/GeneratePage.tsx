@@ -2,6 +2,13 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Source, KnowledgePoint } from '@/core/model.ts';
 import type { SourceService } from '@/core/sources.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
+import {
+  pickRandom,
+  pointsToMaterials,
+  segmentsToMaterials,
+  type QuestionMaterial,
+} from '@/core/questions/materials.ts';
+import { OriginPicker, type MaterialOrigin } from './OriginPicker.tsx';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { BackendService } from '@/core/backends.ts';
 import { IconDoc, IconGenerate, IconUpload } from './icons.tsx';
@@ -85,6 +92,14 @@ export function GeneratePage({
   onBack,
 }: GeneratePageProps) {
   const [mode, setMode] = useState<Mode>('from-source');
+
+  /**
+   * 出题素材来源（2026-11-07 用户要求）。
+   *  - source-text：资料原文段落（原「从资料出题」改成读原文）
+   *  - knowledge：知识库知识点（可整库随机 / 指定一份）
+   */
+  const [origin, setOrigin] = useState<MaterialOrigin>('source-text');
+  const [acrossAll, setAcrossAll] = useState(true);
   const [sources, setSources] = useState<Source[] | null>(null);
   const [selected, setSelected] = useState<string>('');
   const [points, setPoints] = useState<KnowledgePoint[] | null>(null);
@@ -203,11 +218,50 @@ export function GeneratePage({
         ...(ready[0]!.baseUrl ? { baseUrl: ready[0]!.baseUrl } : {}),
       });
 
+      /*
+       * 按来源取素材（2026-11-07）。
+       *
+       * 原文出题 → segmentsToMaterials：段落自带页码，锚点天然准确；
+       * 知识库出题 → pointsToMaterials：用整理时实测出的 anchors。
+       */
+      let materials: QuestionMaterial[] = [];
+      let titleBase = '';
+
+      if (origin === 'source-text') {
+        const segs = await sourceService.getSegments(selected);
+        materials = segmentsToMaterials(segs);
+        titleBase = sources?.find((s) => s.id === selected)?.title ?? '资料';
+      } else if (acrossAll) {
+        const allPoints = [];
+        for (const src of sources ?? []) {
+          allPoints.push(...(await knowledge.listBySource(src.id)));
+        }
+        /*
+         * 抽多少条：出题数 × 3，至少 12。
+         * 整库可能有几百条，全塞进去会超上下文，而且大部分用不到。
+         */
+        materials = pickRandom(pointsToMaterials(allPoints), Math.max(count * 3, 12));
+        titleBase = '知识库';
+      } else {
+        materials = pointsToMaterials(await knowledge.listBySource(selected));
+        titleBase = sources?.find((s) => s.id === selected)?.title ?? '资料';
+      }
+
+      if (materials.length === 0) {
+        setError(
+          origin === 'source-text'
+            ? '这份资料没有可用来出题的正文。到「资料」页看它是不是扫描件（扫描件要先转成正文）。'
+            : '这个范围里没有已定位的知识点。到「整理知识点」把资料过一遍再来。',
+        );
+        return;
+      }
       const controller = new AbortController();
       const out = await decks.generate({
-        points: usablePoints,
-        title: `${sources?.find((s) => s.id === selected)?.title ?? '资料'} · 题组`,
-        sourceId: selected,
+        // 素材优先；points 留空 —— generate 会用 materials
+        points: [],
+        materials,
+        title: `${titleBase} · 题组`,
+        sourceId: origin === 'source-text' || !acrossAll ? selected : null,
         backend,
         options: {
           kinds: [kind],
@@ -226,7 +280,21 @@ export function GeneratePage({
     } finally {
       setBusy(false);
     }
-  }, [busy, usablePoints, backends, decks, sources, selected, kind, count, onGenerated]);
+  }, [
+    busy,
+    usablePoints,
+    backends,
+    decks,
+    sources,
+    selected,
+    kind,
+    count,
+    onGenerated,
+    origin,
+    acrossAll,
+    knowledge,
+    sourceService,
+  ]);
 
   // ---- 没有资料：先引导导入 ----
   if (sources !== null && sources.length === 0) {
@@ -299,40 +367,23 @@ export function GeneratePage({
       {/* ---- 用资料出题 ---- */}
       {mode === 'from-source' ? (
         <div className="gen-form">
-          <fieldset className="gen-field">
-            <legend className="gen-legend">01 / 选资料</legend>
-            <select
-              className="gen-select"
-              value={selected}
-              onChange={(e) => setSelected(e.target.value)}
-              disabled={busy}
-            >
-              {(sources ?? []).map((s) => {
-                const n = s.id === selected ? usablePoints.length : null;
-                return (
-                  <option key={s.id} value={s.id}>
-                    {s.title}
-                    {n !== null ? `（${n} 条可出题）` : ''}
-                  </option>
-                );
-              })}
-            </select>
-            {points !== null ? (
-              <p className="gen-hint">
-                {usablePoints.length > 0
-                  ? `这份资料有 ${usablePoints.length} 条已定位的知识点可以出题`
-                  : '这份资料还没有可出题的知识点。先到「整理知识点」把它过一遍 —— 有了带出处的小条目，这里就能出题。'}
-              </p>
-            ) : null}
-            {points !== null && usablePoints.length === 0 ? (
-              <button type="button" className="btn-ghost" onClick={() => onOpenOrganize(selected)}>
-                去整理这份资料的知识点
-              </button>
-            ) : null}
-          </fieldset>
+          {/* 出题素材来源：资料原文 / 知识库知识点 */}
+          <OriginPicker
+            origin={origin}
+            onOriginChange={setOrigin}
+            acrossAll={acrossAll}
+            onAcrossAllChange={setAcrossAll}
+            sources={sources}
+            selected={selected}
+            onSelectedChange={setSelected}
+            locatedPointCount={origin === 'knowledge' ? usablePoints.length : null}
+            disabled={busy}
+            onOpenOrganize={onOpenOrganize}
+          />
+
 
           <fieldset className="gen-field">
-            <legend className="gen-legend">02 / 题型与数量</legend>
+            <legend className="gen-legend">03 / 题型与数量</legend>
             <div className="gen-row">
               <label className="gen-label">
                 题型
