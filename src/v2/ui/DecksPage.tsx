@@ -47,6 +47,14 @@ export interface DecksPageProps {
   onOpenOrganize: (sourceId: string | null) => void;
   /** 生成完题后跳到这一页时，要自动展开那个题组 */
   initialDeckId?: string | null;
+  /**
+   * 进来就展开「新建题组」表单。
+   *
+   * 「创建题组」作为独立页面已经并入本页，但旧状态/书签/「下一步」卡片
+   * 仍可能把 page 指向 generate —— App 会把它们送到这里并设上这个标记，
+   * 让用户直接看到出题表单，而不是一个题组列表。
+   */
+  initialCreate?: boolean;
   /** 去这一份资料的阅读器（看原文对照） */
   onOpenSource?: (sourceId: string) => void;
   onChanged: () => void;
@@ -61,6 +69,7 @@ export function DecksPage({
   onOpenSources,
   onOpenOrganize,
   initialDeckId,
+  initialCreate,
   onOpenSource,
   onChanged,
 }: DecksPageProps) {
@@ -81,7 +90,7 @@ export function DecksPage({
    * 点「新建题组」就地展开出题表单，出完回到列表并展开新题组。
    * 这样侧栏少一个入口，出题与查看也不用来回跳。
    */
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(Boolean(initialCreate));
 
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);

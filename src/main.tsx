@@ -76,12 +76,21 @@ function Bootstrap() {
 
         // ---- v2 数据 ----
         const review = new ReviewService(storage);
-        const [questions, , srcs] = await Promise.all([
+        const [questions, , srcs, deckRows] = await Promise.all([
           storage.getAll('questions'),
           storage.getAll('knowledgePoints'),
           storage.getAll('sources'),
+          storage.getAll('decks'),
         ]);
         if (cancelled) return;
+        /*
+         * 已发布题组的 id 集合 —— 卡片池必须与 `createCardLoader(storage, 'questions')`
+         * 用同一个范围（它只取已发布题组的题）。两个范围不一致会让首页
+         * 「已学 N/总数」和下面按资料汇总的条数对不上。
+         */
+        const publishedDeckIds = new Set(
+          deckRows.filter((d) => d.status === 'published').map((d) => d.id),
+        );
         // 读后端配置判断是否已接入模型
         const backendList = await backends.list();
         const ready = backendList.filter((b) => b.status === 'ready');
@@ -98,8 +107,21 @@ function Bootstrap() {
            *
            * 知识点仍然会被「学习知识」和统计用到，但那是另一条路径
            * （createCardLoader 的 'all' 模式），不从这里走。
+           *
+           * ⚠️ 还必须只算**已发布**题组的题（2026-11-07 补）。
+           *
+           * `loadCards` 用的是 'questions' 模式，它只返回已发布题组的题；
+           * 而这里原先取的是 `getAll('questions')`，含草稿题。
+           * 两个范围不一致，直接后果是首页「已学 10/24」而下面的资料进度
+           * 合计只有 16 道 —— 同一屏两个分母，用户没法判断信哪个。
+           * 这正是项目早就踩过的「概览说已学 10 张但列表只有 3 张」。
+           *
+           * 所以这里按 deck 的 published 过滤，与 loadCards 保持同一范围。
+           * 学一个数字一个来源 —— 概览上的每个数字都必须限定在同一个池子里。
            */
-          cardPool: questions.map((q) => q.id),
+          cardPool: questions
+            .filter((q) => publishedDeckIds.has(q.deckId))
+            .map((q) => q.id),
           hasSources: srcs.length > 0,
           connected: ready.length > 0,
           modelName: first ? `${first.label} · ${first.model || '未填模型'}` : null,

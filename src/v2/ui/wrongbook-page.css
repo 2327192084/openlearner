@@ -295,3 +295,157 @@
     max-width: 40ch;
   }
 }
+
+/* ===== 2026-11-07 新增：分组折叠 / 归类维度 ===== */
+@layer study.features {
+  /* 分段控件：按章节 / 按题型 */
+  .wbk-seg {
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--text) 6%, transparent);
+  }
+
+  .wbk-seg__btn {
+    padding: 3px var(--space-3);
+    border: none;
+    border-radius: var(--radius-xs);
+    background: transparent;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: var(--fs-xs);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.12s, color 0.12s;
+  }
+
+  .wbk-seg__btn:hover {
+    color: var(--text);
+  }
+
+  /* 选中态：实心底 + 反色文字，和其他分段控件同一套语言 */
+  .wbk-seg__btn--on {
+    background: color-mix(in srgb, var(--text) 14%, transparent);
+    color: var(--text);
+  }
+
+  /* 描边款：和实心选中态区分开，但看得出是能点的按钮 */
+  .wbk-seg__btn--outline {
+    border: 1px solid var(--line);
+    padding: 3px var(--space-3);
+    /* 必须显式给颜色：.wbk-seg__btn 的 color 是 --text-dim，
+       不覆盖就继承成灰的，看着像禁用（项目踩过「禁用像能点」，反向也踩） */
+    color: var(--text);
+  }
+
+  .wbk-seg__btn--outline:hover {
+    border-color: var(--text-faint);
+    color: var(--text);
+  }
+
+  .wbk-toolbar__right {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    margin-left: auto;
+  }
+
+  /* ---------- 分组 ---------- */
+  .wbk-groups {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .wbk-group {
+    border-bottom: 1px solid var(--line);
+  }
+
+  /* 组标题行：整行可点，用来展开/收起 */
+  .wbk-group__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    width: 100%;
+    padding: 12px 0;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .wbk-caret {
+    flex: 0 0 auto;
+    width: 0;
+    height: 0;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    border-left: 5px solid var(--text-faint);
+    transition: transform 0.15s ease;
+  }
+
+  .wbk-caret--open {
+    transform: rotate(90deg);
+  }
+
+  .wbk-group__title {
+    flex: 0 0 auto;
+    max-width: 46%;
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .wbk-group__note {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .wbk-group__count {
+    flex: 0 0 auto;
+    margin-left: auto;
+    font-size: var(--fs-xs);
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  /* 展开后的题目列表：左边留一点缩进，表示从属于上面的组 */
+  .wbk-group .wbk-list {
+    padding-left: var(--space-4);
+    border-top: 0;
+  }
+
+  /* 题型小标签（展开后每题一行显示） */
+  .wbk-item__kind {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xs);
+    padding: 0 5px;
+    white-space: nowrap;
+  }
+}
+
+/*
+ * ===== 层外：原生按钮颜色 =====
+ * base.css 的 `button { color: inherit }` 不在 @layer 内，
+ * 层内规则赢不了它 —— 组标题是 <button>，颜色必须写在这里。
+ */
+.wbk-group__head {
+  color: var(--text);
+}
+
+.wbk-group__head:hover .wbk-group__title {
+  color: var(--ok);
+}

@@ -1,0 +1,265 @@
+/*
+ * 学习库首页（2026-11-07 重写）新增的区块样式。
+ *
+ * 页面结构：今天的安排 / 资料进度 / 最近在练的题。
+ * 前三块都加 `dash-` 前缀 —— 项目踩过「v1 的 practice.css 有无层级的 .wb-item
+ * 把 v2 新组件压成竖条」那次，所以新组件的类名一律避开 v1 的短名。
+ *
+ * ⚠️ CSS 层级陷阱（项目已踩四次）：
+ * `src/styles/base.css` 里有一个**不在任何 @layer 内**的 `button { color: inherit }`。
+ * 级联里「层级先于特异性」，所以只要把规则写进 @layer，写多高特异性都赢不了它。
+ * 因此凡是改原生按钮/输入框颜色的规则，都放在文件末尾的层外那块。
+ */
+
+@layer study.features {
+  /* ---------- 区块标题 ---------- */
+  .dash-section {
+    margin-bottom: var(--space-6, 32px);
+  }
+
+  .dash-section:last-child {
+    margin-bottom: 0;
+  }
+
+  .dash-h2 {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    font-size: var(--fs-md);
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.01em;
+    margin-bottom: var(--space-4);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  /* 「学习地图 →」这类跳转，做成标题右侧的弱按钮，不抢主按钮的注意力 */
+  .dash-more {
+    font-size: var(--fs-sm);
+    font-weight: 400;
+    color: var(--text-dim);
+    background: none;
+    border: 0;
+    padding: 2px 0;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .dash-more:hover {
+    color: var(--text);
+  }
+
+  .dash-more-bottom {
+    margin-top: var(--space-3);
+    font-size: var(--fs-sm);
+  }
+
+  .dash-empty {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: var(--lh-body);
+  }
+
+  /* ---------- 资料进度 ---------- */
+  .dash-sources {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .dash-source__line {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: 6px;
+  }
+
+  .dash-source__title {
+    font-size: var(--fs-sm);
+    color: var(--text);
+    /* 长资料名截断，避免把右边的档位挤下去 */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .dash-source__pct {
+    font-size: var(--fs-xs, 11px);
+    color: var(--text-dim);
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+
+  .dash-source__pct--zero {
+    color: var(--text-faint);
+  }
+
+  /*
+   * 掌握度条：4px 高，和 paper.css 里 `.mastery__bar` 同一视觉语言。
+   * 用背景渐变而不是子元素 —— 这里只需要一个比例，不需要分段语义。
+   */
+  .dash-source__bar {
+    height: 4px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--text) 12%, transparent);
+    overflow: hidden;
+  }
+
+  .dash-source__bar > span {
+    display: block;
+    height: 100%;
+    border-radius: 2px;
+    background: var(--ok);
+    transition: width 0.2s ease;
+  }
+
+  .dash-source__meta {
+    margin-top: 6px;
+    font-size: var(--fs-xs, 11px);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 最该补的一章 —— 一句话结论，用左侧竖线强调 */
+  .dash-weak {
+    margin-top: var(--space-4);
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--warn);
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: var(--lh-body);
+  }
+
+  .dash-weak strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  /* ---------- 最近在练的题 ---------- */
+  .dash-recent {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .dash-recent__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 9px 0;
+    border-bottom: 1px solid var(--line-soft);
+    font-size: var(--fs-sm);
+    min-width: 0;
+  }
+
+  .dash-recent__row:last-child {
+    border-bottom: 0;
+  }
+
+  .dash-recent__dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-faint);
+    flex: 0 0 auto;
+  }
+
+  .dash-recent__dot--wrong {
+    background: var(--bad);
+  }
+
+  .dash-recent__prompt {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .dash-recent__day {
+    flex: 0 0 auto;
+    font-size: var(--fs-xs, 11px);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .dash-recent__tag {
+    flex: 0 0 auto;
+    font-size: var(--fs-xs, 11px);
+    color: var(--bad);
+    border: 1px solid color-mix(in srgb, var(--bad) 40%, transparent);
+    border-radius: var(--radius-xs, 4px);
+    padding: 1px 5px;
+  }
+
+  /* ---------- 右侧：错题入口（纸张卡下方的一条） ---------- */
+  .paper-side {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    width: 100%;
+    margin-top: var(--space-3);
+    padding: 12px var(--space-4);
+    background: color-mix(in srgb, var(--paper-ink) 4%, transparent);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius-sm, 8px);
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .paper-side:hover {
+    background: color-mix(in srgb, var(--paper-ink) 8%, transparent);
+  }
+
+  .paper-side__n {
+    font-size: var(--fs-lg, 18px);
+    font-weight: 600;
+    color: var(--bad);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .paper-side__label {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+  }
+}
+
+/*
+ * ===== 层外：原生控件的文字颜色 =====
+ *
+ * 必须在这里写，不能进上面的 @layer —— base.css 有不在层内的
+ * `button { color: inherit }`，层内规则无论如何都赢不了它。
+ * （`.dash-more` / `.paper-side` 都是 <button>，不写这段会继承到
+ *  父级的颜色，在深色底上可能对比度不足。）
+ */
+.dash-more {
+  color: var(--text-dim);
+}
+
+.dash-more:hover {
+  color: var(--text);
+}
+
+.paper-side,
+.paper-side .paper-side__n,
+.paper-side .paper-side__label {
+  color: inherit;
+}
+
+.paper-side .paper-side__n {
+  color: var(--bad);
+}
+
+.paper-side .paper-side__label {
+  color: var(--text-dim);
+}

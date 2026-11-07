@@ -96,6 +96,19 @@ export class ReviewService {
   }
 
   /**
+   * 全部复习日志（按写入顺序，最旧在前）。
+   *
+   * 为什么要暴露这一层：首页要显示「最近在练的题」，
+   * 而 `reviewRecords` 只有最终状态、没有时间先后。
+   * 让页面自己去 `storage.getAll('reviewLogs')` 也能做，但那样
+   * 「日志长什么样」就泄漏到了界面层 —— 以后改日志结构要同时改几个页面。
+   * 统一从这里出。
+   */
+  async listLogs(): Promise<ReviewLog[]> {
+    return this.storage.getAll('reviewLogs');
+  }
+
+  /**
    * 提交一次复习评分。
    *
    * @returns 更新后的进度；若卡片不存在则新建

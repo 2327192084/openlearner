@@ -1,0 +1,300 @@
+/*
+ * 学习地图（原「学习流」重做，2026-11-07）。
+ *
+ * 类名用 `map-` 前缀，避开 v1 的短名 ——
+ * 项目踩过「v1 的 practice.css 里无层级的 .wb-item 把 v2 组件压成竖条」。
+ *
+ * ⚠️ 层序陷阱：base.css 有不在 @layer 内的 `button { color: inherit }`，
+ * 任何改原生按钮颜色的规则都必须写在文件末尾的层外那块。
+ */
+
+@layer study.features {
+  .map-page {
+    max-width: 900px;
+    padding-bottom: var(--space-8, 48px);
+  }
+
+  .map-head {
+    margin-bottom: var(--space-5);
+  }
+
+  .map-title {
+    font-size: var(--fs-3xl);
+    margin-bottom: var(--space-2);
+  }
+
+  .map-lead {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: var(--lh-body);
+    max-width: 60ch;
+  }
+
+  .map-hint {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: var(--lh-body);
+  }
+
+  .map-error {
+    color: var(--bad);
+    font-size: var(--fs-sm);
+    margin-bottom: var(--space-3);
+  }
+
+  .map-empty {
+    padding: var(--space-6) 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    align-items: flex-start;
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+  }
+
+  /* ---------- 全库概览 ---------- */
+  .map-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-6);
+    padding: var(--space-4) 0;
+    border-top: 1px solid var(--line-soft);
+    border-bottom: 1px solid var(--line-soft);
+    margin-bottom: var(--space-4);
+  }
+
+  .map-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .map-stat__n {
+    font-size: var(--fs-xl, 22px);
+    font-weight: 600;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+
+  .map-stat__label {
+    font-size: var(--fs-xs, 11px);
+    color: var(--text-faint);
+  }
+
+  /* 有到期/有错题时数字变色；没有时保持中性，不靠颜色喊人 */
+  .map-stat--warn .map-stat__n {
+    color: var(--warn);
+  }
+
+  .map-stat--bad .map-stat__n {
+    color: var(--bad);
+  }
+
+  .map-weak {
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--warn);
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: var(--lh-body);
+    margin-bottom: var(--space-5);
+  }
+
+  .map-weak strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  /* ---------- 工具条 ---------- */
+  .map-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-4);
+  }
+
+  .map-toolbar__actions {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+  }
+
+  .map-check {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  /* ---------- 树 ---------- */
+  .map-tree {
+    list-style: none;
+    margin: 0 0 var(--space-5);
+    padding: 0;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .map-src {
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  /* 资料行：整行可点，用来折叠 */
+  .map-src__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    width: 100%;
+    padding: 12px 0;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .map-caret {
+    flex: 0 0 auto;
+    width: 0;
+    height: 0;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    border-left: 5px solid var(--text-faint);
+    transition: transform 0.15s ease;
+  }
+
+  .map-caret--open {
+    transform: rotate(90deg);
+  }
+
+  .map-src__title {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: var(--fs-sm);
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .map-src__count {
+    flex: 0 0 auto;
+    font-size: var(--fs-xs, 11px);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 章节行 */
+  .map-chapters {
+    list-style: none;
+    margin: 0 0 var(--space-3);
+    padding: 0 0 0 var(--space-5);
+  }
+
+  .map-ch {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 7px 0;
+    font-size: var(--fs-sm);
+    border-top: 1px dashed color-mix(in srgb, var(--line-soft) 60%, transparent);
+  }
+
+  .map-ch:first-child {
+    border-top: 0;
+  }
+
+  .map-ch__title {
+    flex: 0 0 auto;
+    max-width: 40%;
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .map-ch__meta {
+    flex: 0 0 auto;
+    font-size: var(--fs-xs, 11px);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+    margin-left: auto;
+  }
+
+  /* ---------- 掌握度条 ---------- */
+  .map-bar-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex: 0 0 auto;
+  }
+
+  .map-bar {
+    display: block;
+    width: 72px;
+    height: 4px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--text) 12%, transparent);
+    overflow: hidden;
+  }
+
+  .map-bar__fill {
+    display: block;
+    height: 100%;
+    border-radius: 2px;
+    background: var(--ok);
+    transition: width 0.2s ease;
+  }
+
+  /* 一道都没练过：条是空的，颜色也不该是「好」的绿 */
+  .map-bar__fill--empty {
+    background: transparent;
+  }
+
+  .map-bar__pct {
+    font-size: var(--fs-xs, 11px);
+    color: var(--text-dim);
+    min-width: 3.4em;
+    white-space: nowrap;
+  }
+
+  .map-bar__pct--zero {
+    color: var(--text-faint);
+  }
+
+  /* 练过但全错：不是「还没开始」，用警示色区分开 */
+  .map-bar__pct--bad {
+    color: var(--bad);
+  }
+
+  .map-foot {
+    font-size: var(--fs-xs, 11px);
+    color: var(--text-faint);
+    line-height: var(--lh-body);
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    align-items: baseline;
+  }
+
+  .btn-ghost--sm {
+    font-size: var(--fs-xs, 11px);
+    padding: 5px 10px;
+  }
+}
+
+/*
+ * ===== 层外：原生控件颜色 =====
+ * 必须写在这里 —— base.css 的 `button { color: inherit }` 不在层内，
+ * 层内规则赢不了它。
+ */
+.map-src__head {
+  color: var(--text);
+}
+
+.map-src__head:hover .map-src__title {
+  color: var(--ok);
+}

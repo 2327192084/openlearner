@@ -12,7 +12,7 @@ import { GuidePage } from './GuidePage.tsx';
 import { BookPage } from './BookPage.tsx';
 import { NotesPage } from './NotesPage.tsx';
 import { ExamPage } from './ExamPage.tsx';
-import { FlowPage } from './FlowPage.tsx';
+import { MapPage } from './MapPage.tsx';
 import { BoardPage } from './BoardPage.tsx';
 import type { PracticeStart } from './PracticePage.tsx';
 import { SourcesPage } from './SourcesPage.tsx';
@@ -37,6 +37,7 @@ import './tokens.css';
 import './shell.css';
 import './paper.css';
 import './today-page.css';
+import './today-dashboard.css';
 import './review-page.css';
 import './sources-page.css';
 import './generate-page.css';
@@ -55,7 +56,7 @@ import './guide-page.css';
 import './book-page.css';
 import './notes-page.css';
 import './exam-page.css';
-import './flow-page.css';
+import './map-page.css';
 import './board-page.css';
 
 /**
@@ -334,23 +335,16 @@ export function App({
       {page === 'board' ? (
         <BoardPage todos={todoService} />
       ) : page === 'flow' ? (
-        <FlowPage
-          sourceService={sourceService}
+        <MapPage
+          reviewService={reviewService}
+          loadCards={loadCards}
           decks={decks}
           knowledge={knowledge}
-          reviewService={reviewService}
-          onOpenOrganize={(sourceId) => {
-            setOrganizeSourceId(sourceId);
-            setPage('organize');
-          }}
-          onOpenSources={() => setPage('sources')}
-          onOpenSource={(sourceId) => {
-            setReaderSourceId(sourceId);
-            setReaderTarget(null);
-            setPage('reader');
-          }}
-          onOpenDecks={() => setPage('decks')}
+          sourceService={sourceService}
           onOpenPractice={() => void navigate('review')}
+          onOpenWrongBook={() => setPage('wrongbook')}
+          onOpenSources={() => setPage('sources')}
+          onOpenDecks={() => setPage('decks')}
         />
       ) : page === 'exam' ? (
         <ExamPage
@@ -412,6 +406,8 @@ export function App({
           reviewService={reviewService}
           decks={decks}
           loadCards={loadCards}
+          knowledge={knowledge}
+          sourceService={sourceService}
           onOpenSource={(sourceId) => {
             setReaderSourceId(sourceId);
             setReaderTarget(null);
@@ -553,7 +549,44 @@ export function App({
           modelName={conn.modelName}
           onOpenSources={() => setPage('sources')}
           onStartReview={() => setPage('review')}
-          onStartNew={() => setPage('generate')}
+          onOpenDecks={() => setPage('decks')}
+          onOpenMap={() => setPage('flow')}
+          onOpenWrongBook={() => setPage('wrongbook')}
+          loadCards={loadCards}
+          decks={decks}
+          knowledge={knowledge}
+          sourceService={sourceService}
+        />
+      ) : page === 'generate' ? (
+        /*
+         * 「创建题组」已整合进「我的题组」（DecksPage 里点「新建题组」就地展开）。
+         *
+         * 但这里**仍要留一个分支**：旧状态、书签、以及「下一步」卡片都可能
+         * 把 page 设成 generate。以前没有这个分支，于是掉进最后的 Placeholder，
+         * 用户看到「这一页还在重做中」—— 一个功能明明能用，界面却说没做。
+         * 现在直接送去「我的题组」，并在那边默认展开新建表单（见 initialCreate）。
+         */
+        <DecksPage
+          decks={decks}
+          sourceService={sourceService}
+          knowledge={knowledge}
+          backends={backends}
+          initialCreate
+          onGenerated={() => void refreshCounts()}
+          onOpenSources={() => setPage('sources')}
+          onOpenOrganize={(sourceId) => {
+            setOrganizeSourceId(sourceId);
+            setPage('organize');
+          }}
+          onOpenSource={(sourceId) => {
+            setReaderSourceId(sourceId);
+            setReaderTarget(null);
+            setPage('reader');
+          }}
+          onChanged={() => {
+            void refreshCounts();
+            void refreshShellState();
+          }}
         />
       ) : (
         <Placeholder page={page} onBack={() => setPage('today')} />

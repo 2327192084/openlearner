@@ -74,7 +74,13 @@ const OPTIONS: Option[] = [
     id: 'review',
     title: '开始复习',
     desc: '按遗忘曲线，只做今天该复习的卡片',
-    ready: false,
+    /*
+     * 原先标 ready:false（「还没做」），但它其实早就能用 ——
+     * 就是「做题 → 今日题组」那条路，按到期日排、逾期优先。
+     * 界面把一个真功能说成没做，是反向的假开关，用户会以为
+     * 这一块不能用而绕开它。现在直接跳过去。
+     */
+    ready: true,
     icon: IconStats,
   },
   {
@@ -131,6 +137,10 @@ export function StudyPage({
 
   function pick(opt: Option) {
     if (opt.id === 'quiz') {
+      onStartQuiz();
+      return;
+    }
+    if (opt.id === 'review') {
       onStartQuiz();
       return;
     }

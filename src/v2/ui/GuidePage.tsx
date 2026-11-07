@@ -152,37 +152,47 @@ export function GuidePage({ onNavigate }: GuidePageProps) {
         </ul>
       </section>
 
-      {/* ---------- 还没做 ---------- */}
-      <h2 className="gd-h2 gd-h2--pending">还没做</h2>
-      <p className="gd-hint">
-        下面这些点了会进到一个占位页，上面写清「还在重做中」。
-        它们不会假装能用 —— 按钮点了没反应比没有按钮更糟。
-      </p>
-      {sections.map((s) =>
-        s.pending.length === 0 ? null : (
-          <section key={s.group} className="gd-group">
-            <h3 className="gd-group__title">{s.group}</h3>
-            <ul className="gd-list">
-              {s.pending.map((p) => (
-                <li key={p.id} className="gd-item gd-item--pending">
-                  <span className="gd-item__name">
-                    {p.label}
-                    <span className="gd-badge">还没做</span>
-                  </span>
-                  <span className="gd-item__purpose">{p.purpose}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-        ),
-      )}
+      {/*
+        ---------- 还没做 ----------
+        只有当**真的存在**未完成的页时才显示这一整块。
+        曾经无条件渲染，于是在所有页都做完之后仍然挂着一句
+        「下面这些点了会进到一个占位页」—— 而下面一个都没有，
+        等于一句假话。界面上不出现「指向空处」的说明。
+      */}
+      {totalPending > 0 ? (
+        <>
+          <h2 className="gd-h2 gd-h2--pending">还没做</h2>
+          <p className="gd-hint">
+            下面这些点了会进到一个占位页，上面写清「还在重做中」。
+            它们不会假装能用 —— 按钮点了没反应比没有按钮更糟。
+          </p>
+          {sections.map((s) =>
+            s.pending.length === 0 ? null : (
+              <section key={s.group} className="gd-group">
+                <h3 className="gd-group__title">{s.group}</h3>
+                <ul className="gd-list">
+                  {s.pending.map((p) => (
+                    <li key={p.id} className="gd-item gd-item--pending">
+                      <span className="gd-item__name">
+                        {p.label}
+                        <span className="gd-badge">还没做</span>
+                      </span>
+                      <span className="gd-item__purpose">{p.purpose}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ),
+          )}
+        </>
+      ) : null}
 
       {/* ---------- 需要条件才能做 ---------- */}
       {shelved.length > 0 ? (
         <>
           <h2 className="gd-h2 gd-h2--pending">现在没做，也没放进侧栏</h2>
           <p className="gd-hint">
-            下面几项不是漏掉的，是**现在做不了**：差一个外部条件。
+            下面几项不是漏掉的，是<strong>现在做不了</strong>：差一个外部条件。
             侧栏里没有它们的入口 —— 摆一个点了没反应的入口比不摆更糟。
           </p>
           <section className="gd-group">
