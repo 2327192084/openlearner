@@ -160,17 +160,34 @@ export function ConvertPanel({
         <div className="convert-panel__actions">
           {phase.kind === 'running' ? (
             <div className="convert-panel__progress">
-              <span className="convert-panel__phase">
-                {phase.progress?.phase ?? '正在启动 MinerU…'}
-              </span>
-              {phase.progress?.ratio !== null && phase.progress?.ratio !== undefined ? (
-                <span className="convert-panel__ratio">
-                  {Math.round(phase.progress.ratio * 100)}%
-                  {phase.progress.detail ? ` · ${phase.progress.detail}` : ''}
+              <div className="convert-panel__progress-top">
+                <span className="convert-panel__phase">
+                  {phase.progress?.phase ?? '正在启动 MinerU…'}
                 </span>
-              ) : phase.progress?.detail ? (
-                <span className="convert-panel__ratio">{phase.progress.detail}</span>
+                <span className="convert-panel__ratio">
+                  {phase.progress?.detail ??
+                    (phase.progress?.ratio !== null && phase.progress?.ratio !== undefined
+                      ? `${Math.round(phase.progress.ratio * 100)}%`
+                      : '')}
+                </span>
+              </div>
+              {/*
+               * 进度条只在拿到真实百分比时画。
+               * 拿不到就留空 —— 画一条永远不动的假进度条比没有更糟，
+               * 用户会盯着它等，而它其实不知道自己在哪。
+               */}
+              {phase.progress?.ratio !== null && phase.progress?.ratio !== undefined ? (
+                <div className="convert-panel__bar" role="progressbar" aria-valuenow={Math.round(phase.progress.ratio * 100)} aria-valuemin={0} aria-valuemax={100}>
+                  <div
+                    className="convert-panel__bar-fill"
+                    style={{ width: `${Math.round(phase.progress.ratio * 100)}%` }}
+                  />
+                </div>
               ) : null}
+              <p className="convert-panel__note">
+                整本大书要几十分钟。进度是 MinerU 当前阶段的进度（比如「文字识别 112/252」），
+                不是整本的百分比 —— 阶段会往下走，说明它在干活。
+              </p>
             </div>
           ) : (
             <>

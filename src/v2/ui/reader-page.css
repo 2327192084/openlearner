@@ -332,3 +332,102 @@
   color: var(--accent-text);
   border-color: var(--accent);
 }
+
+/* --------------------------------------------------------------------------
+ * 正文里的 Markdown 结构
+ *
+ * 用户要求「docx 转成 Markdown 再入库」「MinerU 转换后的 PDF 也要是
+ * Markdown 形式」。正文里既然带着 `#` / `-` / `|`，渲染时就得把这些
+ * 还原成真正的层次，否则用户看到一堆井号和竖线，比原来更乱。
+ *
+ * 字号阶梯比正文略收敛：阅读器主角是正文，标题不该喧宾夺主。
+ * -------------------------------------------------------------------------- */
+
+.reader-md {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.reader-md-h {
+  margin: var(--space-2) 0 0;
+  font-weight: 550;
+  line-height: var(--lh-tight);
+  color: var(--text);
+}
+
+/* 一级标题：和资料标题同档，但略小，避免与页头打架 */
+.reader-md-h--1 {
+  font-size: var(--fs-xl);
+}
+
+.reader-md-h--2 {
+  font-size: var(--fs-lg);
+}
+
+.reader-md-h--3 {
+  font-size: var(--fs-md);
+  color: var(--text-dim);
+}
+
+.reader-md-h--4,
+.reader-md-h--5,
+.reader-md-h--6 {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+/* ---------- 列表 ---------- */
+
+.reader-md-list {
+  margin: 0;
+  padding-left: 1.6em;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--fs-md);
+  line-height: var(--lh-body);
+  color: var(--text);
+}
+
+.reader-md-list li {
+  /* 与正文一致的换行行为 */
+  overflow-wrap: anywhere;
+}
+
+/* ---------- 表格 ---------- */
+
+.reader-md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+  /* 宽表格允许横向滚动，不要把整个页面撑破 */
+  display: block;
+  overflow-x: auto;
+  white-space: normal;
+}
+
+.reader-md-table th,
+.reader-md-table td {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.reader-md-table th {
+  background: var(--bg-raised);
+  font-weight: 550;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.reader-md-table td {
+  color: var(--text);
+}
+
+/* 高亮段落的行距与普通段落一致，避免切段后行高跳动 */
+.reader-para--marked {
+  white-space: pre-wrap;
+}

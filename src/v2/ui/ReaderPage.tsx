@@ -537,8 +537,18 @@ function renderBody(
   markRef: RefObject<HTMLElement | null>,
 ) {
   const chapter = seg.chapter?.trim() ?? '';
-  // 正文已经以章节标题开头 → 不再单独显示一遍
-  const showChapter = chapter.length > 0 && !seg.text.trimStart().startsWith(chapter);
+  /*
+   * 正文已经以章节标题开头 → 不再单独显示一遍。
+   *
+   * ⚠️ 比较前要把 Markdown 标记剥掉。正文现在是 Markdown 形式
+   * （docx 与 MinerU 都写成 `# 第一章`），直接拿 `# 第一章` 去和
+   * `第一章` 比 `startsWith` 永远为假，于是标题会被显示两遍 ——
+   * 实测截图里就是这个症状（页面标题 + 章标题重复）。
+   */
+  const plainHead = seg.text
+    .trimStart()
+    .replace(/^#{1,6}\s+/, '');
+  const showChapter = chapter.length > 0 && !plainHead.startsWith(chapter);
 
   return (
     <>
@@ -562,9 +572,15 @@ function renderText(
   highlight: Highlight | null,
   markRef: RefObject<HTMLElement | null>,
 ) {
-  // 没有高亮，或高亮是「没找到」的空区间 → 原样显示
+  /*
+   * 有高亮时走「切三段」的老路 —— 这条路径必须精确到字符偏移，
+   * 不能掺 Markdown 解析，否则偏移会错位。
+   *
+   * 没有高亮时才做 Markdown 渲染：标题、列表、表格各自成元素，
+   * 阅读器里才能看出原文档的层次（用户反馈过「格式乱」）。
+   */
   if (!highlight || highlight.via === 'none' || highlight.end <= highlight.start) {
-    return <p className="reader-para">{text}</p>;
+    return <MarkdownBody text={text} />;
   }
 
   const start = Math.max(0, Math.min(text.length, highlight.start));
@@ -575,7 +591,7 @@ function renderText(
   const after = text.slice(end);
 
   return (
-    <p className="reader-para">
+    <p className="reader-para reader-para--marked">
       {before}
       <mark
         className="reader-mark"
@@ -588,6 +604,139 @@ function renderText(
       {after}
     </p>
   );
+}
+
+/**
+ * 把一段正文按 Markdown 的**最小子集**渲染成元素。
+ *
+ * ## 为什么只做这个子集
+ *
+ * 我们不需要一个完整的 Markdown 渲染器（表格、嵌套列表、引用、代码块…
+ * 全上会让包体积涨一大截，而正文里出现的东西就那么几种）。真正需要
+ * 让人一眼看出来的只有三样：
+ *  - 标题（否则章节名和正文一样大，层次全丢）
+ *  - 列表（否则几条并列的项目糊成一段）
+ *  - 表格（否则单元格内容横向连成一片）
+ *
+ * ## 为什么不引 react-markdown
+ *
+ * 它连同 remark/unified 一整条链会把主包撑大 200KB+，而我们只需要
+ * 上面三样。手写这 60 行换来的体积与可控性更划算 —— 尤其是我们必须
+ * 保证渲染出来的文字与原文**完全一致**（锚点按字符偏移算）。
+ */
+function MarkdownBody({ text }: { text: string }) {
+  const lines = text.split('\n');
+  const out: React.ReactNode[] = [];
+  let buffer: string[] = [];
+  let key = 0;
+
+  const flushPara = () => {
+    if (buffer.length === 0) return;
+    const joined = buffer.join('\n').trim();
+    if (joined) out.push(<p className="reader-para" key={key++}>{joined}</p>);
+    buffer = [];
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const trimmed = line.trim();
+
+    // 空行 → 结束当前段落
+    if (trimmed === '') {
+      flushPara();
+      continue;
+    }
+
+    // 标题
+    const heading = /^(#{1,6})\s+(.*)$/.exec(trimmed);
+    if (heading) {
+      flushPara();
+      const level = heading[1]!.length;
+      const title = heading[2];
+      const cls = `reader-md-h reader-md-h--${level}`;
+      if (level === 1) out.push(<h1 className={cls} key={key++}>{title}</h1>);
+      else if (level === 2) out.push(<h2 className={cls} key={key++}>{title}</h2>);
+      else if (level === 3) out.push(<h3 className={cls} key={key++}>{title}</h3>);
+      else out.push(<h4 className={cls} key={key++}>{title}</h4>);
+      continue;
+    }
+
+    // Markdown 表格：连续的 | 开头行
+    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+      flushPara();
+      const rows: string[][] = [];
+      let j = i;
+      while (j < lines.length) {
+        const l = lines[j]!.trim();
+        if (!l.startsWith('|') || !l.endsWith('|')) break;
+        // 分隔行 |---|---| 跳过
+        if (!/^\|[\s:-]+\|/.test(l)) {
+          rows.push(
+            l
+              .slice(1, -1)
+              .split('|')
+              .map((c) => c.trim().replace(/\\\|/g, '|')),
+          );
+        }
+        j++;
+      }
+      i = j - 1;
+      if (rows.length > 0) {
+        const [head, ...body] = rows;
+        out.push(
+          <table className="reader-md-table" key={key++}>
+            <thead>
+              <tr>{head!.map((c, ci) => <th key={ci}>{c}</th>)}</tr>
+            </thead>
+            <tbody>
+              {body.map((r, ri) => (
+                <tr key={ri}>{r.map((c, ci) => <td key={ci}>{c}</td>)}</tr>
+              ))}
+            </tbody>
+          </table>,
+        );
+      }
+      continue;
+    }
+
+    // 列表
+    const bullet = /^([-*+])\s+(.*)$/.exec(trimmed);
+    const numbered = /^(\d+)[.)]\s+(.*)$/.exec(trimmed);
+    if (bullet || numbered) {
+      flushPara();
+      const items: string[] = [];
+      let j = i;
+      while (j < lines.length) {
+        const l = lines[j]!.trim();
+        const b = /^([-*+])\s+(.*)$/.exec(l);
+        const n = /^(\d+)[.)]\s+(.*)$/.exec(l);
+        if (b) items.push(b[2]!);
+        else if (n) items.push(n[2]!);
+        else break;
+        j++;
+      }
+      i = j - 1;
+      if (numbered) {
+        out.push(
+          <ol className="reader-md-list" key={key++}>
+            {items.map((it, ii) => <li key={ii}>{it}</li>)}
+          </ol>,
+        );
+      } else {
+        out.push(
+          <ul className="reader-md-list" key={key++}>
+            {items.map((it, ii) => <li key={ii}>{it}</li>)}
+          </ul>,
+        );
+      }
+      continue;
+    }
+
+    buffer.push(line);
+  }
+
+  flushPara();
+  return <div className="reader-md">{out}</div>;
 }
 
 /**

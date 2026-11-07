@@ -456,3 +456,27 @@
   line-height: var(--lh-body);
   color: var(--bad);
 }
+
+/* 进度条上下两行（阶段名 + x/y 与剩余时间）*/
+.convert-panel__progress-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+/* 进度条：只画真实百分比，不画假动画 */
+.convert-panel__bar {
+  height: 6px;
+  background: var(--bg-sunken);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.convert-panel__bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--radius-pill);
+  transition: width 300ms ease;
+}

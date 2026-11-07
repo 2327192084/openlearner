@@ -19,7 +19,7 @@
  *     没有上限会让用户以为程序死了。
  */
 
-const { spawn } = require('node:child_process');
+const { spawn, execFile } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -218,6 +218,107 @@ function validateRequest(raw, options = {}) {
  * MinerU 用 tqdm 往 stderr 写 `VLM Predict:  25%|██▌ | 3/12 [00:12<00:27]`。
  * 我们只取「阶段名」和「x/y」，绝不编造百分比 —— 解析不出就是 null。
  */
+/**
+ * 从服务日志里抽出**最后一条**真实进度。
+ *
+ * ## 为什么读服务日志而不是读 parse 的 stdout
+ *
+ * `mineru parse --wait` 结束前什么都不打印。真正的 tqdm 输出被服务的
+ * 解析进程持有，通过 `mineru server status --json` 的
+ * `parse_server_stderr_logs` 字段暴露出来（实测最近 10 行）。
+ *
+ * ## 阶段名怎么翻译
+ *
+ * tqdm 里的前缀是 MinerU 内部的流水线阶段名（Layout Predict / VLM Predict /
+ * OCR-det / OCR-rec / Table / MFR…）。直接用会让人看不懂，所以翻成中文，
+ * 并保留原阶段名便于排查。
+ */
+function parseServiceLogs(logs) {
+  if (!Array.isArray(logs) || logs.length === 0) return null;
+
+  // 从后往前找第一条能解析的 —— 最后一条才是「现在进行到哪」
+  for (let i = logs.length - 1; i >= 0; i--) {
+    const line = stripAnsi(String(logs[i] ?? ''));
+    const hit = parseTqdm(line);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** 去掉 ANSI 颜色码（tqdm 与 rich 日志都爱用） */
+function stripAnsi(s) {
+  return s.replace(/\u001b\[[0-9;]*m/g, '');
+}
+
+/** 阶段名 → 用户能看懂的中文 */
+const STAGE_LABEL = {
+  'Layout Predict': '版面分析',
+  'VLM Predict': '视觉模型识别',
+  'OCR-det': '文字检测',
+  'OCR-rec': '文字识别',
+  Table: '表格识别',
+  MFR: '公式识别',
+  MFDet: '公式检测',
+  'Formula Detect': '公式检测',
+  'Formula Recognition': '公式识别',
+  Downloading: '下载模型',
+};
+
+/**
+ * 解析一条 tqdm 行。
+ *
+ * 形如：`OCR-det:  75%|███████▍  | 294/394 [00:07<00:01, 64.99it/s]`
+ *
+ * 同时取 x/y 与剩余时间 —— 后者对用户判断「还要等多久」最有用，
+ * 而 tqdm 已经算好了，不用我们猜。
+ */
+function parseTqdm(line) {
+  const text = typeof line === 'string' ? line : '';
+
+  /*
+   * 分两步匹配，不要写成一整个大正则。
+   *
+   * 第一版把「阶段名 + 百分比 + x/y + 时间括号」塞进一个正则，
+   * 结果 `[^|]*\|` 这种片段会贪婪吃掉后面的括号，时间永远抽不到
+   * （实测：ratio 对了但 detail 里始终没有「还要约 N 秒」）。
+   * 拆开之后两段各自明确，也就不容易被 tqdm 的 █ 块撑糊涂。
+   */
+  const main = text.match(/^([A-Za-z][\w \-.]*?):\s*(\d+)%\s*\|.*?\|\s*(\d+)\/(\d+)/);
+  if (!main) return null;
+
+  const stage = main[1].trim();
+  const percent = Number(main[2]);
+  const done = Number(main[3]);
+  const total = Number(main[4]);
+
+  const time = text.match(/\[(\d+):(\d+)<(\d+):(\d+)/);
+  const etaMin = time ? Number(time[3]) : null;
+  const etaSec = time ? Number(time[4]) : null;
+
+  const label = STAGE_LABEL[stage] ?? stage;
+
+  /*
+   * 剩余时间只在这一阶段**还没接近完成**时才有参考价值。
+   * 已经 95% 了还写「还要 1 分」会让人以为卡住，不如只报 x/y。
+   */
+  const remaining =
+    etaMin !== null && etaSec !== null && percent < 95
+      ? etaMin > 0
+        ? `还要约 ${etaMin} 分 ${etaSec} 秒`
+        : `还要约 ${etaSec} 秒`
+      : null;
+
+  return {
+    phase: label,
+    // ratio 用 tqdm 自己的百分比：它是该阶段的进度，不是整本的
+    ratio: Number.isFinite(percent) ? percent / 100 : null,
+    detail: remaining ? `${done}/${total} · ${remaining}` : `${done}/${total}`,
+    stage,
+    done,
+    total,
+  };
+}
+
 function parseProgressLine(line) {
   const text = typeof line === 'string' ? line : '';
 
@@ -369,41 +470,151 @@ async function runMineru(req, options = {}) {
     let stderrTail = '';
     let settled = false;
 
+    /* 轮询计时器。先声明再被 finish 引用 —— 否则会踩 TDZ。 */
+    let pollTimer = null;
+
     const finish = (value) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      clearInterval(poller);
+      if (pollTimer) clearTimeout(pollTimer);
       resolve(value);
     };
 
     /*
-     * 进度：`mineru parse --wait` **在结束前什么都不打印**（StudyHub 文档
-     * 原话：prints nothing until it ends）。所以不能靠读它的 stdout。
+     * 进度：`mineru parse --wait` 在结束前**什么都不打印**
+     * （StudyHub 文档原话：prints nothing until it ends）。
+     * 所以不能靠读它自己的 stdout。
      *
-     * 照 StudyHub 的做法：改为**只读地问服务**。
-     *   mineru server status --json   → workers / parse_server 健康状态
+     * 真正的进度在**服务那边**：`mineru server status --json` 的
+     * `parse_server_stderr_logs` 字段装的就是解析进程实时的 tqdm 输出，
+     * 形如 `OCR-det:  75%|███████▍ | 294/394 [00:07<00:01, 64.99it/s]`。
+     * 2026-11-07 本机实测：这条命令 1.7 秒返回，一次能拿到最近 10 行。
      *
-     * 为什么用只读命令：转换期间去改状态会干扰它。
-     * 每 20 秒问一次，第一次 5 秒后问 —— 频率太低用户以为卡死，
-     * 太高则频繁起 Python 进程（每次 2-5 秒）。
-     *
-     * 拿不到就报「进行中」，绝不编造百分比。
+     * 所以：定时问服务 → 从最近几行里抽出「最后一个 tqdm 进度」→ 报给界面。
+     * 抽不到就报阶段文字，**绝不编百分比**。
      */
-    const poller = setInterval(() => {
-      if (settled) return;
-      options.onProgress?.({
-        phase: 'MinerU 正在识别（这一步没有细粒度进度）',
-        ratio: null,
-        detail: null,
-      });
-    }, 20000);
+    let lastPhase = '';
+    let pollBusy = false;
 
-    // 第一个提示立刻给，让界面马上有反应
+    /*
+     * 日志基线：本次转换开始前，服务里已经有多少行日志。
+     *
+     * ## 为什么必须有它（实测踩到的坑）
+     *
+     * 服务的 `parse_server_stderr_logs` 是**滚动保留最近若干行**的，
+     * 上一次转换留下的行会留在里面。不设基线的话，
+     * 刚开始转换就会先读到上一本的「OCR-det 252/252」，
+     * 于是界面一上来显示 100%，然后跳回 8% —— 用户会以为程序出了错。
+     *
+     * 做法：转换启动时先用一次 `server status --json` 记下当时的日志快照，
+     * 之后只采纳**不出现在快照里**的新行。日志被截断（滚动掉旧行）时
+     * 快照匹配不上也没关系 —— 那种情况说明时间已经过去不少，
+     * 此刻的日志基本都是新的。
+     */
+    let baselineLines = null;
+    let baselineReady = false;
+
+    const takeBaseline = (cb) => {
+      execFile(
+        exePath,
+        ['server', 'status', '--json'],
+        { timeout: 30000, maxBuffer: 8 * 1024 * 1024, windowsHide: true },
+        (err, stdout) => {
+          if (!err && stdout) {
+            try {
+              const j = JSON.parse(stdout);
+              const logs = Array.isArray(j.parse_server_stderr_logs)
+                ? j.parse_server_stderr_logs.map((l) => String(l))
+                : [];
+              baselineLines = logs;
+            } catch {
+              baselineLines = [];
+            }
+          } else {
+            baselineLines = [];
+          }
+          baselineReady = true;
+          cb();
+        },
+      );
+    };
+
+    /** 只保留基线里没有的行 */
+    const onlyNewLines = (logs) => {
+      if (!Array.isArray(baselineLines) || baselineLines.length === 0) return logs;
+      const known = new Set(baselineLines);
+      const fresh = logs.filter((l) => !known.has(String(l)));
+      /*
+       * 全是旧行说明服务还没开始写新日志 —— 返回空，
+       * 让上层报「准备中」，而不是把上一本的进度当成本次的。
+       */
+      return fresh;
+    };
+
+    const pollOnce = () => {
+      if (settled || pollBusy) return;
+      pollBusy = true;
+      execFile(
+        exePath,
+        ['server', 'status', '--json'],
+        { timeout: 30000, maxBuffer: 8 * 1024 * 1024, windowsHide: true },
+        (err, stdout) => {
+          pollBusy = false;
+          if (settled) return;
+          if (err) return; // 问不到就静默跳过，下一轮再问
+
+          let parsed;
+          try {
+            parsed = JSON.parse(stdout);
+          } catch {
+            return;
+          }
+
+          const allLogs = Array.isArray(parsed.parse_server_stderr_logs)
+            ? parsed.parse_server_stderr_logs.map((l) => String(l))
+            : [];
+          // 去掉本次转换开始前就存在的旧行（上一次转换的残留）
+          const logs = onlyNewLines(allLogs);
+          const found = parseServiceLogs(logs);
+          if (!found) {
+            // 服务在跑但还没开始出进度（模型加载阶段）—— 如实说
+            if (lastPhase !== '准备中') {
+              lastPhase = '准备中';
+              options.onProgress?.({
+                phase: '正在准备（加载模型可能要约一分钟）',
+                ratio: null,
+                detail: null,
+              });
+            }
+            return;
+          }
+
+          const key = found.phase + found.detail;
+          if (key === lastPhase) return; // 没变化就不重复推
+          lastPhase = key;
+          options.onProgress?.(found);
+        },
+      );
+    };
+
+    // 立刻给一个「已提交」的反馈，别让界面空着
     options.onProgress?.({
-      phase: '已提交给 MinerU，正在解析',
+      phase: '已提交给 MinerU，正在启动解析',
       ratio: null,
       detail: null,
+    });
+
+    /*
+     * 先取基线（记下启动这一刻的日志），再开轮询。
+     * 顺序不能反：先轮询的话，第一轮就可能把旧日志当成本次进度报出去。
+     */
+    takeBaseline(() => {
+      if (settled) return;
+      // 第一次 2 秒后问（让转换先起飞），之后每 4 秒一次。
+      // 为什么不更快：每问一次要起一个 Python 进程（1.7 秒），太快会拖慢转换本身。
+      pollTimer = setInterval(pollOnce, 4000);
+      setTimeout(pollOnce, 2000);
     });
 
     const timer = setTimeout(() => {
@@ -549,5 +760,7 @@ module.exports = {
   detectMineru,
   validateRequest,
   parseProgressLine,
+  parseServiceLogs,
+  parseTqdm,
   runMineru,
 };

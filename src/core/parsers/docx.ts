@@ -1,6 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
 import JSZip from 'jszip';
-import { normalizePlainText } from './normalize.ts';
+import { extractBlocks } from './docx-markdown.ts';
 import { importError } from './types.ts';
 import type { ParsedDocument, ParsedSegment } from './types.ts';
 
@@ -154,20 +154,6 @@ function extractTextNode(item: unknown): string {
   return '';
 }
 
-/** Heading 1/2/3 及中文版样式名都算标题 */
-function headingLevel(style: string): number {
-  if (!style) return 0;
-  // 英文模板：Heading1 / heading 1
-  const m = /^heading\s*([1-6])$/i.exec(style);
-  if (m) return Number(m[1]);
-  // 中文模板：标题 1 / 标题1
-  const cn = /^标题\s*([1-6])$/.exec(style);
-  if (cn) return Number(cn[1]);
-  // 有些模板叫 Title（文档大标题），当 1 级
-  if (/^title$/i.test(style)) return 1;
-  return 0;
-}
-
 export async function parseDocx(
   data: Uint8Array,
   options: { title?: string } = {},
@@ -197,13 +183,23 @@ export async function parseDocx(
     throw importError('empty', 'Word 文件里没有可读取的文字');
   }
 
+  /*
+   * 用带结构的块重新组织（标题 / 列表 / 表格），而不是把一切拍平成文字。
+   *
+   * 为什么要有这一步：用户实测反馈「word 文件的格式也是乱的」——
+   * 因为标题层级、列表、表格全被拍平，原来的样子一点没剩。
+   * 现在切成章节后，每一段内部保留 Markdown 结构（`#` / `-` / `|`），
+   * 阅读器里看着就和原文档一个层次。
+   */
+  const blocks = extractBlocks(doc);
+
   // 按标题切章节
   const segments: ParsedSegment[] = [];
   let currentChapter: string | null = null;
   let buffer: string[] = [];
 
   const flush = () => {
-    const text = normalizePlainText(buffer.join('\n'));
+    const text = normalizeMarkdown(buffer.join('\n'));
     if (!text) return;
     segments.push({
       index: segments.length + 1,
@@ -214,16 +210,32 @@ export async function parseDocx(
     buffer = [];
   };
 
-  for (const para of paragraphs) {
-    const level = headingLevel(para.style);
-    if (level > 0 && level <= 2) {
-      // 1/2 级标题开新章。3 级及以下当正文，避免章节碎成一堆
-      flush();
-      currentChapter = para.text;
-      buffer.push(para.text);
-    } else {
-      buffer.push(para.text);
+  for (const block of blocks) {
+    if (block.kind === 'heading') {
+      /*
+       * 1/2 级标题开新章；3 级及以下当正文，避免章节碎成一堆。
+       * 开新章时标题本身**留在下一章的第一行**（写成 Markdown 标题），
+       * 这样读者能看到章节名，而 chapter 字段又供目录跳转用。
+       */
+      if (block.level > 0 && block.level <= 2) {
+        flush();
+        currentChapter = block.text;
+      }
+      buffer.push(`${'#'.repeat(Math.min(6, block.level || 1))} ${block.text}`);
+      continue;
     }
+
+    if (block.kind === 'table') {
+      buffer.push(tableToMarkdown(block.rows ?? []));
+      continue;
+    }
+
+    if (block.kind === 'list') {
+      buffer.push(block.ordered ? `1. ${block.text}` : `- ${block.text}`);
+      continue;
+    }
+
+    buffer.push(block.text);
   }
   flush();
 
@@ -280,4 +292,45 @@ function splitByParagraphs(text: string, targetChars = 3000): ParsedSegment[] {
   flush();
 
   return segments;
+}
+
+/**
+ * 规范化一段 Markdown。
+ *
+ * 和 normalizePlainText 的区别：那个会把空行合并、去掉行尾空格，
+ * 而 Markdown 的**表格必须每行独占一行**，合并空行无所谓，
+ * 但绝不能把表格行拼在一起 —— 所以这里只做最基本的整理，
+ * 不碰行结构。
+ */
+function normalizeMarkdown(raw: string): string {
+  return raw
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    // 行尾空格去掉（Markdown 里两个空格是硬换行，但 Word 导出的多半是噪声）
+    .map((line) => line.replace(/[ \t]+$/, ''))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * 表格 → Markdown 表格。
+ *
+ * 首行当表头：Word 表格通常首行就是表头，而且 Markdown 表格必须有
+ * 分隔行，把首行当表头是唯一不会丢数据的做法。
+ * 单元格里的 `|` 必须转义，否则会被切错列。
+ */
+function tableToMarkdown(rows: readonly string[][]): string {
+  const clean = rows.filter((r) => r.length > 0);
+  if (clean.length === 0) return '';
+  const width = Math.max(...clean.map((r) => r.length));
+  const norm = clean.map((r) => {
+    const cells = [...r];
+    while (cells.length < width) cells.push('');
+    return cells.map((c) => c.replace(/\|/g, '\\|').replace(/\n/g, ' '));
+  });
+  const header = norm[0]!;
+  const lines = [`| ${header.join(' | ')} |`, `| ${header.map(() => '---').join(' | ')} |`];
+  for (const r of norm.slice(1)) lines.push(`| ${r.join(' | ')} |`);
+  return lines.join('\n');
 }

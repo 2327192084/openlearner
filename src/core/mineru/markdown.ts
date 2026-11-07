@@ -175,16 +175,27 @@ function cleanMarkdown(raw: string): { body: string; chapter: string | null } {
     // 图片整行丢掉：我们的分段是纯文本，图片链接会污染搜索与锚点
     if (/^!\[[^\]]*\]\([^)]*\)\s*$/.test(trimmed)) continue;
 
+    /*
+     * 标题：**保留 Markdown 的 # 号写进正文**。
+     *
+     * 早先的写法是「抽成 chapter 字段后把标题从正文里删掉」，
+     * 结果正文中一个 # 都不剩，阅读器里所有层级被拍平成同样大小的文字。
+     * 用户明确要求「MinerU 转换过后的 pdf 也要是 Markdown 形式」，
+     * 所以现在两处都留：chapter 供目录跳转，正文里的 `##` 供阅读器渲染层次。
+     *
+     * 顺带说明为什么 chapter 只用**页首第一行**：
+     * 页中间的标题属于正文结构，把它当成「本章标题」会让整页归属都错。
+     * 但正文里该怎么显示还是怎么显示，两者互不影响。
+     */
     const heading = HEADING.exec(trimmed);
     if (heading) {
+      const hashes = heading[1]!;
       const title = heading[2]!.trim();
-      // 只有第一行（还没放过正文时）才算本章标题
       if (chapter === null && kept.every((l) => l.trim() === '')) {
-        chapter = title;
-        continue; // 标题已单独记录，正文里不再重复
+        chapter = title; // 只记录，不从正文里删除
       }
-      // 页中间的标题：保留文字，去掉井号
-      kept.push(title);
+      // 原样保留 # 号与文字
+      kept.push(`${hashes} ${title}`);
       continue;
     }
 

@@ -38,15 +38,19 @@ describe('parseMarkdown：分页标记', () => {
     );
     expect(r.pageCount).toBe(2);
     expect(r.pages.map((p) => p.page)).toEqual([1, 2]);
-    expect(r.pages[0]!.text).toBe('第一页正文。');
-    expect(r.pages[1]!.text).toBe('第二页正文。');
+    // 正文现在是 Markdown 形式（含标题标记）
+    expect(r.pages[0]!.text).toContain('第一页正文。');
+    expect(r.pages[1]!.text).toContain('第二页正文。');
   });
 
-  it('页首标题抽成 chapter，且不重复出现在正文里', () => {
+  it('页首标题既进 chapter，也以 Markdown # 形式留在正文里', () => {
     const r = parseMarkdown(md([{ no: 1, title: '第一章 数据结构绪论', body: '正文一句。' }]));
+    // chapter 供目录跳转（不带 # 号）
     expect(r.pages[0]!.chapter).toBe('第一章 数据结构绪论');
-    expect(r.pages[0]!.text).toBe('正文一句。');
-    expect(r.pages[0]!.text).not.toContain('第一章');
+    expect(r.pages[0]!.chapter).not.toMatch(/^#/);
+    // 正文里保留 Markdown 标题 —— 用户要求「也要是 Markdown 形式」
+    expect(r.pages[0]!.text).toContain('## 第一章 数据结构绪论');
+    expect(r.pages[0]!.text).toContain('正文一句。');
   });
 
   it('没有分页标记时整段算第 1 页（不猜着切）', () => {
@@ -79,6 +83,17 @@ describe('parseMarkdown：分页标记', () => {
     expect(r.pages[4]!.page).toBe(5);
   });
 
+  it('整份结果的正文里保留了 Markdown 标题标记（用户要求）', () => {
+    const r = parseMarkdown(md([
+      { no: 1, title: '第一章 绪论', body: '正文一。' },
+      { no: 2, title: '第二章 线性表', body: '正文二。' },
+    ]));
+    const joined = r.pages.map((p) => p.text).join('\n');
+    expect(joined).toMatch(/^#{1,6}\s+\S/m);
+    expect(joined).toContain('## 第一章 绪论');
+    expect(joined).toContain('## 第二章 线性表');
+  });
+
   it('空输入报错而不是静默返回空结果', () => {
     expect(() => parseMarkdown('')).toThrow();
     expect(() => parseMarkdown('   \n  ')).toThrow();
@@ -98,8 +113,8 @@ describe('parseMarkdown：内容清理', () => {
       md([{ no: 1, title: '章标题', body: '正文。\n\n## 小节标题\n\n更多正文。' }]),
     );
     expect(r.pages[0]!.chapter).toBe('章标题');
-    expect(r.pages[0]!.text).toContain('小节标题');
-    expect(r.pages[0]!.text).not.toContain('##');
+    // 页中间的标题同样保留 # 号
+    expect(r.pages[0]!.text).toContain('## 小节标题');
   });
 
   it('页首是正文时，中间的标题不算本章标题（不猜）', () => {
