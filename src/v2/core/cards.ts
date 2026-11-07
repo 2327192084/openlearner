@@ -22,6 +22,14 @@ export type CardKind =
   | 'single'
   /** 多选题 */
   | 'multiple'
+  /**
+   * 判断题。
+   *
+   * 选项固定是对/错（key 为 T/F），所以渲染与判分可以复用选择题的逻辑，
+   * 但必须作为独立类型存在 —— 否则「判断题」会被当成
+   * 「只有两个选项的单选题」，导出和统计都分不清。
+   */
+  | 'truefalse'
   /** 填空题 */
   | 'blank'
   /** 简答题（自评） */
@@ -94,6 +102,23 @@ export function isCorrect(card: Card, given: string): boolean {
 
   if (card.kind === 'single') {
     return a === g;
+  }
+
+  /*
+   * 判断题：答案是 T / F。
+   *
+   * 宽容一点，接受中文「对/错」与 true/false —— 导入的题组
+   * 或旧数据可能用别的写法。归一后比对，避免「答案写着 对、
+   * 用户点了 T 却被判错」这种明显不对的事。
+   */
+  if (card.kind === 'truefalse') {
+    const norm = (s: string): string => {
+      const v = s.trim().toUpperCase();
+      if (v === 'T' || v === 'TRUE' || v === '对' || v === '正确') return 'T';
+      if (v === 'F' || v === 'FALSE' || v === '错' || v === '错误') return 'F';
+      return v;
+    };
+    return norm(a) === norm(g);
   }
 
   if (card.kind === 'multiple') {
@@ -176,42 +201,27 @@ export function isAnswerable(card: Card): boolean {
 export const CARD_KIND_LABEL: Record<CardKind, string> = {
   single: '单选',
   multiple: '多选',
+  truefalse: '判断',
   blank: '填空',
   short: '简答',
   point: '知识点',
 };
 
 /**
- * 从一次作答推断复习评分。
+ * 从一次作答推断复习评分 —— **已废弃，逻辑搬到 `grading.ts`**。
  *
- * ## 为什么用「作答结果 + 耗时」推断，而不是让用户自己选
+ * 原来这里按写死的秒数判档（8 秒以内 easy、20 秒以内 good）。
+ * 三个问题导致必须换掉：
+ *  1. 阈值写死，用户改不了；
+ *  2. 只按题型分两类、不看题目长短 —— 5 个字的填空和 200 字的简答
+ *     共用一套秒数，短题永远「很熟」，长题永远「想久了」；
+ *  3. 和「用户自定义宽容度」这件事没法共存。
  *
- * StudyHub 的复习是「做题 → 系统判断熟不熟」，
- * 而不是「读完卡片 → 用户自评again/good/easy」。
- * 后者的问题：用户会对自己太宽容，导致间隔虚长、考试时才发现不会。
+ * 新实现见 `src/v2/core/grading.ts` 的 `judgeByTiming()`：
+ * 先按题型与题干长度算出这道题**基准耗时**，再用
+ * `实际耗时 / 基准耗时` 的倍率判档，宽容度可自定义（含按题型单独设）。
  *
- * 用客观指标推断更可靠：
- *  - 答错 → again
- *  - 答对但超过 20 秒 → hard（想了很久）
- *  - 答对且很快（<8 秒）→ easy
- *  - 其余 → good
- *
- * 纯知识点卡片没有「对错」，只能按停留时间推断。
+ * 这个函数在换实现后已经**没有任何调用方**，按项目一贯的做法
+ * （「死代码 381 行」那次清理）直接删除，不保留一个写着旧阈值的副本 ——
+ * 留着它，后来的人很可能顺着 import 找到它并用上。
  */
-export function inferGrade(
-  card: Card,
-  correct: boolean | null,
-  elapsedMs: number,
-): 'again' | 'hard' | 'good' | 'easy' {
-  // 知识点：只看停留时间
-  if (card.kind === 'point' || correct === null) {
-    if (elapsedMs < 4000) return 'easy';
-    if (elapsedMs < 15000) return 'good';
-    return 'hard';
-  }
-
-  if (!correct) return 'again';
-  if (elapsedMs < 8000) return 'easy';
-  if (elapsedMs < 20000) return 'good';
-  return 'hard';
-}

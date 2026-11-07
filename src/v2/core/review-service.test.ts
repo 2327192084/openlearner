@@ -26,7 +26,13 @@ describe('ReviewService：复习与进度', () => {
     const r = await svc.review('q1', 'question', 'good', at);
     expect(r.cardId).toBe('q1');
     expect(r.state.reviewCount).toBe(1);
-    expect(r.state.intervalDays).toBe(1);
+    /*
+     * 改成艾宾浩斯阶梯后，首次 good 落到第 1 级 = 2 天。
+     * （旧 SM-2 给 1 天，和 hard 相同 —— 那正是用户抱怨「没区分度」的根源。）
+     * 精确天数由 ebbinghaus.test.ts 覆盖，这里只关心「记录建对了、间隔合理」。
+     */
+    expect(r.state.intervalDays).toBeGreaterThanOrEqual(1);
+    expect(r.state.dueAt).toBeTruthy();
   });
 
   it('再次复习在旧状态上累加', async () => {
@@ -36,12 +42,13 @@ describe('ReviewService：复习与进度', () => {
     expect(r2.state.intervalDays).toBeGreaterThan(1);
   });
 
-  it('答错会缩短间隔', async () => {
+  it('答错会缩短间隔（回到当天内重考）', async () => {
     await svc.review('q1', 'question', 'easy', at);
     await svc.review('q1', 'question', 'easy', at);
     const before = (await svc.getRecord('q1'))!.state.intervalDays;
     const after = await svc.review('q1', 'question', 'again', at);
-    expect(after.state.intervalDays).toBe(1);
+    // 艾宾浩斯：忘了就当天再补，所以是 0 天
+    expect(after.state.intervalDays).toBe(0);
     expect(before).toBeGreaterThan(1);
   });
 
@@ -56,8 +63,11 @@ describe('ReviewService：复习与进度', () => {
   it('不同卡片互不影响', async () => {
     await svc.review('q1', 'question', 'easy', at);
     await svc.review('q2', 'question', 'again', at);
-    expect((await svc.getRecord('q1'))!.state.intervalDays).toBe(3);
-    expect((await svc.getRecord('q2'))!.state.intervalDays).toBe(1);
+    const q1 = (await svc.getRecord('q1'))!.state.intervalDays;
+    const q2 = (await svc.getRecord('q2'))!.state.intervalDays;
+    // easy 的间隔必须明显大于 again；again 是 0 天（当天内重考）
+    expect(q1).toBeGreaterThan(q2);
+    expect(q2).toBe(0);
   });
 
   it('批量查询一次拿到多张卡', async () => {
@@ -156,5 +166,98 @@ describe('ReviewService：到期列表与趋势', () => {
     expect(trend).toHaveLength(7);
     expect(trend[trend.length - 1]!.day).toBe(todayUtc(at));
     expect(trend[trend.length - 1]!.count).toBe(1);
+  });
+});
+
+/**
+ * 错题集。
+ *
+ * ## 这一组测试的由来（重要）
+ *
+ * 用户要求「答错了直接记入错题就行」。实现时发现一个**假功能**：
+ * 原来的错题列表读 `answerRecords`，而 v2 做题流程从不写那张表
+ * （实测真实库里 0 条）—— 于是「错题巩固」永远显示空，
+ * 用户答错了也不会进错题集。
+ *
+ * 现在改为从 `reviewLogs` 派生（grade === 'again' 即答错）。
+ * 下面这些用例把「答错 → 进错题 → 答对 → 离开错题」整条链路钉死。
+ */
+describe('错题集（从 reviewLogs 派生）', () => {
+  let storage: MemoryStorage;
+  let svc: ReviewService;
+
+  beforeEach(() => {
+    storage = new MemoryStorage();
+    svc = new ReviewService(storage);
+  });
+
+  it('答错后进入错题集', async () => {
+    await svc.review('q1', 'question', 'again', at);
+    expect(await svc.wrongCards()).toEqual(['q1']);
+  });
+
+  it('答对不进错题集', async () => {
+    await svc.review('q1', 'question', 'good', at);
+    expect(await svc.wrongCards()).toEqual([]);
+  });
+
+  it('答错后改对 → 从错题集消失（不是「曾经错过」）', async () => {
+    await svc.review('q1', 'question', 'again', at);
+    expect(await svc.wrongCards()).toEqual(['q1']);
+
+    await svc.review('q1', 'question', 'good', at);
+    expect(await svc.wrongCards()).toEqual([]);
+  });
+
+  it('多道题：只保留最近一次答错的', async () => {
+    await svc.review('q1', 'question', 'again', at);
+    await svc.review('q2', 'question', 'again', at);
+    await svc.review('q3', 'question', 'good', at);
+    const wrong = await svc.wrongCards();
+    expect(wrong.sort()).toEqual(['q1', 'q2']);
+  });
+
+  it('同一题错两次再对：顺序不会把它误判成错题', async () => {
+    /*
+     * 「最近一次」必须按日志的**写入顺序**判断，不能按时间戳 ——
+     * 因为同一毫秒内两次提交的时间戳完全相同。
+     */
+    await svc.review('q1', 'question', 'again', at);
+    await svc.review('q1', 'question', 'again', at);
+    await svc.review('q1', 'question', 'good', at);
+    expect(await svc.wrongCards()).toEqual([]);
+  });
+
+  it('详细视图带「错了几次」', async () => {
+    await svc.review('q1', 'question', 'again', at);
+    await svc.review('q1', 'question', 'good', at);
+    await svc.review('q1', 'question', 'again', at);
+    const detail = await svc.wrongCardsDetailed();
+    expect(detail).toHaveLength(1);
+    expect(detail[0]!.cardId).toBe('q1');
+    // 累计答错 2 次（中间答对过也算历史）
+    expect(detail[0]!.wrongCount).toBe(2);
+  });
+
+  it('详细视图排除知识点（知识点没有「答错」）', async () => {
+    await svc.review('p1', 'point', 'again', at);
+    await svc.review('q1', 'question', 'again', at);
+    const detail = await svc.wrongCardsDetailed();
+    expect(detail.map((d) => d.cardId)).toEqual(['q1']);
+  });
+
+  it('错得多的排前面', async () => {
+    await svc.review('q1', 'question', 'again', at);
+    await svc.review('q2', 'question', 'again', at);
+    await svc.review('q2', 'question', 'good', at);
+    await svc.review('q2', 'question', 'again', at);
+    const detail = await svc.wrongCardsDetailed();
+    expect(detail[0]!.cardId).toBe('q2');
+    expect(detail[0]!.wrongCount).toBe(2);
+  });
+
+  it('空库返回空数组（不是报错）', async () => {
+    expect(await svc.wrongCards()).toEqual([]);
+    expect(await svc.wrongCardsDetailed()).toEqual([]);
   });
 });

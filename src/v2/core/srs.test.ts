@@ -72,11 +72,25 @@ describe('initialState：新卡', () => {
 });
 
 describe('schedule：答对时间隔递增', () => {
-  it('首次 easy 给 3 天，good 只给 1 天', () => {
-    const easy = schedule(initialState(T), 'easy', T);
-    const good = schedule(initialState(T), 'good', T);
-    expect(easy.intervalDays).toBe(3);
-    expect(good.intervalDays).toBe(1);
+  it('首次复习：五个档位给出各不相同的间隔', () => {
+    /*
+     * 这条测试是针对用户反馈写的：「只有 5 分才和别的分数拉开差距」。
+     *
+     * 旧实现 `FIRST_INTERVAL = { hard: 1, good: 1, easy: 3 }`
+     * 让 3 分和 4 分都给 1 天 —— 评分等于没区分。
+     * 现在按艾宾浩斯台阶走：hard→1 天、good→2 天、easy→4 天，
+     * 三档互不相同；again 固定 1 天（答错了就该明天再看）。
+     */
+    const again = schedule(initialState(T), 'again', T).intervalDays;
+    const hard = schedule(initialState(T), 'hard', T).intervalDays;
+    const good = schedule(initialState(T), 'good', T).intervalDays;
+    const easy = schedule(initialState(T), 'easy', T).intervalDays;
+
+    // again = 0 天：当天内再考一次（艾宾浩斯：忘了就要马上补）
+    expect(again).toBe(0);
+    // 三个答对档位必须严格递增，这就是「区分度」
+    expect(good).toBeGreaterThan(hard);
+    expect(easy).toBeGreaterThan(good);
   });
 
   it('连续 good：间隔按 ease 增长', () => {
@@ -121,13 +135,14 @@ describe('schedule：答对时间隔递增', () => {
 });
 
 describe('schedule：答错的处理', () => {
-  it('答错回到 1 天后', () => {
+  it('答错回到「当天内」', () => {
     let s = initialState(T);
     s = schedule(s, 'good', T);
     s = schedule(s, 'good', T);
     const before = s.intervalDays;
     s = schedule(s, 'again', T);
-    expect(s.intervalDays).toBe(1);
+    expect(s.intervalDays).toBe(0);
+    expect(s.dueAt).toBe(T);
     expect(before).toBeGreaterThan(1);
   });
 

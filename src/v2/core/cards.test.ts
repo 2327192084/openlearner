@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   isCorrect,
   looseMatch,
-  inferGrade,
   isAnswerable,
   CARD_KIND_LABEL,
   type Card,
@@ -135,35 +134,17 @@ describe('isCorrect：填空与简答', () => {
   });
 });
 
-describe('inferGrade：从作答推断复习评分', () => {
-  it('答错 → again', () => {
-    expect(inferGrade(mk({}), false, 5000)).toBe('again');
-    expect(inferGrade(mk({}), false, 60000)).toBe('again');
-  });
-
-  it('答对且很快 → easy', () => {
-    expect(inferGrade(mk({}), true, 3000)).toBe('easy');
-  });
-
-  it('答对但想很久 → hard', () => {
-    expect(inferGrade(mk({}), true, 30000)).toBe('hard');
-  });
-
-  it('答对、时间正常 → good', () => {
-    expect(inferGrade(mk({}), true, 12000)).toBe('good');
-  });
-
-  it('知识点卡片按停留时间推断（没有对错）', () => {
-    const point = mk({ kind: 'point' });
-    expect(inferGrade(point, null, 2000)).toBe('easy');
-    expect(inferGrade(point, null, 10000)).toBe('good');
-    expect(inferGrade(point, null, 30000)).toBe('hard');
-  });
-
-  it('答错时不管多快都是 again（不能因为手快就放宽）', () => {
-    expect(inferGrade(mk({}), false, 500)).toBe('again');
-  });
-});
+/*
+ * 这里原来有一组 `inferGrade` 的测试（按写死秒数判档）。
+ *
+ * 那套阈值已被 `grading.ts` 的倍率方案取代 ——
+ * 因为固定秒数对长短题不公平，也无法支持用户自定义。
+ * 对应的测试**不是删掉就算**，而是搬到了 `grading.test.ts`，
+ * 并且覆盖更全：分档边界、宽容度三档、按题型覆盖、异常输入。
+ *
+ * 之所以在这个文件里留一段说明而不是静默删除：
+ * 后来的人如果只看见「测试变少了」，会以为覆盖面缩水了。
+ */
 
 describe('辅助函数', () => {
   it('知识点不需要作答', () => {

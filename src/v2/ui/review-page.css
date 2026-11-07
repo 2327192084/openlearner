@@ -126,6 +126,203 @@
     color: color-mix(in srgb, var(--paper-dim) 75%, transparent);
   }
 
+  /*
+   * 计时器状态条。
+   *
+   * 单独一行而不是塞进 .question-meta：那里右侧已经写着
+   * 「已复习 N 次 / 首次学习」，再放一个每 100ms 变的数字，
+   * 两者会互相挤，窄屏还会换行把卡片顶部撑高。
+   *
+   * 数字用等宽（tabular-nums）：否则 1.9 秒 → 2.0 秒时宽度会跳，
+   * 每 100 毫秒抖一下，看着像界面在抽搐。
+   *
+   * 颜色用中性而不是朱砂：朱砂在这个项目里是「主操作与进度」专用色，
+   * 计时器只是状态显示，抢了朱砂会让「提交答案」失去唯一的强调。
+   */
+  /*
+   * 计时器条。
+   *
+   * 只有左对齐一个元素（去掉「建议时长」之后右侧没有内容了），
+   * 所以不用 space-between —— 那会让唯一元素贴左边、剩下半行空着，
+   * 看着像少了一列。留 space-between 只为将来右侧可能要放东西时不用改结构。
+   */
+  .q-timer-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 0 0 var(--space-3);
+    flex-wrap: wrap;
+  }
+
+  .q-timer {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--paper-ink) 7%, transparent);
+    color: var(--paper-dim);
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+  }
+
+  /*
+   * 暂停 / 继续按钮。
+   *
+   * 描边而不是填充：它不是主操作（主操作是「提交答案」），
+   * 但必须一眼看得见能点 —— 用 --line-strong 保证边框在深色底上有对比。
+   */
+  .q-timer__toggle {
+    padding: 2px 10px;
+    border: 1px solid color-mix(in srgb, var(--paper-ink) 22%, transparent);
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--paper-dim);
+    font: inherit;
+    font-size: var(--fs-xs);
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+  }
+
+  .q-timer__toggle:hover {
+    background: color-mix(in srgb, var(--paper-ink) 8%, transparent);
+  }
+
+  /* 已暂停态：边框用朱砂，因为此时「继续」是用户最该点的动作 */
+  .q-timer__toggle--on {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .q-timer__value {
+    font-variant-numeric: tabular-nums;
+    font-weight: 550;
+    color: var(--paper-ink);
+    /* 数字宽度固定，避免跳动时整块左右移动 */
+    min-width: 5.2ch;
+    display: inline-block;
+  }
+
+  .q-timer__label {
+    color: color-mix(in srgb, var(--paper-dim) 85%, transparent);
+  }
+
+  /* 计时进行中的小圆点：呼吸一下，表示「正在计」 */
+  .q-timer__dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.5;
+    animation: q-timer-pulse 1.6s ease-in-out infinite;
+  }
+
+  .q-timer--frozen .q-timer__dot {
+    animation: none;
+    opacity: 0.85;
+  }
+
+  /* 暂停：整块变淡，并去掉呼吸感 —— 静态表示「没在计」 */
+  .q-timer--paused {
+    opacity: 0.7;
+  }
+
+  .q-timer--paused .q-timer__dot {
+    animation: none;
+    opacity: 0.3;
+  }
+
+  @keyframes q-timer-pulse {
+    0%,
+    100% {
+      opacity: 0.25;
+    }
+    50% {
+      opacity: 0.9;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .q-timer__dot {
+      animation: none;
+      opacity: 0.7;
+    }
+  }
+
+  /* ---------- 计时判定 ---------- */
+  /*
+   * 这块是评分透明化的关键：用户必须能看见「系统按什么判的」。
+   * 用纸卡里的一个浅色区块，不用朱砂 —— 它不是主操作。
+   */
+  /*
+   * 计时判定面板。
+   *
+   * ⚠️ 这块在 `.review-foot` 里，也就是**纸卡外面**（深色页面背景）。
+   * 一开始沿用了纸卡内的 `--paper-ink` / `--paper-dim`，结果深墨压深底，
+   * 截图一看几乎读不出来（文字对比度极低、徽标像消失）。
+   * 纸卡内外的色系不同，必须用全局的 `--text` / `--text-dim`。
+   */
+  .timing-verdict {
+    margin-bottom: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius);
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    /* 左侧竖线用 accent 表达判定方向，宽度够才看得见 */
+    border-left: 3px solid var(--line-strong);
+    width: 100%;
+  }
+
+  /* 判成「很熟」和「需要重来」时给色彩区分 */
+  .timing-verdict--easy {
+    border-left-color: var(--ok);
+  }
+
+  .timing-verdict--again {
+    border-left-color: var(--accent);
+  }
+
+  .timing-verdict__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+
+  .timing-verdict__badge {
+    font-weight: 550;
+    font-size: var(--fs-base);
+    color: var(--text);
+  }
+
+  .timing-verdict__time {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .timing-verdict__reason {
+    margin: var(--space-2) 0 0;
+    font-size: var(--fs-sm);
+    line-height: var(--lh-body);
+    color: var(--text-dim);
+  }
+
+  .timing-verdict__note {
+    margin: var(--space-2) 0 0;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+  }
+
+  .timing-verdict__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+    flex-wrap: wrap;
+  }
+
   /* 2px 朱砂进度条 */
   .card-progress {
     height: 2px;
@@ -419,51 +616,90 @@
   }
 
   /*
-   * 数字：28px / 300 字重（display 光学尺寸）。
-   * 大字号配细字重才不显笨重。
+   * 4 档评分（原来是 6 档）。
+   *
+   * 改成 4 档的原因：6 档只能映射到 4 个调度档，其中 0/1/2 三档
+   * 给出的间隔**完全一样**（都是 again）—— 用户点了不同的按钮，
+   * 结果没有任何区别，自然会觉得「评分没用」。
+   * 现在每档一个不同的间隔，并且天数直接印在按钮上。
    */
-  .grade__n {
-    font-size: var(--fs-3xl);
-    font-weight: 300;
-    line-height: 1.1;
-    font-variant-numeric: tabular-nums;
+  .grade__label {
+    font-size: var(--fs-md);
+    font-weight: 550;
+    color: var(--text);
+    /* 与下面的天数拉开一点，让「档位名」和「几天」是两个层次 */
+    margin-bottom: 1px;
   }
 
-  .grade__label {
+  /*
+   * 天数：这一档最该被看见的信息。
+   * 用等宽数字，四档并排时宽度一致、不跳动。
+   */
+  .grade__days {
     font-size: var(--fs-sm);
+    font-weight: 550;
     color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
   }
 
   .grade__hint {
     font-size: var(--fs-xs);
     color: var(--text-faint);
-    font-variant-numeric: tabular-nums;
+    text-align: center;
+    line-height: 1.35;
   }
 
   /*
-   * 颜色语义固定：
-   * 0-2 莓红（忘了/记得一点/有印象）
-   * 3   赭黄（勉强答对）
-   * 4-5 玉绿（熟练/轻松掌握）
+   * 颜色语义（4 档）：
+   * 0 忘记 → 莓红
+   * 1 勉强 → 赭黄
+   * 2 一般 → 中性
+   * 3 熟练 → 玉绿
+   *
+   * 用「档位名 + 天数」着色，而不是给整块加底色：
+   * 项目规矩是一屏只该有一个填充主按钮，六块带底色的评分块会把注意力撕碎。
    */
-  .grade--0 .grade__n,
-  .grade--1 .grade__n,
-  .grade--2 .grade__n {
+  .grade--0 .grade__label,
+  .grade--0 .grade__days {
     color: var(--bad);
   }
 
-  .grade--3 .grade__n {
+  .grade--1 .grade__label,
+  .grade--1 .grade__days {
     color: var(--warn);
   }
 
-  .grade--4 .grade__n,
-  .grade--5 .grade__n {
+  .grade--2 .grade__label,
+  .grade--2 .grade__days {
+    color: var(--text);
+  }
+
+  .grade--3 .grade__label,
+  .grade--3 .grade__days {
     color: var(--ok);
   }
 
   .grades__auto {
     margin-top: var(--space-2);
     text-align: center;
+  }
+
+  /*
+   * 答错后的「下一题」。
+   *
+   * 这里只有一个按钮，不需要整块判定面板 ——
+   * 用户答错了，需要的只是看一眼正确答案、然后继续。
+   * 居中摆放，与「提交答案」同一位置，视线不用跳。
+   */
+  .wrong-next {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .wrong-next .btn-fill {
+    min-width: 200px;
+    justify-content: center;
   }
 
   /* ---------- 本轮小结 ---------- */

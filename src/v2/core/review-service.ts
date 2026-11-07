@@ -307,6 +307,101 @@ export class ReviewService {
     return out;
   }
 
+  /**
+   * 错题集：**最近一次评审判为「忘记」的题卡**。
+   *
+   * ## 为什么从 reviewLogs 推导，而不是读 answerRecords
+   *
+   * `answerRecords` 是 v1 留下的作答表，v2 的做题流程**从不写它** ——
+   * 实测真实库里该表 0 条记录。而 `DeckService.getWrongQuestions()` 只读那张表，
+   * 所以「错题巩固」一度是个永远为空的功能：用户答错了，错题集不记录。
+   *
+   * 现在改为从 `reviewLogs` 推导：做题时本来就每评一次写一条日志，
+   * `grade === 'again'` 就是「答错了」。不新增数据表、不双写、不会出现
+   * 「两套进度不一致」这种老问题。
+   *
+   * ## 「错题」的定义
+   *
+   * **最近一次评级是 again。** 不是「曾经错过」——
+   * 改对了之后就该从错题集消失，否则它会越攒越长、最后没人看。
+   *
+   * ## 为什么按日志数组顺序判断「最近一次」
+   *
+   * reviewLogs 的 id 带随机后缀，无法按 id 排序；`at` 是 ISO 字符串，
+   * 但同一毫秒内的两次提交会相同。这里用**数组顺序**：
+   * getAll 返回的是插入顺序（IndexedDB 主键游标顺序对同一 store 是稳定的），
+   * 而复习是顺序发生的，所以后出现的即更近的一次。
+   * 这个假设已在 `wrongCardsAfterReview()` 的单测里覆盖。
+   */
+  async wrongCards(): Promise<string[]> {
+    const logs = await this.storage.getAll('reviewLogs');
+    /** cardId → 最近一次的 grade */
+    const last = new Map<string, ReviewLog>();
+    for (const l of logs) {
+      last.set(l.cardId, l);
+    }
+    const out: string[] = [];
+    for (const [cardId, log] of last) {
+      if (log.grade === 'again') out.push(cardId);
+    }
+    return out;
+  }
+
+  /**
+   * 错题集的详细视图。
+   *
+   * 只统计 `kind === 'question'` 的卡片 —— 知识点没有「答错」这回事
+   * （它只有阅读时长对应的评级），混进来会让错题集莫名其妙变长。
+   *
+   * 返回的信息是「错题与待巩固」页要展示的全部：
+   *  - `wrongCount`：累计错了几次（不是连续错）
+   *  - `reviewCount`：一共做过几次（用来算「错的比例」）
+   *  - `lastWrongDay`：最近一次答错是哪天（可按「多久没碰」排序）
+   *  - `lastGrade`：最近一次评级（必然 again，保留字段便于将来扩展）
+   */
+  async wrongCardsDetailed(): Promise<
+    {
+      cardId: string;
+      wrongCount: number;
+      reviewCount: number;
+      lastWrongDay: string;
+    }[]
+  > {
+    const logs = await this.storage.getAll('reviewLogs');
+    const last = new Map<string, ReviewLog>();
+    const wrongCount = new Map<string, number>();
+    const reviewCount = new Map<string, number>();
+    const lastWrongDay = new Map<string, string>();
+
+    for (const l of logs) {
+      last.set(l.cardId, l);
+      reviewCount.set(l.cardId, (reviewCount.get(l.cardId) ?? 0) + 1);
+      if (l.grade === 'again') {
+        wrongCount.set(l.cardId, (wrongCount.get(l.cardId) ?? 0) + 1);
+        lastWrongDay.set(l.cardId, l.day);
+      }
+    }
+
+    const out: {
+      cardId: string;
+      wrongCount: number;
+      reviewCount: number;
+      lastWrongDay: string;
+    }[] = [];
+    for (const [cardId, log] of last) {
+      if (log.grade !== 'again') continue;
+      if (log.kind !== 'question') continue;
+      out.push({
+        cardId,
+        wrongCount: wrongCount.get(cardId) ?? 1,
+        reviewCount: reviewCount.get(cardId) ?? 1,
+        lastWrongDay: lastWrongDay.get(cardId) ?? log.day,
+      });
+    }
+    // 错得最多的排前面
+    return out.sort((a, b) => b.wrongCount - a.wrongCount);
+  }
+
   /** 最近 N 天的复习量（用于画趋势） */
   async recentActivity(days = 7, now: Date = new Date()): Promise<{ day: string; count: number }[]> {
     const logs = await this.storage.getAll('reviewLogs');
