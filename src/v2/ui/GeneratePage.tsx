@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { Source, KnowledgePoint } from '@/core/model.ts';
+import type { Source, KnowledgePoint, QuestionKind } from '@/core/model.ts';
 import type { SourceService } from '@/core/sources.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import {
@@ -9,6 +9,11 @@ import {
   type QuestionMaterial,
 } from '@/core/questions/materials.ts';
 import { OriginPicker, type MaterialOrigin } from './OriginPicker.tsx';
+import { KindPicker } from './KindPicker.tsx';
+import { ImportPanel } from './ImportPanel.tsx';
+import './import-panel.css';
+import { kindLabel } from '@/core/questions/kinds.ts';
+import './kind-picker.css';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { BackendService } from '@/core/backends.ts';
 import { IconDoc, IconGenerate, IconUpload } from './icons.tsx';
@@ -53,6 +58,22 @@ export interface GeneratePageProps {
 
 type Mode = 'from-source' | 'import-json' | 'case' | 'capture';
 
+/**
+ * 四个出题入口。
+ *
+ * ## 关于第 4 个入口的改动（2026-11-07 用户指出）
+ *
+ * 原来它叫「在主会话里录题」，描述是「题册、刷题软件、错题或截图」。
+ * 那是**照搬 StudyHub** 的说法 —— StudyHub 是 DSH 的插件，
+ * 用户有一个 AI 主会话，所以「在主会话里录题」指的是在对话里贴截图让 AI 转成题。
+ *
+ * OpenLeaner 是**独立桌面软件**，没有「主会话」这个东西。
+ * 留着那个名字等于挂一个用户永远无法理解的入口。
+ *
+ * 改成「从截图或题册导入」：说的是**同一件事**（把手头已有的题弄进来），
+ * 但用的是我们这个软件里真实存在的东西 —— 文件。
+ * 实现上它也需要 OCR/视觉模型，所以现在标「还没做」并写明依赖。
+ */
 const MODES: { id: Mode; title: string; desc: string; ready: boolean }[] = [
   {
     id: 'from-source',
@@ -64,7 +85,7 @@ const MODES: { id: Mode; title: string; desc: string; ready: boolean }[] = [
     id: 'import-json',
     title: '导入 JSON 题组',
     desc: '已有题目，或外部 AI 生成的题',
-    ready: false,
+    ready: true,
   },
   {
     id: 'case',
@@ -74,8 +95,8 @@ const MODES: { id: Mode; title: string; desc: string; ready: boolean }[] = [
   },
   {
     id: 'capture',
-    title: '在主会话里录题',
-    desc: '题册、刷题软件、错题或截图',
+    title: '从截图或题册导入',
+    desc: '拍下来的题、刷题软件截图（需要看图模型，还没做）',
     ready: false,
   },
 ];
@@ -103,7 +124,13 @@ export function GeneratePage({
   const [sources, setSources] = useState<Source[] | null>(null);
   const [selected, setSelected] = useState<string>('');
   const [points, setPoints] = useState<KnowledgePoint[] | null>(null);
-  const [kind, setKind] = useState<'single' | 'multiple' | 'blank'>('single');
+  /*
+   * 题型从「单选一种」改成「可勾选多种」。
+   *
+   * 界面部分抽成了 <KindPicker>（独立文件），这里只存状态。
+   * 用数组而不是单个值：勾几种就出几种，按题型轮流分配数量。
+   */
+  const [kinds, setKinds] = useState<QuestionKind[]>(['single']);
   const [count, setCount] = useState(8);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -115,7 +142,13 @@ export function GeneratePage({
    * 这些建议在 chat-client 里已经按错误码写好了，不能在这一层丢掉。
    */
   const [errorHint, setErrorHint] = useState<string | null>(null);
-  const [done, setDone] = useState<{ deck: string; deckId: string; questions: number } | null>(null);
+  const [done, setDone] = useState<{
+    deck: string;
+    deckId: string;
+    questions: number;
+    /** 实际出了哪些题型（用于如实告知「你勾的里有几种没出成」） */
+    kinds: Record<string, number>;
+  } | null>(null);
 
   /** 统一的报错入口：带上 hint 就一起显示，没带就清掉上一条的 */
   const reportError = useCallback((err: unknown, fallback: string) => {
@@ -261,10 +294,15 @@ export function GeneratePage({
         points: [],
         materials,
         title: `${titleBase} · 题组`,
+        /*
+         * 是不是随机题组：整库随机抽素材时标记「随机题组」，
+         * 这样列表里一眼能看出来，而不是事后想不起这批题从哪来的。
+         */
+        randomSource: origin === 'knowledge' && acrossAll,
         sourceId: origin === 'source-text' || !acrossAll ? selected : null,
         backend,
         options: {
-          kinds: [kind],
+          kinds,
           count,
           // levels: null = 不限认知层级（按知识点自身层级出题）
           levels: null,
@@ -273,7 +311,15 @@ export function GeneratePage({
         signal: controller.signal,
       });
 
-      setDone({ deck: out.deck.title, deckId: out.deck.id, questions: out.questions.length });
+      /* 统计实际出成的题型分布 —— 用户勾了 N 种，模型可能只给了一两种 */
+      const kindCount: Record<string, number> = {};
+      for (const q of out.questions) kindCount[q.kind] = (kindCount[q.kind] ?? 0) + 1;
+      setDone({
+        deck: out.deck.title,
+        deckId: out.deck.id,
+        questions: out.questions.length,
+        kinds: kindCount,
+      });
       onGenerated();
     } catch (err) {
       reportError(err, '出题失败');
@@ -287,7 +333,7 @@ export function GeneratePage({
     decks,
     sources,
     selected,
-    kind,
+    kinds,
     count,
     onGenerated,
     origin,
@@ -364,6 +410,24 @@ export function GeneratePage({
         ))}
       </div>
 
+      {/* ---- 导入 JSON 题组 ---- */}
+      {mode === 'import-json' ? (
+        <div className="gen-form">
+          <ImportPanel
+            decks={decks}
+            disabled={busy}
+            onImported={() => {
+              /*
+               * 导入完成后刷新外层（题组列表计数要更新），
+               * 但不自动跳走 —— 用户可能想接着导第二个。
+               * 「再导入一个」按钮由面板自己给。
+               */
+              onGenerated();
+            }}
+          />
+        </div>
+      ) : null}
+
       {/* ---- 用资料出题 ---- */}
       {mode === 'from-source' ? (
         <div className="gen-form">
@@ -385,19 +449,10 @@ export function GeneratePage({
           <fieldset className="gen-field">
             <legend className="gen-legend">03 / 题型与数量</legend>
             <div className="gen-row">
-              <label className="gen-label">
-                题型
-                <select
-                  className="gen-select gen-select--sm"
-                  value={kind}
-                  onChange={(e) => setKind(e.target.value as typeof kind)}
-                  disabled={busy}
-                >
-                  <option value="single">单选</option>
-                  <option value="multiple">多选</option>
-                  <option value="blank">填空</option>
-                </select>
-              </label>
+              <div className="gen-label gen-label--wide">
+                题型（可多选）
+                <KindPicker value={kinds} onChange={setKinds} disabled={busy} />
+              </div>
               <label className="gen-label">
                 数量
                 <input
@@ -430,6 +485,28 @@ export function GeneratePage({
             <div className="gen-done">
               <p className="gen-done__text">
                 ✓ 已生成「{done.deck}」，共 {done.questions} 道题。
+              </p>
+              {/*
+                如实列出「实际出了哪些题型」。
+                为什么必须有这段：勾了三种题型，模型可能只给出两种 ——
+                不说的话用户以为都生效了，去列表里才发现少了。
+                这是本项目反复强调的「不撒谎」在生成结果上的体现。
+              */}
+              <p className="gen-done__kinds">
+                实际题型：
+                {Object.entries(done.kinds)
+                  .map(([k, n]) => `${kindLabel(k)} ${n} 道`)
+                  .join(' · ')}
+                {(() => {
+                  const missing = kinds.filter((k) => !done.kinds[k]);
+                  if (missing.length === 0) return null;
+                  return (
+                    <span className="gen-done__missing">
+                      （{missing.map(kindLabel).join('、')} 这次没出成 ——
+                      模型不一定每次都按要求分配题型，可以再生成一次）
+                    </span>
+                  );
+                })()}
               </p>
               {/*
                * 说清「待审核 vs 已发布」——生成出来是待审核，要先检查再发布才进复习。
@@ -466,11 +543,21 @@ export function GeneratePage({
         </div>
       ) : null}
 
-      {/* ---- 未实现的方式：说清为什么，不摆假按钮 ---- */}
-      {mode !== 'from-source' ? (
+      {/*
+        ---- 未实现的方式：说清为什么，不摆假按钮 ----
+
+        条件必须**逐个列出**真正没做的那几个，不能用 `mode !== 'from-source'`。
+        踩过的坑：导入做完之后，那个宽条件把「导入 JSON」也算成「还没做」，
+        于是在能用的导入面板下面又挂了一句「这种方式还没做」——
+        用户看到互相矛盾的两句话（截图核对时发现的）。
+      */}
+      {mode === 'case' || mode === 'capture' ? (
         <div className="gen-todo">
-          这种方式还没做。现在能用的是「用资料出题」——
-          选一份资料，AI 读原文后出题，每道题都标出处。
+          {mode === 'case'
+            ? '案例分析题还没做 —— 它需要「长案例 + 评分标准」这套结构，和现在的出题链路是两套。'
+            : '从截图或题册导入还没做 —— 它需要看图模型把图片里的题转成文字，这部分还没接。'}
+          <br />
+          现在能用的是「用资料出题」（AI 读原文出题）和「导入 JSON 题组」（已有题目直接搬进来）。
         </div>
       ) : null}
     </div>

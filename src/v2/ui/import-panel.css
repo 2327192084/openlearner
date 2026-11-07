@@ -1,0 +1,207 @@
+/**
+ * JSON 导入面板的样式。
+ *
+ * 放在 @layer 外面：里面有 textarea 与文件选择，
+ * 而 base.css 里那条无层级的 `button, input, select, textarea { font: inherit }`
+ * 会压过层内规则（项目里踩过三次）。
+ */
+
+.imp-input,
+.imp-preview,
+.imp-done {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.imp-lead {
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+  max-width: 68ch;
+}
+
+.imp-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-canvas);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  resize: vertical;
+  tab-size: 2;
+}
+
+.imp-textarea:focus-visible {
+  outline: none;
+  border-color: var(--line-strong);
+}
+
+.imp-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ---------- 错误 ---------- */
+.imp-error {
+  padding: 10px 12px;
+  border-left: 2px solid var(--bad, #c0392b);
+  background: color-mix(in srgb, var(--bad, #c0392b) 10%, transparent);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+
+/* 下一步建议单独一行、压暗：它是解释，不是错误本身 */
+.imp-error__hint {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}
+
+/* ---------- 预览 ---------- */
+.imp-preview__title {
+  font-size: var(--fs-md);
+  font-weight: 550;
+  color: var(--text);
+}
+
+.imp-preview__sub {
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+.imp-kv {
+  display: grid;
+  grid-template-columns: 5em minmax(0, 1fr);
+  gap: 4px 12px;
+  font-size: var(--fs-sm);
+  margin: 0;
+}
+
+.imp-kv dt {
+  color: var(--text-faint);
+}
+
+.imp-kv dd {
+  margin: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+/* 被忽略的字段：赭黄，但要淡 —— 是提示不是错误 */
+.imp-warn {
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  color: var(--warn);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
+
+.imp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.imp-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-sm);
+}
+
+.imp-item:first-child {
+  border-top: none;
+}
+
+.imp-item__kind {
+  flex: none;
+  padding: 0 5px;
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+}
+
+.imp-item__prompt {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.imp-item__answer {
+  flex: none;
+  color: var(--ok);
+  font-size: var(--fs-xs);
+  max-width: 12ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.imp-hint {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+
+/* ---------- 完成 ---------- */
+.imp-done__text {
+  font-size: var(--fs-md);
+  color: var(--text);
+}
+
+.imp-done__hint {
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+  max-width: 62ch;
+}
+
+.imp-done__hint strong {
+  color: var(--text);
+  font-weight: 550;
+}
+
+/* ---------- 字段说明折叠 ---------- */
+.imp-help {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.imp-help > summary {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.imp-help__list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: var(--fs-xs);
+  line-height: 1.8;
+  color: var(--text-muted);
+}
+
+.imp-help__list strong {
+  color: var(--text-dim);
+  font-weight: 550;
+}

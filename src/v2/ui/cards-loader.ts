@@ -40,12 +40,44 @@ function pointToCard(p: KnowledgePoint): Card {
   };
 }
 
-/** 题目直接映射 */
+/**
+ * QuestionKind → CardKind 的**显式映射**。
+ *
+ * 原来写的是 `(q.kind as CardKind)` 强转。两个类型并不相同：
+ * QuestionKind 有 `'essay'`（问答），而 CardKind 没有 ——
+ * 于是库里一旦出现 essay 题，ReviewPage 会拿到一个它不认识的 kind：
+ *   选项区不渲染（不是 single/multiple）、
+ *   输入区不渲染（不是 blank/short）、
+ *   但「提交答案」按钮照旧显示（canSubmit 对未知类型返回 true）
+ * 结果是一个**看得见、点得动、但没有输入框**的提交按钮 —— 用户直接卡住。
+ *
+ * 映射规则：essay（长文本自评）→ short（简答，同为长文本自评）。
+ * 两者在交互与判分上完全一致，是语义最近的一档。
+ */
+function toCardKind(k: Question['kind']): CardKind {
+  switch (k) {
+    case 'essay':
+      return 'short';
+    case 'single':
+    case 'multiple':
+    case 'truefalse':
+    case 'blank':
+      return k;
+    default:
+      /*
+       * 未知类型（旧数据/手改备份）：退回 single 而不是崩。
+       * 但要能看出来不对 —— 这类题在界面上至少还能作答。
+       */
+      return 'single';
+  }
+}
+
+/** 题目 → 卡片 */
 function questionToCard(q: Question, sourceId: string | null): Card {
   return {
     id: q.id,
     sourceId: sourceId ?? '',
-    kind: (q.kind as CardKind) ?? 'single',
+    kind: toCardKind(q.kind),
     prompt: q.prompt,
     options: q.options.map((o) => ({ key: o.key, text: o.text })),
     answer: q.answer,

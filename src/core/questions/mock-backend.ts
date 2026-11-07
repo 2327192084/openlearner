@@ -139,7 +139,7 @@ function pickPoints(
  * 3. **多选/问答**：用原文引用当题干线索
  */
 function buildDraft(
-  kind: 'single' | 'multiple' | 'blank' | 'essay',
+  kind: 'single' | 'multiple' | 'truefalse' | 'blank' | 'essay',
   point: QuestionSourcePoint,
   allPoints: QuestionSourcePoint[],
   index: number,
@@ -166,6 +166,57 @@ function buildDraft(
         point.quotes[0] ?? '',
         60,
       )}`,
+      knowledgePointId: point.id,
+    };
+  }
+
+  if (kind === 'truefalse') {
+    /*
+     * 判断题：给一句陈述，判对错。
+     *
+     * 怎么造「错的」那一半：**把关键术语换掉**，而不是编一句假话。
+     * 换成另一个知识点里的术语，读起来仍然像教材句子，但事实是错的 ——
+     * 这正是真实考试里判断题的样子（似是而非，不是明显荒谬）。
+     *
+     * 换不出术语时返回 null（宁可这一条不出判断题，也不造一句
+     * 「1+1=3」这种一眼假的题 —— 那种题测不出任何东西）。
+     */
+    /*
+     * 找一个「不同的术语」来造错误陈述。
+     *
+     * 不能只试第一个其他知识点 —— 所有知识点都提取出同一个术语时
+     * （在单章、术语高度重复的资料里很常见），那样会一道判断题都出不来。
+     * 这里遍历全部候选，取第一个真正不同的。
+     */
+    let otherTerm: string | null = null;
+    for (const p of allPoints) {
+      if (p.id === point.id) continue;
+      const t = extractTerm(p);
+      if (t && t !== term) {
+        otherTerm = t;
+        break;
+      }
+    }
+    if (!otherTerm) return null;
+
+    /*
+     * variant 决定这次出「对的」还是「错的」，让同一个知识点
+     * 被重复使用时两种都出现。
+     */
+    const wantTrue = variant % 2 === 0;
+    const shown = wantTrue ? statement : statement.replace(term, otherTerm);
+
+    return {
+      kind: 'truefalse',
+      prompt: `判断对错${variantSuffix(variant)}：${shown}`,
+      options: [
+        { key: 'T', text: '对' },
+        { key: 'F', text: '错' },
+      ],
+      answer: wantTrue ? 'T' : 'F',
+      explanation: wantTrue
+        ? `这句是对的，出自知识点「${truncate(statement, 40)}」。`
+        : `这句是错的：原文说的是「${term}」，不是「${otherTerm}」。`,
       knowledgePointId: point.id,
     };
   }

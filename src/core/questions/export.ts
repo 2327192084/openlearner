@@ -16,6 +16,7 @@ const KIND_LABEL: Record<Question['kind'], string> = {
   single: '单选题',
   multiple: '多选题',
   blank: '填空题',
+  truefalse: '判断题',
   essay: '问答题',
 };
 

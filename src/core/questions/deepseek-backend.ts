@@ -46,7 +46,7 @@ export interface ModelQuestionBackendOptions {
 /** 旧名保留，避免一次性改掉所有引用。新代码用 ModelQuestionBackendOptions。 */
 export type DeepSeekQuestionBackendOptions = ModelQuestionBackendOptions;
 
-const VALID_KINDS = new Set(['single', 'multiple', 'blank', 'essay']);
+const VALID_KINDS = new Set(['single', 'multiple', 'truefalse', 'blank', 'essay']);
 
 export class ModelQuestionBackend implements QuestionBackend {
   readonly id: string;
@@ -211,7 +211,7 @@ export function buildQuestionSystemPrompt(language: 'zh' | 'en' = 'zh'): string 
       '  "questions": [',
       '    {',
       '      "knowledgePointId": "the id you were given",',
-      '      "kind": "single | multiple | blank | essay",',
+      '      "kind": "single | multiple | truefalse | blank | essay",',
       '      "prompt": "the question",',
       '      "options": [{"key": "A", "text": "..."}],',
       '      "answer": "A",',
@@ -256,7 +256,7 @@ export function buildQuestionSystemPrompt(language: 'zh' | 'en' = 'zh'): string 
     '  "questions": [',
     '    {',
     '      "knowledgePointId": "给你的那个 id",',
-    '      "kind": "single | multiple | blank | essay",',
+    '      "kind": "single | multiple | truefalse | blank | essay",',
     '      "prompt": "题干",',
     '      "options": [{"key": "A", "text": "选项内容"}],',
     '      "answer": "A",',
@@ -297,6 +297,20 @@ export function buildQuestionUserPrompt(
   return [
     `请根据下面 ${points.length} 条知识点，出 ${opts.count} 道题。`,
     `可用的题型：${opts.kinds.join('、')}。`,
+    '',
+    /*
+     * 明确要求「每种都要有」。
+     *
+     * 实测：只写「可用题型」时，模型会挑它最熟的那一种（几乎全是单选），
+     * 用户勾了判断题/问答题却拿不到 —— 那种「选了没生效」比报错更让人困惑。
+     *
+     * 这里把要求写死：勾了几种就每种至少出一道，数量够的话平均分配。
+     * 模型仍可能不遵守（概率性的东西没法保证），所以界面上还要如实告知
+     * 「实际出了哪几种」（见下方 materialize 的题型统计）。
+     */
+    opts.kinds.length > 1
+      ? `**这 ${opts.kinds.length} 种题型每种都至少要出 1 道，并尽量平均分配**（共 ${opts.count} 道）。不要全部用同一种题型。`
+      : `这 ${opts.count} 道题都用「${opts.kinds[0]}」这一种题型。`,
     '',
     '每道题的 knowledgePointId 必须填下面某一条的 id。',
     '不要在题目里写页码、原文引用或任何位置信息。',
@@ -408,6 +422,37 @@ function normalizeQuestion(raw: unknown): QuestionDraft | null {
         text: String(o.text).trim(),
       }))
       .filter((o) => o.key && o.text);
+  }
+
+  /*
+   * 判断题：**选项由程序固定，不接受模型给的**。
+   *
+   * 为什么不让模型给：它可能写成「正确/错误」「是/否」甚至三个选项，
+   * 而界面上判断题的渲染是写死的两个按钮（对/错）。
+   * 直接原地生成，答案归一成 T/F —— 这样无论模型怎么写都不会跑偏。
+   */
+  if (kind === 'truefalse') {
+    const v = answer.trim().toUpperCase();
+    const truthy =
+      v === 'T' || v === 'TRUE' || v === '对' || v === '正确'
+        ? 'T'
+        : v === 'F' || v === 'FALSE' || v === '错' || v === '错误'
+          ? 'F'
+          : null;
+    /* 答案不是对/错的一种写法 ⇒ 这道题作废，不猜 */
+    if (!truthy) return null;
+
+    return {
+      kind: 'truefalse',
+      prompt,
+      options: [
+        { key: 'T', text: '对' },
+        { key: 'F', text: '错' },
+      ],
+      answer: truthy,
+      explanation: typeof q.explanation === 'string' ? q.explanation.trim() : '',
+      knowledgePointId,
+    };
   }
 
   if (kind === 'single' || kind === 'multiple') {

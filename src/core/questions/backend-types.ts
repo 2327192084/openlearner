@@ -1,4 +1,4 @@
-import type { KnowledgePoint } from '../model.ts';
+import type { KnowledgePoint, QuestionKind } from '../model.ts';
 
 /**
  * 出题后端的抽象。
@@ -38,7 +38,7 @@ export interface QuestionSourcePoint {
  */
 export interface GenerateQuestionsOptions {
   /** 题型组合 */
-  kinds: ('single' | 'multiple' | 'blank' | 'essay')[];
+  kinds: QuestionKind[];
   /** 期望题数 */
   count: number;
   /** 难度：由认知层级映射，null 表示不限 */
@@ -54,7 +54,7 @@ export interface GenerateQuestionsRuntime {
 
 /** 模型返回的一道题草稿 */
 export interface QuestionDraft {
-  kind: 'single' | 'multiple' | 'blank' | 'essay';
+  kind: QuestionKind;
   prompt: string;
   /** 选项（单选/多选必填） */
   options: { key: string; text: string }[];

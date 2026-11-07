@@ -77,6 +77,7 @@ export const QUESTION_KINDS: ReadonlyArray<{
 const KIND_LABEL: Record<QuestionKind, string> = {
   single: '单选',
   multiple: '多选',
+  truefalse: '判断',
   blank: '填空',
   essay: '问答',
 };

@@ -1,0 +1,133 @@
+/**
+ * 题型多选器的样式。
+ *
+ * 放在 @layer 外面：里面只有按钮，但 base.css 里那条无层级的
+ * `button { color: inherit }` 会压过层内的规则（项目里踩过三次）。
+ *
+ * 视觉：竖排卡片，每项一行「勾选框 + 名字 + 一句说明」。
+ * 一屏能看全 5 种题型，不用展开下拉。
+ */
+
+.gen-kinds {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.gen-kind {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.gen-kind:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+/* 选中态：中性底色 + 描边，不用朱砂（这是一组等价选项，不是主操作） */
+.gen-kind--on {
+  background: var(--bg-selected);
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.gen-kind:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/*
+ * 勾选框：自绘，与原生 checkbox 区分开（原生控件在深色下不好控色）。
+ *
+ * 对勾用 ::after 伪元素画，**不塞字符** ——
+ * 塞字符会让按钮的 innerText 变成「✓ 单选题 …」，
+ * 按文本定位按钮的地方（自动化测试、读屏）就拿不到题型名。
+ */
+.gen-kind__box {
+  flex: none;
+  position: relative;
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+}
+
+.gen-kind--on .gen-kind__box {
+  border-color: var(--accent);
+}
+
+/* 对勾：两条边旋转 45°，不占文本流 */
+.gen-kind--on .gen-kind__box::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--accent);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+
+.gen-kind__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.gen-kind__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: inherit;
+}
+
+/* 「自评」标记：提醒这一题型不会自动判分 */
+.gen-kind__tag {
+  padding: 0 5px;
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  color: var(--warn);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  line-height: 1.6;
+}
+
+.gen-kind__hint {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  line-height: 1.45;
+}
+
+.gen-kinds__note {
+  margin-top: 4px;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+
+/*
+ * 题型那一栏**独占一行**。
+ *
+ * 一开始写成 flex: 1（想让它和「数量」并排），结果题型说明被压成窄条、
+ * 一屏读不完（截图核对时发现的）。
+ * 五种题型竖排本来就需要整行宽度，所以这里直接 flex-basis: 100%，
+ * 让「数量」自动换到下一行。
+ */
+.gen-label--wide {
+  flex: 1 1 100%;
+  min-width: 0;
+}

@@ -18,6 +18,8 @@ import {
   exportToMarkdown,
 } from './export.ts';
 import type { ExportOptions } from './export.ts';
+import { parseDeckJson } from './import-json.ts';
+import type { ParsedImport } from './import-json.ts';
 import type {
   GenerateQuestionsOptions,
   QuestionBackend,
@@ -70,6 +72,13 @@ export interface GenerateQuestionsInput {
   title: string;
   courseId?: string | null;
   sourceId?: string | null;
+  /**
+   * 这批题是否来自「整库随机抽取」。
+   *
+   * 用户要求「随机题组要特意标注」，所以要落到 Deck 上，
+   * 而不是只在生成那一刻的界面里提一句（刷新就没了）。
+   */
+  randomSource?: boolean;
   backend: QuestionBackend;
   options: Omit<GenerateQuestionsOptions, 'signal'>;
   signal: AbortSignal;
@@ -202,6 +211,17 @@ export class DeckService {
       status: 'draft',
       sourceId: input.sourceId ?? null,
       backendId: input.backend.id,
+      /*
+       * 题型与「是否随机」按用户要求落到题组上，这样列表里能直接标注，
+       * 不用等到点进去才发现是单选还是简答。
+       *
+       * kinds 取自主出题选项（options.kinds），去重后保存；
+       * 空数组视为「混合 / 未标注」。
+       */
+      ...(input.options.kinds && input.options.kinds.length > 0
+        ? { kinds: [...new Set(input.options.kinds)] }
+        : {}),
+      ...(input.randomSource ? { randomSource: true } : {}),
       questionCount: 0,
       blockingIssues: 0,
       publishedAt: null,
@@ -626,6 +646,21 @@ export class DeckService {
             .join(',');
         return keySet(normalized) === keySet(question.answer);
       }
+      case 'truefalse': {
+        /*
+         * 判断题：答案是 'T' 或 'F'。
+         *
+         * 宽容一点：也接受 '对'/'错'/'true'/'false'，因为导入的题组
+         * 可能来自别处、用别的写法。比较前统一大写。
+         */
+        const truthy = (s: string) => {
+          const v = s.trim().toUpperCase();
+          if (v === 'T' || v === 'TRUE' || v === '对' || v === '正确') return 'T';
+          if (v === 'F' || v === 'FALSE' || v === '错' || v === '错误') return 'F';
+          return v;
+        };
+        return truthy(normalized) === truthy(question.answer);
+      }
       case 'blank': {
         // 填空：忽略大小写、全半角空格、首尾标点。
         // 学生手打的答案常带多余空格或句号，不该因此判错。
@@ -794,6 +829,80 @@ export class DeckService {
       content: exportToMarkdown(deck, questions, opts),
       fileName: exportFileName(deck, 'md'),
     };
+  }
+
+  /**
+   * 导入 JSON 题组。
+   *
+   * ## 为什么要经过这一层，而不是让界面直接写库
+   *
+   * 导入要做三件界面不该管的事：
+   *  1. 解析与校验（`parseDeckJson`，会给第几题错）
+   *  2. 生成 id、接上 deckId、算 order
+   *  3. 落库（decks + questions 两张表，必须在同一个流程里完成）
+   *
+   * 第 3 点尤其重要：写了一半失败会留下「有题组没题」或「有题没题组」的
+   * 半截数据。所以先把所有 Question 在内存里建好，再一次性写。
+   *
+   * ## 默认落成草稿
+   *
+   * 与「AI 出题」一致：导入的题也要人工检查后才发布。
+   * 别的软件导出的题可能有格式问题（答案不在选项里、题干为空），
+   * 直接进复习等于绕过那道关。
+   */
+  async importJson(
+    text: string,
+    options: { title?: string; publishImmediately?: boolean } = {},
+  ): Promise<{ deck: Deck; questions: Question[]; parsed: ParsedImport }> {
+    const parsed = parseDeckJson(text);
+    const ts = nowIso();
+    const deckId = newId('deck');
+
+    /*
+     * 先全部建好再写。
+     *
+     * 顺序很关键：如果先写 deck 再逐题写 questions，
+     * 中间某题抛错就会留下一个空题组 —— 用户看到「有题组 0 道题」，
+     * 不知道是自己导错了还是软件坏了。
+     */
+    const questions: Question[] = parsed.questions.map((q, i) => ({
+      id: newId('q'),
+      deckId,
+      kind: q.kind,
+      prompt: q.prompt,
+      options: q.options,
+      answer: q.answer,
+      explanation: q.explanation,
+      /* 导入的题没有 anchors：出处来自原文件的锚点，外部 JSON 里没有可信位置 */
+      anchors: [],
+      knowledgePointId: null,
+      cognitiveLevel: q.cognitiveLevel,
+      topic: q.topic,
+      order: i + 1,
+      createdAt: ts,
+      updatedAt: ts,
+    }));
+
+    const nowPublished = options.publishImmediately === true;
+    const deck: Deck = {
+      id: deckId,
+      title: (options.title?.trim() || parsed.title).slice(0, 200),
+      courseId: null,
+      status: nowPublished ? 'published' : 'draft',
+      sourceId: null,
+      backendId: null,
+      kinds: [...new Set(questions.map((q) => q.kind))],
+      questionCount: questions.length,
+      blockingIssues: 0,
+      publishedAt: nowPublished ? ts : null,
+      createdAt: ts,
+      updatedAt: ts,
+    };
+
+    await this.storage.put('decks', deck);
+    for (const q of questions) await this.storage.put('questions', q);
+
+    return { deck, questions, parsed };
   }
 
   /** 导出为 JSON 文本 */
