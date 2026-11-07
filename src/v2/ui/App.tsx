@@ -412,7 +412,7 @@ function Placeholder({ page, onBack }: { page: PageId; onBack: () => void }) {
           marginBottom: 'var(--space-5)',
         }}
       >
-        这一页还在重做中。现在能用的有：学习库、资料、整理知识点、创建题组、复习、统计、设置。
+        这一页还在重做中。现在能用的有：学习库、资料、知识库、我的题组、做题、统计、设置。
       </p>
       <button type="button" className="btn-ghost" onClick={onBack}>
         回到学习库
