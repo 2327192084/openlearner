@@ -1,0 +1,181 @@
+/**
+ * 「开始学习」导览页。
+ *
+ * 四个选项做成大卡片，一眼能选。只有「开始做题」是主操作（朱砂描边），
+ * 其余三个是「还没做」的状态 —— 不伪装成可用。
+ */
+
+.study-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 72ch;
+}
+
+.study-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.study-title {
+  margin: 0;
+  font-size: var(--fs-2xl);
+  font-weight: 550;
+  line-height: var(--lh-tight);
+  color: var(--text);
+}
+
+.study-lead {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+}
+
+.study-error {
+  padding: var(--space-3);
+  border-left: 2px solid var(--bad);
+  background: var(--bg-sunken);
+  border-radius: var(--radius-sm);
+  color: var(--bad);
+  font-size: var(--fs-sm);
+}
+
+.study-notice {
+  padding: var(--space-3);
+  border-left: 2px solid var(--warn);
+  background: var(--bg-raised);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+
+/* ---------- 四个选项 ---------- */
+
+.study-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.study-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  text-align: left;
+  font-family: inherit;
+  background: var(--bg-surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-card);
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+
+.study-option:hover {
+  background: var(--bg-raised);
+  border-color: var(--line-strong);
+}
+
+.study-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 主操作：只有「开始做题」——朱砂描边，与设计系统一致 */
+.study-option--primary {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.study-option--primary:hover {
+  border-color: var(--accent);
+}
+
+/* 未做的：整体降一档，但仍可点（点了会说明还没做） */
+.study-option--soon {
+  opacity: 0.62;
+}
+
+.study-option--soon:hover {
+  opacity: 0.8;
+}
+
+.study-option__icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  color: var(--text-dim);
+  background: var(--bg-sunken);
+  border-radius: var(--radius-sm);
+}
+
+.study-option--primary .study-option__icon {
+  color: var(--accent-text);
+}
+
+.study-option__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.study-option__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-md);
+  font-weight: 550;
+  color: var(--text);
+}
+
+.study-option__badge {
+  padding: 1px 7px;
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--text-faint);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+}
+
+.study-option__desc {
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+}
+
+.study-option__meta {
+  font-size: var(--fs-xs);
+  color: var(--accent-text);
+}
+
+/* ---------- 底部说明 ---------- */
+
+.study-hint {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--text-faint);
+}
+
+.study-hint__link {
+  margin-left: 6px;
+  font-size: var(--fs-sm);
+  color: var(--accent-text);
+  text-decoration: underline;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+/* 窄屏：单列，选项不再并排 */
+@media (max-width: 560px) {
+  .study-options {
+    grid-template-columns: 1fr;
+  }
+}

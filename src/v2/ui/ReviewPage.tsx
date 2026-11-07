@@ -169,7 +169,7 @@ export function ReviewPage({
   if (!card) {
     return (
       <div className="review-empty">
-        <p>这一轮没有需要复习的卡片。</p>
+        <p>这一轮没有需要做的题。</p>
         <button type="button" className="btn-ghost" onClick={onExit}>
           返回
         </button>
@@ -206,7 +206,7 @@ export function ReviewPage({
       {/* 顶部：进度 + 掌握度胶囊 */}
       <div className="review-head">
         <button type="button" className="btn-text" onClick={onExit}>
-          ← 退出复习
+          ← 退出做题
         </button>
         <span className="review-progress-text">
           {index + 1} / {total}

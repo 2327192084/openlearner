@@ -36,6 +36,7 @@ import {
 export type PageId =
   | 'today'
   | 'review'
+  | 'study'
   | 'sources'
   | 'generate'
   | 'decks'
@@ -261,12 +262,33 @@ export const BACK_ICON = IconBack;
  * 否则顶栏标题会回退成错的页名（曾经显示成「设置」）。
  */
 const OFF_NAV: Partial<Record<PageId, PageDef>> = {
-  review: {
-    id: 'review',
-    label: '复习',
-    title: '复习',
+  /**
+   * 「开始学习」导览页。
+   *
+   * 点顶部按钮先到这里，四个选项自己挑：学习知识 / 开始做题 /
+   * 开始复习 / 错题闪卡。原来直接掉进做题界面，用户没有选择权。
+   */
+  study: {
+    id: 'study',
+    label: '开始学习',
+    title: '开始学习',
     icon: IconLibrary,
-    purpose: '按遗忘曲线做今天该复习的卡片',
+    purpose: '先选一件事做：学知识、做题、复习或刷错题',
+    group: 'daily',
+    show: false,
+    ready: true,
+  },
+  review: {
+    /*
+     * 名字与「开始学习」导览里的「开始做题」对齐。
+     * 原来这里叫「复习」，而导览里叫「开始做题」，用户看到顶栏写「复习」
+     * 会以为进错了地方。
+     */
+    id: 'review',
+    label: '做题',
+    title: '做题',
+    icon: IconLibrary,
+    purpose: '做题库里的题，每题都能点回原文',
     group: 'daily',
     show: false,
     ready: true,

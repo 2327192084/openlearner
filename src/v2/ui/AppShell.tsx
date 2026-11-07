@@ -104,9 +104,11 @@ export function AppShell({
         {/* 开始学习（顶部单行） */}
         <button
           type="button"
-          className={`nav-item nav-item--back${current === 'review' ? ' nav-item--on' : ''}`}
-          onClick={() => onNavigate('review')}
-          title="回到还没做完的题目"
+          className={`nav-item nav-item--back${
+            current === 'study' || current === 'review' ? ' nav-item--on' : ''
+          }`}
+          onClick={() => onNavigate('study')}
+          title="选一件事开始：学知识、做题、复习或刷错题"
         >
           <span className="nav-item__icon" aria-hidden="true">
             <BackGlyph />

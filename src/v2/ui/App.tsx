@@ -6,6 +6,7 @@ import { TodayPage } from './TodayPage.tsx';
 import { ReviewPage } from './ReviewPage.tsx';
 import { SourcesPage } from './SourcesPage.tsx';
 import { DecksPage } from './DecksPage.tsx';
+import { StudyPage } from './StudyPage.tsx';
 import { StatsPage } from './StatsPage.tsx';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { DeckService } from '@/core/questions/service.ts';
@@ -30,6 +31,7 @@ import './settings.css';
 import './organize-page.css';
 import './reader-page.css';
 import './decks-page.css';
+import './study-page.css';
 
 /**
  * v2 应用入口。
@@ -239,16 +241,23 @@ export function App({
       libraryName={libName}
       reviewProgress={null}
     >
-      {page === 'review' ? (
+      {page === 'study' ? (
+        <StudyPage
+          service={reviewService}
+          dueCount={queueTotal || null}
+          onStartQuiz={() => void navigate('review')}
+          onOpenDecks={() => setPage('decks')}
+        />
+      ) : page === 'review' ? (
         queue === null ? (
-          <p className="today__lead">{queueError ?? '正在准备今日复习…'}</p>
+          <p className="today__lead">{queueError ?? '正在准备今天要做的题…'}</p>
         ) : (
           <ReviewPage
             service={reviewService}
             queue={queue}
             dueTotal={queueTotal}
-            onFinish={() => setPage('today')}
-            onExit={() => setPage('today')}
+            onFinish={() => setPage('study')}
+            onExit={() => setPage('study')}
           />
         )
       ) : page === 'sources' ? (
@@ -349,7 +358,8 @@ export function App({
 function Placeholder({ page, onBack }: { page: PageId; onBack: () => void }) {
   const names: Record<PageId, string> = {
     today: '学习库',
-    review: '复习',
+    review: '做题',
+    study: '开始学习',
     sources: '资料',
     generate: '创建题组',
     decks: '我的题组',
