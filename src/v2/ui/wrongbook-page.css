@@ -457,4 +457,22 @@
 
 .wbk-group__head:hover .wbk-group__title {
   color: var(--ok);
+
+  /*
+   * 导出结果提示（2026-11-08）。
+   *
+   * 成功与失败共用一行 —— 放在工具条下方，紧挨按钮，
+   * 用户点完立刻看到结果。不做 toast：那会在几秒后消失，
+   * 而「导出了几张、文件名是什么」是需要回看的。
+   */
+  .wbk-export-note {
+    margin: 0 0 var(--space-3);
+    padding: 6px var(--space-3);
+    border-left: 2px solid var(--ok);
+    background: color-mix(in srgb, var(--ok) 6%, transparent);
+    font-size: var(--fs-xs, 11px);
+    color: var(--text-dim);
+    line-height: var(--lh-body);
+    word-break: break-all;
+  }
 }

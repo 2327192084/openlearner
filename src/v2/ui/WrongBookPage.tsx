@@ -61,6 +61,14 @@ export interface WrongBookPageProps {
   onOpenSource: (sourceId: string) => void;
   /** 去「开始做题」 */
   onOpenPractice: () => void;
+  /**
+   * 导出为 Obsidian 闪卡。
+   *
+   * 为什么放在这一页：这里的题就是「错题」，正是最该做成闪卡的材料。
+   * 用户的主笔记软件是 Obsidian，导出的 .md 直接丢进库里就能复习 ——
+   * 不需要我们自己做一套复习界面。
+   */
+  onExportObsidian: (deckId: string | null) => Promise<{ fileName: string; count: number }>;
 }
 
 interface WrongRow {
@@ -113,6 +121,7 @@ export function WrongBookPage({
   sourceService,
   onOpenSource,
   onOpenPractice,
+  onExportObsidian,
 }: WrongBookPageProps) {
   const [rows, setRows] = useState<WrongRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -120,6 +129,9 @@ export function WrongBookPage({
   const [sort, setSort] = useState<SortKey>('wrongCount');
   /** 展开的分组 key 集合（默认空 = 全部收起） */
   const [open, setOpen] = useState<Set<string>>(new Set());
+  /** 导出结果提示 */
+  const [exportNote, setExportNote] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -309,6 +321,48 @@ export function WrongBookPage({
     });
   }
 
+  /**
+   * 导出当前视图里的错题为 Obsidian 闪卡。
+   *
+   * 选哪个题组：
+   *  - 有筛选 → 那个
+   *  - 没筛选 → 错题最多的那个（与列表默认排序一致，用户看到的第一个）
+   *
+   * 为什么不逐个题组各导一个文件：一次点击产生多个下载会让人以为出错。
+   * 想导别的一组，先按题组筛一下再导。
+   */
+  async function exportObsidian() {
+    if (!groups.length) return;
+    setExporting(true);
+    setExportNote(null);
+    try {
+      /*
+       * 选错题最多的那个题组。
+       *
+       * 按题组分组时 groups 就是题组；按章节/题型分组时，
+       * 一条组的题可能跨多个题组 —— 那种情况取第一条里错得最多的题的题组。
+       * 不逐个导多个文件：一次点击产生多个下载会让人以为出错。
+       */
+      let target: string | null = null;
+      if (groupBy === 'deck') {
+        target = groups[0]?.key ?? null;
+      } else {
+        const all = groups.flatMap((g) => g.rows).sort((a, b) => b.wrongCount - a.wrongCount);
+        target = all[0]?.card.deckId ?? null;
+      }
+      if (!target) {
+        setExportNote('没有可导出的题组。');
+        return;
+      }
+      const r = await onExportObsidian(target);
+      setExportNote(`已导出 ${r.count} 张闪卡：${r.fileName}`);
+    } catch (err) {
+      setExportNote(err instanceof Error ? err.message : '导出失败');
+    } finally {
+      setExporting(false);
+    }
+  }
+
   /** 全部展开 / 全部收起 */
   function toggleAll() {
     if (open.size > 0) setOpen(new Set());
@@ -421,11 +475,30 @@ export function WrongBookPage({
               <button type="button" className="wbk-seg__btn wbk-seg__btn--outline" onClick={toggleAll}>
                 {open.size > 0 ? '全部收起' : '全部展开'}
               </button>
+              <button
+                type="button"
+                className="wbk-seg__btn wbk-seg__btn--outline"
+                onClick={() => void exportObsidian()}
+                disabled={exporting}
+                title="导出为 Obsidian 闪卡（.md），可直接放进你的笔记库"
+              >
+                {exporting ? '导出中…' : '导出到 Obsidian'}
+              </button>
               <button type="button" className="btn-fill btn-fill--sm" onClick={onOpenPractice}>
                 去练错题
               </button>
             </div>
           </div>
+
+          {/*
+            导出结果提示。成功与失败共用一行 ——
+            放在工具条下方，紧挨着操作按钮，用户点完就能看到结果。
+          */}
+          {exportNote ? (
+            <p className="wbk-export-note" role="status">
+              {exportNote}
+            </p>
+          ) : null}
 
           {/* ---- 分组列表（默认收起） ---- */}
           <ul className="wbk-groups">

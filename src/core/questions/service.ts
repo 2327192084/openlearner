@@ -18,6 +18,11 @@ import {
   exportToMarkdown,
 } from './export.ts';
 import type { ExportOptions } from './export.ts';
+import {
+  deckToObsidianMarkdown,
+  obsidianFileName,
+  type FlashcardOptions as ObsidianExportOptions,
+} from './obsidian-export.ts';
 import { parseDeckJson } from './import-json.ts';
 import type { ParsedImport } from './import-json.ts';
 import type {
@@ -906,6 +911,50 @@ export class DeckService {
   }
 
   /** 导出为 JSON 文本 */
+  /**
+   * 导出为 Obsidian Spaced Repetition 闪卡（.md）。
+   *
+   * ## 为什么导出而不是内置复习
+   *
+   * 用户的笔记主力是 Obsidian，考研要写大量公式。所以错题闪卡的定位是
+   * **把卡片送进 Obsidian 的复习流**（插件负责调度），本应用负责挑题与转格式。
+   *
+   * 语法依据见 `obsidian-export.ts` 的注释（官方文档逐条对照）。
+   *
+   * @param deckId 题组 id
+   * @param options 标签、是否包装公式、是否带出处
+   */
+  async exportObsidian(
+    deckId: string,
+    options: ObsidianExportOptions = {},
+  ): Promise<{ content: string; fileName: string; count: number }> {
+    const deck = await this.storage.get('decks', deckId);
+    if (!deck) throw new Error('题组不存在，可能刚被删除');
+    const questions = await this.getQuestions(deckId);
+    if (questions.length === 0) {
+      throw new Error('这个题组还没有题目，没有可导出的内容');
+    }
+
+    /*
+     * 出处：从 anchors 的 sourceId 查资料名。
+     * 用 `includeSource` 打开时才查，省一次全表读。
+     */
+    let sourceLabelOf: ((q: Question) => string | null) | undefined;
+    if (options.includeSource) {
+      const sources = await this.storage.getAll('sources');
+      const titleById = new Map(sources.map((s) => [s.id, s.title]));
+      sourceLabelOf = (q: Question) => {
+        const a = q.anchors.find((x) => titleById.has(x.sourceId));
+        if (!a) return null;
+        const title = titleById.get(a.sourceId)!;
+        return a.page ? `${title} 第 ${a.page} 页` : title;
+      };
+    }
+
+    const { content, count } = deckToObsidianMarkdown(deck.title, questions, options, sourceLabelOf);
+    return { content, fileName: obsidianFileName(deck.title), count };
+  }
+
   async exportJson(
     deckId: string,
     options?: Partial<ExportOptions>,

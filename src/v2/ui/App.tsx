@@ -16,6 +16,7 @@ import { MapPage } from './MapPage.tsx';
 import { BoardPage } from './BoardPage.tsx';
 import { FocusPage } from './FocusPage.tsx';
 import { badgeCounts, resolvePool } from './data-sync.ts';
+import { downloadBlob } from '@/pages/slides/download.ts';
 import type { PracticeStart } from './PracticePage.tsx';
 import { SourcesPage } from './SourcesPage.tsx';
 import { DecksPage } from './DecksPage.tsx';
@@ -656,6 +657,26 @@ export function App({
             setPage('reader');
           }}
           onOpenPractice={() => void navigate('review')}
+          onExportObsidian={async (deckId) => {
+            /*
+             * 导出为 Obsidian 闪卡。
+             *
+             * deckId 为空时无法导出 —— 调用方（WrongBookPage）保证会传一个，
+             * 这里再挡一层是为了不让 null 变成「悄悄什么都不做」。
+             */
+            if (!deckId) throw new Error('没有可导出的题组');
+            const r = await decks.exportObsidian(deckId, {
+              // 带出处：错题最需要能翻回原文确认
+              includeSource: true,
+            });
+            /*
+             * 下载用的 MIME：text/markdown。
+             * 不用 application/octet-stream —— Obsidian 用户可能会
+             * 直接把文件拖进浏览器预览，纯文本更容易被正确处理。
+             */
+            downloadBlob(new Blob([r.content], { type: 'text/markdown;charset=utf-8' }), r.fileName);
+            return { fileName: r.fileName, count: r.count };
+          }}
         />
       ) : page === 'knowledge' ? (
         <KnowledgePage
