@@ -3,6 +3,7 @@ import type { RefObject } from 'react';
 import type { Source, SourceSegment } from '@/core/model.ts';
 import type { SourceService } from '@/core/sources.ts';
 import { IconSources } from './icons.tsx';
+import { renderTextWithMath } from './render-math.ts';
 
 /**
  * 阅读器 —— 把「可点回原文」从一句徽章变成真的能点。
@@ -590,18 +591,26 @@ function renderText(
   const hit = text.slice(start, end);
   const after = text.slice(end);
 
+  /*
+   * 三段都要过 MathText。
+   *
+   * 为什么不能只渲染高亮那一段：一句「电压 $v_{s}$ 和电容器」里，
+   * 公式可能在高亮范围之前或之后 —— 只渲染中间那段，两边还是源码。
+   * 而高亮本身是按**字符偏移**算的，MathText 不改变字符数
+   * （它只换展示方式），所以偏移仍然准确。
+   */
   return (
     <p className="reader-para reader-para--marked">
-      {before}
+      <MathText text={before} />
       <mark
         className="reader-mark"
         ref={(el) => {
           markRef.current = el;
         }}
       >
-        {hit}
+        <MathText text={hit} />
       </mark>
-      {after}
+      <MathText text={after} />
     </p>
   );
 }
@@ -624,6 +633,34 @@ function renderText(
  * 上面三样。手写这 60 行换来的体积与可控性更划算 —— 尤其是我们必须
  * 保证渲染出来的文字与原文**完全一致**（锚点按字符偏移算）。
  */
+/**
+ * 渲染一段可能含 LaTeX 的文本。
+ *
+ * ## 为什么需要它（2026-11-08 用户报的问题）
+ *
+ * 用户读《信号与系统》看到的是 `$
+ho v$ 为正比于汽车速度 $v$ 的摩擦力`。
+ * 那不是乱码 —— **MinerU 的 OCR 输出是正确的 LaTeX**，
+ * 是阅读器把公式源码当普通文本显示了。全文 36 页有 36 处。
+ *
+ * ## 为什么用 dangerouslySetInnerHTML 而不是 React 元素
+ *
+ * KaTeX 的输出是一整棵 span 树（下标、间距、字体全靠 class 与内联样式）。
+ * 用 React 元素重建它既没必要也容易错。
+ * 我们的输入输出都是**字符串**，React 只负责把它挂上去，
+ * 不存在「自己改 DOM 然后被 React 冲掉」的问题。
+ *
+ * ## 安全
+ *
+ * `renderTextWithMath` 内部对普通文本做了 HTML 转义，
+ * KaTeX 用 `trust: false`（禁掉 \htmlClass 这类可注入的扩展）。
+ * 所以正文里的 `<script>` 不会被执行。
+ */
+function MathText({ text }: { text: string }) {
+  const { html } = useMemo(() => renderTextWithMath(text), [text]);
+  return <span className="reader-math" dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
 function MarkdownBody({ text }: { text: string }) {
   const lines = text.split('\n');
   const out: React.ReactNode[] = [];
@@ -633,7 +670,7 @@ function MarkdownBody({ text }: { text: string }) {
   const flushPara = () => {
     if (buffer.length === 0) return;
     const joined = buffer.join('\n').trim();
-    if (joined) out.push(<p className="reader-para" key={key++}>{joined}</p>);
+    if (joined) out.push(<p className="reader-para" key={key++}><MathText text={joined} /></p>);
     buffer = [];
   };
 
@@ -654,10 +691,11 @@ function MarkdownBody({ text }: { text: string }) {
       const level = heading[1]!.length;
       const title = heading[2];
       const cls = `reader-md-h reader-md-h--${level}`;
-      if (level === 1) out.push(<h1 className={cls} key={key++}>{title}</h1>);
-      else if (level === 2) out.push(<h2 className={cls} key={key++}>{title}</h2>);
-      else if (level === 3) out.push(<h3 className={cls} key={key++}>{title}</h3>);
-      else out.push(<h4 className={cls} key={key++}>{title}</h4>);
+      const titleNode = <MathText text={title} />;
+      if (level === 1) out.push(<h1 className={cls} key={key++}>{titleNode}</h1>);
+      else if (level === 2) out.push(<h2 className={cls} key={key++}>{titleNode}</h2>);
+      else if (level === 3) out.push(<h3 className={cls} key={key++}>{titleNode}</h3>);
+      else out.push(<h4 className={cls} key={key++}>{titleNode}</h4>);
       continue;
     }
 
@@ -686,11 +724,11 @@ function MarkdownBody({ text }: { text: string }) {
         out.push(
           <table className="reader-md-table" key={key++}>
             <thead>
-              <tr>{head!.map((c, ci) => <th key={ci}>{c}</th>)}</tr>
+              <tr>{head!.map((c, ci) => <th key={ci}><MathText text={c} /></th>)}</tr>
             </thead>
             <tbody>
               {body.map((r, ri) => (
-                <tr key={ri}>{r.map((c, ci) => <td key={ci}>{c}</td>)}</tr>
+                <tr key={ri}>{r.map((c, ci) => <td key={ci}><MathText text={c} /></td>)}</tr>
               ))}
             </tbody>
           </table>,
@@ -719,13 +757,13 @@ function MarkdownBody({ text }: { text: string }) {
       if (numbered) {
         out.push(
           <ol className="reader-md-list" key={key++}>
-            {items.map((it, ii) => <li key={ii}>{it}</li>)}
+            {items.map((it, ii) => <li key={ii}><MathText text={it} /></li>)}
           </ol>,
         );
       } else {
         out.push(
           <ul className="reader-md-list" key={key++}>
-            {items.map((it, ii) => <li key={ii}>{it}</li>)}
+            {items.map((it, ii) => <li key={ii}><MathText text={it} /></li>)}
           </ul>,
         );
       }
