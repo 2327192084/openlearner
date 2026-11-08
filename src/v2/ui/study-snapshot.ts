@@ -123,7 +123,36 @@ export async function buildSnapshot(input: SnapshotInput): Promise<StudySnapshot
 
   /* ---------- 进度 ---------- */
 
-  const wrongIds = new Set(wrongDetailed.map((w) => w.cardId));
+  /*
+   * 错题集合（2026-11-08 修）。
+   *
+   * ## 原来错在哪
+   *
+   * 早先直接 `new Set(wrongDetailed.map(w => w.cardId))`。
+   * `wrongCardsDetailed()` 是**从 reviewLogs 聚合**出来的，
+   * 它不知道题还在不在 —— 用户删掉一整个题组后，那些题的历史日志
+   * 仍然留在库里（故意的：删题不该抹掉「你曾经错过什么」的记录）。
+   *
+   * 结果：首页角标显示「15 道错题待巩固」，点进错题页却是空的。
+   * 错题页有 `if (!card) continue`（跳过已删的题），所以过滤掉了；
+   * 而这里的角标没过滤。用户在真实数据上看到的就是这个矛盾：
+   * reviewLogs 里 15 张错卡，一张都不在当前的 questions 表里
+   * （旧题组删了、重新生成了一批新 id）。
+   *
+   * ## 现在
+   *
+   * 只保留**当前仍然存在的卡片**。判据是 `cardById`（来自 loadCards，
+   * 只含已发布题组的题），与错题页用的是同一份集合 —— 两边口径一致，
+   * 角标和列表就不会再对不上。
+   *
+   * 为什么不把这些历史日志也删掉：删题不该销毁「曾经错过」的记忆。
+   * 如果以后要展示「历史错题（原题已删除）」，那是另一块 UI，
+   * 不能混进这个角标 —— 角标是「现在有几道题要巩固」，点了必须看得到。
+   */
+  const cardIds = new Set(cards.map((c) => c.id));
+  const wrongIds = new Set(
+    wrongDetailed.map((w) => w.cardId).filter((id) => cardIds.has(id)),
+  );
   const dueToday = new Set(
     records.filter((r) => isDue(r.state, today)).map((r) => r.cardId),
   );

@@ -45,8 +45,13 @@ export interface KnowledgePageProps {
     charEnd?: number;
     quote?: string;
   }) => void;
-  /** 去「整理知识点」补一份资料的正文 */
-  onOpenOrganize?: (sourceId: string) => void;
+  /**
+   * 去「整理知识点」补一份资料的正文。
+   *
+   * 参数是资料 id；`null` 表示「不指定是哪一份」—— 页头那个常驻按钮
+   * 用的就是 null，让整理页自己列出可选资料（2026-11-08）。
+   */
+  onOpenOrganize?: (sourceId: string | null) => void;
   /**
    * 删除一条知识点（2026-11-08）。
    *
@@ -252,6 +257,25 @@ export function KnowledgePage({
             {totalPoints > 0 ? `，其中 ${totalLocated} 条能点回原文` : ''}。
           </p>
         </div>
+        {/*
+          「整理知识点」常驻按钮（2026-11-08，用户要求）。
+          
+          为什么放页头而不是只在空状态里：
+          用户原话「不管有没有知识点都要加一个整理知识点按钮」。
+          非空时同样需要 —— 整理完一份资料又想整理下一份时，
+          不该非要先回「资料」页再找入口。
+          
+          不传 onOpenOrganize 就不渲染（不摆假按钮）。
+        */}
+        {onOpenOrganize ? (
+          <button
+            type="button"
+            className="kb-head__action"
+            onClick={() => onOpenOrganize(null)}
+          >
+            整理知识点
+          </button>
+        ) : null}
       </header>
 
       {error ? <div className="kb-error">{error}</div> : null}
@@ -280,6 +304,20 @@ export function KnowledgePage({
             知识点是从资料正文里整理出来的。先到「资料」导入一份讲义，
             再去「整理知识点」把它过一遍，结果就会出现在这里。
           </p>
+          {/*
+            空状态里再给一个按钮。
+            这里是用户最需要它的地方 —— 他刚看到「空的」，
+            下一步动作就该是「去整理」，不该让他自己去找入口。
+          */}
+          {onOpenOrganize ? (
+            <button
+              type="button"
+              className="kb-empty__action"
+              onClick={() => onOpenOrganize(null)}
+            >
+              去整理知识点
+            </button>
+          ) : null}
         </div>
       ) : filtered.length === 0 ? (
         <p className="kb-hint">没有匹配「{query}」的知识点。</p>

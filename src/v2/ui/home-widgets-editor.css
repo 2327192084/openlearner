@@ -121,13 +121,40 @@
 .hw-select {
   flex: 1;
   min-width: 0;
-  /* 没有 appearance 时有默认箭头；置 none 后要自己补一个，否则看不出是下拉 */
+  /*
+   * ⚠️ 下拉弹层看不清的修法（2026-11-08 截图发现）。
+   *
+   * 症状：点开「类型」下拉，弹层是**白底 + 浅色字**，四项里三项几乎看不见。
+   *
+   * 根因：`<select>` 的弹层由**系统原生控件**绘制，它与页面 @layer 里的
+   * 样式是两套渲染路径。`color-scheme: dark` 虽然声明在 tokens.css 里，
+   * 但 Chromium 对「弹层里的 <option>」仍会用默认浅色文字。
+   *
+   * 修法：显式给 option 设 background + color。
+   * 这是**唯一**能可靠覆盖原生弹层的一项（别的属性在弹层里基本无效）。
+   * 注意仍然写在层外 —— 见文件头。
+   */
   background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
     linear-gradient(135deg, currentColor 50%, transparent 50%);
   background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%;
   background-size: 5px 5px, 5px 5px;
   background-repeat: no-repeat;
   padding-right: 28px;
+}
+
+/*
+ * 下拉选项：白底浅字是默认表现，必须显式压掉。
+ * 用具体色值而不是 var() —— 弹层在部分 Chromium 版本里不解析页面变量。
+ */
+.hw-select option {
+  background-color: #1e1b18;
+  color: #efe9df;
+}
+
+/* 选中项再亮一点，用户能看出当前选的是哪个 */
+.hw-select option:checked {
+  background-color: #e06a3b;
+  color: #ffffff;
 }
 
 .hw-textarea {
