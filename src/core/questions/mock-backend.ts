@@ -6,6 +6,7 @@ import type {
   QuestionDraft,
   QuestionSourcePoint,
 } from './backend-types.ts';
+import { planKinds } from './backend-types.ts';
 
 /**
  * 示例出题后端：不联网、不花钱、结果可预测。
@@ -70,6 +71,15 @@ export class MockQuestionBackend implements QuestionBackend {
     let attempts = 0;
     const maxAttempts = options.count * 4;
 
+    /*
+     * 预先算出「第 i 道出什么题型」。
+     *
+     * 有 kindCounts 时按配额逐种展开（同一题型连续出），否则退回旧的轮转。
+     * 两处逻辑统一在 planKinds 里 —— 真实后端与这里必须用同一份推导，
+     * 否则「界面要求的分布」和「实际出的分布」会对不上。
+     */
+    const kindPlan = planKinds(options.kinds, options.count, options.kindCounts);
+
     for (let i = 0; i < options.count && attempts < maxAttempts; i++) {
       if (options.signal.aborted) {
         stopped = true;
@@ -80,8 +90,7 @@ export class MockQuestionBackend implements QuestionBackend {
       const point = candidates[pointIndex];
       if (!point) break;
 
-      // 按题型轮转，保证 count 条里题型分布均匀
-      const kind = options.kinds[i % options.kinds.length];
+      const kind = kindPlan[i] ?? options.kinds[i % options.kinds.length]!;
       attempts += 1;
 
       // 同一个知识点被用第二次时，用轮次编号区分题干，避免完全雷同

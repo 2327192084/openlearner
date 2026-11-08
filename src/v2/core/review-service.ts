@@ -6,6 +6,7 @@ import {
   todayUtc,
   buildTodayQueue,
   isDue,
+  isMastered,
   mastery,
   type ReviewGrade,
   type ReviewState,
@@ -311,11 +312,23 @@ export class ReviewService {
         out.unlearned += 1;
         continue;
       }
+      /*
+       * 「已掌握」用 `isMastered()` 判定，不再只看数值（2026-11-08）。
+       *
+       * 原来这里是 `m >= 0.8` 就算 mastered，而 `masteryLabel` 另有分档 ——
+       * 两处口径不同，会出现「标签显示很熟，但统计里不算已掌握」的矛盾。
+       *
+       * 现在统一到 `isMastered()`（间隔 >= 21 天 且 连续答对 >= 2 且 分值 >= 0.85），
+       * 与界面上的「很熟」是同一个条件。统计数字和标签必须来自同一套判断。
+       */
+      if (isMastered(r.state)) {
+        out.mastered += 1;
+        continue;
+      }
       const m = mastery(r.state);
       if (m < 0.3) out.weak += 1;
       else if (m < 0.55) out.learning += 1;
-      else if (m < 0.8) out.familiar += 1;
-      else out.mastered += 1;
+      else out.familiar += 1;
     }
     return out;
   }

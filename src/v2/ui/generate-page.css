@@ -360,3 +360,174 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ===== 2026-11-08：出题配额（逐种数量 + 认知层级） ===== */
+.quota {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm, 8px);
+  background: color-mix(in srgb, var(--text) 2%, transparent);
+}
+
+.quota__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.quota__head--level {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line-soft);
+}
+
+.quota__label {
+  font-size: var(--fs-sm);
+  color: var(--text);
+  font-weight: 550;
+}
+
+.quota__total {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.quota__total strong {
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+/* 合计为 0：提示用警示色，因为这时点生成会失败 */
+.quota__total--zero strong {
+  color: var(--warn);
+}
+
+.quota__hint {
+  font-size: var(--fs-xs, 11px);
+  color: var(--text-faint);
+}
+
+.quota__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.quota__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.quota__name {
+  flex: 0 0 auto;
+  min-width: 4.5em;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+
+.quota__input {
+  flex: 0 0 auto;
+  width: 5.5em;
+  padding: 5px var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs, 4px);
+  background: var(--bg-canvas);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.quota__input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--ok) 50%, transparent);
+}
+
+.quota__unit {
+  font-size: var(--fs-xs, 11px);
+  color: var(--text-faint);
+}
+
+.quota__quick {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: var(--space-3);
+}
+
+.quota__quick-label {
+  font-size: var(--fs-xs, 11px);
+  color: var(--text-faint);
+}
+
+.quota__quick-btn {
+  padding: 3px var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: var(--fs-xs, 11px);
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+
+.quota__quick-btn:hover {
+  color: var(--text);
+  border-color: var(--text-faint);
+}
+
+.quota__warn {
+  margin-top: var(--space-3);
+  font-size: var(--fs-xs, 11px);
+  color: var(--warn);
+}
+
+/* 认知层级按钮 */
+.quota__levels {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.quota__level {
+  padding: 4px var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: var(--fs-xs, 11px);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.quota__level:hover {
+  color: var(--text);
+  border-color: var(--text-faint);
+}
+
+/* 选中态：实心，和其他分段控件一致 */
+.quota__level--on {
+  background: color-mix(in srgb, var(--text) 14%, transparent);
+  border-color: color-mix(in srgb, var(--text) 30%, transparent);
+  color: var(--text);
+}
+
+.quota__note {
+  margin-top: var(--space-3);
+  font-size: var(--fs-xs, 11px);
+  color: var(--text-faint);
+  line-height: var(--lh-body);
+}

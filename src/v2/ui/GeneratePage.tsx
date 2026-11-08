@@ -10,6 +10,7 @@ import {
 } from '@/core/questions/materials.ts';
 import { OriginPicker, type MaterialOrigin } from './OriginPicker.tsx';
 import { KindPicker } from './KindPicker.tsx';
+import { QuotaPicker, totalOfCounts, type CognitiveLevel } from './QuotaPicker.tsx';
 import { ImportPanel } from './ImportPanel.tsx';
 import './import-panel.css';
 import { kindLabel } from '@/core/questions/kinds.ts';
@@ -131,7 +132,24 @@ export function GeneratePage({
    * 用数组而不是单个值：勾几种就出几种，按题型轮流分配数量。
    */
   const [kinds, setKinds] = useState<QuestionKind[]>(['single']);
-  const [count, setCount] = useState(8);
+  /**
+   * 每种题型各出几道（2026-11-08 改）。
+   *
+   * 原来是单个 `count`（总数），由模型自己分给各题型 ——
+   * 实测真实模型常常全给单选，用户勾的判断题/问答题拿不到。
+   * 现在逐种填数字，总数由它求和得出，不再有一个会与它打架的独立总数框。
+   */
+  const [kindCounts, setKindCounts] = useState<Partial<Record<QuestionKind, number>>>({ single: 8 });
+  /** 限定的认知层级；空数组 = 不限（按知识点自身层级出） */
+  const [levels, setLevels] = useState<CognitiveLevel[]>([]);
+
+  /*
+   * 总题数 = 各题型配额之和。
+   *
+   * 为什么派生而不是单独存一个 state：两个数字必然会被改到一个不一致的状态，
+   * 那时界面上「合计 12 道」和「数量 10」会同时出现，用户不知道该信哪个。
+   */
+  const count = totalOfCounts(kindCounts);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /**
@@ -304,8 +322,9 @@ export function GeneratePage({
         options: {
           kinds,
           count,
-          // levels: null = 不限认知层级（按知识点自身层级出题）
-          levels: null,
+          /* 逐种数量：后端据此出题（不再靠「尽量平均」的提示词碰运气） */
+          kindCounts,
+          levels: levels.length > 0 ? levels : null,
           language: 'zh',
         },
         signal: controller.signal,
@@ -335,6 +354,8 @@ export function GeneratePage({
     selected,
     kinds,
     count,
+    kindCounts,
+    levels,
     onGenerated,
     origin,
     acrossAll,
@@ -448,24 +469,40 @@ export function GeneratePage({
 
           <fieldset className="gen-field">
             <legend className="gen-legend">03 / 题型与数量</legend>
-            <div className="gen-row">
-              <div className="gen-label gen-label--wide">
-                题型（可多选）
-                <KindPicker value={kinds} onChange={setKinds} disabled={busy} />
-              </div>
-              <label className="gen-label">
-                数量
-                <input
-                  className="gen-input"
-                  type="number"
-                  min={1}
-                  max={30}
-                  value={count}
-                  onChange={(e) => setCount(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
-                  disabled={busy}
-                />
-              </label>
+            <div className="gen-label gen-label--wide">
+              题型（可多选）
+              <KindPicker
+                value={kinds}
+                onChange={(next) => {
+                  setKinds(next);
+                  /*
+                   * 新勾上的题型给一个默认数量（2026-11-08）。
+                   *
+                   * 不给的话它进来是 0 —— 用户勾了判断题，合计却不变，
+                   * 会以为勾选没生效。给 2 道是个合理的「先出一两道看看」。
+                   *
+                   * 取消勾选的题型保留它的旧数量：用户可能只是临时取消、
+                   * 待会又勾回来，清掉会让他重新填一遍。
+                   */
+                  setKindCounts((prev) => {
+                    const out = { ...prev };
+                    for (const k of next) {
+                      if (!(k in out) || (out[k] ?? 0) <= 0) out[k] = 2;
+                    }
+                    return out;
+                  });
+                }}
+                disabled={busy}
+              />
             </div>
+            <QuotaPicker
+              kinds={kinds}
+              counts={kindCounts}
+              onCountsChange={setKindCounts}
+              levels={levels}
+              onLevelsChange={setLevels}
+              disabled={busy}
+            />
           </fieldset>
 
           {/* 预估 token：点下去之前就该知道会花多少 */}

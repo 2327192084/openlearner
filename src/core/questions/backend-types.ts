@@ -41,10 +41,63 @@ export interface GenerateQuestionsOptions {
   kinds: QuestionKind[];
   /** 期望题数 */
   count: number;
+  /**
+   * 每种题型各出几道。
+   *
+   * ## 为什么需要它（2026-11-08）
+   *
+   * 原来只有 `kinds` + `count`，真实后端靠提示词说「每种至少 1 道、尽量平均分配」，
+   * 但**模型不遵守时没有任何补救**：勾了判断+问答，结果全出单选，
+   * 用户只能重新生成碰运气。mock 后端则是 `kinds[i % kinds.length]` 硬轮转，
+   * 6 道 3 种就是 2/2/2 —— 用户无法要「5 道单选 + 1 道问答」。
+   *
+   * 现在界面可以逐种填数字。有它时：
+   *  - `count` 由它求和得出（两者不一致时以它为准）
+   *  - 提示词里逐种列出数量（比「尽量平均」明确得多）
+   *  - mock 后端按这个配额出题，不再轮转
+   *
+   * 为 undefined 时退回旧行为（按 kinds 轮转 / 平均分配），
+   * 保证旧调用方与旧测试不受影响。
+   */
+  kindCounts?: Partial<Record<QuestionKind, number>>;
   /** 难度：由认知层级映射，null 表示不限 */
   levels: KnowledgePoint['cognitiveLevel'][] | null;
   /** 出题语言 */
   language: 'zh' | 'en';
+}
+
+/**
+ * 按 `kindCounts` 展开成「第 i 道该出什么题型」的序列。
+ *
+ * 为什么单独一个函数：mock 后端要逐道取题型，真实后端的提示词要逐种列数量，
+ * 两处都得从同一个配额推导 —— 各自实现一遍迟早对不上。
+ *
+ * 行为：
+ *  - 有 `kindCounts` 且总和 > 0 → 按配额逐段展开（同一题型连续出现，便于阅读）
+ *  - 否则 → 退旧行为 `kinds[i % kinds.length]`
+ */
+export function planKinds(
+  kinds: readonly QuestionKind[],
+  count: number,
+  kindCounts?: Partial<Record<QuestionKind, number>>,
+): QuestionKind[] {
+  if (kinds.length === 0 || count <= 0) return [];
+
+  const quota = kinds
+    .map((k) => ({ kind: k, n: Math.max(0, Math.floor(kindCounts?.[k] ?? 0)) }))
+    .filter((x) => x.n > 0);
+
+  const quotaTotal = quota.reduce((n, x) => n + x.n, 0);
+  if (quotaTotal > 0) {
+    const out: QuestionKind[] = [];
+    for (const { kind, n } of quota) {
+      for (let i = 0; i < n; i++) out.push(kind);
+    }
+    return out.slice(0, count);
+  }
+
+  // 旧行为：轮流
+  return Array.from({ length: count }, (_, i) => kinds[i % kinds.length]!);
 }
 
 /** 生成时额外需要的取消信号 */

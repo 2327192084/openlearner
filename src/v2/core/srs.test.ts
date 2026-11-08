@@ -8,8 +8,10 @@ import {
   daysOverdue,
   mastery,
   masteryLabel,
+  isMastered,
   buildTodayQueue,
   type ReviewGrade,
+  type ReviewState,
 } from '../core/srs.ts';
 
 /**
@@ -273,6 +275,101 @@ describe('masteryLabel：给用户看的文字', () => {
     expect(masteryLabel(0.5)).toBe('有点印象');
     expect(masteryLabel(0.7)).toBe('熟练');
     expect(masteryLabel(0.9)).toBe('很熟');
+  });
+
+  /*
+   * 「很熟」需要连续答对（2026-11-08）。
+   *
+   * 纯按分值会出现「蒙对一次就显示很熟」：一道题如果当前间隔很长
+   * （说明历史不错）但最近刚答错、连续答对为 0，分值仍可能很高。
+   *
+   * 门槛参考 StudyHub lib/mastery.js：间隔 >= 21 天 且 连续答对 >= 2。
+   * 它的注释原话：「没有任何调度器设置能靠一次作答就让人已掌握」。
+   */
+  describe('「很熟」需要连续答对', () => {
+    const st = (intervalDays: number, streak: number): ReviewState => ({
+      ...initialState('2026-01-01'),
+      reviewCount: 5,
+      intervalDays,
+      streak,
+      lapseCount: 0,
+    });
+
+    it('间隔够长 + 连续答对 >= 2 → 很熟', () => {
+      expect(masteryLabel(0.9, st(30, 2))).toBe('很熟');
+    });
+
+    it('间隔够长但只有 1 次答对 → 降到熟练（可能是蒙的）', () => {
+      expect(masteryLabel(0.9, st(30, 1))).toBe('熟练');
+    });
+
+    it('连续答对够但间隔太短 → 降到熟练（还没进长期记忆）', () => {
+      expect(masteryLabel(0.9, st(7, 5))).toBe('熟练');
+    });
+
+    it('两条都不满足 → 熟练', () => {
+      expect(masteryLabel(0.9, st(3, 1))).toBe('熟练');
+    });
+
+    it('21 天是边界，刚好够', () => {
+      expect(masteryLabel(0.9, st(21, 2))).toBe('很熟');
+      expect(masteryLabel(0.9, st(20, 2))).toBe('熟练');
+    });
+
+    it('2 次是边界，刚好够', () => {
+      expect(masteryLabel(0.9, st(30, 2))).toBe('很熟');
+      expect(masteryLabel(0.9, st(30, 1))).toBe('熟练');
+    });
+
+    it('分值不够 0.85 时，那两条无所谓 —— 仍是纯数值分档', () => {
+      expect(masteryLabel(0.7, st(30, 9))).toBe('熟练');
+      expect(masteryLabel(0.5, st(30, 9))).toBe('有点印象');
+    });
+
+    it('不传 state 时退回旧行为（聚合平均值用）', () => {
+      // 首页/统计页显示的是全库平均掌握度，没有单卡 state
+      expect(masteryLabel(0.9)).toBe('很熟');
+    });
+  });
+});
+
+describe('isMastered：「已掌握」的判定', () => {
+  const st = (over: Partial<ReviewState> = {}): ReviewState => ({
+    ...initialState('2026-01-01'),
+    reviewCount: 5,
+    intervalDays: 30,
+    streak: 3,
+    lapseCount: 0,
+    ...over,
+  });
+
+  it('三条都满足 → 已掌握', () => {
+    expect(isMastered(st())).toBe(true);
+  });
+
+  it('没学过 → 不算', () => {
+    expect(isMastered(st({ reviewCount: 0 }))).toBe(false);
+  });
+
+  it('null / undefined → 不算', () => {
+    expect(isMastered(null)).toBe(false);
+    expect(isMastered(undefined)).toBe(false);
+  });
+
+  it('间隔不足 21 天 → 不算', () => {
+    expect(isMastered(st({ intervalDays: 20 }))).toBe(false);
+  });
+
+  it('连续答对不足 2 → 不算', () => {
+    expect(isMastered(st({ streak: 1 }))).toBe(false);
+  });
+
+  it('与 masteryLabel 说「很熟」的条件一致（同一个口径）', () => {
+    const cases = [st(), st({ intervalDays: 20 }), st({ streak: 1 }), st({ lapseCount: 4 })];
+    for (const c of cases) {
+      const label = masteryLabel(mastery(c), c);
+      expect(isMastered(c)).toBe(label === '很熟');
+    }
   });
 });
 

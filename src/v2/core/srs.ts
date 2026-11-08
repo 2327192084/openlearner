@@ -159,13 +159,57 @@ export function mastery(state: ReviewState): number {
   return Math.round(Math.max(0, Math.min(1, raw)) * 100) / 100;
 }
 
-/** 熟练度的文字描述，用于界面显示 */
-export function masteryLabel(m: number): string {
-  if (m >= 0.85) return '很熟';
+/**
+ * 熟练度的文字描述，用于界面显示。
+ *
+ * ## 为什么「很熟」需要连续答对，而不只看分数（2026-11-08）
+ *
+ * 纯按数值分档会出现「蒙对一次就显示很熟」：一道题如果当前间隔很长
+ * （说明历史不错）但最近刚答错一次、连续答对为 0，分数仍可能很高。
+ * 用户看到「很熟」会以为不用再看了，实际下次大概率又想不起来。
+ *
+ * 所以「很熟」加了两条门槛（参考 StudyHub `lib/mastery.js` 的 cardLevel）：
+ *   - 当前间隔 >= 21 天
+ *   - 连续答对 >= 2 次
+ *
+ * 为什么是 21 天 / 2 次：
+ *  - 21 天：超过三周还记得，说明进了长期记忆；本项目间隔上限 365 天，
+ *    21 天在这个尺度上属于前段（约 1/17）
+ *  - 2 次：StudyHub 的注释写得很清楚 ——「没有任何调度器设置能靠一次作答
+ *    就让人『已掌握』」。一次答对可能是刚看过、可能是蒙的
+ *
+ * 这两条只影响**显示档位**，不改调度（intervals 仍由 ebbinghaus 决定）。
+ * 界面上说「很熟」是给用户的判断，不该反过来影响算法。
+ *
+ * @param m      mastery() 的分值
+ * @param state  可选。不传时退回纯数值分档（旧行为），
+ *               因为有些调用点只拿到分数（如聚合后的平均值）
+ */
+export function masteryLabel(m: number, state?: ReviewState): string {
+  if (m >= 0.85) {
+    if (!state) return '很熟';
+    const longEnough = state.intervalDays >= 21;
+    const steady = state.streak >= 2;
+    // 两条都满足才算很熟；只满足一条算「熟练」——差一口气，不是差一半
+    if (longEnough && steady) return '很熟';
+    return '熟练';
+  }
   if (m >= 0.6) return '熟练';
   if (m >= 0.35) return '有点印象';
   if (m > 0) return '刚起步';
   return '未学过';
+}
+
+/**
+ * 「已掌握」的判定（供统计与筛选用）。
+ *
+ * 与 `masteryLabel` 返回「很熟」的条件一致 —— 两处必须同一个口径，
+ * 否则会出现「标签说很熟，筛『已掌握』却筛不出来」。
+ */
+export function isMastered(state: ReviewState | null | undefined): boolean {
+  if (!state) return false;
+  if (state.reviewCount === 0) return false;
+  return state.intervalDays >= 21 && state.streak >= 2 && mastery(state) >= 0.85;
 }
 
 /**

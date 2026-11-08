@@ -8,6 +8,8 @@ import type {
   QuestionDraft,
   QuestionSourcePoint,
 } from './backend-types.ts';
+import { planKinds } from './backend-types.ts';
+import type { QuestionKind } from '@/core/model.ts';
 
 /**
  * DeepSeek 出题后端。
@@ -104,9 +106,19 @@ export class ModelQuestionBackend implements QuestionBackend {
 
       const batchCount = Math.min(this.countPerRequest, remaining - produced);
       const system = buildQuestionSystemPrompt(options.language);
+      /*
+       * 批次配额。
+       *
+       * 有 kindCounts 时，把总数按比例缩到这一批 —— 否则一批 5 道却要求
+       * 「单选 10 道」这种对不上的指令，模型只会随便挑一个执行。
+       * 缩放下取整后可能少一两道，所以最后一道补上缺口（保持在批次内）。
+       */
+      const batchKinds = batchCountsOf(options.kindCounts, options.count, batchCount, produced);
+
       const user = buildQuestionUserPrompt(points, {
         count: batchCount,
         kinds: options.kinds,
+        kindCounts: batchKinds,
         language: options.language,
       });
 
@@ -267,9 +279,41 @@ export function buildQuestionSystemPrompt(language: 'zh' | 'en' = 'zh'): string 
   ].join('\n');
 }
 
+/**
+ * 把全局 kindCounts 折算成这一批的数量。
+ *
+ * 已经出了 produced 道，这一批出 batchCount 道 —— 按累计边界切，
+ * 保证多批累加后与全局配额一致（不是每批都按全局比例重新算，那会累计漂移）。
+ */
+function batchCountsOf(
+  kindCounts: Partial<Record<QuestionKind, number>> | undefined,
+  total: number,
+  batchCount: number,
+  produced: number,
+): Partial<Record<QuestionKind, number>> | undefined {
+  if (!kindCounts) return undefined;
+
+  const kinds = Object.keys(kindCounts) as QuestionKind[];
+  if (kinds.length === 0) return undefined;
+
+  /* 展开成全局序列，再切出 [produced, produced + batchCount) 这一段 */
+  const plan = planKinds(kinds, total, kindCounts);
+  const slice = plan.slice(produced, produced + batchCount);
+  if (slice.length === 0) return undefined;
+
+  const out: Partial<Record<QuestionKind, number>> = {};
+  for (const k of slice) out[k] = (out[k] ?? 0) + 1;
+  return out;
+}
+
 export function buildQuestionUserPrompt(
   points: QuestionSourcePoint[],
-  opts: { count: number; kinds: string[]; language: 'zh' | 'en' },
+  opts: {
+    count: number;
+    kinds: string[];
+    kindCounts?: Partial<Record<QuestionKind, number>>;
+    language: 'zh' | 'en';
+  },
 ): string {
   const material = points
     .map((p) => {
@@ -308,9 +352,19 @@ export function buildQuestionUserPrompt(
      * 模型仍可能不遵守（概率性的东西没法保证），所以界面上还要如实告知
      * 「实际出了哪几种」（见下方 materialize 的题型统计）。
      */
-    opts.kinds.length > 1
-      ? `**这 ${opts.kinds.length} 种题型每种都至少要出 1 道，并尽量平均分配**（共 ${opts.count} 道）。不要全部用同一种题型。`
-      : `这 ${opts.count} 道题都用「${opts.kinds[0]}」这一种题型。`,
+    /*
+     * 指定了每种数量 → 逐种列出来。
+     *
+     * 比「尽量平均」明确得多：模型对具体数字的遵守率明显高于模糊要求。
+     * 仍然不能 100% 保证（概率性），所以生成后界面照旧如实报告实际分布。
+     */
+    opts.kindCounts && Object.keys(opts.kindCounts).length > 0
+      ? `**题型与数量必须严格按要求：${Object.entries(opts.kindCounts)
+          .map(([k, n]) => `${k} ${n} 道`)
+          .join('、')}**（共 ${opts.count} 道）。多一道少一道都不行。`
+      : opts.kinds.length > 1
+        ? `**这 ${opts.kinds.length} 种题型每种都至少要出 1 道，并尽量平均分配**（共 ${opts.count} 道）。不要全部用同一种题型。`
+        : `这 ${opts.count} 道题都用「${opts.kinds[0]}」这一种题型。`,
     '',
     '每道题的 knowledgePointId 必须填下面某一条的 id。',
     '不要在题目里写页码、原文引用或任何位置信息。',
