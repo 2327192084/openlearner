@@ -550,3 +550,22 @@
   opacity: 0.75;
   line-height: 1.8;
 }
+
+/* ---------- 做题页顶部：本轮战绩（2026-11-08） ---------- */
+
+.review-score {
+  font-size: var(--font-sm, 13px);
+  color: var(--text-2, #b9b2a8);
+  white-space: nowrap;
+}
+
+/* 答对数加重：扫一眼能看到，不用逐字读 */
+.review-score strong {
+  color: var(--text-1, #efe9df);
+  font-weight: 600;
+}
+
+.review-score__rate {
+  color: var(--text-3, #8d857b);
+  margin-left: 2px;
+}

@@ -76,6 +76,13 @@ export interface TodayPageProps {
   todos?: Todo[];
   /** 打开待办页 */
   onOpenBoard?: () => void;
+  /**
+   * 打开「开始学习」页（2026-11-08）。
+   *
+   * 今日学习卡上的「开始学新题」走这里。为什么不是 onOpenDecks：
+   * 题组库只列出题组、没有练习入口，用户点进去还得自己找路。
+   */
+  onOpenStudy?: () => void;
   /** 打开专注页（番茄钟小组件） */
   onStartFocus?: () => void;
   /** 打开设置页去编辑小组件 */
@@ -109,6 +116,7 @@ export function TodayPage(props: TodayPageProps) {
     widgets = DEFAULT_WIDGETS,
     todos = [],
     onOpenBoard,
+    onOpenStudy,
     onStartFocus,
     onOpenSettings,
   } = props;
@@ -465,7 +473,17 @@ export function TodayPage(props: TodayPageProps) {
           onStartFocus={onStartFocus}
           onStartReview={onStartReview}
           onDrillWeak={onOpenWrongBook}
-          onLearnNew={onOpenDecks}
+          /*
+            「开始学新题」应该去**开始学习页**，不是题组库（2026-11-08 修）。
+
+            用户反馈：点这个按钮跳到了「我的题组」，而那一页只是
+            列出/预览题组，**没有练习入口** —— 还得自己再找路。
+
+            正确落点是「开始学习」（StudyPage）：那里是
+            「今日题组 / 自由练习 / 错题巩固」三种模式的入口。
+            用户要求「直接跳转到开始学习界面」，就是这个意思。
+          */
+          onLearnNew={onOpenStudy}
           onOpenSettings={onOpenSettings}
         />
 

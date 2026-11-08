@@ -226,6 +226,21 @@ export function ReviewPage({
   const [graded, setGraded] = useState<{ correct: boolean | null } | null>(null);
   const [done, setDone] = useState(0);
   const [correctCount, setCorrectCount] = useState(0);
+  /**
+   * 本轮**已揭晓答案**的题数（2026-11-08）。
+   *
+   * 为什么不复用 `done`：`done` 的语义是「这题彻底结束了」，
+   * 它在 submitGrade（用户点评分档之后）才加。而正确率需要
+   * **提交答案的那一刻就能看到** —— 那时用户还没点评分档。
+   *
+   * 两个计数各司其职：
+   *  - `answered`：已交卷数，用来算本轮正确率（含刚提交那题）
+   *  - `done`    ：已走完流程数，用于其它逻辑
+   *
+   * 早先我直接用 `done` 当分母，结果答对 1 题时 done 还是 0，
+   * 正确率算不出来（截图里只有「做对 1」没有百分比）。
+   */
+  const [answered, setAnswered] = useState(0);
   const [masteryNow, setMasteryNow] = useState<number | null>(null);
   const [record, setRecord] = useState<ReviewRecord | null>(null);
   /**
@@ -296,6 +311,11 @@ export function ReviewPage({
     setFrozenElapsedMs(timer.elapsedMs());
     setGraded({ correct: ok });
     setRevealed(true);
+    /*
+     * 交卷即计数（2026-11-08）：答对答错都在这里 +1。
+     * 这样顶部正确率在**提交的那一刻**就准确，不用等用户点评分档。
+     */
+    setAnswered((n) => n + 1);
     if (ok) {
       setCorrectCount((n) => n + 1);
       return;
@@ -461,6 +481,34 @@ export function ReviewPage({
             </span>
           ) : null}
         </span>
+
+        {/*
+          本轮战绩（2026-11-08 加，用户要求）。
+          
+          原来顶部只有「3 / 10」——告诉用户做到第几题，
+          但**不告诉他做得怎么样**。做完 8 道对了 2 道和对了 8 道，
+          顶部长得一模一样，用户得自己心里数。
+          
+          现在补「做对 N 题」与正确率。两个数都只统计**本轮**（不是历史），
+          所以文字写「本轮」而不是「正确率」——后者容易被理解成
+          「我所有时候的正确率」。统计页那个才是历史口径。
+          
+          分母用 done（已作答数）而不是 total（总题数）：
+          做到第 3 题时正确率应该是 2/3，而不是 2/10 ——
+          后者会让用户以为自己很差。
+        */}
+        <span
+          className="review-score"
+          title={`本轮已作答 ${answered} 题，答对 ${correctCount} 题`}
+        >
+          做对 <strong>{correctCount}</strong>
+          {answered > 0 ? (
+            <span className="review-score__rate">
+              · 本轮正确率 {Math.round((correctCount / answered) * 100)}%
+            </span>
+          ) : null}
+        </span>
+
         {masteryNow !== null ? (
           <span
             className={`live-mastery${
@@ -468,9 +516,18 @@ export function ReviewPage({
                 ? ' live-mastery--up'
                 : ''
             }`}
-            title="这组题的整体掌握度"
+            /*
+              这两个百分比并排容易看混，所以悬停说明要写清区别：
+              一个是「这次做得怎么样」，一个是「记住得怎么样」。
+              刚做完第一道题时正确率 100% 而掌握度 0% 是正常的 ——
+              掌握度看间隔长度与历史正确率，一次新学不可能高。
+            */
+            title={
+              '这组题的整体掌握度（看间隔长度与历史正确率，不是本轮正确率）。\n' +
+              '刚学的题掌握度低是正常的：间隔短、还没有连续答对记录。'
+            }
           >
-            本组 {Math.round(masteryNow * 100)}%
+            本组掌握度 {Math.round(masteryNow * 100)}%
             {groupMasteryBefore !== undefined && masteryNow > groupMasteryBefore ? (
               <span className="live-mastery__delta">
                 +{Math.round((masteryNow - groupMasteryBefore) * 100)}%
@@ -792,9 +849,15 @@ export function ReviewPage({
                   <button type="button" className="btn-fill btn-fill--sm" onClick={() => void autoGrade()}>
                     采用这个判定（{GRADE_TO_LABEL[verdict.grade]}）
                   </button>
-                  <button type="button" className="btn-text" onClick={timer.restart}>
-                    重新计时
-                  </button>
+                  {/*
+                    「重新计时」在 2026-11-08 被移除。
+                    用户反馈「这个功能没用」，核实后同意：
+                    题目已经答完、判定已经算出来了，重置计时器不会改变任何结果 ——
+                    既不会撤回这次作答，也不会让它重新参与评分。
+                    它唯一的效果是把「用时 1.2 秒」清零，然后用户还是得点
+                    「采用这个判定」或某个评分档往前走。那是个纯装饰的按钮。
+                    删掉比留着一个点了没反应的开关好（「不做假开关」）。
+                  */}
                 </div>
               </div>
             ) : null}

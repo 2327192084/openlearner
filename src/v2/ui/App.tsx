@@ -997,6 +997,8 @@ export function App({
           widgets={homeWidgets}
           todos={homeTodos}
           onOpenBoard={() => setPage('board')}
+          /* 今日学习卡的「开始学新题」→ 开始学习页（那里有三种模式的入口） */
+          onOpenStudy={() => setPage('study')}
           onStartFocus={() => setPage('focus')}
           onOpenSettings={() => setPage('settings')}
         />
