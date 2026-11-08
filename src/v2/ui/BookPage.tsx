@@ -22,6 +22,7 @@ import type { Deck, Question, Source } from '@/core/model.ts';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { SourceService } from '@/core/sources.ts';
 import { downloadBlob } from '@/pages/slides/download.ts';
+import { MathText } from './MathText.tsx';
 
 export interface BookPageProps {
   decks: DeckService;
@@ -274,7 +275,7 @@ export function BookPage({ decks, sourceService, onOpenSource, onOpenDecks }: Bo
                       <span className="bk-q__no">{i + 1}</span>
                       <span className="bk-q__kind">{kindLabel(q.kind)}</span>
                     </div>
-                    <p className="bk-q__prompt">{q.prompt}</p>
+                    <p className="bk-q__prompt"><MathText text={q.prompt} /></p>
 
                     {q.options.length > 0 ? (
                       <ul className="bk-q__options">
@@ -286,7 +287,7 @@ export function BookPage({ decks, sourceService, onOpenSource, onOpenDecks }: Bo
                             }`}
                           >
                             <span className="bk-q__key">{o.key}</span>
-                            <span>{o.text}</span>
+                            <span><MathText text={o.text} /></span>
                           </li>
                         ))}
                       </ul>
@@ -295,12 +296,12 @@ export function BookPage({ decks, sourceService, onOpenSource, onOpenDecks }: Bo
                     {showAnswers ? (
                       <>
                         {q.options.length === 0 ? (
-                          <p className="bk-q__answer">参考答案：{q.answer}</p>
+                          <p className="bk-q__answer">参考答案：<MathText text={q.answer} /></p>
                         ) : (
-                          <p className="bk-q__answer">正确答案：{q.answer}</p>
+                          <p className="bk-q__answer">正确答案：<MathText text={q.answer} /></p>
                         )}
                         {q.explanation ? (
-                          <p className="bk-q__explain">{q.explanation}</p>
+                          <p className="bk-q__explain"><MathText text={q.explanation} /></p>
                         ) : null}
                       </>
                     ) : null}

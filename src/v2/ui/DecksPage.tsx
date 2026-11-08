@@ -7,6 +7,7 @@ import type { BackendService } from '@/core/backends.ts';
 import { GeneratePage } from './GeneratePage.tsx';
 import { ConfirmDialog } from './dialog.tsx';
 import { IconGenerate } from './icons.tsx';
+import { MathText } from './MathText.tsx';
 
 /**
  * 「我的题组」—— 列出现有题组，看题、检查待审核、发布。
@@ -405,7 +406,7 @@ export function DecksPage({
                           <li key={q.id} className="deck-q">
                             <span className="deck-q__no">{i + 1}</span>
                             <div className="deck-q__body">
-                              <p className="deck-q__prompt">{q.prompt}</p>
+                              <p className="deck-q__prompt"><MathText text={q.prompt} /></p>
                               {q.options.length > 0 ? (
                                 <ul className="deck-q__options">
                                   {q.options.map((o) => (
@@ -416,12 +417,12 @@ export function DecksPage({
                                       }
                                     >
                                       <span className="deck-q__key">{o.key}</span>
-                                      {o.text}
+                                      <MathText text={o.text} />
                                     </li>
                                   ))}
                                 </ul>
                               ) : (
-                                <p className="deck-q__answer">答案：{q.answer}</p>
+                                <p className="deck-q__answer">答案：<MathText text={q.answer} /></p>
                               )}
                               {q.anchors.length > 0 ? (
                                 <p className="deck-q__anchor">

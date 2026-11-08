@@ -7,6 +7,7 @@ import { useOrganizeBackend } from './organize-backend.ts';
 import { ConvertPanel } from './ConvertPanel.tsx';
 import { needsConversion } from '@/core/mineru/convert.ts';
 import { IconSources } from './icons.tsx';
+import { MathText } from './MathText.tsx';
 
 /**
  * 整理知识点页。
@@ -565,9 +566,11 @@ export function OrganizePage({
                     </span>
                   )}
                 </div>
-                <p className="org-item__statement">{p.statement}</p>
+                <p className="org-item__statement"><MathText text={p.statement} /></p>
                 {p.quotes.length > 0 ? (
-                  <p className="org-item__quote">「{p.quotes[0]}」</p>
+                  <p className="org-item__quote">
+                    「<MathText text={p.quotes[0] ?? ''} />」
+                  </p>
                 ) : null}
               </li>
             ))}

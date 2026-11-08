@@ -25,6 +25,7 @@ import type { ExamService } from '@/core/exam.ts';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { SourceService } from '@/core/sources.ts';
 import { isCorrect } from '@/v2/core/cards.ts';
+import { MathText } from './MathText.tsx';
 
 export interface ExamPageProps {
   exam: ExamService;
@@ -473,7 +474,7 @@ function TakingView({
           <span className="ex-card__kind">{kindLabel(q.kind)}</span>
         </div>
 
-        <p className="ex-card__prompt">{q.prompt}</p>
+        <p className="ex-card__prompt"><MathText text={q.prompt} /></p>
 
         {q.options.length > 0 ? (
           <div className="ex-choices">
@@ -501,7 +502,7 @@ function TakingView({
                   }}
                 >
                   <span className="ex-choice__key">{o.key}</span>
-                  <span>{o.text}</span>
+                  <span><MathText text={o.text} /></span>
                 </button>
               );
             })}
@@ -616,13 +617,13 @@ function ResultView({
                 </span>
                 <span className="ex-review__kind">{kindLabel(q.kind)}</span>
               </div>
-              <p className="ex-review__prompt">{q.prompt}</p>
+              <p className="ex-review__prompt"><MathText text={q.prompt} /></p>
               <p className="ex-review__your">
                 你的答案：{a.response.trim() || '（未作答）'}
               </p>
-              {!ok ? <p className="ex-review__right">正确答案：{q.answer}</p> : null}
+              {!ok ? <p className="ex-review__right">正确答案：<MathText text={q.answer} /></p> : null}
               {q.explanation ? (
-                <p className="ex-review__explain">{q.explanation}</p>
+                <p className="ex-review__explain"><MathText text={q.explanation} /></p>
               ) : null}
             </li>
           );

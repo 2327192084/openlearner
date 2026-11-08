@@ -12,6 +12,7 @@ import { useCardTimer, formatElapsed } from './use-card-timer.ts';
 import type { NoteService } from '@/core/notes.ts';
 import { NoteBox } from './NoteBox.tsx';
 import { pickOption } from './option-pick.ts';
+import { MathText } from './MathText.tsx';
 
 /**
  * 复习页：题卡 + 选项行 + 0-5 评分档。
@@ -503,7 +504,7 @@ export function ReviewPage({
         </div>
 
         <div className="question-body">
-          <h2 className="question-prompt">{card.prompt}</h2>
+          <h2 className="question-prompt"><MathText text={card.prompt} /></h2>
 
           {/* ---- 选项行 ---- */}
           {/*
@@ -540,7 +541,7 @@ export function ReviewPage({
                   >
                     <span className="option__mark">{o.key}</span>
                     <span className="option__text">
-                      {o.text}
+                      <MathText text={o.text} />
                       {revealed && st === 'correct' ? (
                         <span className="option__tag option__tag--ok">正确答案</span>
                       ) : null}
@@ -583,7 +584,7 @@ export function ReviewPage({
 
           {/* ---- 知识点：只读 ---- */}
           {card.kind === 'point' ? (
-            <div className="point-body">{card.explanation}</div>
+            <div className="point-body"><MathText text={card.explanation} /></div>
           ) : null}
 
           {/* ---- 揭晓：答案与解析 ---- */}
@@ -594,13 +595,13 @@ export function ReviewPage({
                   {graded?.correct ? '✓ 答对了' : '✕ 答错了'}
                   {card.kind !== 'single' && card.kind !== 'multiple' ? (
                     <span className="reveal__answer">
-                      参考答案：{card.answer}
+                      参考答案：<MathText text={card.answer} />
                     </span>
                   ) : null}
                 </div>
               ) : null}
               {card.explanation ? (
-                <div className="reveal__explain">{card.explanation}</div>
+                <div className="reveal__explain"><MathText text={card.explanation} /></div>
               ) : null}
             </div>
           ) : null}

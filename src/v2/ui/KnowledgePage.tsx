@@ -3,6 +3,7 @@ import type { KnowledgePoint, Source } from '@/core/model.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { SourceService } from '@/core/sources.ts';
 import { IconBook } from './icons.tsx';
+import { MathText } from './MathText.tsx';
 
 /**
  * 知识库 —— 按资料文件归类所有知识点。
@@ -261,9 +262,11 @@ export function KnowledgePage({
                             const anchor = p.anchors[0];
                             return (
                               <li key={p.id} className="kb-point">
-                                <p className="kb-point__statement">{p.statement}</p>
+                                <p className="kb-point__statement"><MathText text={p.statement} /></p>
                                 {p.quotes[0] ? (
-                                  <p className="kb-point__quote">「{p.quotes[0]}」</p>
+                                  <p className="kb-point__quote">
+                                    「<MathText text={p.quotes[0] ?? ''} />」
+                                  </p>
                                 ) : null}
                                 <div className="kb-point__foot">
                                   <span className="kb-point__level">

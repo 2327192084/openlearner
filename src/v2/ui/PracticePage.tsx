@@ -38,6 +38,7 @@ import type { ReviewService } from '@/v2/core/review-service.ts';
 import type { SourceService } from '@/core/sources.ts';
 import type { CardLoader } from './cards-loader.ts';
 import { kindShort } from '@/core/questions/kinds.ts';
+import { MathText } from './MathText.tsx';
 
 /** 三种模式 */
 export type PracticeMode = 'due' | 'free' | 'wrong';
@@ -454,7 +455,7 @@ export function PracticePage({
                 {wrongItems.slice(0, BATCH).map((w) => (
                   <li key={w.card.id} className="practice-wrong__item">
                     <span className="practice-wrong__count">错 {w.wrongCount} 次</span>
-                    <span className="practice-wrong__prompt">{w.card.prompt}</span>
+                    <span className="practice-wrong__prompt"><MathText text={w.card.prompt} /></span>
                   </li>
                 ))}
               </ul>

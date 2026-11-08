@@ -3,7 +3,7 @@ import type { RefObject } from 'react';
 import type { Source, SourceSegment } from '@/core/model.ts';
 import type { SourceService } from '@/core/sources.ts';
 import { IconSources } from './icons.tsx';
-import { renderTextWithMath } from './render-math.ts';
+import { MathText } from './MathText.tsx';
 
 /**
  * 阅读器 —— 把「可点回原文」从一句徽章变成真的能点。
@@ -633,34 +633,6 @@ function renderText(
  * 上面三样。手写这 60 行换来的体积与可控性更划算 —— 尤其是我们必须
  * 保证渲染出来的文字与原文**完全一致**（锚点按字符偏移算）。
  */
-/**
- * 渲染一段可能含 LaTeX 的文本。
- *
- * ## 为什么需要它（2026-11-08 用户报的问题）
- *
- * 用户读《信号与系统》看到的是 `$
-ho v$ 为正比于汽车速度 $v$ 的摩擦力`。
- * 那不是乱码 —— **MinerU 的 OCR 输出是正确的 LaTeX**，
- * 是阅读器把公式源码当普通文本显示了。全文 36 页有 36 处。
- *
- * ## 为什么用 dangerouslySetInnerHTML 而不是 React 元素
- *
- * KaTeX 的输出是一整棵 span 树（下标、间距、字体全靠 class 与内联样式）。
- * 用 React 元素重建它既没必要也容易错。
- * 我们的输入输出都是**字符串**，React 只负责把它挂上去，
- * 不存在「自己改 DOM 然后被 React 冲掉」的问题。
- *
- * ## 安全
- *
- * `renderTextWithMath` 内部对普通文本做了 HTML 转义，
- * KaTeX 用 `trust: false`（禁掉 \htmlClass 这类可注入的扩展）。
- * 所以正文里的 `<script>` 不会被执行。
- */
-function MathText({ text }: { text: string }) {
-  const { html } = useMemo(() => renderTextWithMath(text), [text]);
-  return <span className="reader-math" dangerouslySetInnerHTML={{ __html: html }} />;
-}
-
 function MarkdownBody({ text }: { text: string }) {
   const lines = text.split('\n');
   const out: React.ReactNode[] = [];
