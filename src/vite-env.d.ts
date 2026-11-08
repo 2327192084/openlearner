@@ -81,6 +81,29 @@ interface OpenLeanerBridge {
     onProgress: (
       cb: (p: { phase: string; ratio: number | null; detail?: string | null; line?: string }) => void,
     ) => () => void;
+    /**
+     * 按 locator 取一张插图（2026-11-08）。
+     *
+     * 返回的 `dataUri` 可直接当 `<img src>` 用 —— 渲染进程没有 fs 权限，
+     * 拿不到文件路径，只能走 data URI。
+     *
+     * ⚠️ locator 依赖 MinerU 自己的解析缓存，缓存被清就永久失效
+     * （实测见 electron/mineru-figure.cjs 顶部）。所以必须在转换完成后
+     * 立刻取，不能留到用户点开阅读器时。
+     */
+    readFigure: (locator: string) => Promise<
+      | {
+          ok: true;
+          dataUri: string;
+          mimeType: string;
+          width: number;
+          height: number;
+          byteSize: number;
+          /** 实际走的取图方式，如实记录便于排查 */
+          via: 'http' | 'cli';
+        }
+      | { ok: false; error: string; trouble?: string }
+    >;
   };
 }
 

@@ -1037,7 +1037,16 @@ describe('v13 → v14：专注记录', () => {
 
   it('旧备份补空的 focusSessions，不造内容', () => {
     const migrated = migrateBackup(makeV13Backup() as unknown as LibraryBackup);
-    expect(migrated.schemaVersion).toBe(14);
+    /*
+     * 用常量而不是字面量 14。
+     *
+     * 这里原来写死 14（当时 14 就是当前版本）。2026-11-08 加了 v15 之后，
+     * v13 备份会一路升到 15，这条就红了 —— 但**行为是对的**，
+     * 错的是断言把「终点」写死了。本文件其余 11 处都用 LIBRARY_SCHEMA_VERSION，
+     * 这一处是漏改的。
+     * 真正要守的是下一行「focusSessions 被补成空数组」，不是版本数字。
+     */
+    expect(migrated.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
     expect(migrated.focusSessions).toEqual([]);
   });
 
@@ -1079,5 +1088,126 @@ describe('v13 → v14：专注记录', () => {
     expect(meta.name).toBe('v13 库');
     // 新分区在库里建出来了，且能读（空数组）
     expect(await storage.getAll('focusSessions')).toEqual([]);
+  });
+
+  /**
+   * v14 → v15：sourceImages（正文插图，2026-11-08）
+   *
+   * 这一条与前面所有迁移**性质不同**，测试重点也跟着不同：
+   * 前面几条补的都是「用户自己的数据」，丢了就是丢了；
+   * sourceImages 是按 bbox 能从原 PDF 重新裁出来的，所以**不进备份**。
+   * 于是这里要守的不是「数据被保住」，而是：
+   *  - 结构完整（空数组，不是 undefined），否则导入方遍历会崩
+   *  - 绝不伪造图片
+   */
+  describe('v14 → v15：sourceImages', () => {
+    function makeV14Backup(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+      return {
+        format: 'openleaner-library',
+        schemaVersion: 14,
+        exportedAt: '2026-11-08T00:00:00.000Z',
+        meta: { name: 'v14 库' },
+        settings: {},
+        courses: [],
+        sources: [
+          {
+            id: 'src_1',
+            title: '信号与系统',
+            fileName: 'source.pdf',
+            kind: 'pdf',
+            pageCount: 36,
+            byteSize: 1,
+            textStatus: 'ready',
+            segmentCount: 36,
+            fileStored: false,
+            createdAt: '',
+            updatedAt: '',
+          },
+        ],
+        sourceSegments: [],
+        sourceAnnotations: [],
+        reviewRecords: [],
+        reviewLogs: [],
+        knowledgePoints: [],
+        generationRuns: [],
+        decks: [],
+        questions: [],
+        answerRecords: [],
+        slideDecks: [],
+        slideImages: [],
+        backends: [],
+        usageRecords: [],
+        notes: [],
+        examAttempts: [],
+        todos: [],
+        focusSessions: [],
+        ...overrides,
+      };
+    }
+
+    it('旧备份补空的 sourceImages，不造图片', () => {
+      const migrated = migrateBackup(makeV14Backup() as unknown as LibraryBackup);
+      expect(migrated.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
+      expect(migrated.sourceImages).toEqual([]);
+    });
+
+    it('补出来的必须是空数组 —— 绝不允许出现伪造的图', () => {
+      /*
+       * 这条单独写，因为它比「结构完整」更重要。
+       * 图片是二进制，迁移层造不出来；若有人日后想「随便塞一张占位图」，
+       * 阅读器会渲染出破图，用户还以为转换成功了。空着才是诚实的。
+       */
+      const migrated = migrateBackup(makeV14Backup() as unknown as LibraryBackup);
+      expect(migrated.sourceImages).toHaveLength(0);
+    });
+
+    it('已有的 sourceImages 原样保留（万一有人手工带进来）', () => {
+      const existing = [
+        {
+          id: 'figure_src_1_1_7',
+          sourceId: 'src_1',
+          page: 1,
+          block: 7,
+          charOffset: 120,
+          kind: 'image',
+          dataUri: 'data:image/jpeg;base64,AAAA',
+          width: 416,
+          height: 216,
+          byteSize: 4,
+          caption: '图1.1',
+          tier: 'standard',
+          docShortId: '87731df',
+          createdAt: '2026-11-08T00:00:00.000Z',
+        },
+      ];
+      const migrated = migrateBackup(
+        makeV14Backup({ sourceImages: existing }) as unknown as LibraryBackup,
+      );
+      expect(migrated.sourceImages).toHaveLength(1);
+      expect(migrated.sourceImages![0]!.id).toBe('figure_src_1_1_7');
+    });
+
+    it('sourceImages 是坏值（非数组）时补空数组，不抛错', () => {
+      const migrated = migrateBackup(
+        makeV14Backup({ sourceImages: 'oops' }) as unknown as LibraryBackup,
+      );
+      expect(migrated.sourceImages).toEqual([]);
+    });
+
+    it('v14 备份里其它数据一个都不丢（迁移只做加法）', () => {
+      const migrated = migrateBackup(makeV14Backup() as unknown as LibraryBackup);
+      expect(migrated.sources).toHaveLength(1);
+      expect(migrated.meta.name).toBe('v14 库');
+    });
+
+    it('v14 备份能真正导入学习库，sourceImages 分区建出来了', async () => {
+      const storage = new MemoryStorage();
+      const service = new LibraryService(storage);
+      await service.create('目标');
+
+      const meta = await service.importBackup(makeV14Backup() as unknown as LibraryBackup);
+      expect(meta.name).toBe('v14 库');
+      expect(await storage.getAll('sourceImages')).toEqual([]);
+    });
   });
 });

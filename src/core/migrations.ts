@@ -396,6 +396,29 @@ const migrations: Record<number, Migration> = {
     schemaVersion: 14,
     focusSessions: Array.isArray(backup.focusSessions) ? backup.focusSessions : [],
   }),
+
+  /**
+   * v14 → v15
+   *
+   * 新增 `sourceImages`（正文里的插图，MinerU 转换出来的，2026-11-08）。
+   *
+   * ⚠️ 这一条与前面几条**性质不同**，别照抄前几条的注释就改：
+   * 前面补的都是「用户自己的数据」，而 sourceImages **不进备份**
+   * （理由见 storage/types.ts —— 能从原 PDF 按 bbox 重新裁，
+   * 几百页的书塞进备份会撑到不可用）。
+   *
+   * 那为什么还补一个空数组？因为旧备份里**根本没有这个键**，
+   * 导入方若按 `backup.sourceImages.length` 遍历会拿到 undefined 而崩。
+   * 补空数组是为了让结构完整，不是为了塞数据。
+   *
+   * 更**不能**在这里造几张图 —— 图是二进制，造不出来；
+   * 假装有会让阅读器渲染出一堆破图，比没有更糟。
+   */
+  14: (backup) => ({
+    ...backup,
+    schemaVersion: 15,
+    sourceImages: Array.isArray(backup.sourceImages) ? backup.sourceImages : [],
+  }),
 };
 
 /**

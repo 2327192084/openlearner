@@ -840,6 +840,77 @@ function mineruOutRoot() {
   return path.join(app.getPath('userData'), 'mineru-jobs');
 }
 
+/**
+ * 取教材插图（2026-11-08）。
+ *
+ * ## 为什么在转换后立刻取，而不是用户点开阅读器时再取
+ *
+ * 实测（见 electron/mineru-figure.cjs 顶部）：删掉 MinerU 的解析缓存后，
+ * 同一个 locator 会报 `Requested parsed content is not cached.` ——
+ * locator 不是永久地址，只是指向 MinerU 自己缓存的一条记录。
+ * 所以缓存还在的时候必须把图取回存进我们自己的库。
+ *
+ * ## 安全边界
+ *
+ * 与 mineru-convert 同一套思路：**不接受任意 locator 字符串去调外部程序**，
+ * 只接受我们自己的 locator 形状（doc:/tier:/page:/block:）。
+ * 参数由主进程拼，不接受页面传 argv。
+ */
+function registerMineruFigureIpc() {
+  ipcMain.handle('openleaner:mineru-figure', async (event, payload) => {
+    const mineru = require('./mineru.cjs');
+    const figure = require('./mineru-figure.cjs');
+
+    if (!mineruStatus.available) {
+      return {
+        ok: false,
+        error: mineruStatus.reason ?? '本机没有可用的 MinerU。',
+        trouble: 'not-installed',
+      };
+    }
+
+    /*
+     * 校验 locator 形状。
+     *
+     * 为什么自己写一遍正则而不复用 src/core/mineru/locator.ts：
+     * 那个是 TS，主进程是 CJS，跨构建引用会把类型/打包搞复杂。
+     * 这里只需要「形状对、数字是数字」，20 行足够，且必须独立成立 ——
+     * 安全校验不能依赖渲染进程那边已经校验过。
+     */
+    const raw = typeof payload === 'string' ? payload : payload?.locator;
+    const locator = typeof raw === 'string' ? raw.trim() : '';
+    if (!/^doc:[0-9a-f]{7,64}\/tier:[a-z]+\/page:\d+\/block:\d+$/.test(locator)) {
+      return { ok: false, error: 'locator 形状不对。', trouble: 'bad-locator' };
+    }
+
+    // 取图用的临时目录放 userData 下（与 mineru-jobs 同级，不污染项目目录）
+    const outDir = path.join(app.getPath('userData'), 'mineru-figures');
+
+    const r = await figure.readFigure(locator, {
+      exePath: mineruStatus.exePath,
+      outDir,
+    });
+
+    if (!r.ok) {
+      return { ok: false, error: r.error, trouble: 'read-failed' };
+    }
+
+    // 给 base64 data URI 而不是 Buffer：页面直接当 img src 用。
+    // 顺带说明为什么不在主进程里落盘再让页面读 —— 渲染进程没有 fs 权限，
+    // 而走 file:// 读 userData 会被 CSP 与沙箱拦，data URI 是最省事且可控的。
+    const dataUri = figure.toDataUri(r.data, r.mimeType);
+    return {
+      ok: true,
+      dataUri,
+      mimeType: r.mimeType,
+      width: r.width,
+      height: r.height,
+      byteSize: r.data.length,
+      via: r.via,
+    };
+  });
+}
+
 // --------------------------------------------------------------------------
 // 应用生命周期
 // --------------------------------------------------------------------------
@@ -875,6 +946,7 @@ if (!gotTheLock) {
     buildMenu();
     registerChatProxy();
     registerMineru();
+    registerMineruFigureIpc();
     createWindow();
 
     // macOS：点 Dock 图标且没有窗口时重新开一个

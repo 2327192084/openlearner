@@ -15,6 +15,7 @@ import type {
   Todo,
   FocusSession,
   SourceSegment,
+  SourceImageRecord,
   GenerationRun,
   AnswerRecord,
   UsageRecord,
@@ -46,6 +47,21 @@ export const STORES = [
    * 恢复备份后这些资料的 fileStored 就是 false，界面如实关闭图文页。
    */
   'sourceFiles',
+  /**
+   * 正文里的插图（MinerU 转换出来的，2026-11-08 加）。
+   *
+   * 单独一张表，**不塞进 sourceSegments**：
+   *  - SourceSegment.text 的字符偏移被 95 个知识点引用着，一个字节都不能动；
+   *    图片只能「旁挂」，靠 charOffset 记住位置。
+   *  - 一份 36 页教材 88 张图 1.68 MB，628 页的书几十 MB ——
+   *    塞进 segment 会让翻页也拖着整本书的图片字节。
+   *
+   * **刻意不进 BACKUP_STORES**：这些图能按 bbox 从原 PDF 重新裁出来
+   * （前提是 MinerU 的解析缓存还在），与 sourceFiles 同性质。
+   * 而备份是给用户换机器用的，几百页的书塞进去会撑到不可用。
+   * 恢复备份后阅读器如实不显示插图，不假装有。
+   */
+  'sourceImages',
   /**
    * 用户在资料页面上做的注释（画笔笔迹与文本框）。
    *
@@ -180,6 +196,8 @@ export type BackupStoreName = (typeof BACKUP_STORES)[number];
 export interface StoreRecordMap {
   meta: LibraryMeta;
   sourceFiles: SourceFileRecord;
+  /** 正文里的插图。不进备份：能从原 PDF 按 bbox 重新裁 */
+  sourceImages: SourceImageRecord;
   focusSessions: FocusSession;
   settings: SettingsRecord;
   courses: Course;

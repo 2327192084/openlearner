@@ -1,0 +1,156 @@
+/**
+ * 阅读器插图样式（2026-11-08）。
+ *
+ * ## ⚠️ 全部写在 @layer 外面 —— 这是刻意的
+ *
+ * `src/styles/base.css` 里有一条**不在任何 @layer 内**的规则：
+ *
+ *     button, input, select, textarea { font: inherit; color: inherit; }
+ *     button { cursor: pointer; }
+ *
+ * CSS 级联是「层级先于特异性」：无层级的规则**永远赢** @layer 里的规则，
+ * 写多少特异性都没用。项目里因为这条踩过六次（刷新按钮继承了 h1 字号、
+ * 资料页按钮变浏览器灰底…）。
+ *
+ * 本文件里的控件虽然用 div + role="button" 而不是原生 button，
+ * 但「一律写层外」这条规矩仍然遵守 —— 以后有人把它换成 button 时
+ * 不会突然失效。**新增的原生控件样式一条都不能留层内，包括 appearance: none。**
+ *
+ * ## 为什么单独一个文件而不是塞进 reader-page.css
+ *
+ * 交接文档第五节第 3 条：那个文件（以及 GeneratePage）是 CRLF/LF 混用，
+ * 按行号批量替换会错位。新组件配新样式文件，宿主里只加一行 import，
+ * 出问题也容易整体回退。
+ */
+
+/* ---------- 正文里的插图 ---------- */
+
+.reader-figure {
+  margin: var(--space-3, 12px) 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  /*
+   * 不要给整块加边框或底色。
+   * 教材插图本身有白底（扫描裁图），再套一层框会显得脏；
+   * 而且这份样式的目标只是「别让图片把正文挤变形」。
+   */
+}
+
+.reader-figure__frame {
+  /* 点击看大图的包装层。不用原生 button，见文件头注释 */
+  display: block;
+  max-width: 100%;
+  cursor: zoom-in;
+  border-radius: var(--radius-2, 6px);
+  /*
+   * 给一个极淡的边，让白底插图在黑背景上能看出边界 ——
+   * 否则电路图那种四周留白的图会像是浮在页面里。
+   */
+  outline: 1px solid var(--line-subtle, rgba(255, 255, 255, 0.08));
+  outline-offset: 0;
+  transition: outline-color 120ms ease;
+}
+
+.reader-figure__frame:hover,
+.reader-figure__frame:focus-visible {
+  outline-color: var(--c-primary, #e06a3b);
+}
+
+.reader-figure__img {
+  display: block;
+  /*
+   * 关键：不超过正文宽度，但也不放大。
+   * `max-width: 100%` 让宽图缩到栏宽；
+   * `height: auto` 保证等比 —— 只给 max-width 而不给 height:auto 时，
+   * 某些浏览器会按 width/height 属性同时压扁高度。
+   */
+  max-width: 100%;
+  height: auto;
+  /*
+   * 限高 72vh（2026-11-08 截图发现）。
+   *
+   * 实测这份教材里有接近正方形的插图（第 2 页那张四行语音波形，
+   * 比例约 0.9）。正文栏宽 ~730px 时它算出来 ~660px 高，
+   * 而屏幕可用高度才 ~675px —— 一张图占掉整屏，正文被顶出视野，
+   * 用户看不到「这张图在讲哪一段」。
+   *
+   * 限高 + object-fit: contain 的结果是：整张图仍然完整可见
+   * （不裁切），只是不占满全屏；看不清时点开看大图（那里到 96vw）。
+   *
+   * 为什么不按比例分档（宽图全宽、高图缩窄）：多一套判断就多一处会错的地方，
+   * 而 72vh 对所有形状都是「能看全、不霸屏」。
+   */
+  max-height: 72vh;
+  object-fit: contain;
+  border-radius: var(--radius-2, 6px);
+  /*
+   * 图片是白底扫描件，在深色主题下直接铺白块很刺眼。
+   * 给一点圆角与轻微暗化，让它不那么跳 —— 但不做反色，
+   * 反色会让红笔标注、彩色波形图失真。
+   */
+  background: #fff;
+}
+
+.reader-figure__caption {
+  font-size: var(--font-sm, 13px);
+  color: var(--text-2, #b9b2a8);
+  text-align: center;
+  line-height: 1.6;
+  max-width: 46em;
+}
+
+.reader-figure__broken {
+  font-size: var(--font-sm, 13px);
+  color: var(--text-3, #8d857b);
+  font-style: italic;
+  padding: var(--space-2, 8px) var(--space-3, 12px);
+  border: 1px dashed var(--line-subtle, rgba(255, 255, 255, 0.12));
+  border-radius: var(--radius-2, 6px);
+}
+
+/* ---------- 看大图 ---------- */
+
+.reader-figure__lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(0, 0, 0, 0.86);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3, 12px);
+  padding: var(--space-5, 24px);
+  cursor: zoom-out;
+  /* 覆盖层自身可聚焦，Esc 才收得到（见 tsx 里的 focus） */
+  outline: none;
+}
+
+.reader-figure__lightbox-img {
+  /*
+   * 大图模式：允许放大到容器极限，但仍不超过视口。
+   * max-height 留出图注与提示文字的位置，不然图会把说明挤出去看不见。
+   */
+  max-width: min(96vw, 1600px);
+  max-height: calc(100vh - 140px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  background: #fff;
+  border-radius: var(--radius-3, 10px);
+}
+
+.reader-figure__lightbox-caption {
+  font-size: var(--font-sm, 13px);
+  color: #e8e2d8;
+  text-align: center;
+  max-width: 70ch;
+  line-height: 1.6;
+}
+
+.reader-figure__lightbox-hint {
+  font-size: var(--font-xs, 12px);
+  color: #9a938a;
+}

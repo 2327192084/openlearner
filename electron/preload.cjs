@@ -204,6 +204,21 @@ const openleanerApi = Object.freeze({
     run: (request) => ipcRenderer.invoke('openleaner:mineru-convert', request),
 
     /**
+     * 按 locator 取一张插图（2026-11-08）。
+     *
+     * 为什么要单独一个通道而不是复用 run：取图是「转换完之后」的事，
+     * 一次转换要取几十张图，语义、失败处理、进度都不一样。
+     *
+     * 返回 `{ ok, dataUri, width, height, byteSize, via }` 或 `{ ok:false, error }`。
+     * `dataUri` 是 `data:image/jpeg;base64,...`，页面直接当 img src 用 ——
+     * 渲染进程没有 fs 权限，走不了文件路径。
+     *
+     * ⚠️ 必须在转换完成后**立刻**调用：locator 依赖 MinerU 自己的解析缓存，
+     * 缓存被清就永久取不到了（实测见 electron/mineru-figure.cjs 顶部）。
+     */
+    readFigure: (locator) => ipcRenderer.invoke('openleaner:mineru-figure', { locator }),
+
+    /**
      * 订阅进度。返回取消订阅函数。
      *
      * 只转发带 taskId 属于自己的事件 —— 同一时刻可能有多份资料在排队，

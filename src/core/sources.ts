@@ -1,9 +1,10 @@
 import { newId, nowIso } from './id.ts';
-import type { Course, Source, SourceSegment } from './model.ts';
+import type { Course, Source, SourceImageRecord, SourceSegment } from './model.ts';
 import { kindFromFileName, parseAny, titleFromFileName } from './parsers/index.ts';
 import { ImportError, importError } from './parsers/types.ts';
 import type { ImportFailureCode } from './parsers/types.ts';
 import type { StorageAdapter } from './storage/types.ts';
+import type { FigureStorage } from './mineru/images.ts';
 
 /**
  * 资料服务：导入、列表、阅读、搜索、删除。
@@ -292,6 +293,54 @@ export class SourceService {
     return rec !== null;
   }
 
+  /**
+   * 交给取图编排用的**最小存储视图**（只读 + 写图所需的三件事）。
+   *
+   * 为什么不直接把 storage 设成 public：那等于把整库写权限
+   * （包括 secrets 分区）暴露给界面层。这里只放行取图真正用到的
+   * `getAll` / `remove` / `putMany`，且调用方只能碰分区名，
+   * 不会顺手改到资料本身。
+   */
+  get figuresStorage(): FigureStorage {
+    return this.storage;
+  }
+
+  /**
+   * 取这份资料正文里的插图（按页 + 位置排好序）。
+   *
+   * 一次全取再过滤，不做按页索引：一份 36 页教材才 88 张图，
+   * 几十毫秒的事。加索引要动库版本，收益要等 628 页的书真的卡了再说。
+   */
+  async getFigures(sourceId: string): Promise<SourceImageRecord[]> {
+    const all = await this.storage.getAll('sourceImages');
+    return all
+      .filter((r) => r.sourceId === sourceId)
+      .sort((a, b) =>
+        a.page !== b.page ? a.page - b.page : a.charOffset - b.charOffset,
+      );
+  }
+
+  /** 取某一页的插图（阅读器翻页时只渲染这一页） */
+  async getPageFigures(sourceId: string, page: number): Promise<SourceImageRecord[]> {
+    const all = await this.getFigures(sourceId);
+    return all.filter((r) => r.page === page);
+  }
+
+  /**
+   * 存一批插图（覆盖式）。
+   *
+   * 先清这份资料的旧图再写新的：重转后 block 编号可能变
+   * （换了 tier、或 MinerU 版面模型升级），只按 id 覆盖会留下一批
+   * charOffset 已经过期的孤儿记录 —— 那些记录会让图片插到错误位置。
+   */
+  async writeFigures(sourceId: string, figures: SourceImageRecord[]): Promise<void> {
+    const old = await this.storage.getAll('sourceImages');
+    for (const rec of old) {
+      if (rec.sourceId === sourceId) await this.storage.remove('sourceImages', rec.id);
+    }
+    if (figures.length > 0) await this.storage.putMany('sourceImages', figures);
+  }
+
   async list(): Promise<Source[]> {
     const all = await this.storage.getAll('sources');
     return all.sort(
@@ -378,6 +427,21 @@ export class SourceService {
     for (const a of annotations) {
       if (a.sourceId === id) {
         await this.storage.remove('sourceAnnotations', a.id);
+      }
+    }
+
+    /**
+     * 插图也要级联清理（2026-11-08）。
+     *
+     * 理由与注释完全相同，而且这里更要紧：插图是**二进制**，
+     * 一份几十页的书就是几 MB。删掉资料后图还留着，
+     * 会默默占掉配额，而用户在界面上完全看不到它们 ——
+     * 这正是「删除必须级联清理」那条铁律最实际的一个例子。
+     */
+    const figures = await this.storage.getAll('sourceImages');
+    for (const f of figures) {
+      if (f.sourceId === id) {
+        await this.storage.remove('sourceImages', f.id);
       }
     }
 

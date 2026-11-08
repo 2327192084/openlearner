@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
-import type { Source, SourceSegment } from '@/core/model.ts';
+import type { Source, SourceImageRecord, SourceSegment } from '@/core/model.ts';
 import type { SourceService } from '@/core/sources.ts';
 import { IconSources } from './icons.tsx';
 import { MathText } from './MathText.tsx';
+import { ReaderFigure } from './ReaderFigure.tsx';
+import { splitByFigures } from '@/core/mineru/images.ts';
+import './reader-figure.css';
 
 /**
  * 阅读器 —— 把「可点回原文」从一句徽章变成真的能点。
@@ -53,7 +56,18 @@ export interface ReaderPageProps {
 
 type LoadPhase =
   | { kind: 'loading' }
-  | { kind: 'ready'; source: Source; segments: SourceSegment[] }
+  | {
+      kind: 'ready';
+      source: Source;
+      segments: SourceSegment[];
+      /**
+       * 正文里的插图（2026-11-08）。
+       *
+       * 与 segments 一起载入，但**不参与** charStart/charEnd 的计算 ——
+       * 图片在正文里不占字符，只是「插在这里」。见 core/mineru/images.ts 的说明。
+       */
+      figures: SourceImageRecord[];
+    }
   | { kind: 'error'; message: string };
 
 /** 高亮落点。null 表示这一页没有可高亮的区间（纯阅读）。 */
@@ -124,7 +138,19 @@ export function ReaderPage({ sourceService, initialSourceId, target, onBack }: R
         }
         const segments = await sourceService.getSegments(initialSourceId);
         if (cancelled) return;
-        setPhase({ kind: 'ready', source, segments });
+        /*
+         * 插图与正文一起取。
+         *
+         * 为什么不是「翻到哪页取哪页」：图在 IndexedDB 里，一次全取
+         * 一份 36 页教材才 88 条、几十毫秒；而按页取要加索引动库版本，
+         * 收益等 628 页的书真的卡了再说。
+         *
+         * 取不到（旧库、或转换时 MinerU 没切出图）就是空数组，
+         * 阅读器照常显示正文，不提示「图片加载失败」—— 没有图不是错误。
+         */
+        const figures = await sourceService.getFigures(initialSourceId);
+        if (cancelled) return;
+        setPhase({ kind: 'ready', source, segments, figures });
       } catch (err) {
         if (cancelled) return;
         setPhase({
@@ -524,18 +550,35 @@ export function ReaderPage({ sourceService, initialSourceId, target, onBack }: R
             ) : null}
           </div>
         ) : seg ? (
-          renderBody(seg, highlight, markRef)
+          renderBody(
+            seg,
+            highlight,
+            markRef,
+            /*
+             * 只给当前页的图。
+             *
+             * 按 page 过滤而不是按 index：`seg.page` 与原书页码一致，
+             * 而 index 是按段序号（章节切分的资料里两者可能不等）。
+             *
+             * 传进去之前已经按 charOffset 排好（getFigures 里排的），
+             * renderBody 直接按顺序插。
+             */
+            phase.kind === 'ready'
+              ? phase.figures.filter((f) => f.page === seg.page)
+              : [],
+          )
         ) : null}
       </div>
     </div>
   );
 }
 
-/** 正文渲染：按需显示章节标题 + 高亮切分 */
+/** 正文渲染：按需显示章节标题 + 高亮切分 + 插图 */
 function renderBody(
   seg: SourceSegment,
   highlight: Highlight | null,
   markRef: RefObject<HTMLElement | null>,
+  figures: readonly SourceImageRecord[],
 ) {
   const chapter = seg.chapter?.trim() ?? '';
   /*
@@ -554,12 +597,127 @@ function renderBody(
   return (
     <>
       {showChapter ? <h2 className="reader-chapter">{chapter}</h2> : null}
-      {renderText(seg.text, highlight, markRef)}
+      {figures.length > 0
+        ? renderWithFigures(seg.text, highlight, markRef, figures)
+        : renderText(seg.text, highlight, markRef)}
       <p className="reader-meta">
         第 {seg.page} 页 · {seg.charCount} 字
+        {figures.length > 0 ? ` · ${figures.length} 张插图` : ''}
       </p>
     </>
   );
+}
+
+/**
+ * 有插图时渲染正文：把图按 charOffset 插回去（2026-11-08）。
+ *
+ * ## 为什么不能简单「切成几段各自渲染」
+ *
+ * 高亮是按**整段文本**的字符偏移算的（`highlight.start/end`）。
+ * 如果先按图切段、再拿整段偏移去切每一小段，偏移就错了 ——
+ * 第二段的 start 是相对整段的，不是相对那一小段。
+ *
+ * 这里的做法：走一遍切片，**同时维护绝对偏移游标**，
+ * 每段文字用它在整段里的绝对区间，把 highlight 裁剪成局部区间。
+ * 文字切片拼起来与原文逐字相同（images.ts 有单测守这条），
+ * 所以偏移全程准确。
+ *
+ * ## 为什么复用 splitByFigures
+ *
+ * 切片逻辑已经有单测（images.ts 的 32 个用例），不重写一遍。
+ * 但**偏移换算放在这里** —— 那是展示问题，不该塞进数据层。
+ */
+function renderWithFigures(
+  text: string,
+  highlight: Highlight | null,
+  markRef: RefObject<HTMLElement | null>,
+  figures: readonly SourceImageRecord[],
+) {
+  const pieces = splitByFigures(text, figures);
+  const out: React.ReactNode[] = [];
+  /** 当前文字切片在**整段**里的起始绝对偏移 */
+  let cursor = 0;
+  let key = 0;
+
+  const hasHighlight =
+    highlight !== null && highlight.via !== 'none' && highlight.end > highlight.start;
+
+  for (let i = 0; i < pieces.length; i++) {
+    const piece = pieces[i]!;
+
+    if (piece.kind === 'figure') {
+      /*
+       * 图注去重（2026-11-08 实测发现）。
+       *
+       * MinerU 把图注**当正文文字**留在图后面（图片行本身被去掉，
+       * 但「图1.1 含有电压源…」那句还在 text 里）。所以正文里
+       * 本来就会显示一遍图注；如果这里再渲染一个 <figcaption>，
+       * 同一句会出现两次 —— 我在补图后逐字对照切片时看到的就是这个。
+       *
+       * 修法上有个岔路，选了保守的那条：
+       *  ❌ 把图注从 text 里删掉 → 文字一变，95 个知识点的字符偏移全错位
+       *  ✅ 渲染时看后面那段文字是不是以图注开头，是就不重复渲染
+       *
+       * 代价是图注排版跟着正文走（不是居中小字）。这个代价可以接受 ——
+       * 排版可以以后调，偏移错位是不可接受的。
+       */
+      const next = pieces[i + 1];
+      const captionInBody =
+        next !== undefined &&
+        next.kind === 'text' &&
+        piece.figure.caption !== null &&
+        next.text.trimStart().startsWith(piece.figure.caption.trim());
+
+      out.push(
+        <ReaderFigure key={`fig-${key++}`} figure={piece.figure} hideCaption={captionInBody} />,
+      );
+      continue;
+    }
+
+    const slice = piece.text;
+    const sliceStart = cursor;
+    cursor += slice.length;
+
+    if (!slice) continue;
+
+    if (!hasHighlight) {
+      out.push(<MarkdownBody key={`t-${key++}`} text={slice} />);
+      continue;
+    }
+
+    /*
+     * 把整段的 highlight 区间换算成这一小段里的局部区间。
+     * 三种情况：完全在外面（不高亮）/ 部分重叠（只高亮重叠部分）/ 整段被包住。
+     */
+    const hitStart = Math.max(highlight!.start, sliceStart);
+    const hitEnd = Math.min(highlight!.end, sliceStart + slice.length);
+
+    if (hitEnd <= hitStart) {
+      out.push(<MarkdownBody key={`t-${key++}`} text={slice} />);
+      continue;
+    }
+
+    const localStart = hitStart - sliceStart;
+    const localEnd = hitEnd - sliceStart;
+
+    out.push(
+      <p className="reader-para reader-para--marked" key={`t-${key++}`}>
+        <MathText text={slice.slice(0, localStart)} />
+        <mark
+          className="reader-mark"
+          ref={(el) => {
+            // 高亮跨多个切片时，markRef 指向第一处（滚动定位用）
+            if (el && !markRef.current) markRef.current = el;
+          }}
+        >
+          <MathText text={slice.slice(localStart, localEnd)} />
+        </mark>
+        <MathText text={slice.slice(localEnd)} />
+      </p>,
+    );
+  }
+
+  return <>{out}</>;
 }
 
 /**

@@ -7,6 +7,8 @@ import {
   type ConversionReport,
 } from '@/core/mineru/write-back.ts';
 import { getMinerURunner, type MinerUProgress, type MinerURunner } from '@/core/mineru/runner.ts';
+import type { MinerUResult } from '@/core/mineru/markdown.ts';
+import { countFigures, importFigures } from '@/core/mineru/images.ts';
 
 /**
  * 扫描件 / 图片文件的转换面板。
@@ -36,6 +38,104 @@ type Phase =
   | { kind: 'done'; report: ConversionReport }
   | { kind: 'failed'; message: string; hint: string };
 
+/**
+ * 转换完成后，把正文里的插图取回来存进 sourceImages（2026-11-08）。
+ *
+ * 抽成独立函数而不是内联在 start 里，有三个理由：
+ *  1. 它必须**不阻塞**「转换完成」的显示 —— 88 张图要几十秒
+ *  2. 它的失败绝不能影响正文（正文已经落库了）
+ *  3. 它自己要有如实的账（取到几张 / 失败几张），不能吞
+ *
+ * @returns 给界面看的一句话；没有图可取时返回 null
+ */
+async function backfillFigures(
+  source: Source,
+  sourceService: SourceService,
+  result: MinerUResult,
+  aliveRef: { current: boolean },
+  setNote: (note: string | null) => void,
+  onConverted: () => void,
+): Promise<void> {
+  const counts = countFigures(result.pages);
+  if (counts.total === 0) {
+    // 整本没切出图片块。不显示任何提示 —— 说「0 张图」只会让人疑惑。
+    setNote(null);
+    return;
+  }
+
+  const bridge = typeof window !== 'undefined' ? window.openleaner?.mineru : undefined;
+  if (!bridge?.readFigure) {
+    /*
+     * 浏览器里没有 IPC。如实说明，不假装取过 ——
+     * 下次在桌面版重转一次就会补上（图能重新取，因为按 bbox 裁）。
+     */
+    setNote(
+      `这份资料有 ${counts.total} 张插图，但取图要在桌面版里跑。` +
+        `这次只存了正文，在桌面版重新转换一次就能连图一起补上。`,
+    );
+    return;
+  }
+
+  setNote(`正文已就绪。正在取回 ${counts.total} 张插图…`);
+
+  try {
+    const report = await importFigures({
+      storage: sourceService.figuresStorage,
+      sourceId: source.id,
+      pages: result.pages,
+      fetcher: async (locator) => {
+        const r = await bridge.readFigure(locator);
+        if (!r.ok) return { ok: false, error: r.error };
+        return {
+          ok: true,
+          figure: {
+            dataUri: r.dataUri,
+            width: r.width,
+            height: r.height,
+            byteSize: r.byteSize,
+          },
+        };
+      },
+      onProgress: (done, total) => {
+        if (!aliveRef.current) return;
+        setNote(`正在取回插图 ${done}/${total}…`);
+      },
+    });
+
+    if (!aliveRef.current) return;
+
+    /*
+     * 汇报要**如实**：取到几张、几张没取到。
+     * 不写成「插图已全部取回」—— 那会在真有失败时骗人。
+     */
+    if (report.failed === 0) {
+      setNote(
+        report.stored > 0
+          ? `已取回 ${report.stored} 张插图，阅读器里会显示在原位置。`
+          : null,
+      );
+    } else {
+      const first = report.failures[0]?.error ?? '';
+      setNote(
+        `取回 ${report.stored} 张插图，${report.failed} 张没取到` +
+          (first ? `（第一个失败原因：${first.slice(0, 80)}）` : '') +
+          '。没取到的图不会显示，其余正常。',
+      );
+    }
+
+    if (report.stored > 0) onConverted();
+  } catch (err) {
+    /*
+     * 取图整体失败时**不回滚正文**，也不把 phase 改成 failed ——
+     * 正文已经好用了，用户能读能整理，只是没有图。
+     * 这里只把原因说出来。
+     */
+    if (!aliveRef.current) return;
+    const msg = err instanceof Error ? err.message : String(err);
+    setNote(`正文已就绪，但取插图时出错：${msg.slice(0, 120)}`);
+  }
+}
+
 export interface ConvertPanelProps {
   source: Source;
   sourceService: SourceService;
@@ -55,6 +155,14 @@ export function ConvertPanel({
   runner,
 }: ConvertPanelProps) {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
+  /**
+   * 取图的进度说明（2026-11-08）。
+   *
+   * 与 phase 分开：转换已经完成（phase=done）之后才轮到取图，
+   * 两个阶段同时要显示，塞进同一个判别联合会很别扭。
+   * null 表示「没有图要取」，不显示这条。
+   */
+  const [figureNote, setFigureNote] = useState<string | null>(null);
   const effectiveRunner = runner ?? getMinerURunner();
   const aliveRef = useRef(true);
 
@@ -117,6 +225,23 @@ export function ConvertPanel({
       if (!aliveRef.current) return;
       setPhase({ kind: 'done', report });
       onConverted();
+
+      /*
+       * 取图（2026-11-08）。
+       *
+       * ## 为什么放在正文写回**之后**、且不 await 到主流程里
+       *
+       * 正文已经落库、用户已经能读了 —— 这时再去取 88 张图要几十秒。
+       * 把它挡在「转换完成」前面，用户会以为转换卡住了。
+       * 所以先让界面进入 done，再在后台补图；补完自己刷新一次。
+       *
+       * ## 为什么必须现在取，不能等用户点开
+       *
+       * locator 依赖 MinerU 自己的解析缓存，缓存被清就永久取不到
+       * （实测：删 parsed 目录后报 `Requested parsed content is not cached.`）。
+       * 这一步是整个功能可靠性的关键，不是优化。
+       */
+      void backfillFigures(source, sourceService, result, aliveRef, setFigureNote, onConverted);
     } catch (err) {
       if (!aliveRef.current) return;
       const message = err instanceof Error ? err.message : '转换失败';
@@ -228,6 +353,12 @@ export function ConvertPanel({
             档位 {phase.report.tier}
             {phase.report.producer !== 'unknown' ? ` · MinerU ${phase.report.producer}` : ''}
           </p>
+          {/*
+            取图进度 / 结果（2026-11-08）。
+            单独一行放在「转换完成」块里：正文已经可用，取图是后续的补充动作。
+            如实显示成功与失败张数 —— 不写成「已全部取回」。
+          */}
+          {figureNote ? <p className="convert-panel__hint">{figureNote}</p> : null}
           {onOpenPage ? (
             <button
               type="button"

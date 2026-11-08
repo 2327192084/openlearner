@@ -8,8 +8,12 @@
  * 所有实体都带 id + schemaVersion，导出/导入备份靠它做迁移。
  */
 
-/** 当前学习库结构版本。改动实体结构时递增，并在 migrations.ts 补一段迁移。 */
-export const LIBRARY_SCHEMA_VERSION = 14;
+/**
+ * 当前学习库结构版本。改动实体结构时递增，并在 migrations.ts 补一段迁移。
+ *
+ * v15：新增 sourceImages（MinerU 转换出的教材插图，2026-11-08）
+ */
+export const LIBRARY_SCHEMA_VERSION = 15;
 
 /**
  * 位置信息 —— 全项目「点回原文」的唯一依据。
@@ -548,6 +552,56 @@ export interface SlideImageRecord {
   createdAt: string;
 }
 
+/**
+ * 资料正文里的一张插图（MinerU 转换出来的，2026-11-08 加）。
+ *
+ * ## 为什么单独一个分区，而不是塞进 SourceSegment
+ *
+ * 两个理由，都是硬的：
+ *
+ * 1. **不能动 SourceSegment.text**。`KnowledgePoint.charStart/charEnd` 是
+ *    相对该页文本的字符偏移，库里已有 95 个知识点按当前 text 算好。
+ *    往 text 里插一个占位符，后面所有偏移平移，高亮集体错位 ——
+ *    而且只偏几个字，用户很难判断是数据坏了还是自己记错了。
+ *    所以图片只能「旁挂」，靠 `charOffset` 记住它该出现在哪。
+ *
+ * 2. **体积**。一份 36 页教材有 88 张图、1.68 MB；628 页的书会到几十 MB。
+ *    塞进 segment 会让「读资料正文」也拖着全部图片字节 ——
+ *    而阅读器翻页时只该取当前页那几张。
+ *
+ * ## 主键怎么定
+ *
+ * `id = figure_<sourceId>_<page>_<block>`，用 MinerU 的 page/block 拼。
+ * 这样同一份资料重转时是**覆盖**而不是累积 —— 否则每转一次图就多一份，
+ * 库里会长出一堆永远点不到的孤儿图片。
+ */
+export interface SourceImageRecord {
+  /** `figure_<sourceId>_<page>_<block>` */
+  id: string;
+  sourceId: string;
+  /** 页码，1 基，与原书一致 */
+  page: number;
+  /** MinerU 块号，1 基（等于解析 JSON 里 block.index + 1） */
+  block: number;
+  /** 段内字符偏移：图片该插在这一页文本的这个位置之前 */
+  charOffset: number;
+  /** 块类型：插图 / 图表 / 表格 / 公式图 */
+  kind: 'image' | 'chart' | 'table' | 'formula';
+  /** 图片字节的 data URI（`data:image/jpeg;base64,...`） */
+  dataUri: string;
+  /** 像素宽高，用于按原比例占位，避免图片加载时页面跳动 */
+  width: number;
+  height: number;
+  byteSize: number;
+  /** 图片下方那句图注（含 LaTeX 原文），没有则 null */
+  caption: string | null;
+  /** 取图时实际用的 MinerU tier，如实记录（取不到图时用于排查） */
+  tier: string;
+  /** MinerU 文档短 id（sha256 前 7 位），重转后可比对是否同一份 */
+  docShortId: string;
+  createdAt: string;
+}
+
 /** 大纲里的一页。用户可改标题、调顺序、增删页。 */
 export interface SlideOutlinePage {
   id: string;
@@ -986,6 +1040,17 @@ export interface LibraryBackup {
    * 和 sourceFiles（能从原 PDF 重新渲染）性质不同。
    */
   slideImages: SlideImageRecord[];
+  /**
+   * 资料正文里的插图（MinerU 转换出来的）。
+   *
+   * **不进备份**。理由和 sourceFiles 同类：这些图是从原 PDF 按 bbox
+   * 重新裁出来的，能重新生成；而一份几百页的书插图上百 MB，
+   * 会把备份文件撑到不可用（备份是给用户换机器用的，不是归档）。
+   *
+   * 恢复备份后这些资料就没有插图，阅读器如实不显示 ——
+   * 与 sourceFiles 恢复后 fileStored=false 的处理方式一致。
+   */
+  sourceImages?: SourceImageRecord[];
   backends: BackendConfig[];
   /**
    * 用量统计。跟库一起备份：换机器后账单不该归零。
