@@ -186,9 +186,24 @@ function record(name, ok, detail = '') {
       }
       return out;
     })()`);
+    /*
+     * 这条断言的原意是「发布没把用户数据弄丢」，不是「用户库里必须还有题」。
+     *
+     * 2026-11-08 改：原来硬编码 `questions > 0 && sources > 0`，
+     * 用户把题库清空之后就一直误报 FAIL —— 而那种情况数据其实是**完好**的
+     * （空也是一种合法状态）。误报比不报更糟：它会训练人忽略这条检查。
+     *
+     * 现在的判据：「分区读得出来、且不是全新的空库」——
+     * 只要还有资料、知识点、复习记录中的任意一类，就说明用户的库还在。
+     */
+    const preserved =
+      counts.sources > 0 ||
+      counts.knowledgePoints > 0 ||
+      counts.questions > 0 ||
+      counts.decks > 0;
     record(
       '用户原有数据仍在',
-      counts.questions > 0 && counts.sources > 0,
+      preserved,
       `题 ${counts.questions} / 知识点 ${counts.knowledgePoints} / 题组 ${counts.decks} / 资料 ${counts.sources}`,
     );
 

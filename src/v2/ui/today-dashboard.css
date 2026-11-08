@@ -374,4 +374,57 @@
 
 .dash-deck:hover .dash-deck__title {
   color: var(--ok);
+
+}
+
+/*
+ * 刷新按钮 —— **完整样式全部写在层外**。
+ *
+ * 为什么一条都不能留在 @layer 里（2026-11-08 第六次踩）：
+ * base.css 有不在层内的 `button { font: inherit; color: inherit }`。
+ * 层级先于特异性，所以层内的 `font-size` 与 `color` 全部失效 ——
+ * 结果「刷新」继承了 h1 的字号（和「今日」一样大），
+ * 还带一个浏览器默认的灰底块，看起来像个选中的标签而不是按钮。
+ *
+ * 教训重申：**原生控件（button/input/select）的样式一律写层外。**
+ */
+.today__refresh {
+  /*
+   * 位置：紧跟在日期后面，不要推到最右。
+   *
+   * 曾经用 margin-left: auto 推到行尾 —— 结果它孤零零悬在右边，
+   * 和「今日 2026/11/8」离得很远，看不出是同一组。
+   * 它是个辅助入口，应该在标题旁边、不抢注意力，但不该被甩出去。
+   */
+  margin-left: var(--space-2);
+  align-self: center;
+  flex: 0 0 auto;
+
+  /* 排版:必须显式覆盖，否则吃掉 h1 的字号与字重 */
+  font: inherit;
+  font-size: var(--fs-xs, 11px);
+  font-weight: 400;
+  line-height: 1.6;
+
+  /* 去掉浏览器默认控件外观 —— 这一点是关键，只写 background:none 不够 */
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-xs, 4px);
+  padding: 2px var(--space-2);
+
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+
+.today__refresh:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.today__refresh:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--ok) 60%, transparent);
+  outline-offset: 2px;
 }

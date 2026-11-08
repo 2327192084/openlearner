@@ -56,6 +56,14 @@ export interface TodayPageProps {
   onOpenMap: () => void;
   /** 打开错题页 */
   onOpenWrongBook: () => void;
+  /**
+   * 手动刷新。
+   *
+   * 为什么要有：自动刷新已覆盖「删题 / 导入 / 切回本页」，
+   * 但用户可能就是想「重新读一遍」——比如怀疑某个数字不对。
+   * 给一个明确的入口比让他重启应用好。
+   */
+  onRefresh: () => void;
   /* ---- 装配学习地图需要的东西 ---- */
   loadCards: CardLoader;
   decks: DeckService;
@@ -83,6 +91,7 @@ export function TodayPage(props: TodayPageProps) {
     onStartReview,
     onOpenMap,
     onOpenWrongBook,
+    onRefresh,
     loadCards,
     decks,
     knowledge,
@@ -236,6 +245,21 @@ export function TodayPage(props: TodayPageProps) {
         <h1 className="today__h1">
           今日
           <span className="today__date">{new Date().toLocaleDateString('zh-CN')}</span>
+          {/*
+            手动刷新。放在标题行右侧，弱化成文字按钮 ——
+            它是兜底入口，不该抢「开始复习」的注意力。
+          */}
+          <button
+            type="button"
+            className="today__refresh"
+            onClick={() => {
+              void load();
+              onRefresh();
+            }}
+            title="重新读取一次数据"
+          >
+            刷新
+          </button>
         </h1>
 
         {/* ==================== 一、今天的安排 ==================== */}

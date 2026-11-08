@@ -15,6 +15,7 @@ import { ExamPage } from './ExamPage.tsx';
 import { MapPage } from './MapPage.tsx';
 import { BoardPage } from './BoardPage.tsx';
 import { FocusPage } from './FocusPage.tsx';
+import { badgeCounts, resolvePool } from './data-sync.ts';
 import type { PracticeStart } from './PracticePage.tsx';
 import { SourcesPage } from './SourcesPage.tsx';
 import { DecksPage } from './DecksPage.tsx';
@@ -85,7 +86,17 @@ export interface AppProps {
   knowledge: KnowledgeService;
   decks: DeckService;
   backends: BackendService;
-  /** 当前资料库里的全部卡片 id */
+  /**
+   * 当前资料库里的全部卡片 id —— **只作初值**。
+   *
+   * 2026-11-08 修：以前这是唯一的来源，启动时算一次就再也不变。
+   * 用户删掉题目后界面仍显示「15 张待复习」，必须重启才对 ——
+   * 因为 `todayOverview(旧池子)` 照旧数出 15。
+   *
+   * 现在 App 自己持有 `cardPool` 状态，并由 `refreshData()` 从
+   * `loadCards()` 重新派生。这个 prop 只在首屏渲染前兜底
+   * （避免刷新完成前显示「0 张」闪一下）。
+   */
   cardPool: readonly string[];
   hasSources: boolean;
   /** 是否已接入模型 */
@@ -155,6 +166,23 @@ export function App({
   const [queueTotal, setQueueTotal] = useState<number>(0);
   const [queueError, setQueueError] = useState<string | null>(null);
   const [overviewCounts, setOverviewCounts] = useState<Partial<Record<PageId, number>>>({});
+
+  /**
+   * 当前卡片池 —— **会跟着数据变**（2026-11-08 修）。
+   *
+   * ## 以前为什么错
+   *
+   * `cardPool` 是 props，由 `main.tsx` 在启动时算一次。之后用户删掉题目，
+   * 这个数组还是旧的 —— 于是 `todayOverview(旧池子)` 照样数出「15 张待复习」，
+   * 而题库已经空了。必须重启（重新走 `main.tsx`）才正常。用户如实报了这个现象。
+   *
+   * ## 现在的做法
+   *
+   * 初值仍然用 props（首屏不闪），但每次 `refreshData()` 都从 `loadCards()`
+   * 重新派生。`loadCards()` 已经是「已发布题组的题」那个口径，
+   * 与 `main.tsx` 里的过滤规则一致 —— 不重复实现一份，避免两处漂移。
+   */
+  const [pool, setPool] = useState<readonly string[]>(cardPool);
   /**
    * 待办页「现在可以做」的数据来源。
    *
@@ -254,19 +282,16 @@ export function App({
    */
   const refreshCounts = useCallback(async () => {
     try {
-      const [o, srcs] = await Promise.all([reviewService.todayOverview(cardPool), sourceService.list()]);
+      const [o, srcs] = await Promise.all([reviewService.todayOverview(pool), sourceService.list()]);
       /**
        * 「复习」显示待复习数量，0 时不显示徽章 —— 没有待办就不该有标记。
        * 「资料」显示份数（0 也有意义：说明库是空的）。
        */
-      setOverviewCounts({
-        sources: srcs.length,
-        ...(o.dueCount > 0 ? { review: o.dueCount } : {}),
-      });
+      setOverviewCounts(badgeCounts(o.dueCount, srcs.length));
     } catch {
       setOverviewCounts({});
     }
-  }, [reviewService, cardPool, sourceService]);
+  }, [reviewService, pool, sourceService]);
 
   useEffect(() => {
     void refreshCounts();
@@ -328,6 +353,104 @@ export function App({
   useEffect(() => {
     if (page === 'board') void refreshSuggestions();
   }, [page, refreshSuggestions]);
+
+  /**
+   * 切回学习库时自动重算（2026-11-08）。
+   *
+   * ## 为什么需要它
+   *
+   * 用户报的那个 bug 修好之后（refreshData 会重算卡片池），还有一个缺口：
+   * 数据可能在**别的页面**被改（我的题组删题、资料页删资料），
+   * 而首页的数字是它自己进入时才重算的 —— 从别的页面切回来时它不重算。
+   *
+   * 现在加上这条：每次回到首页都刷一遍。代价是一次轻量查询，
+   * 换来「看到的就是现在的」。
+   *
+   * ## 为什么不做全局定时轮询
+   *
+   * 数据只可能被**本应用自己**改（没有后台同步、没有多窗口协作）。
+   * 每个改动点都已经调了 `refreshData()`，再加上「切回首页时刷新」，
+   * 已经覆盖所有情况。定时轮询只会在用户阅读时不停地重排界面，
+   * 是负担而不是体验。
+   */
+  useEffect(() => {
+    if (page === 'today') void refreshData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
+
+  /**
+   * 窗口重新获得焦点时也刷一遍。
+   *
+   * 覆盖「用户切到别的程序、回来时数据被本应用在后台改过」的情况
+   * （比如出题任务在后台跑完）。只在学习库页做 —— 别的页自己有数据源。
+   */
+  useEffect(() => {
+    if (page !== 'today') return;
+    const onFocus = () => void refreshData();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
+
+  /**
+   * 全量刷新：重算卡片池，再连锁刷新所有依赖它的东西。
+   *
+   * ## 为什么需要一个「总入口」
+   *
+   * 用户报的现象（2026-11-08）：「我把题库里的题都删掉了，
+   * 学习库的待复习便签还是显示 15 道，重启后才正常。」
+   *
+   * 根因：`cardPool` 是启动时的 props 快照，删题后再也没更新过。
+   * 但光修这一处不够 —— 依赖卡片池的还有侧栏徽标、待办建议、
+   * 以及当前页面自己缓存的数据。如果只让调用方各自记得刷新，
+   * 迟早会漏掉一个（这次就是漏了）。
+   *
+   * 所以：**任何改变题库结构的操作，都调这一个函数**。
+   * 顺序很重要 —— 先重算池子，再刷新依赖池子的数字，
+   * 否则刷新用的还是旧池子（这正是原来的问题）。
+   *
+   * ## 为什么带上 refreshSuggestions
+   *
+   * 待办页的「现在可以做」是从题组进度和错题数推导的。
+   * 删了题组还显示「继续练某某」就是假建议。
+   */
+  const refreshData = useCallback(async () => {
+    /*
+     * 第一步：重算卡片池。
+     *
+     * loadCards() 可能失败（存储被占用等）—— 那时保持现有池子不动，
+     * 不能清成空数组：那会让界面突然显示「0 道题」，
+     * 用户以为题没了。宁可显示旧数字，也不要显示错的 0。
+     */
+    let fresh: readonly string[] | null = null;
+    try {
+      const cards = await loadCards();
+      fresh = cards.map((c) => c.id);
+    } catch {
+      /* 读失败：fresh 保持 null，下一步会沿用旧池子 */
+    }
+
+    /*
+     * 两条决策都在 `data-sync.ts` 里，有单测：
+     *  - 读失败 → 沿用旧池子（不清空，否则界面会突然显示 0 道题）
+     *  - 算数字 → 用刚读到的池子（setState 是异步的，读 state 拿到的还是旧值）
+     */
+    const { effective, shouldUpdate } = resolvePool(fresh, pool);
+    if (shouldUpdate) setPool(effective);
+
+    try {
+      const [o, srcs] = await Promise.all([
+        reviewService.todayOverview(effective),
+        sourceService.list(),
+      ]);
+      setOverviewCounts(badgeCounts(o.dueCount, srcs.length));
+    } catch {
+      /* 读不到就保持原数字 */
+    }
+
+    void refreshSuggestions();
+  }, [loadCards, pool, reviewService, sourceService, refreshSuggestions]);
+
 
   const navigate = useCallback(
     async (id: PageId) => {
@@ -422,7 +545,7 @@ export function App({
   );
 
   // 卡片池是数组，每次渲染都可能是新引用 —— 用内容做 key 避免无谓重算
-  const poolKey = useMemo(() => cardPool.join(','), [cardPool]);
+  const poolKey = useMemo(() => pool.join(','), [pool]);
 
   return (
     <AppShell
@@ -551,7 +674,7 @@ export function App({
       ) : page === 'study' ? (
         <StudyPage
           service={reviewService}
-          cardPool={cardPool}
+          cardPool={pool}
           dueCount={queueTotal || null}
           onStartQuiz={() => void navigate('review')}
           onOpenKnowledge={() => setPage('knowledge')}
@@ -605,7 +728,7 @@ export function App({
             setOrganizeSourceId(source.id);
             setPage('organize');
           }}
-          onImported={() => void refreshCounts()}
+          onImported={() => void refreshData()}
         />
       ) : page === 'reader' ? (
         <ReaderPage
@@ -622,7 +745,8 @@ export function App({
           initialSourceId={organizeSourceId}
           onBack={() => setPage('sources')}
           onChanged={() => {
-            void refreshCounts();
+            /* 改的是题库/资料结构 → 卡片池必须重算（见 refreshData 注释） */
+            void refreshData();
             void refreshShellState();
           }}
           onOpenAnchor={(t) => {
@@ -639,7 +763,7 @@ export function App({
           knowledge={knowledge}
           backends={backends}
           initialDeckId={openedDeckId}
-          onGenerated={() => void refreshCounts()}
+          onGenerated={() => void refreshData()}
           onOpenSources={() => setPage('sources')}
           onOpenOrganize={(sourceId) => {
             setOrganizeSourceId(sourceId);
@@ -651,19 +775,20 @@ export function App({
             setPage('reader');
           }}
           onChanged={() => {
-            void refreshCounts();
+            /* 改的是题库/资料结构 → 卡片池必须重算（见 refreshData 注释） */
+            void refreshData();
             void refreshShellState();
           }}
         />
       ) : page === 'stats' ? (
-        <StatsPage service={reviewService} cardPool={cardPool} />
+        <StatsPage service={reviewService} cardPool={pool} />
       ) : page === 'settings' ? (
         <SettingsPage onChanged={() => void refreshShellState()} />
       ) : page === 'today' ? (
         <TodayPage
           key={poolKey}
           service={reviewService}
-          cardPool={cardPool}
+          cardPool={pool}
           hasSources={hasSources}
           connected={conn.connected}
           modelName={conn.modelName}
@@ -689,6 +814,7 @@ export function App({
           }}
           onOpenMap={() => setPage('flow')}
           onOpenWrongBook={() => setPage('wrongbook')}
+          onRefresh={() => void refreshData()}
           loadCards={loadCards}
           decks={decks}
           knowledge={knowledge}
@@ -709,7 +835,7 @@ export function App({
           knowledge={knowledge}
           backends={backends}
           initialCreate
-          onGenerated={() => void refreshCounts()}
+          onGenerated={() => void refreshData()}
           onOpenSources={() => setPage('sources')}
           onOpenOrganize={(sourceId) => {
             setOrganizeSourceId(sourceId);
@@ -721,7 +847,8 @@ export function App({
             setPage('reader');
           }}
           onChanged={() => {
-            void refreshCounts();
+            /* 改的是题库/资料结构 → 卡片池必须重算（见 refreshData 注释） */
+            void refreshData();
             void refreshShellState();
           }}
         />
