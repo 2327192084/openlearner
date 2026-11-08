@@ -814,7 +814,6 @@ export function App({
           }}
           onOpenMap={() => setPage('flow')}
           onOpenWrongBook={() => setPage('wrongbook')}
-          onRefresh={() => void refreshData()}
           loadCards={loadCards}
           decks={decks}
           knowledge={knowledge}
