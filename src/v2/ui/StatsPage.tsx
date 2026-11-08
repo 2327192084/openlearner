@@ -49,7 +49,7 @@ export function StatsPage({ service, cardPool }: StatsPageProps) {
       const [s, h, d, o] = await Promise.all([
         service.streakDays(),
         service.heatmap(12),
-        service.masteryDistribution(),
+        service.masteryDistribution(cardPool),
         service.todayOverview(cardPool),
       ]);
       setStreak(s);
@@ -184,6 +184,21 @@ export function StatsPage({ service, cardPool }: StatsPageProps) {
                 </div>
               ))}
             </div>
+
+            {/*
+              「已掌握」的门槛要写出来（2026-11-08）。
+
+              为什么必须有这行：上一轮把「已掌握」从「分数 >= 0.8」改成
+              「间隔 >= 21 天 且 连续答对 >= 2 且 分数 >= 0.85」之后，
+              用户看到的数字会比以前小。不解释原因的话，他会以为
+              「我明明练熟了，怎么掉下来了」—— 那是界面在偷偷改规则。
+
+              措辞用「要同时满足」，把三条都列出来，不藏。
+            */}
+            <p className="dist-note">
+              「已掌握」要同时满足：距下次复习还有 21 天以上、连续答对 2 次以上、
+              熟练度 85% 以上。只看分数会让「蒙对一次」也被算成掌握，所以加了前两条。
+            </p>
           </>
         )}
       </div>

@@ -266,4 +266,20 @@
     color: var(--text-dim);
     font-variant-numeric: tabular-nums;
   }
+
+  /*
+   * 「已掌握」的门槛说明（2026-11-08）。
+   *
+   * 为什么需要它：判定规则收紧后 (加入了「连续答对 >= 2」与「间隔 >= 21 天」)，
+   * 用户看到的已掌握数量会比以前少。不解释的话，他会以为自己的进度掉了 ——
+   * 那是界面偷偷改规则。
+   */
+  .dist-note {
+    margin-top: var(--space-3);
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--line);
+    font-size: var(--fs-xs, 11px);
+    color: var(--text-faint);
+    line-height: var(--lh-body);
+  }
 }

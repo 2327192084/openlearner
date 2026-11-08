@@ -298,7 +298,25 @@ export class ReviewService {
    * 分档用与显示一致的固定阈值：
    * 未学 0 / 薄弱 <0.3 / 学习中 <0.55 / 熟悉 <0.8 / 已掌握 ≥0.8
    */
-  async masteryDistribution(): Promise<{
+  /**
+   * 掌握度分布。
+   *
+   * @param cardPool 当前题库里的卡片 id。**必须传**（2026-11-08 修）。
+   *
+   * ## 为什么必须按池子过滤
+   *
+   * 原来这个方法遍历**全部** reviewRecords —— 包括「题已被删掉」的孤儿记录。
+   * 统计页上于是出现两个对不上的数字：
+   *   顶部「总卡片 16 张」（来自 cardPool，只含已发布题组的题）
+   *   分布「0+9+0+1+0 = 10 张」（来自全部记录，含已删除的 6 条）
+   * 用户看到两者差 6 张，会以为统计坏了。
+   *
+   * 这正是项目反复踩的坑：「同一屏的数字必须来自同一个池子」。
+   *
+   * @param cardPool 省略时退回旧行为（数全部记录）。
+   *   保留这个默认只为兼容尚未迁移的调用点 —— **新代码一律传**。
+   */
+  async masteryDistribution(cardPool?: readonly string[]): Promise<{
     unlearned: number;
     weak: number;
     learning: number;
@@ -306,8 +324,30 @@ export class ReviewService {
     mastered: number;
   }> {
     const records = await this.listRecords();
+    /*
+     * 只统计池子里的卡。
+     * 不传 cardPool 时不加这个限制（旧行为）；
+     * 传了就严格限定 —— 与 `todayOverview` 同一个口径。
+     */
+    const pool = cardPool ? new Set(cardPool) : null;
     const out = { unlearned: 0, weak: 0, learning: 0, familiar: 0, mastered: 0 };
+
+    /*
+     * ⚠️ 「从没练过」的卡不在 reviewRecords 里。
+     *
+     * 2026-11-08 查出的第二个问题：题库池 16 道、记录只有 10 条，
+     * 于是分布加起来是 10，而顶部写「总卡片 16 张」—— 差 6 张。
+     *
+     * 原因是 reviewRecords 只在**第一次复习时**才创建。
+     * 从没点过的题在里面根本没有条目，所以光遍历记录永远数不到它们。
+     *
+     * 修法：先按池子把「有记录的」分类，再把池子里没记录的补进 unlearned。
+     * 这样五档之和 == 池子大小，与顶部的「总卡片」永远一致。
+     */
+    const seen = new Set<string>();
     for (const r of records) {
+      if (pool && !pool.has(r.cardId)) continue;
+      seen.add(r.cardId);
       if (r.state.reviewCount === 0) {
         out.unlearned += 1;
         continue;
@@ -330,6 +370,20 @@ export class ReviewService {
       else if (m < 0.55) out.learning += 1;
       else out.familiar += 1;
     }
+
+    /*
+     * 池子里还没有任何复习记录的卡 → 一律算「未学」。
+     *
+     * 这一步是让「五档之和 == 池子大小」成立的关键。
+     * 少了它，从没练过的题在分布里凭空消失，
+     * 用户看到「总卡片 16 张」而五档加起来 10 张，会以为统计坏了。
+     */
+    if (pool) {
+      for (const cardId of pool) {
+        if (!seen.has(cardId)) out.unlearned += 1;
+      }
+    }
+
     return out;
   }
 

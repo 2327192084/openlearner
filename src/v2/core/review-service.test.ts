@@ -261,3 +261,72 @@ describe('错题集（从 reviewLogs 派生）', () => {
     expect(await svc.wrongCardsDetailed()).toEqual([]);
   });
 });
+
+/**
+ * 掌握度分布必须按卡片池过滤（2026-11-08 修）。
+ *
+ * 踩过的问题：统计页顶部写「总卡片 16 张」（来自 cardPool），
+ * 而分布数字加起来只有 10 —— 因为分布遍历了**全部** reviewRecords，
+ * 其中包括「题已被删掉」的孤儿记录。用户看到差 6 张，以为统计坏了。
+ *
+ * 这就是「同一屏的数字必须来自同一个池子」那条规矩的又一次验证。
+ */
+describe('masteryDistribution：按池子过滤', () => {
+  let storage: MemoryStorage;
+  let svc: ReviewService;
+
+  beforeEach(async () => {
+    storage = new MemoryStorage();
+    svc = new ReviewService(storage);
+    // 三条记录：两条在池子里，一条是已删除题的孤儿
+    await svc.review('q_keep_1', 'question', 'good', at);
+    await svc.review('q_keep_2', 'question', 'again', at);
+    await svc.review('q_deleted', 'question', 'good', at);
+  });
+
+  it('传池子时只数池子里的卡', async () => {
+    const dist = await svc.masteryDistribution(['q_keep_1', 'q_keep_2']);
+    const total = dist.unlearned + dist.weak + dist.learning + dist.familiar + dist.mastered;
+    expect(total).toBe(2);
+  });
+
+  it('不传池子时退回旧行为（数全部记录）', async () => {
+    const dist = await svc.masteryDistribution();
+    const total = dist.unlearned + dist.weak + dist.learning + dist.familiar + dist.mastered;
+    expect(total).toBe(3);
+  });
+
+  it('池子是空 → 全零（不是数出全部记录）', async () => {
+    const dist = await svc.masteryDistribution([]);
+    const total = dist.unlearned + dist.weak + dist.learning + dist.familiar + dist.mastered;
+    expect(total).toBe(0);
+  });
+
+  /*
+   * 这一条锁的是 2026-11-08 查出的第二个问题：
+   * 题库池 16 道、复习记录只有 10 条 —— 因为 reviewRecords 只在
+   * **第一次复习时**才创建，从没点过的题在里面没有条目。
+   *
+   * 于是分布五档加起来 10，而顶部写「总卡片 16 张」。
+   * 用户看到差 6 张会以为统计坏了。
+   *
+   * 修法：池子里没有记录的一律算「未学」，保证
+   * **五档之和 == 池子大小**，与顶部数字永远一致。
+   */
+  it('池子里没记录的卡算「未学」—— 五档之和等于池子大小', async () => {
+    // 只有 q_keep_1 有记录，但池子里有 5 道
+    const pool = ['q_keep_1', 'q_never_1', 'q_never_2', 'q_never_3', 'q_never_4'];
+    const dist = await svc.masteryDistribution(pool);
+    const total = dist.unlearned + dist.weak + dist.learning + dist.familiar + dist.mastered;
+
+    expect(total).toBe(pool.length);
+    // 四道没练过的都在「未学」里
+    expect(dist.unlearned).toBeGreaterThanOrEqual(4);
+  });
+
+  it('池子里全都没记录 → 全部算未学', async () => {
+    const dist = await svc.masteryDistribution(['a', 'b', 'c']);
+    expect(dist.unlearned).toBe(3);
+    expect(dist.weak + dist.learning + dist.familiar + dist.mastered).toBe(0);
+  });
+});
