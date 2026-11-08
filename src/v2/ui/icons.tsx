@@ -281,3 +281,20 @@ export const IconDoc = (p: IconProps) =>
 /** 对勾（已连接提示） */
 export const IconCheck = (p: IconProps) =>
   svg(<path d="M5 12.5l4.5 4.5L19 7.5" />, p);
+
+/**
+ * 回收站（2026-11-08）。
+ *
+ * 一个桶 + 盖子 + 两条竖线，线宽与其他图标一致（stroke-width 由 svg() 统一给）。
+ * 不画得太细：18px 下细节会糊成一团，桶身留空反而认得出来。
+ */
+export const IconTrash = (p: IconProps) =>
+  svg(
+    <>
+      <path d="M4 7h16" />
+      <path d="M9.5 7V5.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1V7" />
+      <path d="M6.5 7l.9 11.1a1.5 1.5 0 0 0 1.5 1.4h6.2a1.5 1.5 0 0 0 1.5-1.4L17.5 7" />
+      <path d="M10.5 11v5M13.5 11v5" />
+    </>,
+    p,
+  );

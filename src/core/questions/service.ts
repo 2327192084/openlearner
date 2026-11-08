@@ -2,6 +2,7 @@ import { newId, nowIso } from '../id.ts';
 import type {
   AnswerRecord,
   Deck,
+  GenerationRun,
   KnowledgePoint,
   Question,
   QuestionIssue,
@@ -11,6 +12,7 @@ import type {
 import type { StorageAdapter } from '../storage/types.ts';
 import { pointsToMaterials, toSourcePoint, type QuestionMaterial } from './materials.ts';
 import type { UsageService } from '../usage.ts';
+import type { TrashService } from '../trash.ts';
 import {
   DEFAULT_EXPORT_OPTIONS,
   exportFileName,
@@ -117,6 +119,8 @@ export class DeckService {
     private readonly storage: StorageAdapter,
     /** 用量记账，可选。不传就是不记账，业务行为不变（见 KnowledgeService 的说明） */
     private readonly usage?: UsageService,
+    /** 回收站（2026-11-08）。不传则删除不可恢复，生产代码都传 */
+    private readonly trash?: TrashService,
   ) {}
 
   /** 取下一个序号。首次调用时从库里扫一遍取最大值。 */
@@ -251,6 +255,37 @@ export class DeckService {
      * 「已保留在《xxx》，可以去继续编辑」。
      */
     let result;
+    /*
+     * 出题也要写一条 generationRuns（2026-11-08）。
+     *
+     * 为什么必须补：原来这张表只记「整理知识点」，出题完全不留痕。
+     * 后果不只是任务页少了 token —— 出题的耗时、失败原因、
+     * 「这批题是哪次跑出来的」全都查不到。真实数据里 11-08 那组题
+     * 花了 51861 token，任务页却显示「不知道」，就是这个缺口。
+     *
+     * 先写 running 再在成功/失败处更新，与 KnowledgeService 的做法一致：
+     * 中途崩掉也能留下一条「跑到一半」的记录，而不是凭空消失。
+     */
+    const runId = newId('run');
+    const runStartedAt = nowIso();
+    const run: GenerationRun = {
+      id: runId,
+      kind: 'questions',
+      sourceId: input.sourceId ?? '',
+      deckId,
+      pageRange: null,
+      status: 'running',
+      estimatedTokens: estimated,
+      actualTokens: null,
+      producedCount: 0,
+      unlocatedCount: 0,
+      error: null,
+      backendId: input.backend.id,
+      startedAt: runStartedAt,
+      finishedAt: null,
+    };
+    await this.storage.put('generationRuns', run);
+
     try {
       result = await input.backend.generate(sourcePoints, {
         ...input.options,
@@ -282,6 +317,20 @@ export class DeckService {
       };
       await this.storage.put('decks', partial);
 
+      /*
+       * 失败的 run 也要落状态。
+       *
+       * 不记的话任务页会永远显示这条 run 是「进行中」，
+       * 用户以为它还在跑，而实际上早就报错了 —— 那比没有记录更糟。
+       */
+      await this.storage.put('generationRuns', {
+        ...run,
+        status: 'failed',
+        producedCount: questions.length,
+        error: err instanceof Error ? err.message : String(err),
+        finishedAt: nowIso(),
+      });
+
       const wrapped = err instanceof Error ? err : new Error(String(err));
       // 挂在错误对象上，调用方读得到但不需要改所有 catch
       Object.assign(wrapped, {
@@ -304,7 +353,20 @@ export class DeckService {
     };
     await this.storage.put('decks', updated);
 
-    void estimated;
+    /*
+     * 补完这条 run（2026-11-08）。
+     *
+     * actualTokens 就是这个缺口的关键：原来出题的 token 只进了
+     * usageRecords（按天聚合的账），任务页拿不到「这一批题花了多少」。
+     * 现在写进 run，任务页能直接显示。
+     */
+    await this.storage.put('generationRuns', {
+      ...run,
+      status: result.stopped ? 'stopped' : 'completed',
+      actualTokens: result.actualTokens,
+      producedCount: questions.length,
+      finishedAt: nowIso(),
+    });
 
     /**
      * 记账。放在 deck 落库之后，理由同 KnowledgeService：
@@ -601,6 +663,23 @@ export class DeckService {
   async removeQuestion(id: string): Promise<void> {
     const existing = await this.storage.get('questions', id);
     if (!existing) return;
+
+    /*
+     * 收进回收站（2026-11-08）。
+     *
+     * 只收题目本身，不收作答记录 —— 那是「这道题我答错过几次」的历史，
+     * 还原题目后从零开始计数才符合直觉（错题本也不该因为一次误删
+     * 突然多出几条旧错题）。
+     */
+    await this.trash?.moveToTrash([
+      {
+        kind: 'questions',
+        title: existing.prompt.slice(0, 60),
+        summary: `第 ${existing.order + 1} 题 · ${existing.kind}`,
+        payload: existing,
+      },
+    ]);
+
     await this.storage.remove('questions', id);
     // 删题也要把它的作答记录清掉，否则错题本里会出现指向不存在题目的记录
     const records = await this.storage.getAll('answerRecords');
@@ -612,7 +691,33 @@ export class DeckService {
 
   /** 删除整个习题集（含题目与作答记录） */
   async removeDeck(deckId: string): Promise<void> {
+    const deck = await this.storage.get('decks', deckId);
     const questions = await this.getQuestions(deckId);
+
+    /*
+     * 整个题组收成**一条**回收站记录（2026-11-08）。
+     *
+     * 为什么不每题一条：一个 20 道的题组会在回收站里占 20 行，
+     * 用户分不清哪些是同一次删除。合成一条后「还原题组」是整体回来的，
+     * 那才符合直觉。
+     */
+    if (deck) {
+      await this.trash?.moveToTrash([
+        {
+          kind: 'decks',
+          title: deck.title,
+          summary: `${questions.length} 道题`,
+          payload: deck,
+        },
+        ...questions.map((q) => ({
+          kind: 'questions' as const,
+          title: '',
+          summary: '',
+          payload: q,
+        })),
+      ]);
+    }
+
     for (const q of questions) {
       await this.storage.remove('questions', q.id);
     }

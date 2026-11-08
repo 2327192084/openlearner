@@ -11,6 +11,7 @@ import type { NoteService } from '@/core/notes.ts';
 import type { ExamService } from '@/core/exam.ts';
 import type { TodoService } from '@/core/todos.ts';
 import type { FocusService } from '@/core/focus.ts';
+import type { TrashService } from '@/core/trash.ts';
 
 /**
  * 应用运行时上下文。
@@ -35,6 +36,13 @@ export interface AppServices {
   todos: TodoService;
   /** 专注记录（番茄钟） */
   focus: FocusService;
+  /**
+   * 回收站（2026-11-08）。
+   *
+   * 所有删除动作都经过它：删除 → 进回收站 → 30 天后彻底删。
+   * 它也负责「启动时扫一遍」与「距过期 24 小时提醒」。
+   */
+  trash: TrashService;
   /** P2：知识点整理与校对 */
   knowledge: KnowledgeService;
   /** P3：习题集、作答与错题 */

@@ -22,6 +22,9 @@ import { SourcesPage } from './SourcesPage.tsx';
 import { DecksPage } from './DecksPage.tsx';
 import { StudyPage } from './StudyPage.tsx';
 import { KnowledgePage } from './KnowledgePage.tsx';
+import { TrashPage } from './TrashPage.tsx';
+import { DEFAULT_WIDGETS, widgetsFromSettings, type HomeWidget } from './home-widgets.ts';
+import type { Todo } from '@/core/model.ts';
 import { StatsPage } from './StatsPage.tsx';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { DeckService } from '@/core/questions/service.ts';
@@ -238,7 +241,60 @@ export function App({
     exam: examService,
     todos: todoService,
     focus: focusService,
+    trash: trashService,
+    knowledge: knowledgeService,
   } = useServices();
+
+  /**
+   * 回收站角标数字（2026-11-08）：有多少项「距彻底删除不到 24 小时」。
+   *
+   * 为什么需要它：用户不一定会主动点开回收站。
+   * 角标是唯一能让他注意到「有东西明天就要没了」的地方。
+   */
+  const [trashBadge, setTrashBadge] = useState(0);
+  const refreshTrashBadge = useCallback(async () => {
+    try {
+      const soon = await trashService.pendingReminders();
+      setTrashBadge(soon.length);
+    } catch {
+      // 读不到就不显示角标，不要把数字清零假装没有 —— 保持原样更诚实
+    }
+  }, [trashService]);
+
+  /**
+   * 启动时扫一遍回收站（2026-11-08，用户要求）。
+   *
+   * 做两件事：
+   *  1. 把已过期（>30 天）的彻底删掉
+   *  2. 把「距过期 <24 小时」的数量报出来，让人看到提醒
+   *
+   * 为什么用 useEffect 而不是定时器：这个应用不常驻后台，
+   * 关着的时候定时器不会跑。启动时扫一遍保证每次打开都清理，
+   * 语义也更简单 —— 30 天的窗口，用户一个月内总会开一次。
+   */
+  const [trashNotice, setTrashNotice] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await trashService.sweep();
+        if (cancelled) return;
+        await refreshTrashBadge();
+        if (cancelled) return;
+        if (r.reminded > 0) {
+          setTrashNotice(
+            `回收站里有 ${r.reminded} 项还剩不到 24 小时就会被彻底删除。` +
+              `想留的话现在还能还原。`,
+          );
+        }
+      } catch {
+        // 清扫失败不该拦住用户用应用
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [trashService, refreshTrashBadge]);
 
   /**
    * 后端状态与库名的本地副本。
@@ -252,6 +308,26 @@ export function App({
     modelName: modelName ?? null,
   });
   const [libName, setLibName] = useState('openleaner');
+
+  /**
+   * 首页小组件配置（2026-11-08）。
+   *
+   * 为什么在这里读而不是让 TodayPage 自己读：
+   *  - 设置页改完要能让首页立刻反映（同一个状态源）
+   *  - 待办数据也要一并给（todo 小组件用）
+   *  - TodayPage 是个纯展示组件，不该再连库
+   */
+  const [homeWidgets, setHomeWidgets] = useState<HomeWidget[]>(() => [...DEFAULT_WIDGETS]);
+  const [homeTodos, setHomeTodos] = useState<Todo[]>([]);
+  const refreshHomeWidgets = useCallback(async () => {
+    try {
+      const [settings, list] = await Promise.all([library.getSettings(), todoService.list()]);
+      setHomeWidgets(widgetsFromSettings(settings));
+      setHomeTodos(list);
+    } catch {
+      // 读不到就保持默认的每日一句，不让首页空着
+    }
+  }, [library, todoService]);
 
   const refreshShellState = useCallback(async () => {
     try {
@@ -270,7 +346,8 @@ export function App({
 
   useEffect(() => {
     void refreshShellState();
-  }, [refreshShellState]);
+    void refreshHomeWidgets();
+  }, [refreshShellState, refreshHomeWidgets]);
 
   /**
    * 侧栏计数。
@@ -556,7 +633,37 @@ export function App({
       connected={conn.connected}
       libraryName={libName}
       reviewProgress={null}
+      trashBadge={trashBadge}
     >
+      {/*
+        回收站提醒条（2026-11-08）。
+        用户要求「距过期 24 小时时弹出提醒」。做成顶部横幅而不是模态框：
+        模态框会打断正在做的事，而这件事没那么紧急 —— 还有一天。
+        横幅随时可关，点「去回收站」直接跳过去。
+      */}
+      {trashNotice ? (
+        <div className="trash-notice" role="status">
+          <span className="trash-notice__text">{trashNotice}</span>
+          <button
+            type="button"
+            className="trash-notice__go"
+            onClick={() => {
+              setTrashNotice(null);
+              void navigate('trash');
+            }}
+          >
+            去回收站
+          </button>
+          <button
+            type="button"
+            className="trash-notice__close"
+            aria-label="关掉这条提醒"
+            onClick={() => setTrashNotice(null)}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
       {page === 'board' ? (
         <BoardPage
           todos={todoService}
@@ -626,12 +733,24 @@ export function App({
           sourceService={sourceService}
           decks={decks}
           usage={usageService}
-          knowledge={knowledge}
+          knowledge={knowledgeService}
           onOpenOrganize={(sourceId) => {
             setOrganizeSourceId(sourceId);
             setPage('organize');
           }}
           onOpenDecks={() => setPage('decks')}
+          /*
+            任务记录删除（2026-11-08）。
+            只删记录，不动知识点/题目 —— 服务层注释里写了理由。
+          */
+          onRemoveRun={async (id) => {
+            await knowledgeService.removeRun(id);
+            void refreshTrashBadge();
+          }}
+          onClearRuns={async () => {
+            await knowledgeService.clearRuns();
+            void refreshTrashBadge();
+          }}
         />
       ) : page === 'skeleton' ? (
         <SkeletonPage
@@ -690,6 +809,32 @@ export function App({
           onOpenOrganize={(sourceId) => {
             setOrganizeSourceId(sourceId);
             setPage('organize');
+          }}
+          /*
+            知识点删除（2026-11-08）。
+            走 knowledgeService.remove —— 那条路径已经接了回收站，
+            所以误删能还原。删完要刷新壳层计数（知识库数字会变）。
+          */
+          onRemovePoint={async (id) => {
+            await knowledgeService.remove(id);
+            void refreshShellState();
+            void refreshTrashBadge();
+          }}
+          onRemoveSourcePoints={async (sourceId) => {
+            /*
+              「删掉一份资料的全部知识点」有两种来源：
+              - 有归属资料 → clearBySource
+              - 没有归属（sourceId 为 null）→ 只有「已删除的资料」那一组会这样，
+                这时按列表里的孤儿知识点逐条删
+            */
+            if (sourceId) {
+              await knowledgeService.clearBySource(sourceId);
+            } else {
+              const orphans = (await knowledgeService.listAll()).filter((p) => !p.sourceId);
+              for (const p of orphans) await knowledgeService.remove(p.id);
+            }
+            void refreshShellState();
+            void refreshTrashBadge();
           }}
         />
       ) : page === 'study' ? (
@@ -805,6 +950,16 @@ export function App({
         <StatsPage service={reviewService} cardPool={pool} />
       ) : page === 'settings' ? (
         <SettingsPage onChanged={() => void refreshShellState()} />
+      ) : page === 'trash' ? (
+        <TrashPage
+          trash={trashService}
+          onChanged={() => {
+            // 还原会让题数、知识点数变化，和别的删除一样要刷新
+            void refreshData();
+            void refreshShellState();
+            void refreshTrashBadge();
+          }}
+        />
       ) : page === 'today' ? (
         <TodayPage
           key={poolKey}
@@ -839,6 +994,11 @@ export function App({
           decks={decks}
           knowledge={knowledge}
           sourceService={sourceService}
+          widgets={homeWidgets}
+          todos={homeTodos}
+          onOpenBoard={() => setPage('board')}
+          onStartFocus={() => setPage('focus')}
+          onOpenSettings={() => setPage('settings')}
         />
       ) : page === 'generate' ? (
         /*
@@ -911,6 +1071,7 @@ function Placeholder({ page, onBack }: { page: PageId; onBack: () => void }) {
     reader: '阅读原文',
     practice: '做题中',
     guide: '功能导览',
+    trash: '回收站',
     settings: '设置',
   };
 

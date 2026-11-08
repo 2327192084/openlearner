@@ -20,6 +20,7 @@
 
 import type { Todo } from '@/core/model.ts';
 import type { StorageAdapter } from '@/core/storage/types.ts';
+import type { TrashService } from '@/core/trash.ts';
 import { newId, nowIso } from '@/core/id.ts';
 
 export interface TodoInput {
@@ -31,7 +32,11 @@ export interface TodoInput {
 }
 
 export class TodoService {
-  constructor(private readonly storage: StorageAdapter) {}
+  constructor(
+    private readonly storage: StorageAdapter,
+    /** 回收站（2026-11-08），可选。不传则删除不可恢复 */
+    private readonly trash?: TrashService,
+  ) {}
 
   /**
    * 全部待办，按展示顺序排好。
@@ -131,6 +136,17 @@ export class TodoService {
   }
 
   async remove(id: string): Promise<void> {
+    const existing = await this.storage.get('todos', id);
+    if (existing) {
+      await this.trash?.moveToTrash([
+        {
+          kind: 'todos',
+          title: existing.title.slice(0, 60),
+          summary: existing.done ? '已完成' : '未完成',
+          payload: existing,
+        },
+      ]);
+    }
     await this.storage.remove('todos', id);
   }
 
@@ -138,6 +154,28 @@ export class TodoService {
   async clearDone(): Promise<number> {
     const all = await this.storage.getAll('todos');
     const done = all.filter((t) => t.done);
+
+    /*
+     * 「清掉已完成」也进回收站（2026-11-08）：这个动作一次删多条，
+     * 用户点错了就没有退路。合成一条记录，还原时整体回来。
+     */
+    if (done.length > 0) {
+      await this.trash?.moveToTrash([
+        {
+          kind: 'todos',
+          title: '已完成待办',
+          summary: `${done.length} 条`,
+          payload: done[0],
+        },
+        ...done.slice(1).map((t) => ({
+          kind: 'todos' as const,
+          title: '',
+          summary: '',
+          payload: t,
+        })),
+      ]);
+    }
+
     for (const t of done) await this.storage.remove('todos', t.id);
     return done.length;
   }

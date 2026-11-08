@@ -376,3 +376,138 @@
   color: var(--ok);
 
 }
+
+/* ==========================================================================
+   首页右侧自定义小组件（2026-11-08）
+   ==========================================================================
+
+   为什么写在这里而不是新文件：这些卡片复用 `.paper` 那套纸面色，
+   和原来的「下一步」是同一种视觉，放在一起改色值不会漏。
+   -------------------------------------------------------------------------- */
+
+.home-widgets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+  /* 关掉父层叠纸装饰：见下方 .today-stack 的说明 */
+  position: relative;
+  z-index: 1;
+}
+
+/*
+ * 叠纸装饰只对**单张纸**成立（2026-11-08 截图发现的问题）。
+ *
+ * `.paper` 的父容器 `.today-stack` 上有一对 `::before/::after` 伪元素：
+ * 两张半透明米色衬纸，铺满整个容器（rotate 3.6° / 1.6° 制造「一叠纸」效果）。
+ * 原来容器里只有一张纸，衬纸正好垫在它后面，看不出问题。
+ *
+ * 现在容器里有多张小组件卡 —— 衬纸盖在了第二张卡**上面**
+ * （因为伪元素 z-index:0，而 `.today-stack > .paper` 只给直接子元素 z-index:1，
+ * 我这里的卡片套在 `.home-widgets` 里，不是直接子元素）。
+ * 表现是第二张卡的字被一层米色蒙住，截图里几乎看不清。
+ *
+ * 修法：让 `.home-widgets` 自身建立层叠上下文并压到衬纸之上，
+ * 同时保证每张卡有不透明底 —— 这样无论放几张卡都不会被盖住。
+ */
+.today-stack:has(.home-widgets)::before,
+.today-stack:has(.home-widgets)::after {
+  /* 多卡场景下这两张衬纸只会添乱，直接不显示 */
+  display: none;
+}
+
+.home-widgets .paper,
+.home-widgets .home-widget {
+  /* 每张卡自己有不透明底，不依赖父层衬纸 */
+  background: var(--paper);
+  color: var(--paper-ink);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+
+/* 每张卡内部的标题与文字用纸面墨色，不继承外层深色主题的浅字 */
+.home-widget .paper__eyebrow,
+.home-widget .paper__big,
+.home-widget .paper__unit {
+  color: var(--paper-dim);
+}
+
+/* 每张卡沿用 .paper 的底，只补内部排版 */
+.home-widget {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+}
+
+.home-widget__quote {
+  margin: 0;
+  font-size: var(--font-md, 15px);
+  line-height: 1.9;
+  color: var(--paper-ink, #2b2723);
+  /* 中文引文不用首行缩进，但给一点字距会更像格言 */
+  letter-spacing: 0.01em;
+}
+
+.home-widget__text {
+  margin: 0;
+  font-size: var(--font-sm, 14px);
+  line-height: 1.9;
+  color: var(--paper-ink, #2b2723);
+  /* 用户可能写多行（座右铭/单词表），保留换行 */
+  white-space: pre-wrap;
+}
+
+.home-widget__empty {
+  margin: 0;
+  font-size: var(--font-sm, 13px);
+  line-height: 1.7;
+  color: color-mix(in srgb, var(--paper-ink, #2b2723) 55%, transparent);
+}
+
+.home-widget__todos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.home-widget__todos li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: var(--font-sm, 13px);
+  color: var(--paper-ink, #2b2723);
+}
+
+.home-widget__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--paper-ink, #2b2723) 45%, transparent);
+  flex: 0 0 auto;
+}
+
+.home-widget__todo-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-widget__due {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--paper-ink, #2b2723) 50%, transparent);
+}
+
+/* 卡片内的链接/按钮：原生 button，配色规则放 trash-page.css（层外） */
+.home-widget__link,
+.home-widget__go {
+  align-self: flex-start;
+}
+
+.home-widgets__edit {
+  align-self: flex-start;
+}

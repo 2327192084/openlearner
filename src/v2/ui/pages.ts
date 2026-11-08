@@ -17,6 +17,7 @@ import {
   IconStats,
   IconTarget,
   IconTasks,
+  IconTrash,
   IconWrongbook,
 } from './icons.tsx';
 
@@ -58,6 +59,7 @@ export type PageId =
   | 'reader'
   | 'guide'
   | 'practice'
+  | 'trash'
   | 'settings';
 
 export type NavGroup = 'daily' | 'staged' | 'prep';
@@ -331,6 +333,14 @@ export const FOOT_ITEMS: { id: PageId; label: string; icon: (p: { size?: number 
 ];
 
 export const SETTINGS_ITEM = { id: 'settings' as PageId, label: '设置', icon: IconSettings };
+
+/**
+ * 回收站（2026-11-08）。
+ *
+ * 放底部固定区、与设置并排：它不是日常学习流程的一环，
+ * 而是「误删后回来找」的兜底入口。
+ */
+export const TRASH_ITEM = { id: 'trash' as PageId, label: '回收站', icon: IconTrash };
 export const BACK_ICON = IconBack;
 
 /**
@@ -341,6 +351,16 @@ export const BACK_ICON = IconBack;
  * 否则顶栏标题会回退成错的页名（曾经显示成「设置」）。
  */
 const OFF_NAV: Partial<Record<PageId, PageDef>> = {
+  trash: {
+    id: 'trash',
+    label: '回收站',
+    title: '回收站',
+    icon: IconTrash,
+    purpose: '删掉的资料、知识点、题组先放这里，30 天后彻底删除，期间可以还原',
+    group: 'prep',
+    show: false,
+    ready: true,
+  },
   /**
    * 「开始学习」导览页。
    *

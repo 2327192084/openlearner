@@ -1,0 +1,406 @@
+/**
+ * 回收站样式（2026-11-08）。
+ *
+ * ## ⚠️ 原生控件样式写在 @layer 外面 —— 这是硬约束
+ *
+ * `src/styles/base.css` 里有一条**不在任何 @layer 内**的规则：
+ *
+ *     button, input, select, textarea { font: inherit; color: inherit; }
+ *     button { cursor: pointer; }
+ *     button:disabled { cursor: not-allowed; }
+ *
+ * CSS 级联是「层级先于特异性」：无层级的规则永远赢 @layer 里的规则。
+ * 项目里因此踩过六次（刷新按钮继承了 h1 字号、资料页按钮变浏览器灰底）。
+ *
+ * 本文件里的 `.trash-btn` 都是原生 `<button>`，所以**一条都不能进层**。
+ */
+
+.trash-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 16px);
+  padding: var(--space-5, 24px);
+  max-width: 980px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.trash-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+}
+
+.trash-title {
+  font-size: var(--font-2xl, 24px);
+  font-weight: 600;
+  color: var(--text-1, #efe9df);
+  margin: 0;
+}
+
+.trash-lead {
+  font-size: var(--font-sm, 13px);
+  color: var(--text-2, #b9b2a8);
+  margin: 0;
+  line-height: 1.7;
+}
+
+.trash-lead strong {
+  color: var(--text-1, #efe9df);
+}
+
+.trash-hint,
+.trash-error {
+  font-size: var(--font-sm, 13px);
+  color: var(--text-3, #8d857b);
+  margin: 0;
+}
+
+.trash-error {
+  color: var(--c-danger, #d9534f);
+}
+
+.trash-empty {
+  border: 1px dashed var(--line-subtle, rgba(255, 255, 255, 0.12));
+  border-radius: var(--radius-3, 10px);
+  padding: var(--space-6, 32px);
+  text-align: center;
+  color: var(--text-2, #b9b2a8);
+  font-size: var(--font-sm, 13px);
+}
+
+.trash-empty__sub {
+  color: var(--text-3, #8d857b);
+  margin-top: var(--space-2, 8px);
+  font-size: var(--font-xs, 12px);
+}
+
+.trash-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3, 12px);
+  padding-bottom: var(--space-2, 8px);
+  border-bottom: 1px solid var(--line-subtle, rgba(255, 255, 255, 0.08));
+}
+
+.trash-bar__count {
+  font-size: var(--font-sm, 13px);
+  color: var(--text-2, #b9b2a8);
+}
+
+.trash-bar__urgent {
+  color: var(--c-warn, #e0a03b);
+}
+
+/* ---------- 列表 ---------- */
+
+.trash-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+}
+
+.trash-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4, 16px);
+  padding: var(--space-3, 12px) var(--space-4, 16px);
+  border: 1px solid var(--line-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-3, 10px);
+  background: var(--surface-2, rgba(255, 255, 255, 0.02));
+}
+
+/* 快过期的给一条左侧色带，扫一眼能看出来 */
+.trash-item--urgent {
+  border-left: 3px solid var(--c-warn, #e0a03b);
+}
+
+.trash-item__main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.trash-item__top {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2, 8px);
+  min-width: 0;
+}
+
+.trash-item__kind {
+  flex: 0 0 auto;
+  font-size: var(--font-xs, 12px);
+  color: var(--text-3, #8d857b);
+  border: 1px solid var(--line-subtle, rgba(255, 255, 255, 0.12));
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.trash-item__title {
+  font-size: var(--font-md, 14px);
+  color: var(--text-1, #efe9df);
+  /*
+   * 标题可能很长（知识点整句）。截断而不是换行，
+   * 否则一条记录会占掉半屏，用户扫不了列表。
+   * 完整内容还原后就能看到。
+   */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trash-item__meta {
+  margin: 0;
+  font-size: var(--font-xs, 12px);
+  color: var(--text-3, #8d857b);
+  line-height: 1.6;
+}
+
+.trash-item__remain {
+  margin-left: var(--space-2, 8px);
+}
+
+.trash-item__remain.is-urgent {
+  color: var(--c-warn, #e0a03b);
+  font-weight: 600;
+}
+
+.trash-item__skipped {
+  margin: 4px 0 0;
+  padding-left: 1.2em;
+  font-size: var(--font-xs, 12px);
+  color: var(--text-3, #8d857b);
+  line-height: 1.7;
+}
+
+.trash-item__skipped strong {
+  color: var(--text-2, #b9b2a8);
+}
+
+.trash-item__attach {
+  margin: 4px 0 0;
+  font-size: var(--font-xs, 12px);
+  color: var(--text-3, #8d857b);
+}
+
+.trash-item__actions {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+}
+
+/* ---------- 按钮（层外！见文件头） ---------- */
+
+.trash-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--line-strong, rgba(255, 255, 255, 0.18));
+  background: transparent;
+  color: var(--text-1, #efe9df);
+  font-size: var(--font-sm, 13px);
+  font-family: inherit;
+  line-height: 1.4;
+  padding: 6px 14px;
+  border-radius: var(--radius-2, 6px);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.trash-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text-1, #efe9df) 8%, transparent);
+}
+
+.trash-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.trash-btn--danger {
+  border-color: color-mix(in srgb, var(--c-danger, #d9534f) 55%, transparent);
+  color: var(--c-danger, #d9534f);
+}
+
+.trash-btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--c-danger, #d9534f) 14%, transparent);
+}
+
+/* ---------- 顶部提醒条里的两个按钮（层外！见文件头） ---------- */
+
+/*
+ * ⚠️ 这两个是原生 <button>。base.css 里有**无层级**的
+ * `button { font: inherit; color: inherit; cursor: pointer }`，
+ * 所以配色必须写在这里（层外），否则设了颜色也不生效。
+ */
+
+.trash-notice__go {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid color-mix(in srgb, var(--c-warn, #e0a03b) 60%, transparent);
+  background: transparent;
+  color: var(--text-1, #efe9df);
+  font-family: inherit;
+  font-size: var(--font-sm, 13px);
+  line-height: 1.4;
+  padding: 4px 12px;
+  border-radius: var(--radius-2, 6px);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.trash-notice__go:hover {
+  background: color-mix(in srgb, var(--c-warn, #e0a03b) 22%, transparent);
+}
+
+.trash-notice__close {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-3, #8d857b);
+  font-family: inherit;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: var(--radius-2, 6px);
+  cursor: pointer;
+}
+
+.trash-notice__close:hover {
+  color: var(--text-1, #efe9df);
+  background: color-mix(in srgb, var(--text-1, #efe9df) 10%, transparent);
+}
+
+/* 知识点页的两个删除按钮（层外，同理） */
+
+.kb-point__remove {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-3, #8d857b);
+  font-family: inherit;
+  font-size: var(--font-xs, 12px);
+  line-height: 1.4;
+  padding: 2px 8px;
+  border-radius: var(--radius-2, 6px);
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.kb-point__remove:hover {
+  color: var(--c-danger, #d9534f);
+  background: color-mix(in srgb, var(--c-danger, #d9534f) 12%, transparent);
+}
+
+.kb-file__remove {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--line-subtle, rgba(255, 255, 255, 0.12));
+  background: transparent;
+  color: var(--text-3, #8d857b);
+  font-family: inherit;
+  font-size: var(--font-xs, 12px);
+  line-height: 1.5;
+  padding: 4px 10px;
+  border-radius: var(--radius-2, 6px);
+  cursor: pointer;
+  margin-bottom: var(--space-2, 8px);
+}
+
+.kb-file__remove:hover {
+  color: var(--c-danger, #d9534f);
+  border-color: color-mix(in srgb, var(--c-danger, #d9534f) 50%, transparent);
+}
+
+.kb-remove-error {
+  margin: 8px 0 0;
+  font-size: var(--font-sm, 13px);
+  color: var(--c-danger, #d9534f);
+}
+
+/* ---------- 首页小组件里的按钮（层外！见文件头） ---------- */
+
+.home-widget__link,
+.home-widget__go,
+.home-widgets__edit {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  color: color-mix(in srgb, var(--paper-ink, #2b2723) 70%, transparent);
+  font-family: inherit;
+  font-size: var(--font-xs, 12px);
+  line-height: 1.5;
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+.home-widget__link:hover,
+.home-widgets__edit:hover {
+  color: var(--paper-ink, #2b2723);
+  text-decoration: underline;
+}
+
+.home-widget__go {
+  border: 1px solid color-mix(in srgb, var(--paper-ink, #2b2723) 25%, transparent);
+  border-radius: var(--radius-2, 6px);
+  padding: 4px 12px;
+  color: var(--paper-ink, #2b2723);
+}
+
+.home-widget__go:hover {
+  background: color-mix(in srgb, var(--paper-ink, #2b2723) 8%, transparent);
+}
+
+/* 任务页的删除按钮与清空按钮（层外，同理） */
+
+.tk-remove {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-3, #8d857b);
+  font-family: inherit;
+  font-size: var(--font-xs, 12px);
+  line-height: 1.4;
+  padding: 2px 8px;
+  border-radius: var(--radius-2, 6px);
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.tk-remove:hover {
+  color: var(--c-danger, #d9534f);
+  background: color-mix(in srgb, var(--c-danger, #d9534f) 12%, transparent);
+}
+
+.tk-clear {
+  appearance: none;
+  -webkit-appearance: none;
+  align-self: flex-start;
+  border: 1px solid var(--line-subtle, rgba(255, 255, 255, 0.12));
+  background: transparent;
+  color: var(--text-3, #8d857b);
+  font-family: inherit;
+  font-size: var(--font-xs, 12px);
+  line-height: 1.5;
+  padding: 4px 10px;
+  border-radius: var(--radius-2, 6px);
+  cursor: pointer;
+  margin-top: var(--space-2, 8px);
+}
+
+.tk-clear:hover {
+  color: var(--c-danger, #d9534f);
+  border-color: color-mix(in srgb, var(--c-danger, #d9534f) 50%, transparent);
+}

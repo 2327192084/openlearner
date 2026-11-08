@@ -35,6 +35,9 @@ import type { SourceService } from '@/core/sources.ts';
 import type { CardLoader } from './cards-loader.ts';
 import { buildSnapshot, type StudySnapshot } from './study-snapshot.ts';
 import { IconCheck, IconUpload } from './icons.tsx';
+import { HomeWidgets } from './HomeWidgets.tsx';
+import { DEFAULT_WIDGETS, type HomeWidget } from './home-widgets.ts';
+import type { Todo } from '@/core/model.ts';
 
 export interface TodayPageProps {
   service: ReviewService;
@@ -61,6 +64,21 @@ export interface TodayPageProps {
   decks: DeckService;
   knowledge: KnowledgeService;
   sourceService: SourceService;
+  /**
+   * 右侧自定义小组件（2026-11-08）。
+   *
+   * 不传则用默认的一个「每日一句」—— 首页右侧不能空着。
+   * 从 settings 读出来的原始配置由 home-widgets.ts 的 normalizeWidgets 规整。
+   */
+  widgets?: HomeWidget[];
+  /** 未完成的待办，给 todo 小组件用 */
+  todos?: Todo[];
+  /** 打开待办页 */
+  onOpenBoard?: () => void;
+  /** 打开专注页（番茄钟小组件） */
+  onStartFocus?: () => void;
+  /** 打开设置页去编辑小组件 */
+  onOpenSettings?: () => void;
 }
 
 /** 错题预览一项 */
@@ -87,6 +105,11 @@ export function TodayPage(props: TodayPageProps) {
     decks,
     knowledge,
     sourceService,
+    widgets = DEFAULT_WIDGETS,
+    todos = [],
+    onOpenBoard,
+    onStartFocus,
+    onOpenSettings,
   } = props;
 
   const [overview, setOverview] = useState<TodayOverview | null>(null);
@@ -266,6 +289,27 @@ export function TodayPage(props: TodayPageProps) {
                 <div className="today__next-hint">休息一下，明天再来</div>
               </>
             )}
+            {/*
+              主操作按钮（2026-11-08 补回）。
+              右侧那张「下一步」卡片已经换成用户自定义小组件，
+              如果这里不补按钮，「开始复习」这个主入口就没有了 ——
+              那是把功能做没了，比重复显示更糟。
+            */}
+            {overview.dueCount > 0 ? (
+              <button type="button" className="btn-fill today__next-go" onClick={onStartReview}>
+                开始复习
+                <span className="btn-fill__arrow" aria-hidden="true">
+                  →
+                </span>
+              </button>
+            ) : overview.freshCount > 0 ? (
+              <button type="button" className="btn-fill today__next-go" onClick={onOpenDecks}>
+                挑一组开始
+                <span className="btn-fill__arrow" aria-hidden="true">
+                  →
+                </span>
+              </button>
+            ) : null}
           </div>
 
           <div className="today__stats">
@@ -370,45 +414,31 @@ export function TodayPage(props: TodayPageProps) {
         </section>
       </div>
 
-      {/* ==================== 右侧：下一步 ==================== */}
+      {/*
+        ==================== 右侧：自定义小组件（2026-11-08 改） ====================
+
+        原来这里是一张固定的「下一步」纸卡：显示「N 张没学过」+
+        「去我的题组挑一组开始练」。而左侧主区**已经在说同一件事**
+        （「今天没有到期的，还有 N 张新卡没学过」/「在『我的题组』里挑一组开始」）
+        —— 同一屏两组数字重复。
+
+        现在换成用户自定义的小组件：座右铭 / 每日一句 / 待办 / 番茄钟。
+        默认放一个「每日一句」（用户要求「默认放一个每日鸡汤」）。
+
+        ## 但「下一步」这个信息没有丢
+
+        复习/练题的主入口还在 —— 左侧「今天的安排」区块本来就有
+        到期数与「我的题组」入口，数字也来自同一个 overview。
+        这里不再重复一遍，避免同一屏说两遍。
+      */}
       <div className="today-stack">
-        <div className="paper">
-          <div className="paper__eyebrow">下一步</div>
-          {overview.dueCount > 0 ? (
-            <>
-              <div className="paper__big">{overview.dueCount}</div>
-              <div className="paper__unit">张待复习</div>
-              <div className="paper__dim paper__note">做完这一轮，看看还剩多少</div>
-              <button type="button" className="btn-fill" onClick={onStartReview}>
-                开始复习
-                <span className="btn-fill__arrow" aria-hidden="true">
-                  →
-                </span>
-              </button>
-            </>
-          ) : overview.freshCount > 0 ? (
-            <>
-              <div className="paper__big">{overview.freshCount}</div>
-              <div className="paper__unit">张没学过</div>
-              <div className="paper__dim paper__note">去「我的题组」挑一组开始练</div>
-              <button type="button" className="btn-fill" onClick={onOpenDecks}>
-                挑一组开始
-                <span className="btn-fill__arrow" aria-hidden="true">
-                  →
-                </span>
-              </button>
-            </>
-          ) : (
-            <>
-              <div className="paper__big paper__big--muted">✓</div>
-              <div className="paper__unit">今天清空了</div>
-              <div className="paper__dim paper__note">明天会有新的到期卡片</div>
-              <button type="button" className="btn-fill" disabled>
-                已完成
-              </button>
-            </>
-          )}
-        </div>
+        <HomeWidgets
+          widgets={widgets}
+          todos={todos}
+          onOpenTodos={onOpenBoard}
+          onStartFocus={onStartFocus}
+          onOpenSettings={onOpenSettings}
+        />
 
         {snapshot && snapshot.wrongIds.size > 0 ? (
           <button type="button" className="paper-side" onClick={onOpenWrongBook}>

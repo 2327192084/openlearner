@@ -12,8 +12,9 @@
  * 当前学习库结构版本。改动实体结构时递增，并在 migrations.ts 补一段迁移。
  *
  * v15：新增 sourceImages（MinerU 转换出的教材插图，2026-11-08）
+ * v16：新增 trash（回收站，2026-11-08）
  */
-export const LIBRARY_SCHEMA_VERSION = 15;
+export const LIBRARY_SCHEMA_VERSION = 16;
 
 /**
  * 位置信息 —— 全项目「点回原文」的唯一依据。
@@ -183,8 +184,26 @@ export interface KnowledgePoint {
  */
 export interface GenerationRun {
   id: string;
+  /**
+   * 这次任务是干什么的（2026-11-08 加）。
+   *
+   * 为什么必须加：原来这张表只记「整理知识点」，出题流程根本不写它，
+   * 于是任务页拿不到出题的 token 与耗时 —— 用户看到的「最近一次任务
+   * 没统计 token」就是这个原因（真实数据里出题确实记了 51861 token，
+   * 只是记在 usageRecords，任务页关联不上）。
+   *
+   * 旧数据没有这个字段，读取时按 'organize' 处理（那时候只有整理会写）。
+   */
+  kind?: 'organize' | 'questions' | 'slides';
   /** 归属资料（P2 阶段一次只处理一份） */
   sourceId: string;
+  /**
+   * 出题任务产出的题组（2026-11-08 加）。
+   *
+   * 只有 kind === 'questions' 时有值。任务页据此显示
+   * 「点这个题组」而不是「点这份资料」。
+   */
+  deckId?: string | null;
   /** 页码范围，null 表示整份 */
   pageRange: { from: number; to: number } | null;
   status: 'running' | 'completed' | 'stopped' | 'failed';
@@ -192,7 +211,7 @@ export interface GenerationRun {
   estimatedTokens: number | null;
   /** 实际用量，生成后显示 */
   actualTokens: number | null;
-  /** 产出的知识点条数 */
+  /** 产出的条数：整理是知识点数，出题是题目数 */
   producedCount: number;
   /** 定位失败的条数，便于界面直接提示 */
   unlocatedCount: number;
@@ -958,6 +977,18 @@ export interface AppSettings {
    * 旧备份里没有这个字段，读取时由 `normalizeGradingRules` 兜底成默认值。
    */
   gradingRules: import('../v2/core/grading.ts').GradingRules;
+  /**
+   * 首页右侧的小组件（2026-11-08）。
+   *
+   * 原来的固定「下一步」卡片与左侧主区重复显示同一组数字，
+   * 改成用户可自定义：座右铭 / 每日一句 / 待办 / 番茄钟。
+   *
+   * 类型写成 unknown 而不是 HomeWidget[]：
+   * model.ts 是最底层的模块，不该 import v2/ui 的类型（会形成循环依赖）。
+   * 由 `home-widgets.ts` 的 normalizeWidgets 负责把 unknown 变成可信结构，
+   * 坏数据只丢那一个组件，不会让首页白屏。
+   */
+  homeWidgets?: unknown;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -993,6 +1024,87 @@ export interface LibraryMeta {
   updatedAt: string;
   schemaVersion: number;
 }
+
+/**
+ * 回收站里的一条记录（2026-11-08）。
+ *
+ * ## 为什么存的是「整条记录的副本」而不是一个 id
+ *
+ * 删除要**真的把原记录从它的分区里拿走**——否则列表、搜索、出题
+ * 到处都要加 `if (!deleted)` 判断，漏一处就冒出「已删除但还能用」的怪现象。
+ * 拿走之后要能还原，就只能把整条记录序列化存进回收站。
+ *
+ * 代价是回收站会占空间。这可以接受：
+ *  - 知识点/题目都是几 KB 的文本，一百条才几百 KB
+ *  - 30 天自动清，不会无限长
+ *  - **资料插图不进来**（几十 MB 的二进制，见下面 excluded 的说明）
+ *
+ * ## 为什么不给每个模型加 deletedAt 字段（软删除）
+ *
+ * 那样每个读取路径都要过滤。项目里已经有过「answerRecords 分区是空的、
+ * v2 从不写它」这种遗留，软删除标记一旦漏过滤就会静默复活数据。
+ * 硬删除 + 独立回收站，语义只有一处。
+ */
+export interface TrashRecord {
+  /** `trash_<uuid>` */
+  id: string;
+  /**
+   * 原来属于哪个分区（`sources` / `knowledgePoints` / `decks` / ...）。
+   *
+   * 存分区名而不是实体类型名：还原时直接 `put(kind, payload)`，
+   * 不用维护一张「类型 → 分区」的映射表（那张表迟早会漏一项）。
+   */
+  kind: TrashKind;
+  /** 原记录的自增展示用 id（等于 payload.id） */
+  originalId: string;
+  /** 给用户看的标题，删除后原记录就没了，得先记下来 */
+  title: string;
+  /** 一句话说明它是什么，列表里区分「3 个知识点」这类 */
+  summary: string;
+  /**
+   * 原记录的完整副本（JSON 可序列化）。
+   *
+   * 类型是 unknown 而不是联合类型：还原时按 kind 分支断言。
+   * 用联合类型会让 `put(kind, payload)` 的泛型推断变复杂，
+   * 而这里的安全性由 kind 与 payload 的写入端保证（见 TrashService）。
+   */
+  payload: unknown;
+  /**
+   * 连带删除的附属记录（2026-11-08）。
+   *
+   * 删一份资料时，它的正文段、注释、插图会一起被清掉。若只还原资料本身，
+   * 用户拿回一份「有标题、没内容」的空壳——那比不还原更让人困惑。
+   *
+   * 所以附属记录也一起存进来。但**大二进制不进**（见 skipped 说明）。
+   */
+  attachments: Array<{ kind: TrashKind; payload: unknown }>;
+  /**
+   * 没有收进回收站的东西，如实记下原因。
+   *
+   * 典型：资料的 `sourceFiles`（几十 MB 原始 PDF）与 `sourceImages`
+   * （插图二进制）。把它们塞进回收站会让库膨胀几倍，而它们**都能重新生成**
+   * （PDF 用户有原文件、插图能从 PDF 重新裁）。
+   *
+   * 不静默丢弃——列表里明说「原始 PDF 未保留，还原后需要重新导入」。
+   */
+  skipped: Array<{ what: string; reason: string }>;
+  /** 删除时间（ISO）。过期判定从这一刻算 30 天 */
+  deletedAt: string;
+  /** 彻底删除的时间点：deletedAt + 30 天。冗余存一份便于排序与查询 */
+  expiresAt: string;
+}
+
+/** 回收站能接纳的分区 */
+export type TrashKind =
+  | 'sources'
+  | 'sourceSegments'
+  | 'sourceAnnotations'
+  | 'knowledgePoints'
+  | 'decks'
+  | 'questions'
+  | 'notes'
+  | 'todos'
+  | 'generationRuns';
 
 /**
  * 备份文件结构。
@@ -1051,6 +1163,14 @@ export interface LibraryBackup {
    * 与 sourceFiles 恢复后 fileStored=false 的处理方式一致。
    */
   sourceImages?: SourceImageRecord[];
+  /**
+   * 回收站。
+   *
+   * 进备份：用户手滑删掉的东西，换机器后还想找回来。
+   * 里面只有文本记录（数 KB/条），不会撑大备份 —
+   * 大二进制（原始 PDF、插图）刻意不收，见 TrashRecord.skipped。
+   */
+  trash?: TrashRecord[];
   backends: BackendConfig[];
   /**
    * 用量统计。跟库一起备份：换机器后账单不该归零。

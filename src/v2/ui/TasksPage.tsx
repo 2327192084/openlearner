@@ -20,12 +20,12 @@
  * 分两个页面看要来回切，而且时间线对不齐。
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Deck, GenerationRun, Source, UsageRecord } from '@/core/model.ts';
+import { useCallback, useEffect, useMemo, useState } from 'react';import type { Deck, GenerationRun, Source, UsageRecord } from '@/core/model.ts';
 import type { SourceService } from '@/core/sources.ts';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { UsageService } from '@/core/usage.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
+import { ConfirmDialog } from './dialog.tsx';
 
 export interface TasksPageProps {
   sourceService: SourceService;
@@ -37,24 +37,39 @@ export interface TasksPageProps {
   onOpenOrganize: (sourceId: string | null) => void;
   /** 去我的题组 */
   onOpenDecks: () => void;
+  /**
+   * 删除一条任务记录（2026-11-08）。
+   *
+   * 只删 generationRuns 里的记录，**不动**知识点与题目 ——
+   * 用户想清掉一条失败历史，不该顺手删掉劳动成果。
+   * 不传则不显示删除按钮（不摆假按钮）。
+   */
+  onRemoveRun?: (id: string) => Promise<void>;
+  /** 清空全部任务记录 */
+  onClearRuns?: () => Promise<void>;
 }
 
 /**
  * 一条展示用的运行记录。
  *
- * ## 关于 kind 的诚实说明
+ * ## 2026-11-08 的改动（原来这里写着「generationRuns 只记整理」）
  *
- * `generationRuns` 这张表**只记整理知识点**，出题流程不写它
- * （DeckService.generate 只写 decks / questions）。
- * 所以「出题」这一类记录是从 `decks.createdAt` 推出来的，
- * 它没有耗时与失败原因 —— 那些字段只有整理记录才有。
+ * 那条注释当时是对的，但造成了一个真实问题：出题不写 run，
+ * 于是任务页只能从 `decks.createdAt` 反推，**token 永远是 null**。
+ * 用户看到的「最近一次任务没统计 token」就是这么来的 ——
+ * 而实际上出题确实记了账（真实数据里 11-08 那组 51861 token），
+ * 只是记在按天聚合的 usageRecords 里，跟这一行关联不上。
  *
- * 不把出题硬塞成一条 GenerationRun：那需要编造 startedAt/finishedAt，
- * 而这一页的价值恰恰是「如实交代」。有多少信息就显示多少。
+ * 现在 `DeckService.generate` 也会写一条 `kind='questions'` 的 run，
+ * 带 deckId 与 actualTokens。所以：
+ *  - 有 run 的出题 → 显示真实 token 与耗时
+ *  - 老题组没有 run → 仍然走 deck 反推的兜底行，token 如实显示「—」
+ *
+ * 不把「不知道」写成 0：0 是「花了但没花」，是假数据。
  */
 interface RunRow {
   id: string;
-  /** 'organize' 整理知识点 / 'questions' 出题（后者信息更少，见上） */
+  /** 'organize' 整理知识点 / 'questions' 出题 */
   kind: 'organize' | 'questions';
   /** 归属对象标题（资料名或题组名） */
   target: string;
@@ -68,6 +83,8 @@ interface RunRow {
   error: string | null;
   /** 可跳转的 sourceId（整理类才有） */
   sourceId: string | null;
+  /** 可跳转的 deckId（出题类有） */
+  deckId?: string | null;
 }
 
 const STATUS_LABEL: Record<GenerationRun['status'], string> = {
@@ -89,8 +106,16 @@ export function TasksPage({
   knowledge,
   onOpenOrganize,
   onOpenDecks,
+  onRemoveRun,
+  onClearRuns,
 }: TasksPageProps) {
   const [state, setState] = useState<Load>({ kind: 'loading' });
+
+  /* 删除相关的本地状态（2026-11-08） */
+  const [pendingRun, setPendingRun] = useState<{ id: string; target: string } | null>(null);
+  const [pendingClear, setPendingClear] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -108,12 +133,14 @@ export function TasksPage({
       ]);
 
       const sourceTitle = new Map<string, string>(sources.map((s: Source) => [s.id, s.title]));
-      /*
-       * 出题类的 run 记的是 sourceId（出题用的资料），不是 deckId，
-       * 因为一次出题可能产出多个题组。这里用资料名做标题更准确。
-       */
       /* 整理记录：来自 generationRuns（有耗时、有失败原因） */
-      const organizeRows: RunRow[] = runs.map((r) => ({
+      /*
+       * 2026-11-08：generationRuns 现在也记出题了，所以要按 kind 分开。
+       * 老数据没有 kind 字段 → 当时只有整理会写，按 'organize' 处理。
+       */
+      const isOrganize = (r: GenerationRun) => (r.kind ?? 'organize') === 'organize';
+
+      const organizeRows: RunRow[] = runs.filter(isOrganize).map((r) => ({
         id: r.id,
         kind: 'organize',
         target: sourceTitle.get(r.sourceId) ?? '（资料已删除）',
@@ -127,28 +154,69 @@ export function TasksPage({
         sourceId: r.sourceId,
       }));
 
-      /*
-       * 出题记录：从 decks.createdAt 推。
-       *
-       * 出题流程不写 generationRuns，所以没有耗时/失败原因可显示 ——
-       * 这里只给出「产出了几道题」。不编造缺失字段（见 RunRow 的说明）。
-       */
-      const deckRows: RunRow[] = deckList.map((d: Deck) => ({
-        id: `deck:${d.id}`,
+      /* 出题记录：来自 generationRuns（有真实 token 与耗时） */
+      const deckTitle = new Map<string, string>(
+        deckList.map((d: Deck) => [d.id, d.title]),
+      );
+      const questionRows: RunRow[] = runs.filter((r) => !isOrganize(r)).map((r) => ({
+        id: r.id,
         kind: 'questions',
-        target: d.title,
-        status: 'completed',
-        produced: d.questionCount,
+        target:
+          (r.deckId ? deckTitle.get(r.deckId) : null) ??
+          sourceTitle.get(r.sourceId) ??
+          '（题组已删除）',
+        status: r.status,
+        produced: r.producedCount,
         unlocated: 0,
-        /* 题组没有记实际 token，留 null 表示「不知道」而不是 0 */
-        tokens: null,
-        startedAt: d.createdAt,
-        finishedAt: null,
-        error: null,
-        sourceId: d.sourceId,
+        tokens: r.actualTokens,
+        startedAt: r.startedAt,
+        finishedAt: r.finishedAt,
+        error: r.error,
+        sourceId: r.sourceId,
+        deckId: r.deckId ?? null,
       }));
 
-      const rows = [...organizeRows, ...deckRows];
+      /*
+       * 出题记录（2026-11-08 改）。
+       *
+       * ## 改了什么，为什么
+       *
+       * 原来这里从 `decks.createdAt` 反推，tokens 一律 null ——
+       * 因为那时候出题流程**不写 generationRuns**。
+       * 后果是用户看到「最近一次任务没统计 token」，而实际上
+       * 11-08 那组题确实花了 51861 token，只是记在 usageRecords 里、
+       * 任务页关联不上。
+       *
+       * 现在出题会写 run（kind='questions'，带 deckId 与 actualTokens），
+       * 所以优先用 run。deck 反推只作为**兜底**：老数据没有 run，
+       * 但题组还在，那些行仍然要显示出来（只是 token 显示「不知道」）。
+       */
+      const deckIdsWithRun = new Set(
+        runs.filter((r) => r.kind === 'questions' && r.deckId).map((r) => r.deckId!),
+      );
+      const legacyDeckRows: RunRow[] = deckList
+        .filter((d: Deck) => !deckIdsWithRun.has(d.id))
+        .map((d: Deck) => ({
+          id: `deck:${d.id}`,
+          kind: 'questions',
+          target: d.title,
+          status: 'completed',
+          produced: d.questionCount,
+          unlocated: 0,
+          /*
+           * 老题组没有 run 可查，token 真的不知道。
+           * 留 null 让界面显示「—」，不写 0 —— 0 是「花了但没花」，
+           * 那是假数据。
+           */
+          tokens: null,
+          startedAt: d.createdAt,
+          finishedAt: null,
+          error: null,
+          sourceId: d.sourceId,
+          deckId: d.id,
+        }));
+
+      const rows = [...organizeRows, ...questionRows, ...legacyDeckRows];
       /* 最近的在最上面 */
       rows.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
 
@@ -164,6 +232,37 @@ export function TasksPage({
   useEffect(() => {
     void load();
   }, [load]);
+
+  /** 删一条记录（2026-11-08） */
+  const doRemoveRun = useCallback(async () => {
+    if (!pendingRun) return;
+    setBusy(true);
+    setRemoveError(null);
+    try {
+      await onRemoveRun?.(pendingRun.id);
+      setPendingRun(null);
+      await load();
+    } catch (err) {
+      setRemoveError(err instanceof Error ? err.message : '删除失败');
+    } finally {
+      setBusy(false);
+    }
+  }, [pendingRun, onRemoveRun, load]);
+
+  /** 清空全部记录 */
+  const doClearAll = useCallback(async () => {
+    setBusy(true);
+    setRemoveError(null);
+    try {
+      await onClearRuns?.();
+      setPendingClear(false);
+      await load();
+    } catch (err) {
+      setRemoveError(err instanceof Error ? err.message : '清空失败');
+    } finally {
+      setBusy(false);
+    }
+  }, [onClearRuns, load]);
 
   const runs = state.kind === 'ready' ? state.runs : [];
   const usageRows = state.kind === 'ready' ? state.usage : [];
@@ -205,6 +304,15 @@ export function TasksPage({
           整理知识点和出题的每一次运行都记在这里：什么时候跑的、成没成、
           产出多少条、花了多少 token。失败的原因也在这里，不用再猜。
         </p>
+        {onClearRuns && runs.length > 0 ? (
+          <button
+            type="button"
+            className="tk-clear"
+            onClick={() => setPendingClear(true)}
+          >
+            清空全部记录（{runs.length} 条）
+          </button>
+        ) : null}
       </header>
 
       {/* ---- 用量概览 ---- */}
@@ -278,11 +386,72 @@ export function TasksPage({
                     去我的题组
                   </button>
                 )}
+                {/*
+                  删除这一条记录（2026-11-08）。
+                  只删**记录**，不动知识点/题目本身 —— 用户想清掉一条
+                  失败的历史，不该顺手把他的劳动成果也删了。
+                  这一点在确认框里写清楚。
+                */}
+                {onRemoveRun ? (
+                  <button
+                    type="button"
+                    className="tk-remove"
+                    onClick={() => setPendingRun({ id: r.id, target: r.target })}
+                  >
+                    删除记录
+                  </button>
+                ) : null}
               </div>
             </li>
           ))}
         </ul>
       )}
+
+      {pendingClear ? (
+        <ConfirmDialog
+          title={`清空全部 ${runs.length} 条任务记录？`}
+          description={
+            <>
+              只删**记录**，不影响知识点、题目和题组。
+              这些记录会移进回收站，30 天内可以还原。
+            </>
+          }
+          confirmLabel={busy ? '正在删除…' : '清空记录'}
+          tone="danger"
+          blocked={busy}
+          onConfirm={doClearAll}
+          onClose={() => {
+            if (busy) return;
+            setPendingClear(false);
+            setRemoveError(null);
+          }}
+        >
+          {removeError ? <p className="tk-error">{removeError}</p> : null}
+        </ConfirmDialog>
+      ) : null}
+
+      {pendingRun ? (
+        <ConfirmDialog
+          title="删除这条任务记录？"
+          description={
+            <>
+              「{pendingRun.target}」这条记录会移进回收站，30 天内可以还原。
+              记录删掉不影响已经产出的知识点或题目。
+            </>
+          }
+          confirmLabel={busy ? '正在删除…' : '删除'}
+          tone="danger"
+          blocked={busy}
+          onConfirm={doRemoveRun}
+          onClose={() => {
+            if (busy) return;
+            setPendingRun(null);
+            setRemoveError(null);
+          }}
+        >
+          {removeError ? <p className="tk-error">{removeError}</p> : null}
+        </ConfirmDialog>
+      ) : null}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { newId, nowIso } from './id.ts';
 import type { Course, Source, SourceImageRecord, SourceSegment } from './model.ts';
+import type { TrashService } from './trash.ts';
 import { kindFromFileName, parseAny, titleFromFileName } from './parsers/index.ts';
 import { ImportError, importError } from './parsers/types.ts';
 import type { ImportFailureCode } from './parsers/types.ts';
@@ -69,7 +70,15 @@ export interface CourseGroup {
 }
 
 export class SourceService {
-  constructor(private readonly storage: StorageAdapter) {}
+  /**
+   * @param trash 回收站（2026-11-08）。删除资料时把记录收进去，能还原。
+   *   不传则退化成不可恢复的删除 —— 但生产代码里都传，测试也建议传，
+   *   否则测不到「还原」这条路径。
+   */
+  constructor(
+    private readonly storage: StorageAdapter,
+    private readonly trash?: TrashService,
+  ) {}
 
   /**
    * 导入一批文件。
@@ -405,44 +414,96 @@ export class SourceService {
    * 先删段则最坏是「有资料没段」，界面会显示 0 页，用户能再删一次。
    */
   async remove(id: string): Promise<void> {
+    const source = await this.storage.get('sources', id);
     const segments = await this.getSegments(id);
+
+    /*
+     * 手写注释按 `${sourceId}:${page}` 存，只能扫一遍。
+     * 不删会留下孤儿：界面看不到，却占空间、跟着备份走；
+     * 更糟的是以后导入一份 id 相同的资料（从备份恢复就会），
+     * 那些旧注释会突然冒出来挂在用户没标注过的资料上。
+     */
+    const annotations = (await this.storage.getAll('sourceAnnotations')).filter(
+      (a) => a.sourceId === id,
+    );
+
+    /*
+     * 插图（2026-11-08）：二进制，删资料必须级联清掉，
+     * 否则几十 MB 静默占着配额，界面上完全看不到。
+     */
+    const figures = (await this.storage.getAll('sourceImages')).filter(
+      (f) => f.sourceId === id,
+    );
+
+    /*
+     * 先收进回收站（2026-11-08），再真删除。
+     *
+     * 收什么：资料本身 + 正文段 + 注释。
+     * 不收什么：原始 PDF 与插图 —— 它们是二进制，几十 MB，
+     *   塞进回收站会让库膨胀几倍，而两者都能重新生成
+     *   （PDF 用户手里有原文件；插图能从 PDF 重新裁）。
+     *   但**如实记进 skipped**，列表里会说清楚还原后缺什么，不静默丢。
+     */
+    if (this.trash && source) {
+      const byteNote =
+        source.byteSize > 0 ? `${Math.round(source.byteSize / 1024 / 1024)} MB` : '';
+      const skipped: Array<{ what: string; reason: string }> = [];
+      if (await this.hasOriginalFile(id)) {
+        skipped.push({
+          what: `原始文件${byteNote ? `（${byteNote}）` : ''}`,
+          reason: '太大，不进回收站。还原后需要重新导入这份文件',
+        });
+      }
+      if (figures.length > 0) {
+        skipped.push({
+          what: `${figures.length} 张插图`,
+          reason: '图片体积大，不进回收站。还原后重新转换一次即可补回',
+        });
+      }
+
+      await this.trash.moveToTrash(
+        [
+          {
+            kind: 'sources',
+            title: source.title,
+            summary: `${source.pageCount ?? 0} 页 · ${segments.length} 段`,
+            payload: source,
+          },
+          ...segments.map((s) => ({
+            kind: 'sourceSegments' as const,
+            title: '',
+            summary: '',
+            payload: s,
+          })),
+          ...annotations.map((a) => ({
+            kind: 'sourceAnnotations' as const,
+            title: '',
+            summary: '',
+            payload: a,
+          })),
+        ],
+        skipped,
+      );
+    }
+
+    /*
+     * 顺序是**先删段再删资料**：
+     * 反过来的话，中途失败会留下「有段没资料」的孤儿段 ——
+     * 不会被任何界面显示，却永远占空间、还能被搜索到。
+     * 先删段则最坏是「有资料没段」，界面显示 0 页，用户能再删一次。
+     */
     for (const seg of segments) {
       await this.storage.remove('sourceSegments', seg.id);
     }
     // 原始字节也要跟着删，否则删掉资料后几十 MB 还占着配额，用户看不到也清不掉
     await this.storage.remove('sourceFiles', id);
 
-    /**
-     * 手写注释也要级联清理。
-     *
-     * 不删的话会留下孤儿记录：界面上永远看不到，却一直占着空间、
-     * 跟着备份文件走；更糟的是如果以后导入一份 id 相同的资料
-     * （从备份恢复就会出现），那些旧笔记会突然冒出来，
-     * 挂在一份用户根本没标注过的资料上 —— 那是很诡异的现象。
-     *
-     * 注释按 `${sourceId}:${page}` 存，所以只能按 sourceId 扫一遍，
-     * 没法像 sourceFiles 那样一次 remove(sourceId)。
-     */
-    const annotations = await this.storage.getAll('sourceAnnotations');
     for (const a of annotations) {
-      if (a.sourceId === id) {
-        await this.storage.remove('sourceAnnotations', a.id);
-      }
+      await this.storage.remove('sourceAnnotations', a.id);
     }
 
-    /**
-     * 插图也要级联清理（2026-11-08）。
-     *
-     * 理由与注释完全相同，而且这里更要紧：插图是**二进制**，
-     * 一份几十页的书就是几 MB。删掉资料后图还留着，
-     * 会默默占掉配额，而用户在界面上完全看不到它们 ——
-     * 这正是「删除必须级联清理」那条铁律最实际的一个例子。
-     */
-    const figures = await this.storage.getAll('sourceImages');
     for (const f of figures) {
-      if (f.sourceId === id) {
-        await this.storage.remove('sourceImages', f.id);
-      }
+      await this.storage.remove('sourceImages', f.id);
     }
 
     await this.storage.remove('sources', id);

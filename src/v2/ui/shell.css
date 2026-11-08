@@ -464,3 +464,58 @@
 .nav-item {
   gap: 10px;
 }
+
+/* ==========================================================================
+   回收站：侧栏角标 + 顶部提醒条（2026-11-08）
+   ==========================================================================
+
+   这两处都在 @layer study.components 内，是**有意**的：
+   它们只给已有的 .nav-item 追加一个数字、给提醒条一个底色，
+   没有重设原生控件的外观，所以不受「无层级 button 规则」影响。
+   .trash-notice__go / __close 是原生 button，它们的配色规则
+   放在 trash-page.css 里（层外），这里只管布局。
+   -------------------------------------------------------------------------- */
+
+/* 侧栏角标：快过期项数。用醒目色，但尺寸克制，不抢导航文字 */
+.nav-item__badge {
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--c-warn, #e0a03b);
+  color: #1a1a1a;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  flex: 0 0 auto;
+}
+
+/* 顶部提醒条：横跨内容区顶部，不遮挡内容（在内容流里） */
+.trash-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 12px);
+  margin: 0 0 var(--space-3, 12px);
+  padding: var(--space-2, 8px) var(--space-4, 16px);
+  border-radius: var(--radius-2, 6px);
+  border: 1px solid color-mix(in srgb, var(--c-warn, #e0a03b) 45%, transparent);
+  background: color-mix(in srgb, var(--c-warn, #e0a03b) 12%, transparent);
+  font-size: var(--font-sm, 13px);
+  color: var(--text-1, #efe9df);
+}
+
+.trash-notice__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.trash-notice__go {
+  flex: 0 0 auto;
+}
+
+.trash-notice__close {
+  flex: 0 0 auto;
+  margin-left: 4px;
+}

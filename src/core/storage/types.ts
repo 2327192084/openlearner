@@ -16,6 +16,7 @@ import type {
   FocusSession,
   SourceSegment,
   SourceImageRecord,
+  TrashRecord,
   GenerationRun,
   AnswerRecord,
   UsageRecord,
@@ -141,6 +142,19 @@ export const STORES = [
    * 一条记录只有几十字节，不像 sourceFiles 那样会撑大备份。
    */
   'focusSessions',
+  /**
+   * 回收站（2026-11-08）。
+   *
+   * 存的是被删记录的**完整副本**（JSON），不是软删除标记。
+   * 为什么不用软删除：那样每个读取路径都要加 `if (!deleted)`，
+   * 漏一处就冒出「已删除但还能用」的怪现象 —— 项目里已有
+   * 「answerRecords 分区是空的却一直留着」这种遗留，标记式删除更容易出事。
+   *
+   * **进备份**：用户手滑删掉的东西，换机器后还想找回来。
+   * 里面只有文本（几 KB/条），不会撑大备份；
+   * 大二进制（原始 PDF、插图）刻意不收，见 model.ts 的 TrashRecord.skipped。
+   */
+  'trash',
 ] as const;
 
 export type StoreName = (typeof STORES)[number];
@@ -188,6 +202,13 @@ export const BACKUP_STORES = [
   'todos',
   /** 专注记录。进备份 —— 坚持的证据不该换机器就丢。 */
   'focusSessions',
+  /**
+   * 回收站。进备份。
+   *
+   * 理由同 focusSessions：这些是用户删掉但可能还想要的东西，
+   * 换机器时不该凭空消失。只有文本记录，不会撑大备份。
+   */
+  'trash',
 ] as const;
 
 export type BackupStoreName = (typeof BACKUP_STORES)[number];
@@ -198,6 +219,8 @@ export interface StoreRecordMap {
   sourceFiles: SourceFileRecord;
   /** 正文里的插图。不进备份：能从原 PDF 按 bbox 重新裁 */
   sourceImages: SourceImageRecord;
+  /** 回收站。进备份：用户删掉但可能还想要的东西 */
+  trash: TrashRecord;
   focusSessions: FocusSession;
   settings: SettingsRecord;
   courses: Course;

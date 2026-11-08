@@ -3,6 +3,7 @@ import type { GenerationRun, KnowledgePoint, SourceSegment } from '../model.ts';
 import type { SourceService } from '../sources.ts';
 import type { StorageAdapter } from '../storage/types.ts';
 import type { UsageService } from '../usage.ts';
+import type { TrashService } from '../trash.ts';
 import type {
   KnowledgeDraft,
   OrganizeBackend,
@@ -102,7 +103,33 @@ export class KnowledgeService {
      * 为了记账逼所有测试改签名不值得。不传就是把记账关掉，业务行为完全一致。
      */
     private readonly usage?: UsageService,
+    /**
+     * 回收站（2026-11-08），可选。
+     *
+     * 与 usage 同理：二十多处测试用两参数构造这个服务，
+     * 为了回收站逼所有测试改签名不值得。不传就是删除不可恢复。
+     */
+    private readonly trash?: TrashService,
   ) {}
+
+  /**
+   * 取全部知识点（2026-11-08 加）。
+   *
+   * 加这个是因为「删除没有归属资料的那组知识点」需要它 ——
+   * 知识库页里「已删除的资料」那一组的 sourceId 是 null，
+   * 不能按 sourceId 查，只能取全量再筛。
+   *
+   * 排序与 listBySource 一致（页 + 偏移），这样两个入口看到的顺序相同。
+   */
+  async listAll(): Promise<KnowledgePoint[]> {
+    const all = await this.storage.getAll('knowledgePoints');
+    return all.sort((a, b) => {
+      const pa = a.anchors[0]?.page ?? Number.MAX_SAFE_INTEGER;
+      const pb = b.anchors[0]?.page ?? Number.MAX_SAFE_INTEGER;
+      if (pa !== pb) return pa - pb;
+      return (a.anchors[0]?.charStart ?? 0) - (b.anchors[0]?.charStart ?? 0);
+    });
+  }
 
   /** 取某份资料的全部知识点（按页码+偏移排序，与原文顺序一致） */
   async listBySource(sourceId: string): Promise<KnowledgePoint[]> {
@@ -186,6 +213,7 @@ export class KnowledgeService {
    *
    * 只读，不改任何状态。
    */
+  /** 取全部运行记录（2026-11-08 加，任务页读它） */
   async listRuns(): Promise<GenerationRun[]> {
     const runs = await this.storage.getAll('generationRuns');
     return runs.sort((a, b) => {
@@ -195,6 +223,63 @@ export class KnowledgeService {
       if (ta === tb) return a.id < b.id ? 1 : -1;
       return tb - ta;
     });
+  }
+
+  /**
+   * 删除一条运行记录（2026-11-08）。
+   *
+   * 只删**记录**，不动知识点与题目 —— 用户想清掉一条失败历史时，
+   * 不该顺手把他的劳动成果也删了。
+   *
+   * 进回收站：这类记录本身价值不大，但「误删了想看看当时为什么失败」
+   * 是真会发生的，而且记录只有几十字节，存着不亏。
+   */
+  async removeRun(id: string): Promise<void> {
+    const existing = await this.storage.get('generationRuns', id);
+    if (!existing) return;
+    await this.trash?.moveToTrash([
+      {
+        kind: 'generationRuns',
+        title: existing.kind === 'questions' ? '出题记录' : '整理记录',
+        summary:
+          existing.status === 'failed'
+            ? '失败'
+            : existing.status === 'stopped'
+              ? '已停止'
+              : '完成',
+        payload: existing,
+      },
+    ]);
+    await this.storage.remove('generationRuns', id);
+  }
+
+  /**
+   * 清空全部运行记录（2026-11-08）。
+   *
+   * 合成**一条**回收站记录：用户清 20 条历史是为了「眼不见」，
+   * 不是想把回收站也塞满 20 行。还原时整体回来。
+   */
+  async clearRuns(): Promise<number> {
+    const all = await this.storage.getAll('generationRuns');
+    if (all.length === 0) return 0;
+
+    await this.trash?.moveToTrash([
+      {
+        kind: 'generationRuns',
+        title: '全部任务记录',
+        summary: `${all.length} 条`,
+        payload: all[0],
+      },
+      ...all.slice(1).map((r) => ({
+        kind: 'generationRuns' as const,
+        title: '',
+        summary: '',
+        payload: r,
+      })),
+    ]);
+
+    for (const r of all) await this.storage.remove('generationRuns', r.id);
+    return all.length;
   }
 
   /**
@@ -408,8 +493,43 @@ export class KnowledgeService {
   /** 清掉某份资料的全部知识点（删除资料时用） */
   async clearBySource(sourceId: string): Promise<void> {
     const all = await this.storage.getAll('knowledgePoints');
-    for (const k of all.filter((x) => x.sourceId === sourceId)) {
+    const mine = all.filter((x) => x.sourceId === sourceId);
+
+    /*
+     * 收进回收站（2026-11-08）。合成**一条**：
+     * 一份资料几十条知识点，每条占一行会让回收站瞬间刷屏，
+     * 用户分不清哪些是同一次删除。还原时也是整体回来。
+     */
+    if (mine.length > 0) {
+      const title = await this.sourceTitle(sourceId);
+      await this.trash?.moveToTrash([
+        {
+          kind: 'knowledgePoints',
+          title: `${title} 的全部知识点`,
+          summary: `${mine.length} 条`,
+          payload: mine[0],
+        },
+        ...mine.slice(1).map((k) => ({
+          kind: 'knowledgePoints' as const,
+          title: '',
+          summary: '',
+          payload: k,
+        })),
+      ]);
+    }
+
+    for (const k of mine) {
       await this.storage.remove('knowledgePoints', k.id);
+    }
+  }
+
+  /** 取资料标题用于回收站显示；取不到给一句可读的替代，不显示裸 id */
+  private async sourceTitle(sourceId: string): Promise<string> {
+    try {
+      const s = await this.sources.get(sourceId);
+      return s?.title ?? '（资料已删除）';
+    } catch {
+      return '（资料已删除）';
     }
   }
 
@@ -448,7 +568,25 @@ export class KnowledgeService {
     return next;
   }
 
+  /**
+   * 删除单条知识点（2026-11-08 起会进回收站）。
+   *
+   * 为什么先读再删：回收站要存整条记录的副本，也要拿到 statement
+   * 作为列表里显示的标题。直接 remove 会让用户永远找不回来。
+   */
   async remove(id: string): Promise<void> {
+    const existing = await this.storage.get('knowledgePoints', id);
+    if (!existing) return;
+
+    await this.trash?.moveToTrash([
+      {
+        kind: 'knowledgePoints',
+        title: existing.statement.slice(0, 60),
+        summary: `第 ${existing.anchors[0]?.page ?? '?'} 页 · ${existing.cognitiveLevel}`,
+        payload: existing,
+      },
+    ]);
+
     await this.storage.remove('knowledgePoints', id);
   }
 

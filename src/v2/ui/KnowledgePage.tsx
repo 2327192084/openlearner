@@ -3,6 +3,7 @@ import type { KnowledgePoint, Source } from '@/core/model.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { SourceService } from '@/core/sources.ts';
 import { IconBook } from './icons.tsx';
+import { ConfirmDialog } from './dialog.tsx';
 import { MathText } from './MathText.tsx';
 
 /**
@@ -46,6 +47,20 @@ export interface KnowledgePageProps {
   }) => void;
   /** 去「整理知识点」补一份资料的正文 */
   onOpenOrganize?: (sourceId: string) => void;
+  /**
+   * 删除一条知识点（2026-11-08）。
+   *
+   * 由上层传入而不是页面自己调：删除要经过回收站，
+   * 页面不该知道回收站在哪 —— 交给 App 层的服务组合决定。
+   * 不传则**不显示删除按钮**（不摆假按钮）。
+   */
+  onRemovePoint?: (id: string) => Promise<void>;
+  /**
+   * 删掉一份资料的全部知识点（2026-11-08）。
+   *
+   * 参数是资料 id；`null` 对应「没有归属资料」那一组。
+   */
+  onRemoveSourcePoints?: (sourceId: string | null) => Promise<void>;
 }
 
 interface SourceGroup {
@@ -67,6 +82,8 @@ export function KnowledgePage({
   sourceService,
   onOpenAnchor,
   onOpenOrganize,
+  onRemovePoint,
+  onRemoveSourcePoints,
 }: KnowledgePageProps) {
   const [points, setPoints] = useState<KnowledgePoint[] | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
@@ -74,6 +91,25 @@ export function KnowledgePage({
   const [query, setQuery] = useState('');
   /** 收起了哪些文件（默认全展开） */
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  /**
+   * 待确认的删除（2026-11-08）。
+   *
+   * 两种都走同一个确认框：
+   *  - `{ kind: 'point' }` 删一条
+   *  - `{ kind: 'source' }` 删一组（一份资料的全部知识点）
+   *
+   * 为什么不直接删：删一组可能是一次几十上百条的操作，
+   * 点错代价太大。虽然能进回收站还原，但让用户多点一次确认
+   * 比事后去回收站翻要省事。
+   */
+  const [pending, setPending] = useState<
+    | { kind: 'point'; id: string; label: string }
+    | { kind: 'source'; sourceId: string | null; label: string; count: number }
+    | null
+  >(null);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -102,6 +138,33 @@ export function KnowledgePage({
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * 执行删除（2026-11-08）。
+   *
+   * 删完统一 `load()` 重新取，而不是就地 `setPoints` 过滤：
+   * 删一组时服务端会连带处理，本地过滤容易和实际状态不一致 ——
+   * 而那正是「同一屏数字对不上」的来源。
+   */
+  const doRemove = useCallback(async () => {
+    if (!pending) return;
+    setRemoving(true);
+    setRemoveError(null);
+    try {
+      if (pending.kind === 'point') {
+        await onRemovePoint?.(pending.id);
+      } else {
+        await onRemoveSourcePoints?.(pending.sourceId);
+      }
+      setPending(null);
+      await load();
+    } catch (err) {
+      // 错误留在框里，不关框 —— 用户需要知道为什么没删掉
+      setRemoveError(err instanceof Error ? err.message : '删除失败');
+    } finally {
+      setRemoving(false);
+    }
+  }, [pending, onRemovePoint, onRemoveSourcePoints, load]);
 
   /** 分组：文件 → 章节 */
   const groups = useMemo<SourceGroup[]>(() => {
@@ -254,6 +317,27 @@ export function KnowledgePage({
 
                 {!isCollapsed ? (
                   <div className="kb-file__body">
+                    {/*
+                      按库删除（2026-11-08）。
+                      放在组内顶部而不是每一章：用户想清掉整份资料的知识点时
+                      不该逐章点十几遍。
+                    */}
+                    {onRemoveSourcePoints ? (
+                      <button
+                        type="button"
+                        className="kb-file__remove"
+                        onClick={() =>
+                          setPending({
+                            kind: 'source',
+                            sourceId: group.sourceId,
+                            label: group.title,
+                            count: group.points.length,
+                          })
+                        }
+                      >
+                        删除这份资料的全部知识点（{group.points.length} 条）
+                      </button>
+                    ) : null}
                     {group.chapters.map((chapter) => (
                       <div key={chapter.name} className="kb-chapter">
                         <p className="kb-chapter__name">{chapter.name}</p>
@@ -295,6 +379,27 @@ export function KnowledgePage({
                                   ) : (
                                     <span className="kb-point__nolink">没找到原文位置</span>
                                   )}
+                                  {/*
+                                    单条删除（2026-11-08）。
+                                    放行尾而不是悬浮出现：这个应用是桌面工具，
+                                    用户明确要求「能删」，藏起来反而找不到。
+                                  */}
+                                  {onRemovePoint ? (
+                                    <button
+                                      type="button"
+                                      className="kb-point__remove"
+                                      title="删除这条知识点（可在回收站还原）"
+                                      onClick={() =>
+                                        setPending({
+                                          kind: 'point',
+                                          id: p.id,
+                                          label: p.statement.slice(0, 40),
+                                        })
+                                      }
+                                    >
+                                      删除
+                                    </button>
+                                  ) : null}
                                 </div>
                               </li>
                             );
@@ -334,6 +439,37 @@ export function KnowledgePage({
           })}
         </div>
       )}
+
+      {/*
+        删除确认（2026-11-08）。
+        走共享的 ConfirmDialog：它已经把三件要紧事处理好了 ——
+        初始焦点在「取消」、执行中不可重复点、失败时错误留在框里。
+
+        文案里明写「可在回收站还原」：删除本身不是不可逆的，
+        用户知道这一点才敢放心整理。但也不轻描淡写 ——
+        「30 天后彻底删除」同样说出来。
+      */}
+      {pending ? (
+        <ConfirmDialog
+          title={pending.kind === 'point' ? '删除这条知识点？' : `删除「${pending.label}」的全部知识点？`}
+          description={
+            pending.kind === 'point'
+              ? `「${pending.label}」会移进回收站，30 天内可以从那里还原。`
+              : `共 ${pending.count} 条知识点会移进回收站，30 天内可以从那里还原。`
+          }
+          confirmLabel={removing ? '正在删除…' : '删除'}
+          tone="danger"
+          blocked={removing}
+          onConfirm={doRemove}
+          onClose={() => {
+            if (removing) return;
+            setPending(null);
+            setRemoveError(null);
+          }}
+        >
+          {removeError ? <p className="kb-remove-error">{removeError}</p> : null}
+        </ConfirmDialog>
+      ) : null}
     </div>
   );
 }

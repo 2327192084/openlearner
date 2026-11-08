@@ -419,6 +419,23 @@ const migrations: Record<number, Migration> = {
     schemaVersion: 15,
     sourceImages: Array.isArray(backup.sourceImages) ? backup.sourceImages : [],
   }),
+
+  /**
+   * v15 → v16
+   *
+   * 新增 `trash`（回收站，2026-11-08）。
+   *
+   * 补空数组：旧备份里没有这个键，用户升级后回收站应该是**空的** ——
+   * 因为升级前删掉的东西确实已经没了，不能假装它们还躺在回收站里。
+   *
+   * 这一条不造任何内容，也不去猜「哪些记录可能被删过」：
+   * 那样会把现存数据错误地搬进回收站，等于凭空让用户少东西。
+   */
+  15: (backup) => ({
+    ...backup,
+    schemaVersion: 16,
+    trash: Array.isArray(backup.trash) ? backup.trash : [],
+  }),
 };
 
 /**

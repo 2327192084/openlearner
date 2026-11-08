@@ -21,7 +21,8 @@ const DB_NAME = 'openleaner';
 /** v7：新增 todos（待办） */
 /** v8：新增 focusSessions（专注记录 / 番茄钟） */
 /** v9：新增 sourceImages（MinerU 转换出的教材插图） */
-const DB_VERSION = 9;
+/** v10：新增 trash（回收站） */
+const DB_VERSION = 10;
 
 /**
  * IndexedDB 存储适配器（浏览器与 Electron 渲染进程用）。

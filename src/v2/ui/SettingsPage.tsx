@@ -13,6 +13,7 @@ import {
   isPresetLabel,
 } from '@/core/ai/presets.ts';
 import { downloadBlob } from '@/pages/slides/download.ts';
+import { HomeWidgetsEditor } from './HomeWidgetsEditor.tsx';
 import type { CardKind } from '@/v2/core/cards.ts';
 import type { GradingRules, GradingStrictness } from '@/v2/core/grading.ts';
 import {
@@ -48,10 +49,11 @@ import { ConfirmDialog } from './dialog.tsx';
  * 不做「保存即成功」的假绿灯。
  */
 
-type Category = 'library' | 'grading' | 'model' | 'backup';
+type Category = 'library' | 'home' | 'grading' | 'model' | 'backup';
 
 const CATEGORIES: { id: Category; label: string; group: string }[] = [
   { id: 'library', label: '学习库', group: '常用' },
+  { id: 'home', label: '首页小组件', group: '常用' },
   { id: 'grading', label: '做题评分', group: '常用' },
   { id: 'model', label: '模型与出题', group: '常用' },
   { id: 'backup', label: '备份与恢复', group: '数据' },
@@ -222,6 +224,26 @@ export function SettingsPage({ onChanged }: SettingsPageProps) {
               backends={backends}
               onRefresh={refreshAll}
               onFlash={setFlash}
+            />
+          ) : cat === 'home' ? (
+            /*
+              首页小组件（2026-11-08）。
+              抽成独立组件而不是内联：这个文件已经 1400 行，
+              而且项目对「往大文件里按行号插代码」有过明确教训
+              （GeneratePage 的 CRLF/LF 混用，改坏过两次）。
+            */
+            <HomeWidgetsEditor
+              load={async () => {
+                const s = await library.getSettings();
+                return (s as unknown as { homeWidgets?: unknown }).homeWidgets;
+              }}
+              save={async (widgets) => {
+                await library.saveSettings({ homeWidgets: widgets });
+              }}
+              onSaved={() => {
+                refreshAll();
+                onChanged();
+              }}
             />
           ) : cat === 'grading' ? (
             <GradingPane settings={settings} onRefresh={refreshAll} onFlash={setFlash} />

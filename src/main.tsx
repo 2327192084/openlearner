@@ -12,6 +12,7 @@ import { NoteService } from '@/core/notes.ts';
 import { ExamService } from '@/core/exam.ts';
 import { TodoService } from '@/core/todos.ts';
 import { FocusService } from '@/core/focus.ts';
+import { TrashService } from '@/core/trash.ts';
 import { IndexedDbStorage } from '@/core/storage/indexeddb-storage.ts';
 import { ServicesContext, type AppServices } from '@/app/services-context.ts';
 // v1 路由暂时不用，但保留文件（解析器与业务逻辑仍被 v2 复用）
@@ -57,18 +58,26 @@ function Bootstrap() {
     let cancelled = false;
 
     const storage = new IndexedDbStorage();
+    /*
+     * 回收站（2026-11-08）必须**最先**建。
+     *
+     * 下面每个服务都要在构造时拿到它 —— 删除动作全部经过回收站，
+     * 漏传一个就是「那条删除路径不可恢复」，而这种漏在界面上看不出来，
+     * 只有用户误删后想还原才会发现。所以放在最前面，按依赖顺序往下传。
+     */
+    const trash = new TrashService(storage);
     const library = new LibraryService(storage);
     const backends = new BackendService(storage);
-    const sources = new SourceService(storage);
+    const sources = new SourceService(storage, trash);
     const courses = new CourseService(storage);
     const annotations = new AnnotationService(storage);
-    const notes = new NoteService(storage);
+    const notes = new NoteService(storage, trash);
     const exam = new ExamService(storage);
-    const todos = new TodoService(storage);
+    const todos = new TodoService(storage, trash);
     const focus = new FocusService(storage);
     const usage = new UsageService(storage);
-    const knowledge = new KnowledgeService(storage, sources, usage);
-    const decks = new DeckService(storage, usage);
+    const knowledge = new KnowledgeService(storage, sources, usage, trash);
+    const decks = new DeckService(storage, usage, trash);
     const slides = new SlideService(storage, usage);
 
     library
@@ -148,6 +157,7 @@ function Bootstrap() {
           knowledge,
           decks,
           slides,
+          trash,
           env: detectEnv(),
         });
       })

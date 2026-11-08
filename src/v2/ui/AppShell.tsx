@@ -4,6 +4,7 @@ import {
   pagesInGroup,
   pageById,
   SETTINGS_ITEM,
+  TRASH_ITEM,
   FOOT_ITEMS,
   type PageId,
   type NavGroup,
@@ -35,6 +36,14 @@ export interface AppShellProps {
   connected?: boolean;
   /** 当前工作库名 */
   libraryName?: string;
+  /**
+   * 回收站里「快被彻底删除」的项数（2026-11-08）。
+   *
+   * 显示成角标。为什么需要：用户不一定会主动点开回收站，
+   * 角标是唯一能让他注意到「有东西明天就要没了」的地方。
+   * 0 或不传就不显示角标。
+   */
+  trashBadge?: number;
   children: ReactNode;
 }
 
@@ -45,6 +54,7 @@ export function AppShell({
   reviewProgress,
   connected = false,
   libraryName = 'openleaner',
+  trashBadge = 0,
   children,
 }: AppShellProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -206,6 +216,31 @@ export function AppShell({
               </button>
             );
           })}
+
+          {/*
+            回收站入口（2026-11-08）。
+            放底部固定区而不是分组里：它不是日常学习流程的一环，
+            而是「误删后回来找」的兜底，和设置同类。
+
+            有快过期的东西时显示一个数字角标 —— 用户不一定会主动点进来，
+            角标是唯一能提醒到他的地方（启动时的弹窗见 App.tsx）。
+          */}
+          <button
+            type="button"
+            className={`nav-item${current === TRASH_ITEM.id ? ' nav-item--on' : ''}`}
+            onClick={() => onNavigate(TRASH_ITEM.id)}
+            title="删掉的东西先放这里，30 天后彻底删除"
+          >
+            <span className="nav-item__icon" aria-hidden="true">
+              <TRASH_ITEM.icon size={18} />
+            </span>
+            <span className="nav-item__label">{TRASH_ITEM.label}</span>
+            {trashBadge > 0 ? (
+              <span className="nav-item__badge" aria-label={`${trashBadge} 项即将被彻底删除`}>
+                {trashBadge}
+              </span>
+            ) : null}
+          </button>
 
           <button
             type="button"

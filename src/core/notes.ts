@@ -15,6 +15,7 @@
 
 import type { Note } from '@/core/model.ts';
 import type { StorageAdapter } from '@/core/storage/types.ts';
+import type { TrashService } from '@/core/trash.ts';
 import { newId, nowIso } from '@/core/id.ts';
 
 /** 新建笔记的入参 */
@@ -27,7 +28,11 @@ export interface NoteInput {
 }
 
 export class NoteService {
-  constructor(private readonly storage: StorageAdapter) {}
+  constructor(
+    private readonly storage: StorageAdapter,
+    /** 回收站（2026-11-08），可选。不传则删除不可恢复 */
+    private readonly trash?: TrashService,
+  ) {}
 
   /**
    * 全部笔记，最近更新的在前。
@@ -118,6 +123,17 @@ export class NoteService {
   }
 
   async remove(id: string): Promise<void> {
+    const existing = await this.storage.get('notes', id);
+    if (existing) {
+      await this.trash?.moveToTrash([
+        {
+          kind: 'notes',
+          title: existing.body.slice(0, 60),
+          summary: '学习笔记',
+          payload: existing,
+        },
+      ]);
+    }
     await this.storage.remove('notes', id);
   }
 

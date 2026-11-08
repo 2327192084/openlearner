@@ -1,0 +1,208 @@
+/**
+ * 设置页「首页小组件」编辑区样式（2026-11-08）。
+ *
+ * ## ⚠️ 原生控件全部写层外
+ *
+ * `src/styles/base.css` 里有一条**不在任何 @layer 内**的规则：
+ *
+ *     button, input, select, textarea { font: inherit; color: inherit; }
+ *     button { cursor: pointer; }
+ *     button:disabled { cursor: not-allowed; }
+ *
+ * 级联是「层级先于特异性」，无层级规则永远赢 @layer 里的规则。
+ * 项目里因此踩过六次。这一块有 input / select / textarea / button 四种原生控件，
+ * **一条都不能进层**，包括 appearance: none。
+ */
+
+.hw-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+}
+
+.hw-lead,
+.hw-note {
+  margin: 0;
+  font-size: var(--font-sm, 13px);
+  color: var(--text-2, #b9b2a8);
+  line-height: 1.8;
+}
+
+.hw-note strong {
+  color: var(--text-1, #efe9df);
+}
+
+.hw-hint {
+  margin: 0;
+  font-size: var(--font-xs, 12px);
+  color: var(--text-3, #8d857b);
+  line-height: 1.7;
+}
+
+.hw-error {
+  margin: 0;
+  font-size: var(--font-sm, 13px);
+  color: var(--c-danger, #d9534f);
+}
+
+.hw-flash {
+  margin: 0;
+  font-size: var(--font-sm, 13px);
+  color: var(--c-success, #4caf7d);
+}
+
+/* ---------- 列表 ---------- */
+
+.hw-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+}
+
+.hw-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+  padding: var(--space-3, 12px);
+  border: 1px solid var(--line-subtle, rgba(255, 255, 255, 0.1));
+  border-radius: var(--radius-3, 10px);
+}
+
+.hw-item__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+}
+
+.hw-item__no {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-1, #efe9df) 12%, transparent);
+  color: var(--text-2, #b9b2a8);
+  font-size: 11px;
+  line-height: 20px;
+  text-align: center;
+}
+
+.hw-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hw-label {
+  font-size: var(--font-xs, 12px);
+  color: var(--text-3, #8d857b);
+}
+
+/* ---------- 原生控件（层外！见文件头） ---------- */
+
+.hw-select,
+.hw-input,
+.hw-textarea {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--line-subtle, rgba(255, 255, 255, 0.14));
+  background: var(--surface-2, rgba(255, 255, 255, 0.04));
+  color: var(--text-1, #efe9df);
+  font-family: inherit;
+  font-size: var(--font-sm, 13px);
+  line-height: 1.5;
+  padding: 6px 10px;
+  border-radius: var(--radius-2, 6px);
+  width: 100%;
+}
+
+.hw-select {
+  flex: 1;
+  min-width: 0;
+  /* 没有 appearance 时有默认箭头；置 none 后要自己补一个，否则看不出是下拉 */
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 28px;
+}
+
+.hw-textarea {
+  resize: vertical;
+  min-height: 48px;
+}
+
+.hw-select:focus-visible,
+.hw-input:focus-visible,
+.hw-textarea:focus-visible {
+  outline: 2px solid var(--c-primary, #e06a3b);
+  outline-offset: 1px;
+}
+
+.hw-select:disabled,
+.hw-input:disabled,
+.hw-textarea:disabled {
+  opacity: 0.6;
+}
+
+.hw-remove {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: 0 0 auto;
+  border: 1px solid var(--line-subtle, rgba(255, 255, 255, 0.14));
+  background: transparent;
+  color: var(--text-3, #8d857b);
+  font-family: inherit;
+  font-size: var(--font-xs, 12px);
+  line-height: 1.4;
+  padding: 5px 10px;
+  border-radius: var(--radius-2, 6px);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.hw-remove:hover:not(:disabled) {
+  color: var(--c-danger, #d9534f);
+  border-color: color-mix(in srgb, var(--c-danger, #d9534f) 50%, transparent);
+}
+
+.hw-actions {
+  display: flex;
+  gap: var(--space-2, 8px);
+}
+
+.hw-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--line-strong, rgba(255, 255, 255, 0.2));
+  background: transparent;
+  color: var(--text-1, #efe9df);
+  font-family: inherit;
+  font-size: var(--font-sm, 13px);
+  line-height: 1.5;
+  padding: 6px 14px;
+  border-radius: var(--radius-2, 6px);
+  cursor: pointer;
+}
+
+.hw-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text-1, #efe9df) 8%, transparent);
+}
+
+.hw-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hw-btn--primary {
+  background: var(--c-primary, #e06a3b);
+  border-color: transparent;
+  color: #fff;
+}
+
+.hw-btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--c-primary, #e06a3b) 85%, #000);
+}
