@@ -516,16 +516,6 @@ export function ReviewPage({
                 ? ' live-mastery--up'
                 : ''
             }`}
-            /*
-              这两个百分比并排容易看混，所以悬停说明要写清区别：
-              一个是「这次做得怎么样」，一个是「记住得怎么样」。
-              刚做完第一道题时正确率 100% 而掌握度 0% 是正常的 ——
-              掌握度看间隔长度与历史正确率，一次新学不可能高。
-            */
-            title={
-              '这组题的整体掌握度（看间隔长度与历史正确率，不是本轮正确率）。\n' +
-              '刚学的题掌握度低是正常的：间隔短、还没有连续答对记录。'
-            }
           >
             本组掌握度 {Math.round(masteryNow * 100)}%
             {groupMasteryBefore !== undefined && masteryNow > groupMasteryBefore ? (
@@ -533,6 +523,42 @@ export function ReviewPage({
                 +{Math.round((masteryNow - groupMasteryBefore) * 100)}%
               </span>
             ) : null}
+            {/*
+              熟练度怎么算的，写出来（2026-11-08 用户要求：
+              「有判定逻辑就要写出来，否则隐藏」）。
+
+              选「写出来」而不是「隐藏」：这个数实际影响学习安排
+              （哪些题算已掌握、能不能跳过），藏起来就成了黑箱。
+              用 <details>，收起时只占「怎么算的」三个字。
+            */}
+            <details className="mastery-explain">
+              <summary className="mastery-explain__summary">怎么算的</summary>
+              <div className="mastery-explain__body">
+                <p>
+                  掌握度 = <strong>间隔分 × 55%</strong> + <strong>正确率 × 45%</strong>
+                  ＋ 连对加成（最多 15%）
+                </p>
+                <ul>
+                  <li>
+                    <strong>间隔分</strong>：上次间隔 1 天记 0、365 天记 1，中间按对数增长
+                    —— 隔得越久说明越记得住
+                  </li>
+                  <li>
+                    <strong>正确率</strong>：1 −（答错次数 ÷ 总复习次数）
+                  </li>
+                  <li>
+                    <strong>连对加成</strong>：每连续答对一次 +3%，最多 +15%
+                  </li>
+                </ul>
+                <p className="mastery-explain__note">
+                  标「已掌握」还要三条同时满足：间隔 ≥ 21 天、连续答对 ≥ 2 次、
+                  掌握度 ≥ 85% —— 这样「蒙对一次」不会被当成学会了。
+                </p>
+                <p className="mastery-explain__note">
+                  刚学的题掌握度低是正常的：间隔短、还没有连对记录。
+                </p>
+              </div>
+            </details>
           </span>
         ) : null}
       </div>

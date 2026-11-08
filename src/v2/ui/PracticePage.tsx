@@ -39,6 +39,9 @@ import type { SourceService } from '@/core/sources.ts';
 import type { CardLoader } from './cards-loader.ts';
 import { kindShort } from '@/core/questions/kinds.ts';
 import { MathText } from './MathText.tsx';
+import { todayLocal, type ReviewState } from '@/v2/core/srs.ts';
+import { PracticeQueueList } from './PracticeQueueList.tsx';
+import { buildQueueRows, masteredIds } from './practice-queue.ts';
 
 /** 三种模式 */
 export type PracticeMode = 'due' | 'free' | 'wrong';
@@ -98,16 +101,107 @@ export function PracticePage({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /*
+   * 待做题目清单（2026-11-08）。
+   *
+   * `states`：cardId → 复习状态，用来在清单里标「已掌握」。
+   * `skipped`：用户手动跳过的卡 id。
+   * `queueOpen`：清单是否展开（默认收起，一进来先看到大按钮）。
+   */
+  const [states, setStates] = useState<Map<string, ReviewState>>(new Map());
+  const [skipped, setSkipped] = useState<Set<string>>(new Set());
+  const [queueOpen, setQueueOpen] = useState(false);
+
+  const today = useMemo(() => todayLocal(), []);
+
+  /** 剔除被跳过的卡，得到这次真正要做的 */
+  const effectiveDue = useMemo(
+    () => dueCards.filter((c) => !skipped.has(c.id)),
+    [dueCards, skipped],
+  );
+
+  const toggleSkip = useCallback((cardId: string) => {
+    setSkipped((prev) => {
+      const next = new Set(prev);
+      if (next.has(cardId)) next.delete(cardId);
+      else next.add(cardId);
+      return next;
+    });
+  }, []);
+
+  const skipMastered = useCallback(() => {
+    const rows = buildQueueRows(dueCards, states, today);
+    const ids = masteredIds(rows, skipped);
+    setSkipped((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+  }, [dueCards, states, today, skipped]);
+
+  const resetSkip = useCallback(() => setSkipped(new Set()), []);
+
+  /*
+   * 新卡那一块用独立的跳过集合（2026-11-08）。
+   *
+   * 为什么不与到期共用：两块是**不同的题**（到期 vs 从没练过），
+   * 共用一个集合会让「在到期里勾掉的 id」在数学上不可能出现在新卡里，
+   * 但语义会混乱 —— 以后一旦两块有交集（比如某题既到期又算新卡），
+   * 会出现「勾了这边那边也没了」的怪现象。分开就没有这个隐患。
+   */
+  const [skippedFresh, setSkippedFresh] = useState<Set<string>>(new Set());
+  const [freshOpen, setFreshOpen] = useState(false);
+
+  const freshBatch = useMemo(() => freshCards.slice(0, BATCH), [freshCards]);
+  const effectiveFresh = useMemo(
+    () => freshBatch.filter((c) => !skippedFresh.has(c.id)),
+    [freshBatch, skippedFresh],
+  );
+  const freshSkippedCount = useMemo(
+    () => freshBatch.filter((c) => skippedFresh.has(c.id)).length,
+    [freshBatch, skippedFresh],
+  );
+
+  const toggleSkipFresh = useCallback((cardId: string) => {
+    setSkippedFresh((prev) => {
+      const next = new Set(prev);
+      if (next.has(cardId)) next.delete(cardId);
+      else next.add(cardId);
+      return next;
+    });
+  }, []);
+
+  const skipMasteredFresh = useCallback(() => {
+    const rows = buildQueueRows(freshBatch, states, today);
+    const ids = masteredIds(rows, skippedFresh);
+    setSkippedFresh((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+  }, [freshBatch, states, today, skippedFresh]);
+
+  const resetSkipFresh = useCallback(() => setSkippedFresh(new Set()), []);
+
   const load = useCallback(async () => {
     try {
-      const [deckList, srcs, wrongDetailed, allCards] = await Promise.all([
+      const [deckList, srcs, wrongDetailed, allCards, records] = await Promise.all([
         decks.list(),
         sourceService.list(),
         reviewService.wrongCardsDetailed(),
         loadCards(),
+        reviewService.listRecords(),
       ]);
       setPublished({ kind: 'ready', data: deckList.filter((d) => d.status === 'published') });
       setSourceTitles(new Map(srcs.map((s) => [s.id, s.title])));
+
+      /*
+       * 复习状态索引（2026-11-08）：给待做清单标「已掌握」用。
+       * 一次全取，不在渲染时逐题查 —— 那会是 N 次 IO。
+       */
+      const stMap = new Map<string, ReviewState>();
+      for (const r of records) stMap.set(r.cardId, r.state);
+      setStates(stMap);
 
       /*
        * 错题从 reviewLogs 派生（最近一次评级是 again），
@@ -303,20 +397,61 @@ export function PracticePage({
                   ? ` 这一批先做 ${dueCards.length} 道，做完可以再来取。`
                   : ''}
               </p>
-              <button
-                type="button"
-                className="btn-fill"
-                onClick={() =>
-                  onStart({
-                    mode: 'due',
-                    cards: dueCards,
-                    label: '今日题组',
-                    dueTotal,
-                  })
-                }
-              >
-                开始复习（{dueCards.length} 道）
-              </button>
+
+              {/*
+                待做清单（2026-11-08，用户要求）。
+                进去之前就能看到这一批是哪些题，已掌握的可剔掉。
+              */}
+              <PracticeQueueList
+                cards={dueCards}
+                states={states}
+                today={today}
+                skipped={skipped}
+                onToggleSkip={toggleSkip}
+                onSkipMastered={skipMastered}
+                onResetSkip={resetSkip}
+                open={queueOpen}
+                onToggleOpen={() => setQueueOpen((v) => !v)}
+              />
+
+              {/*
+                按钮数字跟着实际要做的题走。
+                剔掉之后如果一道不剩，就明说、不给一个点了没反应的按钮。
+              */}
+              {skipped.size > 0 ? (
+                <p className="practice-hint practice-hint--muted">
+                  已跳过 {skipped.size} 道（勾掉的不影响它们的复习进度）。
+                </p>
+              ) : null}
+
+              {effectiveDue.length > 0 ? (
+                <button
+                  type="button"
+                  className="btn-fill"
+                  onClick={() =>
+                    onStart({
+                      mode: 'due',
+                      cards: effectiveDue,
+                      label: '今日题组',
+                      dueTotal,
+                    })
+                  }
+                >
+                  开始复习（{effectiveDue.length} 道）
+                </button>
+              ) : (
+                <div className="practice-actions">
+                  <p className="practice-empty">
+                    这一批的题都被你勾掉了。恢复几道，或者直接去自由练习。
+                  </p>
+                  <button type="button" className="btn-ghost" onClick={resetSkip}>
+                    全部恢复
+                  </button>
+                  <button type="button" className="btn-ghost" onClick={() => setTab('free')}>
+                    去自由练习
+                  </button>
+                </div>
+              )}
             </>
           ) : (
             <>
@@ -344,21 +479,55 @@ export function PracticePage({
                 另外还有 <strong>{freshCards.length}</strong> 道题<strong>从没练过</strong>。
                 它们还没进入遗忘曲线，做一遍之后才会开始按间隔安排。
               </p>
-              <button
-                type="button"
-                className="btn-ghost"
-                onClick={() =>
-                  onStart({
-                    mode: 'due',
-                    cards: freshCards.slice(0, BATCH),
-                    label: '新卡',
-                    /* 新卡没有「到期总数」的概念，传 null，界面不会显示截断提示 */
-                    dueTotal: null,
-                  })
-                }
-              >
-                先练这 {Math.min(freshCards.length, BATCH)} 道新卡
-              </button>
+
+              {/*
+                新卡也要有待做清单（2026-11-08 补）。
+                用户的要求是「进去能看到待做哪些题」—— 而库里全是新卡时，
+                到期批次是空的，只给到期批次加清单等于没加。
+                所以这里复用同一个组件，只是数据换成新卡。
+              */}
+              <PracticeQueueList
+                cards={freshCards.slice(0, BATCH)}
+                states={states}
+                today={today}
+                skipped={skippedFresh}
+                onToggleSkip={toggleSkipFresh}
+                onSkipMastered={skipMasteredFresh}
+                onResetSkip={resetSkipFresh}
+                open={freshOpen}
+                onToggleOpen={() => setFreshOpen((v) => !v)}
+              />
+
+              {freshSkippedCount > 0 ? (
+                <p className="practice-hint practice-hint--muted">
+                  已跳过 {freshSkippedCount} 道。
+                </p>
+              ) : null}
+
+              {effectiveFresh.length > 0 ? (
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={() =>
+                    onStart({
+                      mode: 'due',
+                      cards: effectiveFresh,
+                      label: '新卡',
+                      /* 新卡没有「到期总数」的概念，传 null，界面不会显示截断提示 */
+                      dueTotal: null,
+                    })
+                  }
+                >
+                  先练这 {effectiveFresh.length} 道新卡
+                </button>
+              ) : (
+                <div className="practice-actions">
+                  <p className="practice-empty">这批新卡都被你勾掉了。</p>
+                  <button type="button" className="btn-ghost" onClick={resetSkipFresh}>
+                    全部恢复
+                  </button>
+                </div>
+              )}
             </div>
           ) : null}
         </section>

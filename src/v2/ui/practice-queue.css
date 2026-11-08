@@ -1,0 +1,183 @@
+/**
+ * 待做题目清单样式（2026-11-08）。
+ *
+ * ## ⚠️ 原生控件写层外
+ *
+ * `src/styles/base.css` 有无层级的 `button { font: inherit; color: inherit }`
+ * 与 `input` 同名规则。级联里「层级先于特异性」，层内写多特异都赢不了。
+ * 这里用到 button 与 checkbox，**一条都不能进 @layer**。
+ */
+
+.pq {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+  margin-top: var(--space-3, 12px);
+}
+
+/* ---------- 展开按钮 ---------- */
+
+.pq__toggle {
+  appearance: none;
+  -webkit-appearance: none;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-2, #b9b2a8);
+  font-family: inherit;
+  font-size: var(--font-sm, 13px);
+  line-height: 1.8;
+  padding: 2px 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.pq__toggle:hover {
+  color: var(--text-1, #efe9df);
+}
+
+.pq__toggle-arrow {
+  flex: 0 0 auto;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.pq__toggle-note {
+  color: var(--text-3, #8d857b);
+}
+
+/* ---------- 批量操作 ---------- */
+
+.pq__actions {
+  display: flex;
+  gap: var(--space-2, 8px);
+  flex-wrap: wrap;
+}
+
+.pq__action {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--line-subtle, rgba(255, 255, 255, 0.14));
+  background: transparent;
+  color: var(--text-2, #b9b2a8);
+  font-family: inherit;
+  font-size: var(--font-xs, 12px);
+  line-height: 1.5;
+  padding: 4px 10px;
+  border-radius: var(--radius-2, 6px);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pq__action:hover:not(:disabled) {
+  color: var(--text-1, #efe9df);
+  border-color: color-mix(in srgb, var(--c-primary, #e06a3b) 50%, transparent);
+}
+
+.pq__action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---------- 列表 ---------- */
+
+.pq__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* 最多占 8 行高度，再多就滚动 —— 一屏塞 30 行会把「开始复习」顶走 */
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.pq__item {
+  border-radius: var(--radius-2, 6px);
+}
+
+/* 被跳过的整行变淡，但不清空 —— 用户随时能勾回来 */
+.pq__item--skipped {
+  opacity: 0.45;
+}
+
+.pq__item:hover {
+  background: color-mix(in srgb, var(--text-1, #efe9df) 4%, transparent);
+}
+
+.pq__check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+/*
+ * checkbox：外观交给系统，但要给它一个在深色主题下看得见的尺寸与间距。
+ * 不用 appearance: none 自绘 —— 那要自己处理勾选态、焦点环、触摸尺寸，
+ * 而这里一个普通的方形勾选框足够。
+ */
+.pq__check input[type='checkbox'] {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  margin: 3px 0 0;
+  accent-color: var(--c-primary, #e06a3b);
+  cursor: pointer;
+}
+
+.pq__body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.pq__prompt {
+  font-size: var(--font-sm, 13px);
+  line-height: 1.6;
+  color: var(--text-1, #efe9df);
+  /* 题干可能很长：截两行，够看出是哪道题就行 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.pq__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: var(--font-xs, 12px);
+  color: var(--text-3, #8d857b);
+}
+
+.pq__badge {
+  border: 1px solid var(--line-subtle, rgba(255, 255, 255, 0.14));
+  border-radius: 999px;
+  padding: 0 7px;
+  line-height: 1.6;
+}
+
+/* 已掌握用成功色，一眼能扫出哪些可以跳 */
+.pq__badge--ok {
+  color: var(--c-success, #4caf7d);
+  border-color: color-mix(in srgb, var(--c-success, #4caf7d) 45%, transparent);
+}
+
+.pq__overdue {
+  color: var(--c-warn, #e0a03b);
+}
+
+.pq__hint {
+  margin: 0;
+  font-size: var(--font-xs, 12px);
+  color: var(--text-3, #8d857b);
+  line-height: 1.7;
+}

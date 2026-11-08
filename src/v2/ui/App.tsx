@@ -24,6 +24,7 @@ import { StudyPage } from './StudyPage.tsx';
 import { KnowledgePage } from './KnowledgePage.tsx';
 import { TrashPage } from './TrashPage.tsx';
 import { DEFAULT_WIDGETS, widgetsFromSettings, type HomeWidget } from './home-widgets.ts';
+import { fetchDailyQuote } from './daily-quote.ts';
 import type { Todo } from '@/core/model.ts';
 import { StatsPage } from './StatsPage.tsx';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
@@ -319,11 +320,29 @@ export function App({
    */
   const [homeWidgets, setHomeWidgets] = useState<HomeWidget[]>(() => [...DEFAULT_WIDGETS]);
   const [homeTodos, setHomeTodos] = useState<Todo[]>([]);
+  /**
+   * 每日一句的内容（2026-11-08，用户要求联网）。
+   *
+   * 取法见 daily-quote.ts：远程优先、**失败静默回落内置语料**。
+   * 所以这个 state 永远有值（最差也是本地那句），首页不会空。
+   */
+  const [dailyQuote, setDailyQuote] = useState<{
+    text: string;
+    author: string | null;
+  } | null>(null);
   const refreshHomeWidgets = useCallback(async () => {
     try {
       const [settings, list] = await Promise.all([library.getSettings(), todoService.list()]);
       setHomeWidgets(widgetsFromSettings(settings));
       setHomeTodos(list);
+
+      /*
+       * 拉每日一句。`void` 不 await：它是装饰性内容，
+       * 不该挡住首页其它区块的渲染（网络慢时首页会白屏几秒）。
+       */
+      const endpoint = (settings as unknown as { dailyQuoteEndpoint?: string })
+        .dailyQuoteEndpoint;
+      void fetchDailyQuote({ endpoint }).then((r) => setDailyQuote({ text: r.text, author: r.author }));
     } catch {
       // 读不到就保持默认的每日一句，不让首页空着
     }
@@ -995,6 +1014,7 @@ export function App({
           knowledge={knowledge}
           sourceService={sourceService}
           widgets={homeWidgets}
+          quote={dailyQuote}
           todos={homeTodos}
           onOpenBoard={() => setPage('board')}
           /* 今日学习卡的「开始学新题」→ 开始学习页（那里有三种模式的入口） */

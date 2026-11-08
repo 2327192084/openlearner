@@ -36,6 +36,13 @@ export interface HomeWidgetsProps {
   todos?: Todo[];
   /** 今日学习小组件用的汇总（到期/薄弱分开） */
   plan?: TodayPlan | null;
+  /**
+   * 每日一句的远程内容（2026-11-08）。
+   *
+   * 上层用 daily-quote.ts 取，**失败会回落到内置语料**，
+   * 所以这里 null 也不影响显示（组件自己还会再兜一次底）。
+   */
+  quote?: { text: string; author: string | null } | null;
   /** 点「去待办」 */
   onOpenTodos?: () => void;
   /** 点番茄钟小组件 */
@@ -52,6 +59,7 @@ export function HomeWidgets({
   widgets,
   todos = [],
   plan = null,
+  quote = null,
   onOpenTodos,
   onStartFocus,
   onStartReview,
@@ -67,6 +75,7 @@ export function HomeWidgets({
           widget={w}
           todos={todos}
           plan={plan}
+          quote={quote}
           onOpenTodos={onOpenTodos}
           onStartFocus={onStartFocus}
           onStartReview={onStartReview}
@@ -93,6 +102,7 @@ function WidgetCard({
   widget,
   todos,
   plan,
+  quote,
   onOpenTodos,
   onStartFocus,
   onStartReview,
@@ -102,6 +112,7 @@ function WidgetCard({
   widget: HomeWidget;
   todos: Todo[];
   plan: TodayPlan | null;
+  quote: { text: string; author: string | null } | null;
   onOpenTodos?: () => void;
   onStartFocus?: () => void;
   onStartReview?: () => void;
@@ -182,16 +193,24 @@ function WidgetCard({
 
   if (widget.kind === 'quote') {
     /*
-     * 用户自己写了内容（body 非空）就用他的；否则用内置语料当天那句。
-     * 这样「每日一句」既能自动换，也能被用户覆盖成自己想要的固定句子。
+     * 用户自己写了内容（body 非空）就用他的；否则用「每日一句」。
+     *
+     * 每日一句支持远程（2026-11-08，用户要求联网）：
+     * 由上层传进来的 `quote` 决定显示什么。上层的取法见 daily-quote.ts ——
+     * **远程失败会静默回落到本地语料**，所以这里永远有东西可显示。
+     *
+     * 为什么不在这个组件里发请求：展示组件不该有副作用，
+     * 而且首页每次重渲染都发一次请求会很难查。取数据放在上层。
      */
-    const text = widget.body.trim() || pickDailyQuote();
+    const text = widget.body.trim() || quote?.text || pickDailyQuote();
+    const author = widget.body.trim() ? null : (quote?.author ?? null);
     return (
       <div className="paper home-widget">
         <div className="paper__eyebrow">{title}</div>
         <p className="home-widget__quote">
           <MathText text={text} />
         </p>
+        {author ? <p className="home-widget__author">—— {author}</p> : null}
       </div>
     );
   }

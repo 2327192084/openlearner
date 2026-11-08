@@ -569,3 +569,132 @@
   color: var(--text-3, #8d857b);
   margin-left: 2px;
 }
+
+/* ---------- 熟练度公式说明（2026-11-08） ---------- */
+
+.mastery-explain {
+  margin-left: 6px;
+  font-size: var(--font-xs, 12px);
+  color: var(--text-3, #8d857b);
+}
+
+.mastery-explain__summary {
+  cursor: pointer;
+  color: var(--text-3, #8d857b);
+  /* 下划线暗示可点，比纯文字更像入口 */
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.mastery-explain__summary:hover {
+  color: var(--text-1, #efe9df);
+}
+
+/*
+ * 说明面板用绝对定位浮出来，不把顶栏撑高。
+ * 顶栏是 flex 行，一个会变高的 details 会把「1/10」等数字挤走形。
+ */
+.mastery-explain__body {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  width: min(380px, 90vw);
+  padding: var(--space-3, 12px);
+  border-radius: var(--radius-3, 10px);
+  border: 1px solid var(--line-strong, rgba(255, 255, 255, 0.18));
+  background: var(--surface-1, #1b1916);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  font-size: var(--font-xs, 12px);
+  line-height: 1.8;
+  color: var(--text-2, #b9b2a8);
+  text-align: left;
+}
+
+.mastery-explain__body p {
+  margin: 0 0 6px;
+}
+
+.mastery-explain__body ul {
+  margin: 0 0 6px;
+  padding-left: 1.3em;
+}
+
+.mastery-explain__body strong {
+  color: var(--text-1, #efe9df);
+}
+
+.mastery-explain__note {
+  color: var(--text-3, #8d857b);
+}
+
+/* 让绝对定位的浮层有参照物 */
+.live-mastery {
+  position: relative;
+}
+
+/* ---------- 出题页：章节范围（2026-11-08） ---------- */
+
+.gen-chapters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: var(--space-2, 8px);
+}
+
+.gen-chapter {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--line-subtle, rgba(255, 255, 255, 0.14));
+  border-radius: var(--radius-2, 6px);
+  font-size: var(--font-xs, 12px);
+  color: var(--text-2, #b9b2a8);
+  cursor: pointer;
+}
+
+.gen-chapter--on {
+  border-color: color-mix(in srgb, var(--c-primary, #e06a3b) 55%, transparent);
+  color: var(--text-1, #efe9df);
+  background: color-mix(in srgb, var(--c-primary, #e06a3b) 10%, transparent);
+}
+
+/* checkbox 用系统外观：自绘要处理勾选态/焦点环/触摸尺寸，不值得 */
+.gen-chapter input[type='checkbox'] {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--c-primary, #e06a3b);
+  cursor: pointer;
+}
+
+.gen-chapter__n {
+  color: var(--text-3, #8d857b);
+}
+
+.gen-legend__note {
+  margin-left: 8px;
+  font-weight: 400;
+  color: var(--text-3, #8d857b);
+}
+
+.gen-chapter__reset {
+  appearance: none;
+  -webkit-appearance: none;
+  margin-top: var(--space-2, 8px);
+  border: none;
+  background: transparent;
+  color: var(--text-3, #8d857b);
+  font-family: inherit;
+  font-size: var(--font-xs, 12px);
+  padding: 2px 0;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.gen-chapter__reset:hover:not(:disabled) {
+  color: var(--text-1, #efe9df);
+}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Source, KnowledgePoint, QuestionKind } from '@/core/model.ts';
 import type { SourceService } from '@/core/sources.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
@@ -229,8 +229,47 @@ export function GeneratePage({
     };
   }, [knowledge, selected]);
 
-  /** 已定位的知识点才能出题（未定位的没有出处，题目也就点不回原文） */
-  const usablePoints = (points ?? []).filter((p) => p.anchors.length > 0);
+  /**
+   * 已定位的知识点才能出题（未定位的没有出处，题目也就点不回原文）
+   *
+   * 再按选中的章节过滤（2026-11-08，用户要求「按章节限范围出题」）。
+   * 为什么先按 anchors 过滤再按章节：两者是独立条件，
+   * 但「没定位的不能出题」是硬规则，先执行它能让章节统计更诚实
+   * （否则章节下拉里会数进那些根本出不了题的点）。
+   */
+  const locatablePoints = (points ?? []).filter((p) => p.anchors.length > 0);
+
+  /** 这份资料里有哪些章（按首次出现顺序，保持阅读顺序） */
+  const chapters = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const p of locatablePoints) {
+      const name = (p.chapter ?? '').trim();
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      out.push(name);
+    }
+    return out;
+  }, [locatablePoints]);
+
+  /**
+   * 选中的章节集合。空集 = 不限（全部）。
+   *
+   * 用「空集表示全部」而不是默认全选：资料有 20 章时全选会让
+   * 下拉框一进去就是 20 个勾，用户还得先取消。默认不限制更省事，
+   * 而且与「不选就是全要」的直觉一致。
+   */
+  const [pickedChapters, setPickedChapters] = useState<Set<string>>(new Set());
+
+  /* 换资料时清空章节选择 —— 否则会带着上一份资料的章名去过滤新资料 */
+  useEffect(() => {
+    setPickedChapters(new Set());
+  }, [selected]);
+
+  const usablePoints = useMemo(() => {
+    if (pickedChapters.size === 0) return locatablePoints;
+    return locatablePoints.filter((p) => pickedChapters.has((p.chapter ?? '').trim()));
+  }, [locatablePoints, pickedChapters]);
 
   /** 粗略的 token 预估：按知识点的 statement 字数 × 出题倍率 */
   const estimatedTokens = (() => {
@@ -504,6 +543,64 @@ export function GeneratePage({
               disabled={busy}
             />
           </fieldset>
+
+          {/*
+            章节范围（2026-11-08，用户要求「按章节限范围出题」）。
+
+            为什么需要：一本 600 页的书整理出几百条知识点，
+            而用户往往只想先出「第 3 章」的题。原来只能整本出，
+            要么一次烧掉太多 token，要么出的题散落在各章没法按进度练。
+
+            为什么默认不限制：不选就是全部，符合「不选即全要」的直觉；
+            默认全选的话，20 章的资料一进来就是 20 个勾，用户还得先取消。
+          */}
+          {chapters.length > 0 ? (
+            <fieldset className="gen-fieldset">
+              <legend className="gen-legend">
+                章节范围
+                <span className="gen-legend__note">
+                  {pickedChapters.size === 0
+                    ? `不限（全部 ${chapters.length} 章、${locatablePoints.length} 条知识点）`
+                    : `已选 ${pickedChapters.size} 章、${usablePoints.length} 条知识点`}
+                </span>
+              </legend>
+              <div className="gen-chapters">
+                {chapters.map((name) => {
+                  const on = pickedChapters.has(name);
+                  const n = locatablePoints.filter((p) => (p.chapter ?? '').trim() === name).length;
+                  return (
+                    <label key={name} className={'gen-chapter' + (on ? ' gen-chapter--on' : '')}>
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        disabled={busy}
+                        onChange={() =>
+                          setPickedChapters((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(name)) next.delete(name);
+                            else next.add(name);
+                            return next;
+                          })
+                        }
+                      />
+                      <span className="gen-chapter__name">{name}</span>
+                      <span className="gen-chapter__n">{n} 条</span>
+                    </label>
+                  );
+                })}
+              </div>
+              {pickedChapters.size > 0 ? (
+                <button
+                  type="button"
+                  className="gen-chapter__reset"
+                  disabled={busy}
+                  onClick={() => setPickedChapters(new Set())}
+                >
+                  不限章节（全部）
+                </button>
+              ) : null}
+            </fieldset>
+          ) : null}
 
           {/* 预估 token：点下去之前就该知道会花多少 */}
           <div className="gen-estimate">

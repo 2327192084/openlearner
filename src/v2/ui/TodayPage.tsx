@@ -72,6 +72,8 @@ export interface TodayPageProps {
    * 从 settings 读出来的原始配置由 home-widgets.ts 的 normalizeWidgets 规整。
    */
   widgets?: HomeWidget[];
+  /** 每日一句的远程内容（失败已由上层回落到内置语料） */
+  quote?: { text: string; author: string | null } | null;
   /** 未完成的待办，给 todo 小组件用 */
   todos?: Todo[];
   /** 打开待办页 */
@@ -114,6 +116,7 @@ export function TodayPage(props: TodayPageProps) {
     knowledge,
     sourceService,
     widgets = DEFAULT_WIDGETS,
+    quote = null,
     todos = [],
     onOpenBoard,
     onOpenStudy,
@@ -469,6 +472,7 @@ export function TodayPage(props: TodayPageProps) {
           widgets={widgets}
           todos={todos}
           plan={todayPlan}
+          quote={quote}
           onOpenTodos={onOpenBoard}
           onStartFocus={onStartFocus}
           onStartReview={onStartReview}

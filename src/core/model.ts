@@ -1006,6 +1006,17 @@ export interface AppSettings {
    * 坏数据只丢那一个组件，不会让首页白屏。
    */
   homeWidgets?: unknown;
+  /**
+   * 每日一句的远程端点（2026-11-08）。
+   *
+   * 空/未设置 = 纯用内置语料（默认）。
+   * 填了就以远程为主，**远程失败自动回落到内置语料** ——
+   * 首页右侧永远不会因为断网而空一块。
+   *
+   * 期望返回 JSON，形如 `{ "text": "句子", "author": "出处" }`；
+   * 也兼容 `{quote}` / `{content}` / `["句子"]` 几种常见形状（见 daily-quote.ts）。
+   */
+  dailyQuoteEndpoint?: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
