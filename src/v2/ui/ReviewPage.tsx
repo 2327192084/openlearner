@@ -4,6 +4,7 @@ import { isCorrect, CARD_KIND_LABEL } from '@/v2/core/cards.ts';
 import type { ReviewGrade } from '@/v2/core/srs.ts';
 import { mastery, todayLocal } from '@/v2/core/srs.ts';
 import { previewDays } from '@/v2/core/ebbinghaus.ts';
+import { explainInterval } from '@/v2/core/interval-reason.ts';
 import type { ReviewState } from '@/v2/core/srs.ts';
 import type { ReviewService, ReviewRecord } from '@/v2/core/review-service.ts';
 import type { GradingRules } from '@/v2/core/grading.ts';
@@ -102,6 +103,63 @@ function fmtInterval(days: number): string {
   if (days < 30) return `${days} 天`;
   if (days < 365) return `${Math.round(days / 30)} 个月`;
   return '1 年';
+}
+
+/**
+ * 「为什么是这个间隔？」可展开块（2026-11-08）。
+ *
+ * 默认收起：读题时不该被一段解释占地方。
+ * 但按钮上明明写着「1 天」，用户想追问时得点得到。
+ *
+ * 用原生 <details>：折叠行为、键盘可达性、无障碍语义全都自带，
+ * 比自己维护 open 状态少一半代码，也不会在 React 重渲染时丢状态。
+ */
+function IntervalWhy({
+  state,
+  grade,
+  days,
+}: {
+  state: ReviewState | null;
+  grade: ReviewGrade;
+  days: number;
+}) {
+  const reason = explainInterval(state, grade, days);
+  return (
+    <details className="interval-why">
+      <summary className="interval-why__summary">为什么是 {reason.headline}？</summary>
+      <ul className="interval-why__list">
+        {reason.details.map((d, i) => (
+          <li key={i}>{d}</li>
+        ))}
+      </ul>
+      <p className="interval-why__note">
+        间隔按遗忘曲线自动排；这一档是「良好」的情况，你选别的档会不一样。
+      </p>
+    </details>
+  );
+}
+
+/**
+ * 这批选项里有没有任何一条带「为什么」（2026-11-08）。
+ *
+ * 老题库的选项只有 key/text，整块逐选项解析就不显示 ——
+ * 显示一排只有选项文字、没有解释的列表，比不显示更让人困惑。
+ */
+function hasOptionWhys(options: readonly { why?: string }[]): boolean {
+  return options.some((o) => !!o.why?.trim());
+}
+
+/**
+ * 这个 key 是不是正确答案。
+ *
+ * 单选/判断的 answer 是 `'A'`；多选是 `'A,C'`（逗号分隔）。
+ * 这里按逗号切再比，与 service 里判分的口径一致。
+ */
+function isAnswerKey(card: { answer: string }, key: string): boolean {
+  return card.answer
+    .split(',')
+    .map((k) => k.trim())
+    .includes(key);
 }
 
 export interface ReviewPageProps {
@@ -600,6 +658,50 @@ export function ReviewPage({
                   ) : null}
                 </div>
               ) : null}
+
+              {/*
+                逐选项解析（2026-11-08 新增）。
+                只有「有选项 + 该选项带 why」时才显示 —— 老题库没有 why 字段，
+                那段就整块不出现，不编造理由。
+
+                为什么值得单独一块：用户答错时最想知道的是
+                **我选的那个为什么错**，那是他脑子里的错误认知。
+                只给「正确答案是 C」并不能改掉它。
+              */}
+              {hasOptionWhys(card.options) ? (
+                <ul className="reveal__options">
+                  {card.options.map((o) => {
+                    const isAnswer = isAnswerKey(card, o.key);
+                    const isPicked = picked.includes(o.key);
+                    const tone = isAnswer ? 'correct' : isPicked ? 'wrong' : 'plain';
+                    return (
+                      <li key={o.key} className={`reveal__option reveal__option--${tone}`}>
+                        <div className="reveal__option-head">
+                          <span className="reveal__option-key">{o.key}</span>
+                          <span className="reveal__option-text">
+                            <MathText text={o.text} />
+                          </span>
+                          {isAnswer ? (
+                            <span className="reveal__option-tag reveal__option-tag--ok">
+                              正确答案
+                            </span>
+                          ) : isPicked ? (
+                            <span className="reveal__option-tag reveal__option-tag--bad">
+                              你的选择
+                            </span>
+                          ) : null}
+                        </div>
+                        {o.why ? (
+                          <p className="reveal__option-why">
+                            <MathText text={o.why} />
+                          </p>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+
               {card.explanation ? (
                 <div className="reveal__explain"><MathText text={card.explanation} /></div>
               ) : null}
@@ -727,6 +829,24 @@ export function ReviewPage({
               再放一个功能相同的按钮就是两个入口做同一件事 ——
               上一轮刚因为「两个同名下拉框」踩过这个坑，不重犯。
             */}
+
+            {/*
+              「为什么是这个间隔？」（2026-11-08）。
+              
+              放在评分按钮下方、可展开。用户看到按钮上写着「1 天」时
+              最想知道的就是凭什么 —— 原来界面答不上来，那会让他
+              觉得排期是随便给的。
+              
+              解释的是**当前这张卡如果按「良好」走**会怎样（最常见的选择），
+              因为评分还没发生，不能假装知道用户会选哪档。
+            */}
+            {card ? (
+              <IntervalWhy
+                state={record?.state ?? null}
+                grade="good"
+                days={intervals[2] ?? 1}
+              />
+            ) : null}
           </div>
         )}
 

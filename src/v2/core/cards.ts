@@ -41,6 +41,13 @@ export type CardKind =
 export interface CardOption {
   key: string;
   text: string;
+  /**
+   * 这个选项为什么对 / 为什么错（2026-11-08，可选）。
+   *
+   * 与 QuestionOption.why 同一含义。老题库没有这个字段，
+   * 解析区就退回只显示整题 explanation —— 不编造。
+   */
+  why?: string;
 }
 
 /** 一张卡片 */

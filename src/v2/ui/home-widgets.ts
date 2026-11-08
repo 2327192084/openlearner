@@ -31,7 +31,7 @@ import type { AppSettings } from '@/core/model.ts';
  * `quote` 与 `text` 的区别：前者每天自动换（内置语料），后者固定不变。
  * 分开是因为用户写座右铭时不想被"每天自动换掉"。
  */
-export type WidgetKind = 'quote' | 'text' | 'todo' | 'focus';
+export type WidgetKind = 'quote' | 'text' | 'todo' | 'focus' | 'plan';
 
 /** 一个小组件实例 */
 export interface HomeWidget {
@@ -48,12 +48,21 @@ export interface HomeWidget {
 }
 
 /**
- * 默认配置：放一个「每日一句」。
+ * 默认配置（2026-11-08 改）。
  *
- * 用户原话「我们默认设置是放一个每日鸡汤」，所以默认就是它。
- * body 留空表示「用内置语料轮换」；用户填了内容就用他自己的。
+ * 用户反馈「学习库右侧界面太空了」，所以从「只放一个每日一句」
+ * 改成三个，把右侧填满但不堆砌：
+ *
+ *  1. **今日学习** —— 到期 / 薄弱分开的数字，回答了「今天干什么」
+ *  2. **待办** —— 最近 3 件没完成的，回答「还有什么没做」
+ *  3. **每日一句** —— 用户原本要求的默认项，保留
+ *
+ * 为什么是这三个而不是更多：右侧栏 340px 宽，四个以上会变成一列
+ * 挤在一起的卡片，反而比空着更乱。用户可以在设置里自己增删（上限 6）。
  */
 export const DEFAULT_WIDGETS: HomeWidget[] = [
+  { id: 'w_default_plan', kind: 'plan', title: '今日学习', body: '' },
+  { id: 'w_default_todo', kind: 'todo', title: '待办', body: '' },
   { id: 'w_default_quote', kind: 'quote', title: '每日一句', body: '' },
 ];
 
@@ -180,7 +189,7 @@ export function normalizeWidgets(raw: unknown): HomeWidget[] {
     if (!item || typeof item !== 'object') continue;
     const o = item as Record<string, unknown>;
     const kind = o.kind;
-    if (kind !== 'quote' && kind !== 'text' && kind !== 'todo' && kind !== 'focus') continue;
+    if (kind !== 'quote' && kind !== 'text' && kind !== 'todo' && kind !== 'focus' && kind !== 'plan') continue;
     const id = typeof o.id === 'string' && o.id ? o.id : `w_${valid.length}`;
     valid.push({
       id,
@@ -221,16 +230,18 @@ export function widgetsFromSettings(settings: AppSettings | null | undefined): H
 
 /** 给渲染层用的默认标题（kind → 文案） */
 export const DEFAULT_WIDGET_TITLE: Record<WidgetKind, string> = {
+  plan: '今日学习',
+  todo: '待办',
   quote: '每日一句',
   text: '便签',
-  todo: '待办',
   focus: '专注',
 };
 
 /** 给设置页用的类型说明 */
 export const WIDGET_KIND_LABEL: Record<WidgetKind, string> = {
+  plan: '今日学习（到期 / 薄弱分开显示）',
+  todo: '待办提醒（显示最近要做的几件）',
   quote: '每日一句（内置语料，每天自动换）',
   text: '固定便签（座右铭、每日单词、任何文字）',
-  todo: '待办提醒（显示最近要做的几件）',
   focus: '番茄钟（直接开始专注）',
 };

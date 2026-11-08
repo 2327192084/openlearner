@@ -511,3 +511,52 @@
 .home-widgets__edit {
   align-self: flex-start;
 }
+
+/* ---------- 今日学习卡（2026-11-08） ---------- */
+
+.home-widget__plan {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+/* 大数字与首页左侧的 .paper__big 同一视觉语言 */
+.home-widget__big {
+  font-size: 40px;
+  line-height: 1;
+  font-weight: 600;
+  color: var(--paper-ink, #201b15);
+  letter-spacing: -0.02em;
+}
+
+.home-widget__unit {
+  font-size: var(--font-sm, 13px);
+  color: var(--paper-dim, #5d5448);
+}
+
+.home-widget__buckets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: var(--font-sm, 13px);
+  color: var(--paper-dim, #5d5448);
+}
+
+.home-widget__buckets li {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+/* 数字用墨色加重，一眼能扫出来哪一档最多 */
+.home-widget__n {
+  font-weight: 600;
+  color: var(--paper-ink, #201b15);
+}
+
+.home-widget__done {
+  color: color-mix(in srgb, var(--paper-ink, #201b15) 55%, transparent);
+}

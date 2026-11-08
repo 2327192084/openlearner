@@ -37,6 +37,7 @@ import { buildSnapshot, type StudySnapshot } from './study-snapshot.ts';
 import { IconCheck, IconUpload } from './icons.tsx';
 import { HomeWidgets } from './HomeWidgets.tsx';
 import { DEFAULT_WIDGETS, type HomeWidget } from './home-widgets.ts';
+import { stateByCard, summarizeToday, wrongCardIds, type TodayPlan } from './today-plan.ts';
 import type { Todo } from '@/core/model.ts';
 
 export interface TodayPageProps {
@@ -116,6 +117,8 @@ export function TodayPage(props: TodayPageProps) {
   const [snapshot, setSnapshot] = useState<StudySnapshot | null>(null);
   const [recentDecks, setRecentDecks] = useState<RecentDeck[]>([]);
   const [wrongPreview, setWrongPreview] = useState<WrongPreview[]>([]);
+  /** 今日学习卡汇总（到期/薄弱分开）。null 表示还没算出来 */
+  const [todayPlan, setTodayPlan] = useState<TodayPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -142,6 +145,28 @@ export function TodayPage(props: TodayPageProps) {
       ]);
 
       setSnapshot(snap);
+
+      /*
+       * 今日学习卡（2026-11-08）。
+       *
+       * 把到期 / 薄弱 / 没学过分开计数，给右侧「今日学习」小组件用。
+       * 与首页左侧「今天的安排」同源（都基于 cardPool + reviewRecords），
+       * 所以两处数字不会打架 —— 之前踩过「顶部 16 张、分布加起来 10 张」。
+       */
+      const records = await service.listRecords();
+      const stByCard = stateByCard(records);
+      const wrongSet = wrongCardIds(records);
+      setTodayPlan(
+        summarizeToday(
+          cardPool.map((id) => ({
+            cardId: id,
+            state: stByCard.get(id) ?? null,
+            hadWrong: wrongSet.has(id),
+          })),
+          today,
+        ),
+      );
+
       /*
        * 错题数按题组统计：错题明细里每条都有 cardId，
        * 而卡片上有 deckId —— 一次遍历就够，不必再查库。
@@ -435,8 +460,12 @@ export function TodayPage(props: TodayPageProps) {
         <HomeWidgets
           widgets={widgets}
           todos={todos}
+          plan={todayPlan}
           onOpenTodos={onOpenBoard}
           onStartFocus={onStartFocus}
+          onStartReview={onStartReview}
+          onDrillWeak={onOpenWrongBook}
+          onLearnNew={onOpenDecks}
           onOpenSettings={onOpenSettings}
         />
 

@@ -79,7 +79,12 @@ function questionToCard(q: Question, sourceId: string | null): Card {
     sourceId: sourceId ?? '',
     kind: toCardKind(q.kind),
     prompt: q.prompt,
-    options: q.options.map((o) => ({ key: o.key, text: o.text })),
+    options: q.options.map((o) => ({
+      key: o.key,
+      text: o.text,
+      /* 选项级解析（2026-11-08）。老题没有 why，透传 undefined —— 界面按「没有就不显示」处理 */
+      ...(o.why ? { why: o.why } : {}),
+    })),
     answer: q.answer,
     explanation: q.explanation,
     anchors: q.anchors ?? [],

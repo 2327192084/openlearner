@@ -436,3 +436,117 @@
   /* 空状态里按钮居中更好看 */
   align-self: center;
 }
+
+/* ---------- 做题页：逐选项解析（2026-11-08） ---------- */
+
+.reveal__options {
+  list-style: none;
+  margin: 0 0 var(--space-3, 12px);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reveal__option {
+  padding: 8px 10px;
+  border-radius: var(--radius-2, 6px);
+  border: 1px solid var(--line-subtle, rgba(255, 255, 255, 0.1));
+  background: var(--surface-2, rgba(255, 255, 255, 0.02));
+}
+
+/* 正确答案：绿边 + 淡绿底。和错题页的「正确」用同一套语义色 */
+.reveal__option--correct {
+  border-color: color-mix(in srgb, var(--c-success, #4caf7d) 55%, transparent);
+  background: color-mix(in srgb, var(--c-success, #4caf7d) 10%, transparent);
+}
+
+/* 用户选错的：红边。比正确答案弱一档，避免抢走「正确答案」的视觉重点 */
+.reveal__option--wrong {
+  border-color: color-mix(in srgb, var(--c-danger, #d9534f) 45%, transparent);
+  background: color-mix(in srgb, var(--c-danger, #d9534f) 8%, transparent);
+}
+
+.reveal__option-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.reveal__option-key {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.reveal__option-text {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-sm, 13px);
+  line-height: 1.6;
+}
+
+.reveal__option-tag {
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.reveal__option-tag--ok {
+  background: color-mix(in srgb, var(--c-success, #4caf7d) 22%, transparent);
+  color: var(--c-success, #4caf7d);
+}
+
+.reveal__option-tag--bad {
+  background: color-mix(in srgb, var(--c-danger, #d9534f) 20%, transparent);
+  color: var(--c-danger, #d9534f);
+}
+
+/* 「为什么」那一段：比选项正文淡一档，作为补充说明 */
+.reveal__option-why {
+  margin: 4px 0 0 26px;
+  font-size: var(--font-xs, 12px);
+  line-height: 1.7;
+  color: var(--text-2, #b9b2a8);
+}
+
+/* ---------- 做题页：「为什么是 N 天？」（2026-11-08） ---------- */
+
+.interval-why {
+  margin-top: var(--space-2, 8px);
+  font-size: var(--font-xs, 12px);
+  color: var(--text-3, #8d857b);
+}
+
+/* summary 默认带三角形，这里保留 —— 它是有用的「可展开」暗示 */
+.interval-why__summary {
+  cursor: pointer;
+  color: var(--text-2, #b9b2a8);
+  line-height: 1.8;
+  /* 让点击区域大一点，别只有一个字的高度 */
+  padding: 2px 0;
+}
+
+.interval-why__summary:hover {
+  color: var(--text-1, #efe9df);
+}
+
+.interval-why__list {
+  margin: 6px 0 0;
+  padding-left: 1.4em;
+  line-height: 1.9;
+}
+
+.interval-why__note {
+  margin: 6px 0 0;
+  opacity: 0.75;
+  line-height: 1.8;
+}

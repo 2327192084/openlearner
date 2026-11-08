@@ -27,16 +27,23 @@ import {
   pickDailyQuote,
   type HomeWidget,
 } from './home-widgets.ts';
+import type { TodayPlan } from './today-plan.ts';
 import { MathText } from './MathText.tsx';
 
 export interface HomeWidgetsProps {
   widgets: HomeWidget[];
   /** 待办小组件用：未完成的几件 */
   todos?: Todo[];
+  /** 今日学习小组件用的汇总（到期/薄弱分开） */
+  plan?: TodayPlan | null;
   /** 点「去待办」 */
   onOpenTodos?: () => void;
   /** 点番茄钟小组件 */
   onStartFocus?: () => void;
+  /** 点今日学习卡的按钮（复习 / 练薄弱 / 开始学） */
+  onStartReview?: () => void;
+  onDrillWeak?: () => void;
+  onLearnNew?: () => void;
   /** 打开设置页去编辑这些小组件 */
   onOpenSettings?: () => void;
 }
@@ -44,8 +51,12 @@ export interface HomeWidgetsProps {
 export function HomeWidgets({
   widgets,
   todos = [],
+  plan = null,
   onOpenTodos,
   onStartFocus,
+  onStartReview,
+  onDrillWeak,
+  onLearnNew,
   onOpenSettings,
 }: HomeWidgetsProps) {
   return (
@@ -55,8 +66,12 @@ export function HomeWidgets({
           key={w.id}
           widget={w}
           todos={todos}
+          plan={plan}
           onOpenTodos={onOpenTodos}
           onStartFocus={onStartFocus}
+          onStartReview={onStartReview}
+          onDrillWeak={onDrillWeak}
+          onLearnNew={onLearnNew}
         />
       ))}
 
@@ -77,15 +92,93 @@ export function HomeWidgets({
 function WidgetCard({
   widget,
   todos,
+  plan,
   onOpenTodos,
   onStartFocus,
+  onStartReview,
+  onDrillWeak,
+  onLearnNew,
 }: {
   widget: HomeWidget;
   todos: Todo[];
+  plan: TodayPlan | null;
   onOpenTodos?: () => void;
   onStartFocus?: () => void;
+  onStartReview?: () => void;
+  onDrillWeak?: () => void;
+  onLearnNew?: () => void;
 }) {
   const title = widget.title.trim() || DEFAULT_WIDGET_TITLE[widget.kind];
+
+  /*
+   * 今日学习（2026-11-08 新增）。
+   *
+   * 把「到期」和「薄弱」分开显示 —— 这是用户看完 StudyHub 视频后
+   * 提的第一个诉求，也是我判断最该补的一块：原来的首页只说
+   * 「还有 N 张新卡没学过」，用户看不出这 N 张里在考什么。
+   *
+   * 数字全部来自 today-plan.ts 的 summarizeToday（有 18 个单测），
+   * 与首页左侧「今天的安排」用同一套口径 —— 不会出现两处数字打架。
+   */
+  if (widget.kind === 'plan') {
+    if (!plan) {
+      return (
+        <div className="paper home-widget">
+          <div className="paper__eyebrow">{title}</div>
+          <p className="home-widget__empty">正在统计…</p>
+        </div>
+      );
+    }
+
+    /*
+     * 主按钮跟着 focus 走。这与左侧「今天的安排」里的按钮是**同一个动作**，
+     * 但两处显示是刻意的：左侧是说明，右侧是快捷入口。
+     * 只要数字同源，就不算「同一屏说两遍」——那种问题是数字对不上。
+     */
+    const action =
+      plan.focus === 'review'
+        ? { label: '开始复习', onClick: onStartReview }
+        : plan.focus === 'drill-weak'
+          ? { label: '练薄弱', onClick: onDrillWeak ?? onStartReview }
+          : plan.focus === 'learn-new'
+            ? { label: '开始学新题', onClick: onLearnNew ?? onStartReview }
+            : null;
+
+    return (
+      <div className="paper home-widget">
+        <div className="paper__eyebrow">{title}</div>
+        <div className="home-widget__plan">
+          <div className="home-widget__big">{plan.due + plan.weak + plan.fresh}</div>
+          <div className="home-widget__unit">题待学</div>
+        </div>
+        <ul className="home-widget__buckets">
+          {plan.due > 0 ? (
+            <li>
+              <span className="home-widget__n">{plan.due}</span> 题到期
+            </li>
+          ) : null}
+          {plan.weak > 0 ? (
+            <li>
+              <span className="home-widget__n">{plan.weak}</span> 题薄弱
+            </li>
+          ) : null}
+          {plan.fresh > 0 ? (
+            <li>
+              <span className="home-widget__n">{plan.fresh}</span> 题没学过
+            </li>
+          ) : null}
+          {plan.total > 0 && plan.due + plan.weak + plan.fresh === 0 ? (
+            <li className="home-widget__done">今天的都练熟了</li>
+          ) : null}
+        </ul>
+        {action ? (
+          <button type="button" className="home-widget__go" onClick={action.onClick}>
+            {action.label} →
+          </button>
+        ) : null}
+      </div>
+    );
+  }
 
   if (widget.kind === 'quote') {
     /*
