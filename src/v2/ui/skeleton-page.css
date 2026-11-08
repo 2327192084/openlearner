@@ -348,4 +348,38 @@
     background: color-mix(in srgb, var(--accent) 20%, transparent);
     color: var(--accent-text);
   }
+
+  /* ===== 2026-11-08：覆盖度（出题出全了吗） ===== */
+
+  /* 标题行里的覆盖率：比「N 条 · M 章」更重要，用正文色而非灰 */
+  .sk-cover {
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  /* 一段都没出题：用警示色，这是真问题 */
+  .sk-cover--zero {
+    color: var(--warn);
+  }
+
+  /* 展开区的说明：左边一条竖线，和「最该补」的写法保持一致 */
+  .sk-cover-note {
+    margin: 0 0 var(--space-3) var(--space-5);
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--line);
+    font-size: var(--fs-xs, 11px);
+    color: var(--text-faint);
+    line-height: var(--lh-body);
+  }
+
+  .sk-cover-note strong {
+    color: var(--text-dim);
+    font-weight: 600;
+  }
+
+  /* 全都有题：绿色竖线，正向反馈 */
+  .sk-cover-note--ok {
+    border-left-color: color-mix(in srgb, var(--ok) 50%, transparent);
+    color: var(--text-dim);
+  }
 }

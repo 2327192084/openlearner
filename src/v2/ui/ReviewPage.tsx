@@ -11,6 +11,7 @@ import { judgeByTiming, DEFAULT_GRADING_RULES } from '@/v2/core/grading.ts';
 import { useCardTimer, formatElapsed } from './use-card-timer.ts';
 import type { NoteService } from '@/core/notes.ts';
 import { NoteBox } from './NoteBox.tsx';
+import { pickOption } from './option-pick.ts';
 
 /**
  * 复习页：题卡 + 选项行 + 0-5 评分档。
@@ -521,11 +522,19 @@ export function ReviewPage({
                     className={`option option--${st}`}
                     onClick={() => {
                       if (revealed) return;
-                      if (card.kind === 'single') setPicked([o.key]);
-                      else
-                        setPicked((p) =>
-                          p.includes(o.key) ? p.filter((x) => x !== o.key) : [...p, o.key],
-                        );
+                      /*
+                       * 选择规则统一在 `option-pick.ts` 里，并有单测盯着。
+                       *
+                       * 2026-11-08 修：原来这里只判 `card.kind === 'single'`，
+                       * 判断题掉进 else 分支走**多选**的 toggle ——
+                       * 用户可以同时选中「对」和「错」。而 canSubmit 要求
+                       * `picked.length === 1`，于是提交按钮变灰，
+                       * 用户卡死在那一题、没有任何提示。
+                       *
+                       * 这个 bug 活了很久没被发现，因为前两轮一直没拿到
+                       * 判断题的实际截图（真实模型没出过判断题）。
+                       */
+                      setPicked((p) => pickOption(card.kind, p, o.key));
                     }}
                     disabled={revealed}
                   >

@@ -513,6 +513,7 @@ export function App({
         <SkeletonPage
           knowledge={knowledge}
           sourceService={sourceService}
+          decks={decks}
           onOpenKnowledge={() => setPage('knowledge')}
           onOpenOrganize={(sourceId) => {
             setOrganizeSourceId(sourceId);

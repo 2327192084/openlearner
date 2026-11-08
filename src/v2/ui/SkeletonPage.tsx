@@ -17,13 +17,23 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Source } from '@/core/model.ts';
+import type { Question, Source } from '@/core/model.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { SourceService } from '@/core/sources.ts';
+import type { DeckService } from '@/core/questions/service.ts';
+import {
+  coverageOf,
+  describeGap,
+  gapsOf,
+  toCoverSegments,
+  type Coverage,
+} from '@/v2/core/coverage.ts';
 
 export interface SkeletonPageProps {
   knowledge: KnowledgeService;
   sourceService: SourceService;
+  /** 覆盖度需要「哪些题落在哪一页」 */
+  decks: DeckService;
   /** 点某条知识点 → 去知识库看它 */
   onOpenKnowledge: () => void;
   /** 去整理（还没有知识点时） */
@@ -57,6 +67,8 @@ interface SourceGroup {
   chapters: ChapterGroup[];
   byLevel: Record<Level, number>;
   unlocated: number;
+  /** 出题覆盖度；没有正文段时为 null（不能算，也不假装算过） */
+  coverage: Coverage | null;
 }
 
 type Load =
@@ -67,6 +79,7 @@ type Load =
 export function SkeletonPage({
   knowledge,
   sourceService,
+  decks,
   onOpenKnowledge,
   onOpenOrganize,
 }: SkeletonPageProps) {
@@ -77,17 +90,42 @@ export function SkeletonPage({
   const load = useCallback(async () => {
     try {
       const sources = await sourceService.list();
+
+      /*
+       * 覆盖度只算**已发布**题组的题 —— 与 cardPool 同一口径。
+       *
+       * 为什么不算草稿：草稿是还没检查过的题，用户实际练不到。
+       * 把它们算进覆盖率会让界面说「覆盖了 60%」而实际能练的只有 20%。
+       */
+      const deckList = await decks.list();
+      const publishedIds = new Set(deckList.filter((d) => d.status === 'published').map((d) => d.id));
+      const allQuestions: Question[] = [];
+      await Promise.all(
+        deckList.map(async (d) => {
+          if (!publishedIds.has(d.id)) return;
+          try {
+            const qs = await decks.getQuestions(d.id);
+            allQuestions.push(...qs);
+          } catch {
+            /* 题组刚被删：跳过 */
+          }
+        }),
+      );
+
       const perSource = await Promise.all(
-        sources.map(async (s: Source) => ({
-          source: s,
-          points: await knowledge.listBySource(s.id),
-        })),
+        sources.map(async (s: Source) => {
+          const [points, segments] = await Promise.all([
+            knowledge.listBySource(s.id),
+            sourceService.getSegments(s.id).catch(() => []),
+          ]);
+          return { source: s, points, segments };
+        }),
       );
 
       const groups: SourceGroup[] = [];
       const tagCount = new Map<string, number>();
 
-      for (const { source, points } of perSource) {
+      for (const { source, points, segments } of perSource) {
         if (points.length === 0) continue;
 
         const byLevel = emptyLevels();
@@ -126,6 +164,18 @@ export function SkeletonPage({
           }
         }
 
+        /*
+         * 覆盖度：只在有正文段时算。
+         *
+         * 没有段（比如刚导入还没解析、或者资料被删光了正文）时给 null，
+         * 界面显示「没有正文，无法判断覆盖」—— 不能显示 0%，
+         * 那会被理解成「一页都没出题」。
+         */
+        const coverage =
+          segments.length > 0
+            ? coverageOf(source.id, toCoverSegments(segments), allQuestions)
+            : null;
+
         groups.push({
           sourceId: source.id,
           title: source.title,
@@ -134,6 +184,7 @@ export function SkeletonPage({
           chapters: [...chapterMap.values()].sort((a, b) => naturalCompare(a.chapter, b.chapter)),
           byLevel,
           unlocated,
+          coverage,
         });
       }
 
@@ -150,7 +201,7 @@ export function SkeletonPage({
         message: err instanceof Error ? err.message : '读不出知识结构',
       });
     }
-  }, [knowledge, sourceService]);
+  }, [knowledge, sourceService, decks]);
 
   useEffect(() => {
     void load();
@@ -314,11 +365,24 @@ export function SkeletonPage({
                 <span className="sk-source__title">{g.title}</span>
                 <span className="sk-source__meta">
                   {g.total} 条 · {g.chapters.length} 章
+                  {g.coverage ? (
+                    /* 覆盖度：这一句是这一页最值钱的信息 —— 「36 页里有题的只有 8 页」 */
+                    <span
+                      className={`sk-cover${g.coverage.percentLeaves === 0 ? ' sk-cover--zero' : ''}`}
+                      title={`有题 ${g.coverage.covered} 段 / 共 ${g.coverage.leaves} 段（按字符 ${g.coverage.percentChars}%），每万字 ${g.coverage.perTenK} 道题`}
+                    >
+                      {' · '}
+                      {g.coverage.leaves} 段中 {g.coverage.covered} 段有题（{g.coverage.percentLeaves}%）
+                    </span>
+                  ) : null}
                   {g.unlocated > 0 ? (
                     <span className="sk-warn"> · {g.unlocated} 条未定位</span>
                   ) : null}
                 </span>
               </button>
+
+              {/* 覆盖度的细节：空白区间。收在展开区里，不占标题行 */}
+              {isOpen && g.coverage ? <CoverageNote coverage={g.coverage} /> : null}
 
               {isOpen ? (
                 <ul className="sk-chapters">
@@ -356,6 +420,45 @@ export function SkeletonPage({
         })}
       </section>
     </div>
+  );
+}
+
+/**
+ * 覆盖度的一句话结论。
+ *
+ * 只说「哪几段从没出过题」，不列全部页码 —— 36 页里有 28 页空的时候，
+ * 列出来是一面墙。区间合并在 `gapsOf` 里做，这里只负责显示前两段最长的。
+ *
+ * 为什么取「最长的」而不是「第一个」：用户最该先补的是最大的一块空白，
+ * 而不是页码最小的那一块。
+ */
+function CoverageNote({ coverage }: { coverage: Coverage }) {
+  if (coverage.leaves === 0) return null;
+
+  if (coverage.neverPlanned === 0) {
+    return (
+      <p className="sk-cover-note sk-cover-note--ok">
+        每一段都有题了。
+      </p>
+    );
+  }
+
+  const gaps = [...gapsOf(coverage)].sort((a, b) => b.pages - a.pages).slice(0, 2);
+
+  return (
+    <p className="sk-cover-note">
+      {coverage.neverPlanned} 段从没出过题
+      {gaps.length > 0 ? (
+        <>
+          ，最大的一块是{' '}
+          <strong>
+            {gaps.map((g) => describeGap(g)).join('、')}
+          </strong>
+        </>
+      ) : null}
+      。覆盖率只算**已发布**题组的题 —— 草稿题还没检查过，用户实际练不到，
+      算进去会让覆盖率虚高。
+    </p>
   );
 }
 
