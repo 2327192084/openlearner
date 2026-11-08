@@ -3,7 +3,7 @@ import {
   addDays,
   initialState,
   schedule,
-  todayUtc,
+  todayLocal,
   buildTodayQueue,
   isDue,
   isMastered,
@@ -120,7 +120,7 @@ export class ReviewService {
     grade: ReviewGrade,
     now: Date = new Date(),
   ): Promise<ReviewRecord> {
-    const today = todayUtc(now);
+    const today = todayLocal(now);
     const existing = await this.getRecord(cardId);
     const prev = existing?.state ?? initialState(today);
     const next = schedule(prev, grade, today);
@@ -168,7 +168,7 @@ export class ReviewService {
    * （比如显示「到期 5 张」但列表只有 3 张）。
    */
   async todayOverview(cardPool: readonly string[], now: Date = new Date()): Promise<TodayOverview> {
-    const today = todayUtc(now);
+    const today = todayLocal(now);
     const records = await this.listRecords();
     const logs = await this.storage.getAll('reviewLogs');
 
@@ -217,7 +217,7 @@ export class ReviewService {
 
   /** 今天该复习的卡片 id（逾期优先） */
   async dueCards(cardPool: readonly string[], now: Date = new Date()): Promise<string[]> {
-    const today = todayUtc(now);
+    const today = todayLocal(now);
     const records = await this.listRecords();
     const pool = new Set(cardPool);
 
@@ -247,7 +247,7 @@ export class ReviewService {
     if (logs.length === 0) return 0;
 
     const days = new Set(logs.map((l) => l.day));
-    const today = todayUtc(now);
+    const today = todayLocal(now);
 
     // 从今天或昨天起算
     let cursor = days.has(today) ? today : addDays(today, -1);
@@ -274,7 +274,7 @@ export class ReviewService {
     const byDay = new Map<string, number>();
     for (const l of logs) byDay.set(l.day, (byDay.get(l.day) ?? 0) + 1);
 
-    const today = todayUtc(now);
+    const today = todayLocal(now);
     // 找本周一
     const [y, m, d] = today.split('-').map(Number);
     const todayMs = Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1);
@@ -431,7 +431,7 @@ export class ReviewService {
   /** 最近 N 天的复习量（用于画趋势） */
   async recentActivity(days = 7, now: Date = new Date()): Promise<{ day: string; count: number }[]> {
     const logs = await this.storage.getAll('reviewLogs');
-    const today = todayUtc(now);
+    const today = todayLocal(now);
     const out: { day: string; count: number }[] = [];
 
     // 从今天往前数 N 天（含今天）

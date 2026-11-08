@@ -31,7 +31,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Todo } from '@/core/model.ts';
 import type { TodoService } from '@/core/todos.ts';
 import { priorityRank } from '@/core/todos.ts';
-import { todayUtc } from '@/v2/core/srs.ts';
+import { todayLocal } from '@/v2/core/srs.ts';
 import { suggestionsOf, type SuggestionKind } from './study-suggestions.ts';
 
 /** 学习建议的数据来源：由外层用同一个快照算好，避免各页各算一遍 */
@@ -60,7 +60,7 @@ const PRIORITY_LABEL: Record<'high' | 'normal' | 'low', string> = {
 };
 
 export function BoardPage({ todos, onSuggestion, suggestionInput }: BoardPageProps) {
-  const today = todayUtc();
+  const today = todayLocal();
   const [state, setState] = useState<Load>({ kind: 'loading' });
   const [draft, setDraft] = useState('');
   const [draftDue, setDraftDue] = useState('');

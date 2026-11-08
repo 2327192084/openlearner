@@ -89,7 +89,50 @@ export function addDays(dateStr: string, days: number): string {
   return next.toISOString().slice(0, 10);
 }
 
-/** 今天的 UTC 日期串 */
+/**
+ * 今天的**本地日历**日期串（YYYY-MM-DD）。
+ *
+ * ## 为什么不是 UTC（2026-11-08 修，对应交接文档已知问题 3）
+ *
+ * 原来是 `todayUtc()`：取 UTC 日期。在东八区，UTC 比本地早 8 小时，
+ * 于是**本地 00:00–08:00 这段时间算「昨天」**。后果：
+ *  - 早上 7:50 和 8:10 打开软件，「今天」是两个不同的日子
+ *  - 凌晨做的那几张卡，到期日按「昨天」往后推，比预期早一天回来
+ *
+ * ## 连字符串的语义没变
+ *
+ * `dueAt` 仍然是 `YYYY-MM-DD`。只是「今天」按本地日历算 ——
+ * 所以**已存储的复习记录不需要迁移**：日期串含义不变，
+ * 变的只是「拿哪个串去比较」。
+ *
+ * ## 为什么不能用 toISOString()
+ *
+ * `new Date().toISOString().slice(0,10)` 会把本地时间转成 UTC 再取日期，
+ * 正是要修的那个 bug。必须用 getFullYear/getMonth/getDate（本地字段）。
+ *
+ * ## 参考
+ *
+ * StudyHub `lib/sm2.js` 为同一问题特意偏离了 ts-fsrs 的 UTC 计数，
+ * 注释原话：「ts-fsrs counts UTC days, so in Beijing 07:50 and 08:10
+ * would be two days」。Anki 的同类修复也是把 `today` 换成
+ * `local_time_date()`。
+ */
+export function todayLocal(now: Date = new Date()): string {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * 旧的 UTC 版，**保留但不再用于「今天」**。
+ *
+ * 还有一处调用：`ReviewPage` 算「各评分档的预期间隔」时用它当基准日 ——
+ * 那里改用 todayLocal 更正确，但为保持改动可控，先保留这个导出，
+ * 让所有「今天」的判定统一切到 todayLocal。
+ *
+ * @deprecated 用 `todayLocal()`。留着只为兼容尚未迁移的调用点。
+ */
 export function todayUtc(now: Date = new Date()): string {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
     .toISOString()

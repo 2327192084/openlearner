@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Card } from '@/v2/core/cards.ts';
 import { isCorrect, CARD_KIND_LABEL } from '@/v2/core/cards.ts';
 import type { ReviewGrade } from '@/v2/core/srs.ts';
-import { mastery, todayUtc } from '@/v2/core/srs.ts';
+import { mastery, todayLocal } from '@/v2/core/srs.ts';
 import { previewDays } from '@/v2/core/ebbinghaus.ts';
 import type { ReviewState } from '@/v2/core/srs.ts';
 import type { ReviewService, ReviewRecord } from '@/v2/core/review-service.ts';
@@ -363,7 +363,7 @@ export function ReviewPage({
   };
 
   // 每个评分档实际会给出的间隔（随卡片当前状态变化）
-  const intervals = previewIntervals(record?.state ?? null, todayUtc());
+  const intervals = previewIntervals(record?.state ?? null, todayLocal());
 
   const canSubmit =
     card.kind === 'single' || card.kind === 'truefalse'

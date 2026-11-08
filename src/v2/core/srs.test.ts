@@ -9,6 +9,7 @@ import {
   mastery,
   masteryLabel,
   isMastered,
+  todayLocal,
   buildTodayQueue,
   type ReviewGrade,
   type ReviewState,
@@ -264,6 +265,63 @@ describe('mastery：熟练度', () => {
       const m = mastery(s);
       expect(m).toBeGreaterThanOrEqual(0);
       expect(m).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+/**
+ * 「今天」必须是**本地日历日**，不是 UTC 日（2026-11-08 修）。
+ *
+ * ## 这个 bug 的实际表现
+ *
+ * 东八区的本地 00:00–08:00，UTC 还停在前一天。所以：
+ *  - 早上 7:50 和 8:10 打开软件，「今天」是两个不同的日子
+ *  - 凌晨做的那几张卡，到期日按「昨天」往后推，比预期早一天回来
+ *
+ * StudyHub 为同一问题特意偏离了 ts-fsrs 的 UTC 计数：
+ * 「ts-fsrs counts UTC days, so in Beijing 07:50 and 08:10 would be two days」。
+ * Anki 的同类修复也是把 today 换成 local_time_date()。
+ *
+ * ## 为什么不迁移数据
+ *
+ * `dueAt` 仍然是 YYYY-MM-DD 字符串，语义没变 ——
+ * 变的只是「拿哪个串去比较」。所以已有的复习记录不需要迁移。
+ */
+describe('todayLocal：本地日历日', () => {
+  it('用的是本地日期字段，不是 UTC', () => {
+    /*
+     * 构造本地 2026-11-08 00:30。
+     * 这时 UTC 还是 11-07（东八区），所以 toISOString 会给前一天。
+     * todayLocal 必须给 2026-11-08 —— 用户认为「现在是 8 号凌晨」。
+     */
+    const d = new Date(2026, 10, 8, 0, 30, 0);
+    expect(todayLocal(d)).toBe('2026-11-08');
+  });
+
+  it('月份与日补零', () => {
+    expect(todayLocal(new Date(2026, 0, 5, 12, 0, 0))).toBe('2026-01-05');
+    expect(todayLocal(new Date(2026, 11, 25, 12, 0, 0))).toBe('2026-12-25');
+  });
+
+  it('同一天的任何时刻都算同一天', () => {
+    const day = '2026-11-08';
+    for (const h of [0, 1, 7, 8, 12, 23]) {
+      expect(todayLocal(new Date(2026, 10, 8, h, 30, 0))).toBe(day);
+    }
+  });
+
+  /*
+   * 这一条是那个 bug 的核心断言：本地凌晨与 UTC 日期**不一致**。
+   * 只在负偏移时区（东半球）成立，所以用 getTimezoneOffset 判断。
+   */
+  it('东八区凌晨：本地是今天，UTC 给的是昨天（正是要修的差异）', () => {
+    const d = new Date(2026, 10, 8, 0, 30, 0);
+    if (d.getTimezoneOffset() < 0) {
+      // UTC 在东边之前：UTC 日期比本地早一天
+      const utcDay = d.toISOString().slice(0, 10);
+      expect(todayLocal(d)).toBe('2026-11-08');
+      expect(utcDay).toBe('2026-11-07');
+      expect(todayLocal(d)).not.toBe(utcDay);
     }
   });
 });
