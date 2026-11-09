@@ -8,9 +8,44 @@
 
 @layer study.features {
   .wrongbook-page {
-    max-width: 82ch;
-    margin: var(--space-7) auto var(--space-9);
-    padding: 0 var(--space-4);
+    /*
+     * 撑满 `.page` 的内容区，不自己再限宽（2026-11-09）。
+     *
+     * ## 为什么原来的写法看起来「右边空一大块」
+     *
+     * `.page` 本身就是居中容器：1200px 宽、左右各 36px 内边距
+     * （内容区约 1128px），已经居中好了。
+     *
+     * 这一页原来又写了 `max-width: 82ch`（≈700px）+ `margin: 0 auto`，
+     * 于是内容在 1128px 里**再居中一次**，两侧各留 200 多像素空。
+     * 实测截图里看着像「页面没做完」，用户也是这么反馈的。
+     *
+     * 后来改成 1100px 且左对齐，仍然右偏（左 323 / 右 117）——
+     * 因为 1100 < 1128，差的 28px 全落在右边。
+     *
+     * 现在：**不设 max-width**，直接吃满内容区。宽度由 `.page`
+     * 一处决定，页面不再各自为政 —— 以后调宽只改 tokens 里的
+     * `--page-max`，所有页面一起变。
+     *
+     * 题干的阅读宽度另有约束（见下面的 `.wbk-item__prompt`）：
+     * 外层容器铺满，是为了让「统计卡片 / 工具栏 / 分组标题」这些
+     * 结构化元素能用满宽度；真正需要限宽的是**成段的文字**。
+     */
+    margin: var(--space-7) 0 var(--space-9);
+    padding: 0;
+  }
+
+  /*
+   * 题干与解析限宽，避免一行拉出 1100px 那么长（2026-11-09）。
+   *
+   * 排版常识：一行 45~75 个字符最易读。1128px 宽的容器里，
+   * 中文一行能塞 60+ 字，扫读时眼睛容易串行。
+   * 容器铺满 + 文字限宽，两者兼顾。
+   */
+  .wbk-item__prompt,
+  .wbk-item__explain,
+  .wbk-q__prompt {
+    max-width: 78ch;
   }
 
   .wbk-head {
@@ -62,26 +97,38 @@
 
   /* ---------- 概览数字 ---------- */
   .wbk-stats {
-    display: flex;
-    gap: var(--space-6);
-    padding: var(--space-4) 0;
-    border-top: 1px solid var(--line);
-    border-bottom: 1px solid var(--line);
-    margin-bottom: var(--space-4);
+    /*
+     * 概览做成三个小卡片（2026-11-09）。
+     *
+     * 原来是一条上下分割线夹着三组数字：信息都对，但在宽屏上
+     * 三个数字散在一条线上、彼此没有边界，扫读时要一个个找。
+     * 换成等宽的卡片后，一眼是「三块」，每块内部数字在上标签在下。
+     *
+     * 用 grid 而不是 flex：卡片要等宽。flex 会按内容宽度分配，
+     * 「9 道错题」和「个章节/知识点」宽度差很多，看着参差。
+     */
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-3);
+    margin-bottom: var(--space-5);
   }
 
   .wbk-stat {
     display: flex;
-    align-items: baseline;
-    gap: var(--space-2);
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
   }
 
   .wbk-stat__n {
-    font-size: var(--fs-2xl);
+    font-size: var(--fs-3xl);
     font-weight: 300;
     color: var(--text);
     font-variant-numeric: tabular-nums;
-    line-height: 1.1;
+    line-height: 1.15;
   }
 
   /*
@@ -474,5 +521,24 @@
     color: var(--text-dim);
     line-height: var(--lh-body);
     word-break: break-all;
+  }
+
+  /*
+   * 窄屏：概览从三栏堆成一栏（2026-11-09）。
+   *
+   * 三栏在 480px 以下每栏不到 150px，「个章节/知识点」这种标签
+   * 会被挤成两三行、把卡片撑高，反而更难扫。
+   * 堆一栏后每块一行，反而清楚。
+   */
+  @media (max-width: 560px) {
+    .wbk-stats {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .wbk-stat {
+      flex-direction: row;
+      align-items: baseline;
+      gap: var(--space-2);
+    }
   }
 }
