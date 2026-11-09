@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReviewService } from '@/v2/core/review-service.ts';
 import type { CardLoader } from './cards-loader.ts';
 import { AppShell } from './AppShell.tsx';
@@ -6,6 +6,7 @@ import { TodayPage } from './TodayPage.tsx';
 import { ReviewPage } from './ReviewPage.tsx';
 import { PracticePage } from './PracticePage.tsx';
 import { WrongBookPage } from './WrongBookPage.tsx';
+import type { WrongBookView } from './WrongBookPage.tsx';
 import { TasksPage } from './TasksPage.tsx';
 import { SkeletonPage } from './SkeletonPage.tsx';
 import { GuidePage } from './GuidePage.tsx';
@@ -138,6 +139,123 @@ export function App({
   modelName,
 }: AppProps) {
   const [page, setPage] = useState<PageId>('today');
+  /**
+   * 进阅读器之前在哪一页（2026-11-09）。
+   *
+   * 用户需求原话：「需要一个返回按钮放在软件左上角，从错题库或是
+   * 知识点跳转到资料内时，不能返回回去。频繁的跳转很麻烦，
+   * 同时也不好定位原先的位置。」
+   *
+   * 记下来源页，阅读器的返回按钮就能回到那里 ——
+   * 而不是一律回「资料」列表（那正是「回不去」的感受来源）。
+   *
+   * 只记页面 id，不记 DOM 状态：页面组件在返回时重新挂载，
+   * 内部 state（分组展开、滚动位置）由各页自己恢复。
+   * 这不如「保持挂载」完美，但不需要给 45 个页面各写一套序列化。
+   */
+  const [readerFrom, setReaderFrom] = useState<PageId | null>(null);
+
+  /**
+   * 全局返回栈（2026-11-09）。
+   *
+   * 需求原话：「需要一个返回按钮放在软件左上角，从错题库或是知识点
+   * 跳转到资料内时，不能返回回去。频繁的跳转很麻烦，同时也不好定位
+   * 原先的位置。」
+   *
+   * ## 与 readerFrom 的分工
+   *
+   * `readerFrom` 只管阅读器这一个入口（它还要额外清 target）。
+   * 这个栈是**通用**的：任何页面跳转都记一层，左上角返回按钮
+   * 就能一路退回去，而不是只能退回某一页。
+   *
+   * 为什么用 ref 存栈：栈不参与渲染；用 state 会让每次跳转都多一次
+   * 无意义重渲染。「能不能返回」由单独一个布尔状态驱动。
+   */
+  const navStackRef = useRef<PageId[]>([]);
+  const [canGoBack, setCanGoBack] = useState(false);
+
+  /**
+   * 统一跳转。
+   *
+   * @param keepHistory 默认 true（记住来路）。侧栏点击传 false ——
+   *   用户点侧栏是「我要去那儿」，不是「从这儿钻进去」，
+   *   压栈会让返回跳到一个他没想去的页面。
+   */
+  const goPage = useCallback((next: PageId, keepHistory = true) => {
+    setPage((prev) => {
+      if (prev === next) return next;
+      if (keepHistory) {
+        navStackRef.current.push(prev);
+        if (navStackRef.current.length > 20) navStackRef.current.shift();
+      } else {
+        navStackRef.current = [];
+      }
+      setCanGoBack(navStackRef.current.length > 0);
+      return next;
+    });
+  }, []);
+
+  /** 左上角返回：退一步 */
+  const goBack = useCallback(() => {
+    const prev = navStackRef.current.pop();
+    setCanGoBack(navStackRef.current.length > 0);
+    if (prev === undefined) return;
+    setPage(prev);
+  }, []);
+
+  /**
+   * 打开阅读器，并记住从哪来。
+   *
+   * 统一入口，避免 8 处 `setPage('reader')` 各写一遍而漏记来源 ——
+   * 漏一处的表现就是「从某个页面进去后返回跳到了别处」。
+   */
+  const openReader = useCallback(
+    (sourceId: string, target: ReaderTarget | null) => {
+      setReaderSourceId(sourceId);
+      setReaderTarget(target);
+      setPage((prev) => {
+        if (prev !== 'reader') {
+          /* 已经在阅读器里（阅读器内部再跳一段）就不覆盖来源 */
+          setReaderFrom(prev);
+          navStackRef.current.push(prev);
+          if (navStackRef.current.length > 20) navStackRef.current.shift();
+          setCanGoBack(true);
+        }
+        return 'reader';
+      });
+    },
+    [],
+  );
+
+  /** 从阅读器返回：回到来时的那一页 */
+  const closeReader = useCallback(() => {
+    const back = readerFrom ?? 'sources';
+    setPage(back);
+    setReaderFrom(null);
+    setReaderTarget(null);
+    /* 阅读器这一跳也要从返回栈里退掉，否则左上角会多出一个重复的来路 */
+    const top = navStackRef.current[navStackRef.current.length - 1];
+    if (top === back) {
+      navStackRef.current.pop();
+      setCanGoBack(navStackRef.current.length > 0);
+    }
+  }, [readerFrom]);
+
+  /**
+   * 错题页的视图状态（2026-11-09）。
+   *
+   * 由 App 持有而不是错题页自己管：用户从错题跳原文再返回时，
+   * 页面会重新挂载，组件内部 state 全丢 —— 分组又折叠、要重新找到
+   * 刚才那一题。那正是用户说的「返回后不好定位原先的位置」。
+   *
+   * 提到 App 层后，返回时这三样原样还在。
+   */
+  const [wrongbookView, setWrongbookView] = useState<WrongBookView>({
+    groupBy: 'deck',
+    sort: 'wrongCount',
+    open: new Set<string>(),
+  });
+
   /**
    * 计时评分规则（用户在设置里选的宽容度）。
    *
@@ -558,6 +676,46 @@ export function App({
   }, [loadCards, pool, reviewService, sourceService, refreshSuggestions]);
 
 
+  /**
+   * 重算「今日到期」卡片（2026-11-09 抽出）。
+   *
+   * 原来这段只在 `navigate('review')` 里跑。但「开始复习」现在要
+   * **跳过选题页直接开做**，不能先跳页再算 —— 那样 dueCards 还是空的，
+   * 结果就是「点了没反应」（实测确认）。
+   *
+   * 返回算出来的到期卡，调用方直接拿去 startPractice。
+   */
+  const computeDueCards = useCallback(async (): Promise<Card[]> => {
+    setQueueError(null);
+    try {
+      const all = await loadCards();
+      /*
+       * 与首页 `todayOverview().dueCount` 同一口径（2026-11-08 的教训）：
+       * 只数**有记录且 dueAt 已到**的卡，不把没学过的新卡算进来。
+       * 否则首页写「8 张待复习」、这里算 14 张，同一屏两个数字对不上。
+       */
+      const today = new Date().toISOString().slice(0, 10);
+      const records = await reviewService.listRecords();
+      const byId = new Map(records.map((r) => [r.cardId, r]));
+
+      const due = all.filter((c) => {
+        const r = byId.get(c.id);
+        return r ? r.state.dueAt <= today : false;
+      });
+      const fresh = all.filter((c) => !byId.has(c.id));
+
+      setDueCards(due);
+      setFreshCards(fresh);
+      setQueueTotal(due.length);
+      return due;
+    } catch (err) {
+      setQueueError(err instanceof Error ? err.message : '读不出卡片');
+      setDueCards([]);
+      setFreshCards([]);
+      return [];
+    }
+  }, [loadCards, reviewService]);
+
   const navigate = useCallback(
     async (id: PageId) => {
       setPage(id);
@@ -578,57 +736,13 @@ export function App({
         /*
          * 进选题页时**不再直接把队列塞进做题界面**。
          *
-         * 现在先进 PracticePage 让用户选三种模式（今日题组 / 自由练习 / 错题巩固），
-         * 选完才由 startPractice() 构造队列并跳到 practice 页。
-         * 这里只把「今日到期」算出来，供选题页显示数量。
+         * 先算好今日到期供选题页显示数量；用户选完模式才由
+         * startPractice() 构造队列并跳到 practice 页。
          */
-        setQueueError(null);
-        try {
-          const all = await loadCards();
-          const today = new Date().toISOString().slice(0, 10);
-          const records = await reviewService.listRecords();
-          const byId = new Map(records.map((r) => [r.cardId, r]));
-
-          /*
-           * ⚠️ 这里必须与首页 `todayOverview().dueCount` 口径一致（2026-11-08 修）。
-           *
-           * 原来的写法把「没学过的新卡」也算进到期：
-           *   if (!r) return true; // 没学过也算今天可学
-           * 于是首页写「8 张待复习」（只数有记录的到期卡），
-           * 点进去却是「今天有 14 道题到了该复习的时候」（8 到期 + 6 新卡）——
-           * 用户看到的 8 凭空变了 14，而且新卡被说成「到期」，两句话都不对。
-           *
-           * 现在分开算：
-           *  - due   = 有记录且 dueAt <= today      ↔ 首页的 dueCount
-           *  - fresh = 从没练过                       ↔ 首页的 freshCount
-           * 两块在选题页分别呈现，各自说各自的话。
-           */
-          const due = all.filter((c) => {
-            const r = byId.get(c.id);
-            return r ? r.state.dueAt <= today : false;
-          });
-          const fresh = all.filter((c) => !byId.has(c.id));
-
-          /*
-           * 一批最多做 REVIEW_BATCH 张。
-           *
-           * 为什么不是「把全部到期的一次给完」：几百张一次塞进复习页，
-           * 页面要一次渲染完，而且用户看不到「做完这批还剩多少」。
-           * 但**截断必须说出来** —— 原来这里直接 slice(0,30) 且界面不提，
-           * 到期 80 张时用户以为今天只有 30 张，做完就显示「完成」，
-           * 那是在骗人。所以把真实总数一起存下来，由复习页如实显示。
-           */
-          setDueCards(due);
-          setFreshCards(fresh);
-          setQueueTotal(due.length);
-        } catch (err) {
-          setQueueError(err instanceof Error ? err.message : '读不出卡片');
-          setDueCards([]);
-          setFreshCards([]);
-        }
+        await computeDueCards();
       }
     },
-    [loadCards, reviewService, library],
+    [computeDueCards, library],
   );
 
   /**
@@ -656,12 +770,34 @@ export function App({
   return (
     <AppShell
       current={page}
-      onNavigate={(id) => void navigate(id)}
+      /*
+       * 侧栏点击传 keepHistory=false（2026-11-09）。
+       * 用户点侧栏是「我要去那儿」，不是「从这儿钻进去」——
+       * 压栈会让左上角的返回跳到一个他没想去的页面。
+       */
+      onNavigate={(id) => {
+        goPage(id, false);
+        void navigate(id);
+      }}
       counts={overviewCounts}
       connected={conn.connected}
       libraryName={libName}
       reviewProgress={null}
       trashBadge={trashBadge}
+      onBack={
+        page === 'reader'
+          ? () => {
+              /* 阅读器有自己的返回语义（回到来路），与通用栈一致 */
+              closeReader();
+            }
+          : goBack
+      }
+      canGoBack={page === 'reader' ? readerFrom !== null : canGoBack}
+      backToLabel={
+        page === 'reader'
+          ? (readerFrom ? PAGE_LABEL_FOR_BACK[readerFrom] : null)
+          : null
+      }
     >
       {/*
         回收站提醒条（2026-11-08）。
@@ -736,22 +872,14 @@ export function App({
           decks={decks}
           sourceService={sourceService}
           knowledge={knowledge}
-          onOpenSource={(sourceId) => {
-            setReaderSourceId(sourceId);
-            setReaderTarget(null);
-            setPage('reader');
-          }}
+          onOpenSource={(sourceId) => openReader(sourceId, null)}
           onOpenKnowledge={() => setPage('knowledge')}
         />
       ) : page === 'book' ? (
         <BookPage
           decks={decks}
           sourceService={sourceService}
-          onOpenSource={(sourceId) => {
-            setReaderSourceId(sourceId);
-            setReaderTarget(null);
-            setPage('reader');
-          }}
+          onOpenSource={(sourceId) => openReader(sourceId, null)}
           onOpenDecks={() => setPage('decks')}
         />
       ) : page === 'guide' ? (
@@ -799,7 +927,6 @@ export function App({
           knowledge={knowledge}
           sourceService={sourceService}
           onOpenSource={(sourceId, anchor) => {
-            setReaderSourceId(sourceId);
             /*
              * 把锚点一起送过去（2026-11-09）。
              *
@@ -808,7 +935,8 @@ export function App({
              * 现在带上锚点，阅读器用它已有的定位逻辑（偏移优先、引文兜底）
              * 翻到那一页并高亮。
              */
-            setReaderTarget(
+            openReader(
+              sourceId,
               anchor
                 ? {
                     sourceId,
@@ -819,9 +947,10 @@ export function App({
                   }
                 : null,
             );
-            setPage('reader');
           }}
           onOpenPractice={() => void navigate('review')}
+          view={wrongbookView}
+          onViewChange={setWrongbookView}
           onExportObsidian={async (deckId) => {
             /*
              * 导出为 Obsidian 闪卡。
@@ -847,11 +976,7 @@ export function App({
         <KnowledgePage
           knowledge={knowledge}
           sourceService={sourceService}
-          onOpenAnchor={(t) => {
-            setReaderSourceId(t.sourceId);
-            setReaderTarget(t);
-            setPage('reader');
-          }}
+          onOpenAnchor={(t) => openReader(t.sourceId, t)}
           onOpenOrganize={(sourceId) => {
             setOrganizeSourceId(sourceId);
             setPage('organize');
@@ -889,6 +1014,46 @@ export function App({
           cardPool={pool}
           dueCount={queueTotal || null}
           onStartQuiz={() => void navigate('review')}
+          /*
+           * 「开始复习」直接进今日到期队列（2026-11-09 修）。
+           *
+           * 原来它和「开始做题」都只调 `navigate('review')` ——
+           * 两个按钮跳到同一个选题页，**字面上做的是同一件事**
+           * （用户实测指出「复习功能从未真正实现」，判断准确）。
+           *
+           * 现在：真的按遗忘曲线把「今天该复习的」直接排好开始做，
+           * 跳过选题页。到期为空时不硬跳 —— 交给 StudyPage 说明情况，
+           * 免得进去看到空队列（那正是「点了没反应」的另一种形式）。
+           */
+          onStartReview={() => {
+            /*
+             * 返回 true = 「已发起」，真正的跳转在异步里完成。
+             *
+             * 为什么不在同步阶段用 dueCards 拦：那可能是上一轮算的旧值，
+             * 会挡住「刚有了到期卡」的用户。真正为空时不跳，
+             * 由 StudyPage 用 overview.due 说明情况。
+             */
+            void (async () => {
+              const due = await computeDueCards();
+              if (due.length === 0) return;
+
+              /* 进做题前重读评分规则（与 navigate('review') 一致） */
+              try {
+                const s = await library.getSettings();
+                setGradingRules(s.gradingRules ?? DEFAULT_GRADING_RULES);
+              } catch {
+                /* 读不到就沿用当前值 */
+              }
+
+              startPractice({
+                mode: 'due',
+                cards: due.slice(0, 30),
+                label: '今日复习',
+                dueTotal: due.length,
+              });
+            })();
+            return true;
+          }}
           onOpenKnowledge={() => setPage('knowledge')}
           onOpenDecks={() => setPage('decks')}
         />
@@ -932,9 +1097,7 @@ export function App({
              * 点资料行 = 打开原文。阅读器做出来之前这里跳的是整理页，
              * 因为那时没有别的事能做；现在能真的打开原文了。
              */
-            setReaderSourceId(source.id);
-            setReaderTarget(null); // 从资料页进来是纯阅读，不定位
-            setPage('reader');
+            openReader(source.id, null); // 从资料页进来是纯阅读，不定位
           }}
           onOrganizeSource={(source) => {
             setOrganizeSourceId(source.id);
@@ -948,7 +1111,9 @@ export function App({
           annotations={annotations}
           initialSourceId={readerSourceId}
           target={readerTarget}
-          onBack={() => setPage('sources')}
+          /* 回到**来时那一页**（原来一律回「资料」，从错题进来时等于回不去） */
+          onBack={closeReader}
+          backLabel={readerFrom ? PAGE_LABEL_FOR_BACK[readerFrom] : undefined}
         />
       ) : page === 'organize' ? (
         <OrganizePage
@@ -964,9 +1129,7 @@ export function App({
           }}
           onOpenAnchor={(t) => {
             // 从知识点的「可点回原文」跳到阅读器，并定位到那一句
-            setReaderSourceId(t.sourceId);
-            setReaderTarget(t);
-            setPage('reader');
+            openReader(t.sourceId, t);
           }}
         />
       ) : page === 'decks' ? (
@@ -982,11 +1145,7 @@ export function App({
             setOrganizeSourceId(sourceId);
             setPage('organize');
           }}
-          onOpenSource={(sourceId) => {
-            setReaderSourceId(sourceId);
-            setReaderTarget(null);
-            setPage('reader');
-          }}
+          onOpenSource={(sourceId) => openReader(sourceId, null)}
           onChanged={() => {
             /* 改的是题库/资料结构 → 卡片池必须重算（见 refreshData 注释） */
             void refreshData();
@@ -1071,11 +1230,7 @@ export function App({
             setOrganizeSourceId(sourceId);
             setPage('organize');
           }}
-          onOpenSource={(sourceId) => {
-            setReaderSourceId(sourceId);
-            setReaderTarget(null);
-            setPage('reader');
-          }}
+          onOpenSource={(sourceId) => openReader(sourceId, null)}
           onChanged={() => {
             /* 改的是题库/资料结构 → 卡片池必须重算（见 refreshData 注释） */
             void refreshData();
@@ -1088,6 +1243,25 @@ export function App({
     </AppShell>
   );
 }
+
+/**
+ * 阅读器返回按钮上该写哪一页的名字（2026-11-09）。
+ *
+ * 只列**会跳到阅读器的**那些页。其它页永远不会成为来源，
+ * 列进来只是噪音，还会让人以为从别处也能进阅读器。
+ *
+ * 为什么按钮上要写具体页名而不是笼统的「返回」：
+ * 用户从错题页跳进原文，最怕的是「返回后不知道自己在哪」。
+ * 写着「返回错题与待巩固」比一个箭头清楚得多。
+ */
+const PAGE_LABEL_FOR_BACK: Partial<Record<PageId, string>> = {
+  wrongbook: '错题与待巩固',
+  knowledge: '知识库',
+  organize: '整理知识点',
+  decks: '我的题组',
+  sources: '资料',
+  book: '复习全书',
+};
 
 /**
  * 未完成页面的占位。

@@ -44,6 +44,19 @@ export interface AppShellProps {
    * 0 或不传就不显示角标。
    */
   trashBadge?: number;
+  /**
+   * 左上角返回（2026-11-09）。
+   *
+   * 需求原话：「需要一个返回按钮放在软件左上角，从错题库或是知识点
+   * 跳转到资料内时，不能返回回去。频繁的跳转很麻烦，同时也不好
+   * 定位原先的位置。」
+   *
+   * `canGoBack` 为假时不渲染 —— 不做点了没反应的箭头。
+   */
+  onBack?: () => void;
+  canGoBack?: boolean;
+  /** 返回目标页名，用于 title（如「返回错题与待巩固」） */
+  backToLabel?: string | null;
   children: ReactNode;
 }
 
@@ -55,6 +68,9 @@ export function AppShell({
   connected = false,
   libraryName = 'openleaner',
   trashBadge = 0,
+  onBack,
+  canGoBack = false,
+  backToLabel,
   children,
 }: AppShellProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -258,6 +274,22 @@ export function AppShell({
 
       <main className="main">
         <header className="topbar">
+          {/*
+            左上角返回（2026-11-09）。
+            只在真能返回时渲染 —— 不能退时画一个灰箭头，
+            用户点了没反应，比不画更糟（项目一贯的「不做假开关」）。
+          */}
+          {onBack && canGoBack ? (
+            <button
+              type="button"
+              className="topbar__back"
+              onClick={onBack}
+              title={backToLabel ? `返回${backToLabel}` : '返回上一页'}
+              aria-label={backToLabel ? `返回${backToLabel}` : '返回上一页'}
+            >
+              <span aria-hidden="true">←</span>
+            </button>
+          ) : null}
           <button
             type="button"
             className="sidebar-toggle"

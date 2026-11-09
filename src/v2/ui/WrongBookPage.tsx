@@ -76,6 +76,17 @@ export interface WrongBookPageProps {
    * 不需要我们自己做一套复习界面。
    */
   onExportObsidian: (deckId: string | null) => Promise<{ fileName: string; count: number }>;
+  /**
+   * 外部持有的视图状态（2026-11-09）。
+   *
+   * 用户从错题跳原文再返回时，分组维度 / 排序 / 展开的组
+   * 不该丢 —— 丢了就得重新展开、重新找到刚才那一题，
+   * 正是「返回后不好定位原先的位置」。
+   *
+   * 传了就是受控（App 持有），不传就是组件自己管。
+   */
+  view?: WrongBookView;
+  onViewChange?: (next: WrongBookView) => void;
 }
 
 interface WrongRow {
@@ -104,6 +115,19 @@ type GroupBy = 'deck' | 'chapter' | 'kind';
 /** 组内排序 */
 type SortKey = 'wrongCount' | 'lastWrong' | 'wrongRate';
 
+/**
+ * 错题页的视图状态（可跨页面存活，2026-11-09）。
+ *
+ * 由 App 持有，这样从错题跳到原文再返回时，
+ * 「按什么分组、怎么排序、哪几组是展开的」都还在原位。
+ */
+export interface WrongBookView {
+  groupBy: GroupBy;
+  sort: SortKey;
+  /** 展开了哪些分组 */
+  open: Set<string>;
+}
+
 const SORTS: { key: SortKey; label: string }[] = [
   { key: 'wrongCount', label: '错得最多' },
   { key: 'wrongRate', label: '错的比例最高' },
@@ -129,13 +153,52 @@ export function WrongBookPage({
   onOpenSource,
   onOpenPractice,
   onExportObsidian,
+  view,
+  onViewChange,
 }: WrongBookPageProps) {
   const [rows, setRows] = useState<WrongRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [groupBy, setGroupBy] = useState<GroupBy>('deck');
-  const [sort, setSort] = useState<SortKey>('wrongCount');
-  /** 展开的分组 key 集合（默认空 = 全部收起） */
-  const [open, setOpen] = useState<Set<string>>(new Set());
+
+  /*
+   * 分组维度 / 排序 / 展开哪些组 —— 这三样决定「用户现在看到什么」。
+   *
+   * 2026-11-09 改成可受控：用户从错题跳到原文再返回时，
+   * 这些状态原本随组件卸载一起丢了（分组又全部折叠，得重新展开、
+   * 重新找到刚才那一题）—— 正是「返回后不好定位原先的位置」。
+   *
+   * 传了 view 就用外部的（App 持有，跨页面存活）；
+   * 不传就退回组件内部 state（单独使用本组件时不改调用方）。
+   */
+  const [innerGroupBy, setInnerGroupBy] = useState<GroupBy>('deck');
+  const [innerSort, setInnerSort] = useState<SortKey>('wrongCount');
+  const [innerOpen, setInnerOpen] = useState<Set<string>>(new Set());
+
+  const groupBy = view?.groupBy ?? innerGroupBy;
+  const sort = view?.sort ?? innerSort;
+  const open = view?.open ?? innerOpen;
+
+  const setGroupBy = useCallback(
+    (next: GroupBy) => {
+      setInnerGroupBy(next);
+      onViewChange?.({ groupBy: next, sort, open });
+    },
+    [onViewChange, sort, open],
+  );
+  const setSort = useCallback(
+    (next: SortKey) => {
+      setInnerSort(next);
+      onViewChange?.({ groupBy, sort: next, open });
+    },
+    [onViewChange, groupBy, open],
+  );
+  const setOpen = useCallback(
+    (next: Set<string>) => {
+      setInnerOpen(next);
+      onViewChange?.({ groupBy, sort, open: next });
+    },
+    [onViewChange, groupBy, sort],
+  );
+
   /** 导出结果提示 */
   const [exportNote, setExportNote] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -336,12 +399,15 @@ export function WrongBookPage({
   }
 
   function toggle(key: string) {
-    setOpen((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+    /*
+     * 直接算新集合，不用 setOpen(prev => ...)。
+     * 受控之后 setOpen 是我们自己包的普通函数（它还要把新值上报给 App），
+     * 不接受 React 的 updater 形式 —— 这一点在改造时踩到过 tsc 报错。
+     */
+    const next = new Set(open);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setOpen(next);
   }
 
   /**

@@ -466,6 +466,48 @@
 }
 
 /* ==========================================================================
+   左上角返回按钮（2026-11-09）
+   ==========================================================================
+
+   ⚠️ 这是原生 <button>，样式必须写在层外。
+   理由见文件头：base.css 里有**不在任何 @layer 内**的
+   `button { font: inherit; color: inherit }`，
+   级联「层级先于特异性」，写层内会被它盖掉。
+   -------------------------------------------------------------------------- */
+
+.topbar__back {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 2px;
+  padding: 0;
+  flex: 0 0 auto;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.topbar__back:hover {
+  color: var(--text);
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.topbar__back:focus-visible {
+  outline: 2px solid var(--accent, #c97f3f);
+  outline-offset: 1px;
+}
+
+/* ==========================================================================
    回收站：侧栏角标 + 顶部提醒条（2026-11-08）
    ==========================================================================
 

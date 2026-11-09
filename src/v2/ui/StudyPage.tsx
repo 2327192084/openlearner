@@ -35,6 +35,16 @@ export interface StudyPageProps {
   cardPool?: readonly string[];
   /** 去做题（复习队列） */
   onStartQuiz: () => void;
+  /**
+   * 开始复习：直接进「今日到期」队列（2026-11-09 加）。
+   *
+   * 返回 true 表示真的开始了；false 表示今天没有到期的卡，
+   * 调用方（本页）据此就地说明，而不是跳到一个空界面。
+   *
+   * 为什么需要它与 onStartQuiz 分开：
+   * 原来两者都只跳选题页，用户看不出区别 —— 那等于复习功能不存在。
+   */
+  onStartReview: () => boolean;
   /** 去知识库看知识点 */
   onOpenKnowledge: () => void;
   /** 去我的题组（挑题组做） */
@@ -85,10 +95,12 @@ const OPTIONS: Option[] = [
     title: '开始复习',
     desc: '按遗忘曲线，只做今天该复习的卡片',
     /*
-     * 原先标 ready:false（「还没做」），但它其实早就能用 ——
-     * 就是「做题 → 今日题组」那条路，按到期日排、逾期优先。
-     * 界面把一个真功能说成没做，是反向的假开关，用户会以为
-     * 这一块不能用而绕开它。现在直接跳过去。
+     * 2026-11-09 修：这个按钮以前和「开始做题」跳同一个页面，
+     * 等于复习功能不存在（用户实测指出）。现在它直接进「今日到期」
+     * 队列，跳过选题页 —— 两个按钮的行为真正分开了。
+     *
+     * 判据也不再是「点进去看看」：这里读 overview.due，
+     * 今天没有到期的卡就当场说明，不跳空页面。
      */
     ready: true,
     icon: IconStats,
@@ -106,6 +118,7 @@ export function StudyPage({
   service,
   cardPool,
   onStartQuiz,
+  onStartReview,
   onOpenKnowledge,
   onOpenDecks,
   dueCount,
@@ -151,7 +164,20 @@ export function StudyPage({
       return;
     }
     if (opt.id === 'review') {
-      onStartQuiz();
+      /*
+       * 「开始复习」真的按遗忘曲线开始，不再借道选题页（2026-11-09）。
+       *
+       * 返回 false = 今天没有到期的卡。这时**不跳转**，就地说明，
+       * 并给出下一步（去做题 / 去看知识点）—— 不做「跳过去看到空白」。
+       */
+      const started = onStartReview();
+      if (!started) {
+        setNotice(
+          overview && overview.fresh > 0
+            ? `今天没有到期的卡。题库里还有 ${overview.fresh} 道没做过，去「开始做题」挑一组。`
+            : '今天没有到期的卡，题库里也没有新题。先去「资料」导入内容或整理知识点。',
+        );
+      }
       return;
     }
     if (opt.id === 'knowledge') {

@@ -69,6 +69,13 @@ export interface ReaderPageProps {
   initialSourceId: string | null;
   /** 要定位到的位置；null 表示只是打开来读 */
   target: ReaderTarget | null;
+  /**
+   * 返回按钮上写哪一页（2026-11-09）。
+   *
+   * 不传就写「返回资料」。传了写「返回错题与待巩固」这种具体页名 ——
+   * 用户从错题跳进来最怕「返回后不知道自己在哪」。
+   */
+  backLabel?: string;
   onBack: () => void;
 }
 
@@ -118,6 +125,7 @@ export function ReaderPage({
   annotations,
   initialSourceId,
   target,
+  backLabel,
   onBack,
 }: ReaderPageProps) {
   const [phase, setPhase] = useState<LoadPhase>({ kind: 'loading' });
@@ -671,7 +679,7 @@ export function ReaderPage({
           </div>
           <button type="button" className="btn-ghost" onClick={onBack}>
             <IconSources size={15} />
-            返回资料
+            返回{backLabel ?? '资料'}
           </button>
         </header>
         <div className="reader-error">{phase.message}</div>
@@ -691,7 +699,7 @@ export function ReaderPage({
           </div>
           <button type="button" className="btn-ghost" onClick={onBack}>
             <IconSources size={15} />
-            返回资料
+            返回{backLabel ?? '资料'}
           </button>
         </header>
         <div className="reader-empty">
@@ -736,7 +744,7 @@ export function ReaderPage({
         </div>
         <button type="button" className="btn-ghost" onClick={onBack}>
           <IconSources size={15} />
-          返回资料
+          返回{backLabel ?? '资料'}
         </button>
       </header>
 
