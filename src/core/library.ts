@@ -32,6 +32,66 @@ export class LibraryService {
   async init(): Promise<void> {
     await this.storage.init();
     await this.purgeRetiredCredentials();
+    await this.backfillAnchorSegmentIds();
+  }
+
+  /**
+   * 给库里旧题的锚点回填 `segmentId`（2026-11-09）。
+   *
+   * ## 为什么迁移不够
+   *
+   * `migrations.ts` 只作用于**备份导入**（`importBackup`）。
+   * 用户已经在用的这个库不会因为版本号变了就自动升级 ——
+   * 要让库内数据也补上，必须在启动时自己跑一次。
+   *
+   * ## 为什么只填能确定的
+   *
+   * 与迁移里同一条原则：`sourceId + page` 恰好对应**一段**才填。
+   * 零段或多段都留空 —— 多段时挑第一条正是要修的猜测行为。
+   *
+   * ## 为什么要判「有没有可填的」再写
+   *
+   * 没有需要改的题就不写库。否则每次启动都写一遍 questions 分区，
+   * 白白触发一次全量写入（几十道题不多，但这属于没必要的副作用）。
+   */
+  private async backfillAnchorSegmentIds(): Promise<void> {
+    const questions = await this.storage.getAll('questions');
+    if (questions.length === 0) return;
+
+    /* 已经全都有了就不用再扫段落表 */
+    const needBackfill = questions.some((q) =>
+      (q.anchors ?? []).some(
+        (a) => !a.segmentId && typeof a.sourceId === 'string' && typeof a.page === 'number',
+      ),
+    );
+    if (!needBackfill) return;
+
+    const segments = await this.storage.getAll('sourceSegments');
+    const byPage = new Map<string, string[]>();
+    for (const s of segments) {
+      const key = s.sourceId + '::' + s.page;
+      const arr = byPage.get(key);
+      if (arr) arr.push(s.id);
+      else byPage.set(key, [s.id]);
+    }
+
+    for (const q of questions) {
+      if (!q.anchors || q.anchors.length === 0) continue;
+
+      let changed = false;
+      const nextAnchors = q.anchors.map((a) => {
+        if (a.segmentId) return a;
+        if (typeof a.sourceId !== 'string' || typeof a.page !== 'number') return a;
+        const cands = byPage.get(a.sourceId + '::' + a.page);
+        if (!cands || cands.length !== 1) return a;
+        changed = true;
+        return { ...a, segmentId: cands[0] };
+      });
+
+      if (changed) {
+        await this.storage.put('questions', { ...q, anchors: nextAnchors });
+      }
+    }
   }
 
   /**

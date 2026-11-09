@@ -436,6 +436,85 @@ const migrations: Record<number, Migration> = {
     schemaVersion: 16,
     trash: Array.isArray(backup.trash) ? backup.trash : [],
   }),
+
+  /**
+   * v16 → v17
+   *
+   * 给题目的锚点补 `segmentId`（2026-11-09）。
+   *
+   * ## 为什么要补
+   *
+   * 在此之前，题目出处只靠 `sourceId + page + charStart/charEnd` 定位。
+   * 而 **page 在一份资料里不唯一**：按章节切分的资料里 `page = index`，
+   * 一个章节跨多页时，同一个 page 可能对应多段。定位只能取「第一个 page
+   * 匹配的段落」—— 猜错就圈到别的段，而界面上看着都像对的。
+   *
+   * 实测用户库里 10 道题**全部**没有 segmentId。
+   *
+   * ## 回填策略：只填能确定的，不猜
+   *
+   * 对每条锚点，找 `sourceSegments` 里 `sourceId` 与 `page` 都匹配的段落：
+   *  - **恰好一条** → 填它的 id（确定无疑）
+   *  - **零条或多条** → 留空，不填
+   *
+   * 多条时为什么不挑第一条：那正是现在行为里的猜测，也正是要修的问题。
+   * 迁移里再猜一次等于把错误固化进数据；留空让读取方退回 page 定位，
+   * 行为不比现在差，而且不会假装精确。
+   *
+   * ## 不碰别的东西
+   *
+   * 不填 `quote`：旧题根本没有「这道题用到了哪句话」的信息。
+   * 造一个引文会让「精确高亮」变成假的 —— 宁可它被判成块级。
+   */
+  16: (backup) => {
+    const segments = Array.isArray(backup.sourceSegments)
+      ? (backup.sourceSegments as Array<Record<string, unknown>>)
+      : [];
+    const questions = Array.isArray(backup.questions)
+      ? (backup.questions as Array<Record<string, unknown>>)
+      : [];
+
+    /* (sourceId::page) → 段落 id 列表。用列表而不是单值，才能发现「不唯一」 */
+    const byPage = new Map<string, string[]>();
+    for (const s of segments) {
+      const sid = typeof s.sourceId === 'string' ? s.sourceId : '';
+      const page = typeof s.page === 'number' ? s.page : null;
+      const id = typeof s.id === 'string' ? s.id : '';
+      if (!sid || !id || page === null) continue;
+      const key = sid + '::' + page;
+      const arr = byPage.get(key);
+      if (arr) arr.push(id);
+      else byPage.set(key, [id]);
+    }
+
+    const migratedQuestions = questions.map((q) => {
+      const anchors = Array.isArray(q.anchors)
+        ? (q.anchors as Array<Record<string, unknown>>)
+        : [];
+
+      const nextAnchors = anchors.map((a) => {
+        /* 已有 segmentId 的原样保留（重复迁移时幂等） */
+        if (typeof a.segmentId === 'string' && a.segmentId) return a;
+
+        const sid = typeof a.sourceId === 'string' ? a.sourceId : '';
+        const page = typeof a.page === 'number' ? a.page : null;
+        if (!sid || page === null) return a;
+
+        const candidates = byPage.get(sid + '::' + page);
+        if (!candidates || candidates.length !== 1) return a;
+
+        return { ...a, segmentId: candidates[0] };
+      });
+
+      return { ...q, anchors: nextAnchors };
+    });
+
+    return {
+      ...backup,
+      schemaVersion: 17,
+      questions: migratedQuestions,
+    };
+  },
 };
 
 /**

@@ -411,7 +411,21 @@ export class DeckService {
       explanation: draft.explanation?.trim() ?? '',
       // 继承，不是采信。模型输出的任何位置信息都不进入这里。
       anchors: material.anchors.map((a) => ({ ...a })),
-      knowledgePointId: material.id,
+      /*
+       * 只有素材来自**知识点**时才写 knowledgePointId（2026-11-09 修）。
+       *
+       * 原来的写法是 `knowledgePointId: material.id` 无条件写入，
+       * 而「从原文出题」的素材 id 是**段落 id**（seg_ 开头）。
+       * 结果：题目里这个字段指向一个不存在的知识点，`知识点表.find(id)` 全部落空
+       * （实测库里 10 道题 0 命中），「错题 → 知识点」这条链是断的。
+       *
+       * 这个 bug 单测抓不到 —— 类型都是 string，id 长得也差不多。
+       * 只有拿真实库把两边 id 对一遍才看得出来。
+       *
+       * 从原文出的题本来就没有「依据的知识点」，如实写 null：
+       * 界面按 null 处理（不显示知识点跳转），而不是给它一个假 id。
+       */
+      knowledgePointId: material.origin === 'knowledge' ? material.id : null,
       cognitiveLevel: material.cognitiveLevel,
       topic: material.chapter,
       order,

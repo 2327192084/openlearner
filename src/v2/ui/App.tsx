@@ -29,6 +29,7 @@ import type { Todo } from '@/core/model.ts';
 import { StatsPage } from './StatsPage.tsx';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { DeckService } from '@/core/questions/service.ts';
+import type { AnnotationService } from '@/core/annotation-service.ts';
 import type { BackendService } from '@/core/backends.ts';
 import type { SourceService } from '@/core/sources.ts';
 import type { Card } from '@/v2/core/cards.ts';
@@ -92,6 +93,13 @@ export interface AppProps {
   decks: DeckService;
   backends: BackendService;
   /**
+   * 批注服务（2026-11-09）。
+   *
+   * 阅读器右侧边栏的「批注」模式要读写它。
+   * 可选：不给就只是没有批注能力，其它功能不受影响。
+   */
+  annotations?: AnnotationService;
+  /**
    * 当前资料库里的全部卡片 id —— **只作初值**。
    *
    * 2026-11-08 修：以前这是唯一的来源，启动时算一次就再也不变。
@@ -123,6 +131,7 @@ export function App({
   knowledge,
   decks,
   backends,
+  annotations,
   cardPool,
   hasSources,
   connected,
@@ -789,9 +798,27 @@ export function App({
           loadCards={loadCards}
           knowledge={knowledge}
           sourceService={sourceService}
-          onOpenSource={(sourceId) => {
+          onOpenSource={(sourceId, anchor) => {
             setReaderSourceId(sourceId);
-            setReaderTarget(null);
+            /*
+             * 把锚点一起送过去（2026-11-09）。
+             *
+             * 原来这里写死 `setReaderTarget(null)`：错题页的「看原文」
+             * 点了永远打开资料第一页，用户看到的是封面 —— 定位等于没做。
+             * 现在带上锚点，阅读器用它已有的定位逻辑（偏移优先、引文兜底）
+             * 翻到那一页并高亮。
+             */
+            setReaderTarget(
+              anchor
+                ? {
+                    sourceId,
+                    page: anchor.page,
+                    charStart: anchor.charStart,
+                    charEnd: anchor.charEnd,
+                    quote: anchor.quote,
+                  }
+                : null,
+            );
             setPage('reader');
           }}
           onOpenPractice={() => void navigate('review')}
@@ -918,6 +945,7 @@ export function App({
       ) : page === 'reader' ? (
         <ReaderPage
           sourceService={sourceService}
+          annotations={annotations}
           initialSourceId={readerSourceId}
           target={readerTarget}
           onBack={() => setPage('sources')}

@@ -44,7 +44,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Card } from '@/v2/core/cards.ts';
 import { CARD_KIND_LABEL } from '@/v2/core/cards.ts';
 import { chapterOf, sourceOf, NO_CHAPTER, type MapPoint } from '@/v2/core/study-map.ts';
-import type { Question } from '@/core/model.ts';
+import type { Question, SourceLocation } from '@/core/model.ts';
+import { anchorPrecision, precisionCopy } from '@/core/questions/anchor-precision.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { SourceService } from '@/core/sources.ts';
 import type { DeckService } from '@/core/questions/service.ts';
@@ -57,8 +58,14 @@ export interface WrongBookPageProps {
   loadCards: CardLoader;
   knowledge: KnowledgeService;
   sourceService: SourceService;
-  /** 去阅读器看原文 */
-  onOpenSource: (sourceId: string) => void;
+  /**
+   * 去阅读器看原文，**并定位到这道题的出处**（2026-11-09 改）。
+   *
+   * 原来只传 `sourceId`，阅读器拿到的 target 是 null，于是总是打开第一页。
+   * 用户点「看原文」看到的是封面 —— 这个入口等于没做。
+   * 现在把锚点一起带过去，阅读器用现有逻辑定位到那一页那一段。
+   */
+  onOpenSource: (sourceId: string, anchor?: SourceLocation | null) => void;
   /** 去「开始做题」 */
   onOpenPractice: () => void;
   /**
@@ -132,6 +139,22 @@ export function WrongBookPage({
   /** 导出结果提示 */
   const [exportNote, setExportNote] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+
+  /**
+   * 点「可点回原句 / 可点回原文」：把这张卡的锚点一起送到阅读器。
+   *
+   * 为什么不只传 sourceId：那样阅读器拿到 target=null，
+   * 永远打开第一页 —— 用户点了等于没定位。
+   */
+  const openAtCard = useCallback(
+    (card: Card) => {
+      const a = anchorOf(card);
+      const sid = card.sourceId ?? a?.sourceId ?? null;
+      if (!sid) return;
+      onOpenSource(sid, a);
+    },
+    [onOpenSource],
+  );
 
   const load = useCallback(async () => {
     try {
@@ -569,13 +592,20 @@ export function WrongBookPage({
                             {r.deckTitle ? (
                               <span className="wbk-item__deck">{r.deckTitle}</span>
                             ) : null}
-                            {r.card.sourceId ? (
+                            {r.card.sourceId || anchorOf(r.card) ? (
                               <button
                                 type="button"
                                 className="btn-text"
-                                onClick={() => onOpenSource(r.card.sourceId)}
+                                onClick={() => openAtCard(r.card)}
+                                title={precisionCopy(
+                                  anchorPrecision(anchorOf(r.card)),
+                                  anchorOf(r.card)?.page,
+                                ).hint}
                               >
-                                看原文
+                                {precisionCopy(
+                                  anchorPrecision(anchorOf(r.card)),
+                                  anchorOf(r.card)?.page,
+                                ).badge}
                               </button>
                             ) : null}
                           </div>
@@ -591,6 +621,18 @@ export function WrongBookPage({
       )}
     </div>
   );
+}
+
+/**
+ * 取这张卡的第一条锚点。
+ *
+ * 只取第一条：一道题可能跨多段（知识点跨页），但用户点「看原文」时
+ * 想先看到的是**起点**。把多条都塞过去只会让阅读器不知道跳哪。
+ * 其余锚点在阅读器里仍在（它们本来就存在题目上），只是这里不主动引导。
+ */
+function anchorOf(card: Card): SourceLocation | null {
+  const a = card.anchors && card.anchors.length > 0 ? card.anchors[0] : null;
+  return a ?? null;
 }
 
 /** 资料名：走和 study-map 同一套三层回退，两页的归属判断必须一致 */

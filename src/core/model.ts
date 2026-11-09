@@ -14,7 +14,7 @@
  * v15：新增 sourceImages（MinerU 转换出的教材插图，2026-11-08）
  * v16：新增 trash（回收站，2026-11-08）
  */
-export const LIBRARY_SCHEMA_VERSION = 16;
+export const LIBRARY_SCHEMA_VERSION = 17;
 
 /**
  * 位置信息 —— 全项目「点回原文」的唯一依据。
@@ -40,6 +40,42 @@ export interface SourceLocation {
   charStart?: number;
   /** 结束字符偏移（右开） */
   charEnd?: number;
+  /**
+   * 所在段落的 id（2026-11-09 加，可选）。
+   *
+   * ## 为什么需要它
+   *
+   * 在此之前定位只靠 `sourceId + page`，而 **page 在一份资料里不唯一**：
+   * 按章节切分的资料里 `page = index`（见 SourceSegment.page 注释），
+   * 一个章节跨多页时，只给 page 无法判断是哪一段。实测库里 10 道题
+   * 全部没有这个字段，定位只能靠「第一个 page 匹配的段落」猜，猜错就圈错段。
+   *
+   * ## 为什么是可选的
+   *
+   * 旧题没有它（迁移会按 page 唯一匹配尽量回填，不唯一的留空）。
+   * 强制要求会让所有旧题导入失败 —— 不值得。读取方按
+   * 「有就精确匹配，没有退回 page」处理，不编造。
+   */
+  segmentId?: string;
+  /**
+   * 引用到的原文片段（2026-11-09 加，可选）。
+   *
+   * ## 为什么偏移量之外还要存引文
+   *
+   * 这与 `TextAnchor` 用 W3C 双选择器是同一个理由
+   * （TextQuoteSelector + TextPositionSelector，Zotero/Hypothesis 的做法）：
+   *  - 只靠偏移：资料重新解析（OCR 补全、规范化改了断行）后偏移全变，标记漂移
+   *  - 只靠引文：同一句话在一页里出现多次时无法消歧
+   *
+   * 两个一起用：偏移先快速定位，引文做校验；对不上就全文找引文的最近匹配。
+   *
+   * ## 与 TextAnchor 的区别
+   *
+   * TextAnchor 是**用户批注**的锚点，结构更全（含 prefix/suffix）。
+   * 这里是**题目出处**的锚点，只需要「哪句话」够用来高亮与校验，
+   * 加 prefix/suffix 会让每道题多存几十字节而收益不明显。
+   */
+  quote?: string;
 }
 
 /** 资料里的一段可定位文本（一页，或一章）。 */

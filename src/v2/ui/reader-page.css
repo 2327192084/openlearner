@@ -20,6 +20,35 @@
   padding-bottom: var(--space-4, 16px);
 }
 
+/*
+ * 正文 + 右侧栏的两列布局（2026-11-09）。
+ *
+ * 用 flex 而不是 grid：右栏是固定 260px，左栏吃掉剩下的宽度，
+ * `flex: 1 1 auto` + `min-width: 0` 就够了。grid 反而要为
+ * 「右栏要不要显示」写两套模板。
+ *
+ * `min-width: 0` 不能省：flex 子项默认 `min-width: auto`，
+ * 正文里长公式/长英文单词会把左栏撑破，压到右栏上去。
+ */
+.reader-split {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.reader-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+  /* 正文自己滚动，右栏不跟着滚 */
+  overflow-y: auto;
+  padding-right: var(--space-3, 12px);
+}
+
 .reader-head {
   display: flex;
   align-items: flex-start;

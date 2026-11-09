@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { DeckService } from './service.ts';
 import { MockQuestionBackend } from './mock-backend.ts';
+import { segmentsToMaterials } from './materials.ts';
 import { MemoryStorage } from '../storage/memory-storage.ts';
 import { newId, nowIso } from '../id.ts';
 import type { KnowledgePoint, Question } from '../model.ts';
@@ -108,9 +109,66 @@ describe('出题', () => {
 
     const q = out.questions[0];
     expect(q.knowledgePointId).toBe(point.id);
-    expect(q.anchors).toEqual(point.anchors);
+    /*
+     * 2026-11-09 改：锚点除了继承位置，还会补一个 quote（知识点自带的引文），
+     * 用于精确定位那一句话。所以断言「位置逐字段一致」而不是整对象相等。
+     *
+     * 核心保证没变：**位置来自知识点，不是模型给的**。
+     */
+    expect(q.anchors[0]).toMatchObject({
+      sourceId: 'src_9',
+      page: 7,
+      chapter: '第三章',
+      charStart: 55,
+      charEnd: 99,
+    });
+    // 引文是新增的附加信息，不改变位置
+    expect(q.anchors[0].quote).toBe('栈是只允许在一端进行插入和删除的线性表，遵循后进先出原则。');
     // 页码必须一致 —— 这是「点回原文」可靠的根据
     expect(q.anchors[0].page).toBe(7);
+  });
+
+  it('从原文出题的题，knowledgePointId 是 null（不塞段落 id 冒充知识点 id）', async () => {
+    /*
+     * 真实 bug 的回归测试（2026-11-09 修）。
+     *
+     * 原实现无条件写 `knowledgePointId: material.id`，而原文出题的
+     * 素材 id 是**段落 id**（seg_ 开头）。结果题目里这个字段指向一个
+     * 不存在的知识点 —— 实测用户库里 10 道题 0 命中，链断了。
+     *
+     * 类型都是 string，这个 bug 单测和 tsc 都抓不到，只能靠真实数据对 id。
+     */
+    const seg = {
+      id: 'seg_abc123',
+      sourceId: 'src_1',
+      index: 1,
+      page: 4,
+      chapter: '第一章',
+      text: '这是一段足够长的原文正文，用来测试从原文出题的锚点继承与知识点归属判定是否正确。',
+      charCount: 43,
+      createdAt: '2026-11-09T00:00:00.000Z',
+      updatedAt: '2026-11-09T00:00:00.000Z',
+    } as never;
+
+    /* 走真实链路：段落 → 素材（与 GeneratePage 的做法一致） */
+    const materials = segmentsToMaterials([seg]);
+
+    const out = await decks.generate({
+      /* 原文出题不经过知识点，但仍要满足入参形状 */
+      points: [],
+      materials,
+      title: 't',
+      backend: backend(),
+      options: { kinds: ['blank'], count: 1, levels: null, language: 'zh' },
+      signal: new AbortController().signal,
+    });
+
+    const q = out.questions[0];
+    expect(q.knowledgePointId).toBeNull();
+    /* 位置仍然要有，否则点了回不去 */
+    expect(q.anchors[0].page).toBe(4);
+    /* 新题会带上段落 id，用于硬定位 */
+    expect(q.anchors[0].segmentId).toBe('seg_abc123');
   });
 
   it('认知层级从知识点继承', async () => {

@@ -66,11 +66,45 @@ describe('pointsToMaterials：从知识库出题', () => {
     expect(m.map((x) => x.id)).toEqual(['ok']);
   });
 
-  it('anchors 原样带出，且是副本（不给外部改动的机会）', () => {
+  it('anchors 的位置字段原样带出，且是副本（不给外部改动的机会）', () => {
+    /*
+     * 2026-11-09 改：锚点不再「一个字段都不加」地照搬，而是补一个 quote
+     * （知识点自带的逐字引文），用于精确定位那一句话。
+     *
+     * 位置字段仍然逐字段继承 —— 那才是「出处不采信模型」的保证。
+     * 所以这里用 toMatchObject 断言位置，再单独断言 quote。
+     */
     const p = makePoint();
     const m = pointsToMaterials([p]);
-    expect(m[0]!.anchors[0]).toEqual({ sourceId: 's1', page: 3, charStart: 10, charEnd: 20 });
+    expect(m[0]!.anchors[0]).toMatchObject({
+      sourceId: 's1',
+      page: 3,
+      charStart: 10,
+      charEnd: 20,
+    });
     expect(m[0]!.anchors[0]).not.toBe(p.anchors[0]);
+  });
+
+  it('知识点自带引文时，写进锚点用于精确定位（2026-11-09 加）', () => {
+    const p = makePoint({ quotes: ['线性表是由 n 个数据元素构成的有限序列'] });
+    const m = pointsToMaterials([p]);
+    expect(m[0]!.anchors[0]!.quote).toBe('线性表是由 n 个数据元素构成的有限序列');
+  });
+
+  it('知识点没有引文时不编造 quote', () => {
+    const p = makePoint({ quotes: [] });
+    const m = pointsToMaterials([p]);
+    expect(m[0]!.anchors[0]!.quote).toBeUndefined();
+  });
+
+  it('素材标明来源种类：知识点出题的 origin 是 knowledge', () => {
+    /*
+     * 这个字段决定落库时 knowledgePointId 写什么。
+     * 原文出题的素材 id 是段落 id，写进 knowledgePointId 会让
+     * 「错题 → 知识点」断链（实测库里 10 道题 0 命中）。
+     */
+    expect(pointsToMaterials([makePoint()])[0]!.origin).toBe('knowledge');
+    expect(segmentsToMaterials([makeSeg()])[0]!.origin).toBe('segment');
   });
 });
 

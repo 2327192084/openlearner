@@ -43,6 +43,14 @@ export interface QuestionMaterial {
   page: number | null;
   /** 出处锚点。题目落库时直接从它复制，不看模型输出 */
   anchors: NonNullable<KnowledgePoint['anchors']>;
+  /**
+   * 这条素材的来源种类（2026-11-09）。
+   *
+   * `knowledge` = 知识点，`segment` = 原文段落。
+   * 落库时要据此决定 `knowledgePointId` 该写什么 —— 段落 id 不能塞进去
+   * （历史 bug：段落 id 被写进 knowledgePointId，导致「错题→知识点」断链）。
+   */
+  origin: 'knowledge' | 'segment';
 }
 
 /**
@@ -60,8 +68,31 @@ export function pointsToMaterials(points: readonly KnowledgePoint[]): QuestionMa
       cognitiveLevel: p.cognitiveLevel,
       chapter: p.chapter,
       page: p.anchors[0]?.page ?? null,
-      anchors: p.anchors.map((a) => ({ ...a })),
+      /*
+       * 知识点路径下 id 就是知识点 id，原样带过去。
+       *
+       * 锚点补上 quote：知识点自带 quotes（整理时从原文摘的逐字引文），
+       * 把它写进锚点，定位时就能精确高亮那句话，而不是只靠偏移量。
+       */
+      anchors: p.anchors.map((a, i) => ({
+        ...a,
+        ...(a.quote ? {} : { quote: pickQuote(p.quotes, i) }),
+      })),
+      origin: 'knowledge' as const,
     }));
+}
+
+/**
+ * 为第 i 条锚点挑一条引文。
+ *
+ * 知识点可能有多条 quotes 与多条 anchors（跨页时）。按序号对齐是最省事的
+ * 近似 —— 对不上就退回第一条。**不硬凑**：宁可给一条不完全对应的引文
+ * （它仍会用于校验，校验不过就走偏移量），也不要凭空造引文。
+ */
+function pickQuote(quotes: readonly string[], i: number): string | undefined {
+  if (quotes.length === 0) return undefined;
+  const q = quotes[i] ?? quotes[0];
+  return typeof q === 'string' && q.trim().length > 0 ? q.trim() : undefined;
 }
 
 /**
@@ -118,16 +149,25 @@ export function segmentsToMaterials(
          * charStart=0 / charEnd=段落长度，指的是「这一页（这一段）的全文」。
          * 阅读器定位时会把整段高亮 —— 对「从原文出的题」来说，
          * 让用户看到完整上下文比圈住某个短语更有用。
+         *
+         * 2026-11-09 补 segmentId：只靠 page 定位在多页章节里不唯一，
+         * 会把题圈到错误的段落上。segmentId 是硬定位。
+         *
+         * 不写 quote：这里根本没有「这道题用到了哪句话」的信息 ——
+         * 模型是看着整段出的题。硬塞整段当 quote 会让它退化成
+         * 「用全文搜索一段长文本」，既慢又容易 miss，不如老实标成块级。
          */
         anchors: [
           {
             sourceId: s.sourceId,
             page: s.page,
+            segmentId: s.id,
             charStart: 0,
             charEnd: text.length,
             ...(s.chapter ? { chapter: s.chapter } : {}),
           },
         ],
+        origin: 'segment' as const,
       };
     });
 }

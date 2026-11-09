@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
-import type { Source, SourceImageRecord, SourceSegment } from '@/core/model.ts';
+import type {
+  Source,
+  SourceImageRecord,
+  SourceSegment,
+  TextMark,
+  TextMarkKind,
+} from '@/core/model.ts';
 import type { SourceService } from '@/core/sources.ts';
+import type { AnnotationService } from '@/core/annotation-service.ts';
+import { newId } from '@/core/id.ts';
 import { IconSources } from './icons.tsx';
 import { MathText } from './MathText.tsx';
 import { ReaderFigure } from './ReaderFigure.tsx';
+import { ReaderSidePanel } from './ReaderSidePanel.tsx';
 import { splitByFigures } from '@/core/mineru/images.ts';
 import './reader-figure.css';
 
@@ -47,6 +56,14 @@ export interface ReaderTarget {
 
 export interface ReaderPageProps {
   sourceService: SourceService;
+  /**
+   * 批注服务（2026-11-09）。
+   *
+   * 可选：不传就只是没有批注功能（侧栏「批注」页仍会显示，
+   * 但加标记按钮点了不会存）。传了才有真正的读写。
+   * 做成可选是为了让测试与「只看正文」的场景不必构造它。
+   */
+  annotations?: AnnotationService;
   /** 要打开的资料；null 表示还没选 */
   initialSourceId: string | null;
   /** 要定位到的位置；null 表示只是打开来读 */
@@ -85,6 +102,7 @@ interface Highlight {
 
 export function ReaderPage({
   sourceService,
+  annotations,
   initialSourceId,
   target,
   onBack,
@@ -98,6 +116,16 @@ export function ReaderPage({
   const [searchNote, setSearchNote] = useState<string | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const markRef = useRef<HTMLElement | null>(null);
+
+  /**
+   * 批注状态（2026-11-09）。
+   *
+   * `pageMarks` 是**当前页**的标记。不把所有页的都载进来：
+   * 一本几百页的书全量载入既慢又没必要，标记天然按页归属。
+   */
+  const [pageMarks, setPageMarks] = useState<TextMark[]>([]);
+  /** 正文里当前选中的文字（空串 = 没选中）。决定「加标记」按钮是否可用 */
+  const [selectionText, setSelectionText] = useState('');
 
   /**
    * 原图查看。
@@ -322,6 +350,186 @@ export function ReaderPage({
 
   const totalSegments = phase.kind === 'ready' ? phase.segments.length : 0;
 
+  /*
+   * 当前资料的 id。
+   *
+   * 不能等 ready 分支里解构出的 `source` —— 那些 effect / 回调
+   * 写在解构之前（它们在渲染的全部路径上都要成立）。
+   * 这里从 phase 直接取，未 ready 时是 null。
+   */
+  const sourceId = phase.kind === 'ready' ? phase.source.id : null;
+
+  /**
+   * 翻页或换资料时重新载入这一页的标记。
+   *
+   * 依赖 seg.id 而不是 pageNo：换了资料但页码相同时，
+   * pageNo 没变，光看它不会重新载入 —— 那就把上一本书的标记显示了。
+   */
+  useEffect(() => {
+    if (!annotations || !sourceId || !seg) {
+      setPageMarks([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const rec = await annotations.get(sourceId, seg.page);
+        if (!cancelled) setPageMarks(rec?.textMarks ?? []);
+      } catch {
+        if (!cancelled) setPageMarks([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [annotations, sourceId, seg]);
+
+  /**
+   * 跟踪「正文里有没有选中文字」。
+   *
+   * ## 为什么用 document 级的 selectionchange
+   *
+   * 第一版挂在 bodyRef 的 mouseup/keyup 上，依赖写成 `[]`。
+   * 问题：effect 首次执行时还在 loading，`bodyRef.current` 是 null，
+   * 直接 return —— 等正文渲染出来，监听器**再也没绑上**。
+   * 表现是「选中了字，加标记按钮仍然是灰的」，实测确认。
+   *
+   * selectionchange 是文档级事件，不依赖容器何时出现，
+   * 也不会因为翻页换 DOM 而失效。它唯一的代价是不告诉我们「用什么动作选的」，
+   * 而我们本来也不关心动作，只关心「当前选区落在哪」。
+   *
+   * ## 为什么仍然要判容器归属
+   *
+   * 用户在右侧边栏里选中备注文字时，选区不在正文容器里。
+   * 不判的话按钮会亮起来，点下去标的是那句备注 —— 明显不对。
+   */
+  useEffect(() => {
+    const onSelectionChange = () => {
+      const el = bodyRef.current;
+      const sel = window.getSelection();
+      if (!el || !sel || sel.rangeCount === 0) {
+        setSelectionText('');
+        return;
+      }
+      const text = sel.toString().trim();
+      if (!text) {
+        setSelectionText('');
+        return;
+      }
+      const root = sel.getRangeAt(0).commonAncestorContainer;
+      const inside = el.contains(root.nodeType === 1 ? root : root.parentNode);
+      setSelectionText(inside ? text : '');
+    };
+
+    document.addEventListener('selectionchange', onSelectionChange);
+    return () => document.removeEventListener('selectionchange', onSelectionChange);
+  }, []);
+
+  /** 加一条标记：把当前选区做成锚点存进这一页 */
+  const handleAddMark = useCallback(
+    (kind: TextMarkKind) => {
+      if (!annotations || !sourceId || !seg || !selectionText) return;
+      const sel = window.getSelection();
+      const exact = selectionText;
+      /*
+       * 算这条标记在**这一页正文**里的字符偏移。
+       *
+       * ⚠️ 不能简单用 `seg.text.indexOf(exact)`：同一句话在一页里
+       * 出现两次时，indexOf 永远给第一个 —— 用户标的是第二处，
+       * 高亮却画在第一处。而界面上看着都像对的，极难发现。
+       *
+       * 这里用「选区在正文容器里的位置」做提示：
+       * 取选区起点之前那部分文字的长度作为近似起点，
+       * 再从那儿往后找 exact。找不到（跨节点/被 Markdown 标记打断）
+       * 就退回全页 indexOf，仍找不到就记 0 并由 exact 兜底定位。
+       */
+      let start = -1;
+      if (sel && sel.rangeCount > 0) {
+        try {
+          const range = sel.getRangeAt(0);
+          const el = bodyRef.current;
+          if (el && el.contains(range.startContainer)) {
+            /*
+             * 用 Range 从容器开头量到选区起点。cloneContents 会把
+             * DOM 转成片段，量它的文本长度即是「选区内起始偏移」的近似。
+             * 这是浏览器给的标准做法，比自己遍历节点可靠。
+             */
+            const head = range.cloneRange();
+            head.selectNodeContents(el);
+            head.setEnd(range.startContainer, range.startOffset);
+            const headText = head.toString();
+            const near = seg.text.indexOf(exact, Math.max(0, headText.length - 40));
+            if (near >= 0) start = near;
+          }
+        } catch {
+          /* Range 操作失败就退回全页搜 */
+        }
+      }
+      if (start < 0) start = seg.text.indexOf(exact);
+      if (start < 0) start = 0;
+
+      const mark: TextMark = {
+        id: newId('mark'),
+        kind,
+        anchor: {
+          page: seg.page,
+          exact,
+          /* prefix/suffix 用于消歧：同一句话在一页里出现多次时靠它挑对 */
+          prefix: start > 20 ? seg.text.slice(start - 20, start) : seg.text.slice(0, start),
+          suffix: seg.text.slice(start + exact.length, start + exact.length + 20),
+          start,
+          end: start + exact.length,
+        },
+        createdAt: new Date().toISOString(),
+      };
+
+      void (async () => {
+        await annotations.addTextMark(sourceId, seg.page, mark);
+        const rec = await annotations.get(sourceId, seg.page);
+        setPageMarks(rec?.textMarks ?? []);
+        setSelectionText('');
+      })();
+    },
+    [annotations, sourceId, seg, selectionText],
+  );
+
+  const handleRemoveMark = useCallback(
+    async (markId: string) => {
+      if (!annotations || !sourceId || !seg) return;
+      await annotations.removeTextMark(sourceId, seg.page, markId);
+      const rec = await annotations.get(sourceId, seg.page);
+      setPageMarks(rec?.textMarks ?? []);
+    },
+    [annotations, sourceId, seg],
+  );
+
+  const handleSetNote = useCallback(
+    async (markId: string, note: string) => {
+      if (!annotations || !sourceId || !seg) return;
+      await annotations.updateTextMark(sourceId, seg.page, markId, {
+        note: note.length > 0 ? note : undefined,
+      });
+      const rec = await annotations.get(sourceId, seg.page);
+      setPageMarks(rec?.textMarks ?? []);
+    },
+    [annotations, sourceId, seg],
+  );
+
+  /**
+   * 这一页有几条知识点。
+   *
+   * 阅读器不持有知识点服务（那是整理页的依赖），所以这里**不编造**数字：
+   * 拿不到就传 undefined，侧栏显示「—」。
+   * 显示一个猜的 0 比显示「—」更糟 —— 用户会以为这页真的没有知识点。
+   */
+  const pageKnowledgeCount: number | undefined = undefined;
+
+  /** 这一页的插图 */
+  const pageFigures = useMemo(() => {
+    if (phase.kind !== 'ready' || !seg) return [];
+    return phase.figures.filter((f) => f.page === seg.page);
+  }, [phase, seg]);
+
   const goPage = useCallback(
     (next: number) => {
       if (phase.kind !== 'ready') return;
@@ -525,6 +733,8 @@ export function ReaderPage({
       </div>
       {searchNote ? <p className="reader-hint">{searchNote}</p> : null}
 
+      <div className="reader-split">
+      <div className="reader-main">
       {/* 正文 */}
       {/*
        * chapter 是解析器从「这一页的第一行」猜出来的（见 parsers/pdf.ts
@@ -573,6 +783,26 @@ export function ReaderPage({
               : [],
           )
         ) : null}
+      </div>
+      </div>
+
+      {/*
+        右侧边栏：查看 / 批注（2026-11-09）。
+        抽成独立文件（ReaderSidePanel.tsx），这里只插一行引用 ——
+        ReaderPage 已经 900+ 行，项目对往大文件里插代码有过教训。
+      */}
+      <ReaderSidePanel
+        segment={seg}
+        pageNo={pageNo}
+        totalSegments={totalSegments}
+        marks={pageMarks}
+        onAddMark={handleAddMark}
+        onRemoveMark={(id) => void handleRemoveMark(id)}
+        onSetNote={(id, note) => void handleSetNote(id, note)}
+        hasSelection={!!selectionText}
+        knowledgeCount={pageKnowledgeCount}
+        figureCount={pageFigures.length}
+      />
       </div>
     </div>
   );

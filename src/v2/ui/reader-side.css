@@ -1,0 +1,268 @@
+/*
+ * 阅读器右侧边栏（查看 / 批注）的样式。
+ *
+ * ⚠️ 硬约束：base.css 里有**不在任何 @layer 内**的 button / textarea 规则，
+ * 级联「层级先于特异性」。所以本文件里原生控件的样式**一律写在层外**，
+ * 包括 appearance: none —— 放层内会被 base.css 那条盖掉。
+ *
+ * 布局类（div / p / dl 等非原生控件）才放进 @layer。
+ */
+
+/* ------------------------------------------------------------------
+ * 层外：原生控件的重置与外观
+ * ------------------------------------------------------------------ */
+
+.rside__tab,
+.rside__kind,
+.rside__mini,
+.rside__note {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  color: inherit;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.rside__tab {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: 7px;
+  font-size: 13px;
+  text-align: center;
+  color: var(--text-dim);
+}
+
+.rside__tab--on {
+  background: var(--surface-raised);
+  color: var(--text);
+  border-color: var(--line);
+}
+
+.rside__kind {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border-color: var(--line);
+  font-size: 12.5px;
+}
+
+.rside__kind:hover:not(:disabled) {
+  background: var(--surface-raised);
+}
+
+.rside__kind:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.rside__mini {
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.rside__mini:hover {
+  color: var(--text);
+  background: var(--surface-raised);
+}
+
+.rside__note {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--text-dim);
+  border-style: dashed;
+  border-color: var(--line);
+}
+
+.rside__note:hover {
+  color: var(--text);
+}
+
+.rside__note-input {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface-sunken, #14110e);
+  color: var(--text);
+  font-size: 12px;
+  resize: vertical;
+}
+
+.rside__note-input:focus {
+  outline: none;
+  border-color: var(--accent, #c97f3f);
+}
+
+/* ------------------------------------------------------------------
+ * 层内：纯布局
+ * ------------------------------------------------------------------ */
+
+@layer {
+  .rside {
+    display: flex;
+    flex-direction: column;
+    width: 260px;
+    flex: 0 0 260px;
+    align-self: stretch;
+    border-left: 1px solid var(--line);
+    background: var(--surface, #1a1714);
+    overflow-y: auto;
+  }
+
+  .rside__tabs {
+    display: flex;
+    gap: 4px;
+    padding: 8px;
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    background: var(--surface, #1a1714);
+    z-index: 1;
+  }
+
+  .rside__count {
+    display: inline-block;
+    margin-left: 5px;
+    padding: 0 5px;
+    border-radius: 8px;
+    background: var(--surface-raised);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  .rside__body {
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .rside__sec {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .rside__h {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--text-dim);
+    text-transform: none;
+  }
+
+  .rside__kv {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 10px;
+    margin: 0;
+    font-size: 12.5px;
+  }
+
+  .rside__kv dt {
+    color: var(--text-dim);
+  }
+
+  .rside__kv dd {
+    margin: 0;
+    color: var(--text);
+    /* 章节名可能很长，允许换行而不是撑破栏宽 */
+    overflow-wrap: anywhere;
+  }
+
+  .rside__lead,
+  .rside__tip,
+  .rside__empty {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--text-dim);
+  }
+
+  .rside__tip {
+    padding: 7px 8px;
+    border-radius: 6px;
+    background: var(--surface-raised);
+  }
+
+  .rside__kinds {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .rside__swatch {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    flex: 0 0 9px;
+  }
+
+  .rside__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .rside__item {
+    padding: 7px 8px;
+    border-radius: 7px;
+    background: var(--surface-raised);
+    border: 1px solid var(--line);
+  }
+
+  .rside__item-top {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .rside__item-kind {
+    font-size: 11.5px;
+    color: var(--text-dim);
+    flex: 1;
+  }
+
+  .rside__quote {
+    margin: 5px 0 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text);
+    /* 引文可能很长，最多显示三行，其余省略 */
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .rside__edit {
+    margin-top: 5px;
+  }
+
+  .rside__edit-actions {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
+  }
+}

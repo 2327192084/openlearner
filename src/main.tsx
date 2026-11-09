@@ -51,6 +51,13 @@ function Bootstrap() {
     knowledge: AppServices['knowledge'];
     decks: AppServices['decks'];
     backends: AppServices['backends'];
+    /**
+     * 批注服务（2026-11-09）。
+     *
+     * 阅读器右侧边栏的「批注」模式要读写它。
+     * 这个服务早就建出来了，但 v2 阅读器一直没用（v1 的 sources 页在用）。
+     */
+    annotations: AppServices['annotations'];
   } | null>(null);
   const [failure, setFailure] = useState<{ message: string; hint: string } | null>(null);
 
@@ -141,6 +148,7 @@ function Bootstrap() {
           knowledge,
           decks,
           backends,
+          annotations,
         });
 
         setServices({
@@ -214,6 +222,7 @@ function Bootstrap() {
         knowledge={v2Data.knowledge}
         decks={v2Data.decks}
         backends={v2Data.backends}
+        annotations={v2Data.annotations}
       />
     </ServicesContext.Provider>
   );
