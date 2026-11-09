@@ -31,6 +31,49 @@ export class LibraryService {
 
   async init(): Promise<void> {
     await this.storage.init();
+    await this.purgeRetiredCredentials();
+  }
+
+  /**
+   * 把已经下线的凭据字段从库里真正抹掉（2026-11-09）。
+   *
+   * ## 为什么非做不可
+   *
+   * 墨墨生词本功能在 2026-11-09 被删除。但用户库里那条 settings 记录
+   * 里**物理上还存着** `maimemoToken` —— 一个真实的第三方 access token，
+   * 能读改用户账号下的云词本。
+   *
+   * 只删代码不清数据会有两个后果：
+   *  1. 备份导出虽然清洗了，但库里仍留着明文凭据（谁拿到这个库文件谁就能用）
+   *  2. 以后任何按 `...settings` 展开的路径都会把它带出来
+   *
+   * ## 为什么放在 init()
+   *
+   * 它是应用启动的唯一入口，跑一次即可；而且这里写库是**有意的副作用**，
+   * 放在 getter 里会让渲染期间的读操作意外触发写入。
+   *
+   * ## 为什么安静地做，不问用户
+   *
+   * 这个字段对应的功能已经不存在了，留着它没有任何用途，
+   * 只可能外泄。删掉不需要征求同意，但要如实记进日志。
+   */
+  private async purgeRetiredCredentials(): Promise<void> {
+    const row = await this.storage.get('settings', SETTINGS_ID);
+    if (!row) return;
+
+    /*
+     * 经 unknown 再转 Record：SettingsRecord 没有索引签名，
+     * 直接 as Record<string, unknown> 会被 tsc 判为「两边不重叠」。
+     * 这里的意图正是「把已知类型当作任意键值对象来读一个不在类型里的键」。
+     */
+    const rec = row as unknown as Record<string, unknown>;
+    if (!('maimemoToken' in rec) && !('maimemoNotepadId' in rec)) return;
+
+    const next = { ...rec };
+    delete next.maimemoToken;
+    delete next.maimemoNotepadId;
+    /* 回写时再转回 SettingsRecord：id 与其余字段都原样还在 */
+    await this.storage.put('settings', next as unknown as typeof row);
   }
 
   /** 读取库元信息；库还不存在时返回 null（用于判断「是否已建库」） */
@@ -82,6 +125,23 @@ export class LibraryService {
      * 更糟的是「存在但形状不对」（被人手改过备份）：展开会原样带出来，
      * 于是界面上出现一个不存在的宽容度。normalize 两种情况都收敛到默认。
      */
+    /*
+     * 抹掉已下线的凭据字段（2026-11-09 删除墨墨生词本功能时加）。
+     *
+     * 只从类型里删字段是不够的：`getSettings` 用 `...rest` 展开，
+     * 旧库里那条 settings 记录**物理上还带着** `maimemoToken`，
+     * 展开后会原样进入内存对象 —— 随后被 exportBackup 写进备份文件。
+     * 也就是说「删了功能」不等于「凭据不再外泄」，必须真的抹掉。
+     *
+     * 用 delete 而不是重建对象：其余字段（未来新增的）原样保留，
+     * 不需要每加一个设置项就回来改这里。
+     *
+     * 注意这里**不改库**，只清洗返回值。真正落盘清除见 init()：
+     * 读的时候顺手写库会让 getter 有副作用，容易在渲染期间触发意外写入。
+     */
+    delete (rest as Record<string, unknown>).maimemoToken;
+    delete (rest as Record<string, unknown>).maimemoNotepadId;
+
     return {
       ...DEFAULT_SETTINGS,
       ...rest,
@@ -117,17 +177,17 @@ export class LibraryService {
     const snapshot = await this.storage.readAll();
 
     /*
-     * 凭据类设置必须剔除（2026-11-09）。
+     * 凭据类设置必须剔除。
      *
-     * `settings.maimemoToken` 是墨墨的 access token —— 一个真凭据。
-     * 它能读改用户的墨墨云词本，绝不能跟着备份文件跑出去。
+     * 历史上这一条是为墨墨的 access token 加的（`settings.maimemoToken`）。
+     * 墨墨生词本功能已于 2026-11-09 删除，那个字段也不在 AppSettings 里了，
+     * 但**这个函数不能跟着删**：
      *
-     * 为什么在导出这一层剔除，而不是把字段挪进 secrets 分区：
-     * secrets 的语义是「永不进备份」，而这个 token 换机器本来就要重填
-     * （与账号绑定）。挪过去并不能省掉用户重填这一步，却要多一次迁移。
-     * 所以选择「存 settings，导出时剔除」——
-     * 代价是以后每加一个第三方凭据都要记得在这里补一行，
-     * 所以用 sanitizeSettingsForExport 这个纯函数集中处理并配了单测。
+     *  - 旧备份文件（导出时含该字段）可能被重新导入，再被导出
+     *  - 旧库里那条 settings 记录物理上还带着该字段（见 purgeRetiredCredentials）
+     *
+     * 所以它现在是「历史凭据清洗」，仍然必要。以后每接一个第三方凭据，
+     * 往 sanitizeSettingsForExport 里补一行。
      */
     return {
       format: 'openleaner-library',
@@ -266,19 +326,25 @@ function asArray<T>(value: unknown): T[] {
 }
 
 /**
- * 导备份前剔除凭据类设置（2026-11-09）。
+ * 导备份前剔除凭据类设置。
  *
  * ## 为什么需要
  *
- * `settings` 会整个进备份文件。而 2026-11-09 起 settings 里多了
- * `maimemoToken` —— 那是墨墨的 access token，能读改用户的云词本。
- * 一个凭据跟着备份文件跑到别的机器上，是不可接受的。
+ * `settings` 会整个进备份文件。一个凭据跟着备份文件跑到别的机器上，
+ * 是不可接受的。
  *
- * ## 为什么抽成纯函数
+ * ## 为什么删了墨墨功能它还留着
  *
- * 这类「别把凭据导出去」的逻辑一旦漏一个字段就是真事故，
- * 而它本身是个纯变换，没有任何理由不做成可单测的形式。
- * 见 library.test.ts 的「导出剔除凭据」那组用例。
+ * 它最初是为墨墨的 access token（`settings.maimemoToken`）加的。
+ * 墨墨生词本已于 2026-11-09 删除，字段也不在 `AppSettings` 里了，
+ * 但这个函数**不能跟着删**：
+ *
+ *  - 旧备份文件里含该字段，可能被导入后再导出
+ *  - 旧库里那条 settings 记录物理上还带着它（见 purgeRetiredCredentials）
+ *
+ * 它现在的职责是「历史凭据清洗」，仍然必要。用 `Record` 收窄是为了
+ * 在字段已从类型里消失之后仍能 delete 它 —— 直接 `delete out.maimemoToken`
+ * 会变成「删一个类型上不存在的属性」，tsc 报错。
  *
  * ## 加新凭据时要做什么
  *
@@ -289,7 +355,8 @@ function asArray<T>(value: unknown): T[] {
  */
 export function sanitizeSettingsForExport(settings: AppSettings): AppSettings {
   const out: AppSettings & Record<string, unknown> = { ...settings };
-  delete out.maimemoToken;
+  /* 已下线功能留下的历史凭据。字段已不在类型里，必须经 Record 访问 */
+  delete (out as Record<string, unknown>).maimemoToken;
   return out as AppSettings;
 }
 
