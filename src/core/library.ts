@@ -116,14 +116,25 @@ export class LibraryService {
     const settings = await this.getSettings();
     const snapshot = await this.storage.readAll();
 
-    // 分区清单同样以 BACKUP_STORES 为准（见 validateBackup 里的说明）。
-    // 这样「导出有、导入丢」这类漂移从结构上就不可能发生。
+    /*
+     * 凭据类设置必须剔除（2026-11-09）。
+     *
+     * `settings.maimemoToken` 是墨墨的 access token —— 一个真凭据。
+     * 它能读改用户的墨墨云词本，绝不能跟着备份文件跑出去。
+     *
+     * 为什么在导出这一层剔除，而不是把字段挪进 secrets 分区：
+     * secrets 的语义是「永不进备份」，而这个 token 换机器本来就要重填
+     * （与账号绑定）。挪过去并不能省掉用户重填这一步，却要多一次迁移。
+     * 所以选择「存 settings，导出时剔除」——
+     * 代价是以后每加一个第三方凭据都要记得在这里补一行，
+     * 所以用 sanitizeSettingsForExport 这个纯函数集中处理并配了单测。
+     */
     return {
       format: 'openleaner-library',
       schemaVersion: LIBRARY_SCHEMA_VERSION,
       exportedAt: nowIso(),
       meta,
-      settings,
+      settings: sanitizeSettingsForExport(settings),
       ...(Object.fromEntries(
         BACKUP_STORES.map((store) => [store, snapshot[store]]),
       ) as Record<BackupStoreName, unknown[]>),
@@ -252,6 +263,34 @@ export function validateBackup(raw: unknown): LibraryBackup {
 
 function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
+}
+
+/**
+ * 导备份前剔除凭据类设置（2026-11-09）。
+ *
+ * ## 为什么需要
+ *
+ * `settings` 会整个进备份文件。而 2026-11-09 起 settings 里多了
+ * `maimemoToken` —— 那是墨墨的 access token，能读改用户的云词本。
+ * 一个凭据跟着备份文件跑到别的机器上，是不可接受的。
+ *
+ * ## 为什么抽成纯函数
+ *
+ * 这类「别把凭据导出去」的逻辑一旦漏一个字段就是真事故，
+ * 而它本身是个纯变换，没有任何理由不做成可单测的形式。
+ * 见 library.test.ts 的「导出剔除凭据」那组用例。
+ *
+ * ## 加新凭据时要做什么
+ *
+ * 在这里加一行 `delete out.xxx`。为了让漏掉的可能性更低，
+ * 这里用**白名单思路的反面**：显式删已知凭据字段，其余原样保留
+ * （而不是只挑允许的字段，那样每加一个正常设置都要改这里）。
+ * 选择前者是因为正常设置字段多、变动频繁，凭据字段少且稳定。
+ */
+export function sanitizeSettingsForExport(settings: AppSettings): AppSettings {
+  const out: AppSettings & Record<string, unknown> = { ...settings };
+  delete out.maimemoToken;
+  return out as AppSettings;
 }
 
 /** 备份文件名：带日期，便于用户区分多份备份 */

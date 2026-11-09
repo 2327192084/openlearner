@@ -5,6 +5,7 @@ import type { SourceService } from '@/core/sources.ts';
 import { IconSources } from './icons.tsx';
 import { MathText } from './MathText.tsx';
 import { ReaderFigure } from './ReaderFigure.tsx';
+import { MaimemoPopover } from './MaimemoPopover.tsx';
 import { splitByFigures } from '@/core/mineru/images.ts';
 import './reader-figure.css';
 
@@ -47,6 +48,16 @@ export interface ReaderTarget {
 
 export interface ReaderPageProps {
   sourceService: SourceService;
+  /**
+   * 读 settings（2026-11-09）。
+   *
+   * 为什么从上层注入而不是这里直接取：ReaderPage 的 props 里没有 library 服务，
+   * 而为了墨墨配置把它整个引进来会让这一页多一个依赖。
+   * 传一个「读设置」的函数就够，且它天然带可测性（测试里传假实现）。
+   *
+   * 不传则「加入墨墨生词本」浮层的行为是「提示去设置里配 token」。
+   */
+  loadSettings?: () => Promise<unknown>;
   /** 要打开的资料；null 表示还没选 */
   initialSourceId: string | null;
   /** 要定位到的位置；null 表示只是打开来读 */
@@ -83,7 +94,23 @@ interface Highlight {
   via: 'anchor' | 'quote' | 'none';
 }
 
-export function ReaderPage({ sourceService, initialSourceId, target, onBack }: ReaderPageProps) {
+export function ReaderPage({
+  sourceService,
+  initialSourceId,
+  target,
+  onBack,
+  loadSettings,
+}: ReaderPageProps) {
+  /**
+   * 给浮层用的设置读取。
+   *
+   * 不传 loadSettings 时返回空对象 —— 于是 maimemoConfigFromSettings
+   * 得到空 token，浮层会提示「去设置里填」而不是报一个看不懂的错。
+   */
+  const loadSettingsForMaimemo = useCallback(
+    async () => (loadSettings ? loadSettings() : {}),
+    [loadSettings],
+  );
   const [phase, setPhase] = useState<LoadPhase>({ kind: 'loading' });
   /** 当前显示第几段（= 第几页）。1-based。 */
   const [pageNo, setPageNo] = useState(1);
@@ -569,6 +596,16 @@ export function ReaderPage({ sourceService, initialSourceId, target, onBack }: R
           )
         ) : null}
       </div>
+
+      {/*
+        划词加入墨墨生词本（2026-11-09）。
+        浮层挂在正文容器外面：它的坐标是 fixed（视口坐标），
+        放在正文里会跟着滚动走掉。
+      */}
+      <MaimemoPopover
+        containerRef={bodyRef}
+        loadSettings={loadSettingsForMaimemo}
+      />
     </div>
   );
 }

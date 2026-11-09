@@ -921,6 +921,8 @@ export function App({
           initialSourceId={readerSourceId}
           target={readerTarget}
           onBack={() => setPage('sources')}
+          /* 墨墨生词本配置在设置里，阅读器划词时现读 —— 改完设置立刻生效 */
+          loadSettings={() => library.getSettings()}
         />
       ) : page === 'organize' ? (
         <OrganizePage

@@ -1017,6 +1017,27 @@ export interface AppSettings {
    * 也兼容 `{quote}` / `{content}` / `["句子"]` 几种常见形状（见 daily-quote.ts）。
    */
   dailyQuoteEndpoint?: string;
+  /**
+   * 墨墨背单词的 access token（2026-11-09）。
+   *
+   * 用于「阅读器划词 → 加入墨墨生词本」。在墨墨 App 内生成。
+   *
+   * ⚠️ **这是凭据**。当前放在 settings 里而不是 secrets 分区，
+   * 理由是：secrets 的语义是「永不进备份文件」，而这个 token 与账号绑定、
+   * 换机器后本来就要重新填 —— 放进 secrets 并不能省掉用户重填这一步，
+   * 却要多一次迁移。
+   *
+   * 代价是：settings 会跟着备份导出。所以 `library.ts` 导出时必须剔除它
+   * （见那里的注释与测试）。**如果以后要接更多第三方凭据，应该统一挪进
+   * secrets 分区**，那时一次迁移解决，而不是一个字段一个字段地补剔除逻辑。
+   */
+  maimemoToken?: string;
+  /**
+   * 墨墨目标云词本 id（`np-` 开头）。
+   *
+   * 不是凭据，可以跟着备份走。
+   */
+  maimemoNotepadId?: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
