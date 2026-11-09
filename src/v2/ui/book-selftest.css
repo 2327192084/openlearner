@@ -1,0 +1,274 @@
+/*
+ * 复习巩固 · 自测面板（2026-11-09）。
+ *
+ * ⚠️ 硬约束：base.css 有**不在任何 @layer 内**的 button/input/textarea 规则，
+ * 级联「层级先于特异性」。所以本文件里原生控件的样式**一律写在层外**，
+ * 包括 appearance: none。
+ *
+ * 布局类（div / p / ul 等非原生控件）才放进 @layer。
+ */
+
+/* ==========================================================================
+   层外：原生控件
+   ========================================================================== */
+
+.bst__btn,
+.bst__opt,
+.bst__link {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: transparent;
+  border-radius: 8px;
+}
+
+.bst__btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--text-dim);
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.bst__btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-raised, rgba(255, 255, 255, 0.05));
+}
+
+.bst__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.bst__btn--primary {
+  color: var(--bg-canvas, #16130f);
+  background: var(--accent, #c97f3f);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.bst__btn--primary:hover:not(:disabled) {
+  background: var(--accent-strong, #dd8f4d);
+  color: var(--bg-canvas, #16130f);
+}
+
+.bst__opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 11px;
+  text-align: left;
+  font-size: 13.5px;
+  line-height: 1.6;
+  border-color: var(--line-soft);
+}
+
+.bst__opt:hover:not(:disabled) {
+  background: var(--surface-raised, rgba(255, 255, 255, 0.04));
+}
+
+.bst__opt:disabled {
+  cursor: default;
+}
+
+.bst__opt--picked {
+  border-color: var(--accent, #c97f3f);
+}
+
+.bst__opt--right {
+  border-color: #3f9c5a;
+  background: rgba(63, 156, 90, 0.12);
+}
+
+.bst__opt--wrong {
+  border-color: #c0564f;
+  background: rgba(192, 86, 79, 0.12);
+}
+
+.bst__link {
+  padding: 3px 9px;
+  font-size: 12px;
+  color: var(--accent, #c97f3f);
+  border-color: transparent;
+}
+
+.bst__link:hover {
+  border-color: var(--line);
+}
+
+.bst__input {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 11px;
+  font-size: 13.5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-sunken, #14110e);
+  color: var(--text);
+  resize: vertical;
+}
+
+.bst__input:focus {
+  outline: none;
+  border-color: var(--accent, #c97f3f);
+}
+
+.bst__input--area {
+  line-height: 1.6;
+}
+
+/* ==========================================================================
+   层内：布局
+   ========================================================================== */
+
+@layer {
+  .bst {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 760px;
+  }
+
+  .bst__bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line-soft);
+    font-size: 12.5px;
+    color: var(--text-dim);
+  }
+
+  .bst__vol {
+    font-weight: 600;
+    color: var(--text);
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .bst__pos {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bst__score {
+    margin-left: auto;
+  }
+
+  .bst__card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px 18px;
+    border: 1px solid var(--line-soft);
+    border-radius: 12px;
+    background: var(--surface-card, rgba(255, 255, 255, 0.02));
+  }
+
+  .bst__head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .bst__kind {
+    padding: 1px 7px;
+    border-radius: 5px;
+    border: 1px solid var(--line-soft);
+  }
+
+  .bst__prompt {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.75;
+    color: var(--text);
+  }
+
+  .bst__options {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .bst__opt-key {
+    flex: 0 0 auto;
+    font-weight: 600;
+    color: var(--text-dim);
+  }
+
+  .bst__opt-text {
+    flex: 1 1 auto;
+  }
+
+  .bst__actions {
+    display: flex;
+    gap: 8px;
+    padding-top: 2px;
+  }
+
+  .bst__result {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 6px;
+    border-top: 1px dashed var(--line-soft);
+  }
+
+  .bst__verdict {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .bst__verdict--ok {
+    color: #4fae68;
+  }
+
+  .bst__verdict--bad {
+    color: #d0655d;
+  }
+
+  .bst__self {
+    display: flex;
+    gap: 8px;
+  }
+
+  .bst__answer,
+  .bst__explain {
+    margin: 0;
+    font-size: 13.5px;
+    line-height: 1.7;
+    color: var(--text);
+  }
+
+  .bst__explain {
+    color: var(--text-dim);
+    padding: 9px 11px;
+    border-radius: 8px;
+    background: var(--surface-raised, rgba(255, 255, 255, 0.03));
+  }
+
+  .bst__nav {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .bst__empty {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+}

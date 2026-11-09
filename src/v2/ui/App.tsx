@@ -156,6 +156,16 @@ export function App({
   const [readerFrom, setReaderFrom] = useState<PageId | null>(null);
 
   /**
+   * 进「复习巩固」时是否直接开始自测（2026-11-09）。
+   *
+   * 用户把「开始复习」绑到了复习巩固页：点它就该开始复习，
+   * 而不是进去再点一次「自测这一卷」。
+   *
+   * 用完即清 —— 否则下次从侧栏正常进这一页也会被直接拽进自测。
+   */
+  const [autoSelfTest, setAutoSelfTest] = useState(false);
+
+  /**
    * 全局返回栈（2026-11-09）。
    *
    * 需求原话：「需要一个返回按钮放在软件左上角，从错题库或是知识点
@@ -880,7 +890,16 @@ export function App({
           decks={decks}
           sourceService={sourceService}
           onOpenSource={(sourceId) => openReader(sourceId, null)}
+          /*
+           * 自测答错后跳回原文那一页（2026-11-09）。
+           * 只传 sourceId 会让阅读器打开第一页 —— 那等于没定位。
+           */
+          onOpenSourceAt={(sourceId, page, quote) =>
+            openReader(sourceId, { sourceId, page, quote })
+          }
           onOpenDecks={() => setPage('decks')}
+          autoStartSelfTest={autoSelfTest}
+          onAutoStartConsumed={() => setAutoSelfTest(false)}
         />
       ) : page === 'guide' ? (
         <GuidePage onNavigate={(id) => setPage(id)} />
@@ -1027,30 +1046,26 @@ export function App({
            */
           onStartReview={() => {
             /*
-             * 返回 true = 「已发起」，真正的跳转在异步里完成。
+             * 「开始复习」= 去「复习巩固」并直接开始自测（2026-11-09）。
              *
-             * 为什么不在同步阶段用 dueCards 拦：那可能是上一轮算的旧值，
-             * 会挡住「刚有了到期卡」的用户。真正为空时不跳，
-             * 由 StudyPage 用 overview.due 说明情况。
+             * 用户要求把这两个绑起来：原来它直跳做题页，那和「开始做题」
+             * 差别只在队列不同。绑到复习巩固后，两条路的性质真正分开了：
+             *  - 开始做题：进做题页，**会写复习记录**，影响间隔安排
+             *  - 开始复习：进复习巩固自测，**只就地过一遍**，不改进度
+             *
+             * 先算出「今天有多少到期」用于说明，再决定跳不跳 ——
+             * 一道到期都没有时说清楚，别让用户进去看到空书。
              */
             void (async () => {
               const due = await computeDueCards();
-              if (due.length === 0) return;
-
-              /* 进做题前重读评分规则（与 navigate('review') 一致） */
-              try {
-                const s = await library.getSettings();
-                setGradingRules(s.gradingRules ?? DEFAULT_GRADING_RULES);
-              } catch {
-                /* 读不到就沿用当前值 */
-              }
-
-              startPractice({
-                mode: 'due',
-                cards: due.slice(0, 30),
-                label: '今日复习',
-                dueTotal: due.length,
-              });
+              setAutoSelfTest(true);
+              goPage('book', true);
+              /*
+               * 到期为 0 也照样进这一页 —— 它还能按资料通读/自测，
+               * 不像做题页那样空了就没东西看。提示交给 StudyPage 那句
+               * 「今天没有到期的卡」已经说过了，这里不再重复。
+               */
+              void due;
             })();
             return true;
           }}
@@ -1260,7 +1275,7 @@ const PAGE_LABEL_FOR_BACK: Partial<Record<PageId, string>> = {
   organize: '整理知识点',
   decks: '我的题组',
   sources: '资料',
-  book: '复习全书',
+  book: '复习巩固',
 };
 
 /**
@@ -1286,7 +1301,7 @@ function Placeholder({ page, onBack }: { page: PageId; onBack: () => void }) {
     focus: '专注',
     exam: '模拟考试',
     examprep: '备考补习',
-    book: '复习全书',
+    book: '复习巩固',
     stats: '统计',
     skeleton: '知识骨架',
     audio: '音频转写',
