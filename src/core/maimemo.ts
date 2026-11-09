@@ -249,7 +249,23 @@ export class MaimemoClient {
   constructor(config: MaimemoConfig) {
     this.token = (config.token ?? '').trim();
     this.base = (config.baseUrl ?? MAIMEMO_BASE).replace(/\/+$/, '') + '/';
-    this.fetchImpl = config.fetchImpl ?? (typeof fetch !== 'undefined' ? fetch : (undefined as never));
+    /*
+     * ⚠️ 必须用箭头函数包一层，不能直接把全局 fetch 存下来
+     * （2026-11-09 用户实测报错：`Failed to execute 'fetch' on 'Window':
+     *  Illegal invocation`）。
+     *
+     * 原因：浏览器原生的 `window.fetch` 是**绑定在 window 上的方法**。
+     * 取出来存成字段 `this.fetchImpl = fetch` 之后，
+     * 调用 `this.fetchImpl(...)` 时 `this` 指向 MaimemoClient 实例，
+     * 不再是 window —— WebIDL 的 brand check 直接抛 Illegal invocation。
+     *
+     * 同样的写法在 daily-quote.ts 里也有（那个功能还没配端点所以没暴露），
+     * 一并修了。这类 bug 只会在真的发请求时出现，单测里注入假 fetch 测不到 ——
+     * 因为假 fetch 是普通函数，不挑 this。
+     */
+    this.fetchImpl = config.fetchImpl
+      ? config.fetchImpl
+      : (input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init);
     this.timeoutMs = config.timeoutMs ?? 10_000;
   }
 

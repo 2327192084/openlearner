@@ -125,14 +125,24 @@ export function MaimemoSettings({ load, save, onSaved }: MaimemoSettingsProps) {
       const r = await client.listNotepads();
       if (!r.ok) {
         setError(r.message);
+        /*
+         * hint 只在**能补充新信息**时给（2026-11-09 截图发现重复）。
+         *
+         * 之前 unauthorized 和 network 两条的 hint 与客户端给的消息几乎一样，
+         * 界面上同一句话显示了两遍（「token 无效或已过期。到墨墨 App 里重新生成一个。」
+         * 上面一行、下面一行）。那看起来像程序出错，比只显示一遍更糟。
+         *
+         * 现在：
+         *  - no-token → 需要告诉用户「先填」，客户端消息里没有这一步
+         *  - unauthorized → 客户端消息已写清怎么做，不再重复
+         *  - network → 只补一句「不影响其它功能」，这是新信息
+         */
         setErrorHint(
           r.trouble === 'no-token'
             ? '先在上面填 token 并保存。'
-            : r.trouble === 'unauthorized'
-              ? 'token 无效或过期。到墨墨 App 里重新生成一个。'
-              : r.trouble === 'network'
-                ? '检查网络。断网时读不到词本，但不影响其它功能。'
-                : null,
+            : r.trouble === 'network'
+              ? '断网时读不到词本，但不影响阅读、做题等其它功能。'
+              : null,
         );
         return;
       }

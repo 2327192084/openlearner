@@ -134,12 +134,15 @@ export function MaimemoPopover({ containerRef, loadSettings, onImported }: Maime
           setPhase({
             kind: 'error',
             message: r.message,
+            /*
+             * hint 只补客户端消息里没有的信息（2026-11-09，避免同一句显示两遍）。
+             * 客户端的 unauthorized 消息已经写了「到墨墨 App 里重新生成一个」，
+             * 这里再写一遍会让浮层里出现两条几乎相同的话。
+             */
             hint:
-              r.trouble === 'unauthorized'
-                ? 'token 可能过期了。到墨墨 App 里重新生成一个，再填进设置。'
-                : r.trouble === 'network'
-                  ? '检查一下网络。断网时这个功能用不了，但它不影响阅读。'
-                  : undefined,
+              r.trouble === 'network'
+                ? '断网时这个功能用不了，但不影响阅读。'
+                : undefined,
           });
           return;
         }

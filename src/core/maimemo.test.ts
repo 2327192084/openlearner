@@ -339,3 +339,57 @@ describe('maimemoConfigFromSettings', () => {
     expect(maimemoConfigFromSettings({ maimemoToken: 42 }).token).toBe('');
   });
 });
+
+
+/**
+ * fetch 的 this 绑定（2026-11-09，用户实测报错后补）。
+ *
+ * ## 这个 bug 为什么之前所有用例都测不到
+ *
+ * 上面每个用例都注入 `fetchImpl: 假函数`。假函数是**普通函数**，
+ * 怎么调都不挑 `this`，所以写法再错也绿。
+ *
+ * 而浏览器原生的 `window.fetch` 是绑在 window 上的 WebIDL 方法。
+ * 一旦写成 `this.fetchImpl = fetch` 再 `this.fetchImpl(...)`，
+ * `this` 变成类实例，Chromium 直接抛
+ * `Failed to execute 'fetch' on 'Window': Illegal invocation`。
+ *
+ * ## 这条用例怎么确保能抓到
+ *
+ * 用一个**严格模式下的普通函数**当替身（不带 bind）。普通函数被
+ * `obj.fn()` 调用时 this 是 obj；被裸调用时 this 是 undefined。
+ * 于是：
+ *   - 写成 `this.fetchImpl(...)` → this 是实例 → 不是 globalThis → 抛
+ *   - 写成箭头函数里 `globalThis.fetch(...)` → this 是 globalThis → 通过
+ *
+ * 这正是我们要区分的两种写法。
+ */
+describe('全局 fetch 的调用方式（防 Illegal invocation）', () => {
+  it('取全局 fetch 后必须保住 this', async () => {
+    const original = (globalThis as unknown as { fetch?: unknown }).fetch;
+
+    /* 严格模式下的替身：this 必须是 globalThis，否则像浏览器一样报错 */
+    const strictFetch = function (this: unknown) {
+      'use strict';
+      if (this !== globalThis) {
+        throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true, notepads: [] }),
+      } as unknown as Response);
+    };
+    (globalThis as unknown as { fetch: unknown }).fetch = strictFetch;
+
+    try {
+      /* 不传 fetchImpl：逼客户端自己去取全局 fetch 并调用 */
+      const c = new MaimemoClient({ token: 't' });
+      const r = await c.listNotepads();
+      /* 走到这里说明没抛 Illegal invocation */
+      expect(r.ok).toBe(true);
+    } finally {
+      (globalThis as unknown as { fetch: unknown }).fetch = original;
+    }
+  });
+});

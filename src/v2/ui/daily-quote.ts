@@ -161,7 +161,18 @@ export async function fetchDailyQuote(options: {
     return { text: cached.text, author: cached.author ?? null, source: 'remote' };
   }
 
-  const doFetch = options.fetchImpl ?? (typeof fetch !== 'undefined' ? fetch : undefined);
+  /*
+   * ⚠️ 用箭头函数包一层，不能直接把全局 fetch 取出来用
+   * （2026-11-09 从墨墨那边发现的同一个 bug，这里也有）。
+   *
+   * 浏览器原生的 `window.fetch` 绑在 window 上，取出来单独调用会抛
+   * `Illegal invocation`。这个功能当时没配端点所以没暴露，一并修掉。
+   */
+  const doFetch: typeof fetch | undefined = options.fetchImpl
+    ? options.fetchImpl
+    : typeof fetch !== 'undefined'
+      ? (input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init)
+      : undefined;
   if (!doFetch) {
     return {
       text: pickDailyQuote(day),
