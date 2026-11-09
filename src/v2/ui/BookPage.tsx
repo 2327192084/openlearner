@@ -24,6 +24,13 @@ import type { SourceService } from '@/core/sources.ts';
 import { downloadBlob } from '@/pages/slides/download.ts';
 import { MathText } from './MathText.tsx';
 import { BookSelfTest } from './BookSelfTest.tsx';
+import { ReviewToday } from './ReviewToday.tsx';
+import {
+  startSession,
+  type ReviewQueue,
+  type ReviewSession,
+} from './review-session.ts';
+import type { ReviewGrade } from '@/v2/core/srs.ts';
 
 export interface BookPageProps {
   decks: DeckService;
@@ -40,19 +47,27 @@ export interface BookPageProps {
   /** 去我的题组 */
   onOpenDecks: () => void;
   /**
-   * 从「开始复习」进来时自动进入自测模式（2026-11-09）。
+   * 从「开始复习」进来时自动进入**今日复习**（2026-11-09 改）。
    *
-   * 用户要求把「开始复习」绑到这一页。带这个标记进来就直接开始自测，
-   * 不用再点一次「自测」—— 点了「开始复习」就该开始复习。
+   * 原来这里进的是「自测」（任意卷、随时翻、不写记录）。用户实测后
+   * 明确指出那跟「做题」没区别 —— 所以改成真正的复习会话：
+   * 只做今日到期 + 新卡、先回想再看答案、自评四档并**写进间隔**、
+   * 做完出今日回顾。
+   *
+   * 「自测」仍然保留，但改成用户主动点（在卷标题旁），不再由入口触发。
    */
-  autoStartSelfTest?: boolean;
+  autoStartReview?: boolean;
   /**
-   * 自动自测已消费（2026-11-09）。
+   * 自动复习已消费（2026-11-09）。
    *
    * App 收到后清掉那个标记 —— 否则用户下次从侧栏**正常**进这一页，
-   * 也会被直接拽进自测。标记是「这次进来要自测」，不是「永远自测」。
+   * 也会被直接拽进复习。标记是「这次进来要复习」，不是「永远复习」。
    */
   onAutoStartConsumed?: () => void;
+  /** 今日可复习的队列（由 App 用 buildReviewQueue 算好传进来） */
+  reviewQueue?: ReviewQueue | null;
+  /** 自评一档 → 写复习记录（App 负责落库） */
+  onReviewGrade?: (cardId: string, grade: ReviewGrade) => Promise<void> | void;
 }
 
 /** 一个题组在书里的样子 */
@@ -80,8 +95,10 @@ export function BookPage({
   onOpenSource,
   onOpenSourceAt,
   onOpenDecks,
-  autoStartSelfTest = false,
+  autoStartReview = false,
   onAutoStartConsumed,
+  reviewQueue,
+  onReviewGrade,
 }: BookPageProps) {
   const [state, setState] = useState<Load>({ kind: 'loading' });
   /** 当前显示的筛选：只看某一份资料 */
@@ -93,31 +110,39 @@ export function BookPage({
   /**
    * 正在自测的那一卷（2026-11-09）。
    *
-   * null = 阅读模式（原来的样子）；非 null = 自测这一卷的题。
-   * 用「卷」而不是整本书做单位：一次只测一组，测完退出再来下一组，
-   * 几十道题一口气测完没人受得了。
+   * null = 阅读模式；非 null = 自测这一卷的题。
+   * 用「卷」而不是整本书做单位：一次只测一组，测完退出再来下一组。
+   *
+   * 注意：自测与「今日复习」是**两件不同的事** ——
+   * 自测不写复习记录、可自由挑卷；今日复习只做到期、会写间隔。
    */
   const [selfTestVolume, setSelfTestVolume] = useState<BookVolume | null>(null);
 
   /**
-   * 从「开始复习」进来时自动开始。
+   * 今日复习会话（2026-11-09 加）。
    *
-   * 为什么要在数据就绪后再选卷：卷是 load() 出来的，
-   * 进页面那一刻还没有数据。所以用 effect 等 state 变 ready 再挑。
+   * null = 不在复习；非 null = 正在这一轮复习里。
+   * 会话状态放在这里而不是 ReviewToday 内部：换批、退出后重进
+   * 都要能重置，由宿主控制更清楚。
+   */
+  const [reviewSession, setReviewSession] = useState<ReviewSession | null>(null);
+
+  /**
+   * 从「开始复习」进来时自动开始今日复习。
+   *
+   * 为什么用 effect 等标记而不是直接在渲染里判断：
+   * 标记是「这次进来要复习」，消费掉就该清空，
+   * 否则用户下次从侧栏正常进这一页也会被拽进复习。
    */
   const autostartedRef = useRef(false);
   useEffect(() => {
-    if (!autoStartSelfTest || autostartedRef.current) return;
-    if (state.kind !== 'ready') return;
-    const first = state.volumes.find((v) => v.total > 0);
-    if (!first) return;
+    if (!autoStartReview || autostartedRef.current) return;
+    if (!reviewQueue) return;
     autostartedRef.current = true;
-    setSelfTestVolume(first);
-    /* 自测要遮答案，否则一眼就看到了 */
-    setShowAnswers(false);
-    /* 让 App 清掉标记：下次正常进这一页不该又被拽进自测 */
+    setReviewSession(startSession(reviewQueue));
+    /* 让 App 清掉标记：下次正常进这一页不该又被拽进复习 */
     onAutoStartConsumed?.();
-  }, [autoStartSelfTest, state, onAutoStartConsumed]);
+  }, [autoStartReview, reviewQueue, onAutoStartConsumed]);
 
   const load = useCallback(async () => {
     try {
@@ -244,6 +269,35 @@ export function BookPage({
   }
 
   /*
+   * 今日复习（2026-11-09 加，方案二 + 方案三）。
+   *
+   * 与下面「自测」是两件不同的事：
+   *  - 今日复习：只做到期 + 新卡、**先回想再看答案**、自评四档写进间隔、
+   *    做完出今日回顾。这是「复习」。
+   *  - 自测：自由挑一卷、随时翻、不写记录。这是「检验」。
+   */
+  if (reviewSession && reviewQueue) {
+    return (
+      <div className="book-page">
+        <ReviewToday
+          session={reviewSession}
+          available={reviewQueue.availableBeforeLimit}
+          onGrade={async (cardId, g) => {
+            await onReviewGrade?.(cardId, g);
+          }}
+          onExit={() => setReviewSession(null)}
+          /*
+           * 再来一批。用同一个队列重新开始不合适（刚评过的卡已经
+           * 不在「今天到期」里了）—— 交给 App 重新算，这里只清空
+           * 会话，让宿主下次进来时带新队列。
+           */
+          onNextBatch={undefined}
+        />
+      </div>
+    );
+  }
+
+  /*
    * 自测模式（2026-11-09）。
    *
    * 在「卷」这一层切换：进自测就整页变成一次小测，退出回到阅读。
@@ -300,6 +354,22 @@ export function BookPage({
       {/* ---- 工具条 ---- */}
       <div className="bk-toolbar">
         <span className="bk-count">{grandTotal} 道题</span>
+
+        {/*
+          今日复习入口（2026-11-09）。
+          只在真有可复习内容时显示 —— 队列空时按钮点了只会看到空页面，
+          那属于「假开关」。数量写在按钮上，让人知道点进去要花多久。
+        */}
+        {reviewQueue && reviewQueue.total > 0 ? (
+          <button
+            type="button"
+            className="btn-fill btn-fill--sm"
+            onClick={() => setReviewSession(startSession(reviewQueue))}
+            title="只做今天到期的和新卡；先自己回想，再看答案，然后自评"
+          >
+            开始今日复习（{reviewQueue.total} 张）
+          </button>
+        ) : null}
 
         <label className="bk-field">
           <span className="bk-field__label">范围</span>

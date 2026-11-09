@@ -1,0 +1,374 @@
+/*
+ * 今日复习面板的样式（2026-11-09）。
+ *
+ * ⚠️ 硬约束：base.css 有**不在任何 @layer 内**的 button 规则，
+ * 级联「层级先于特异性」。原生控件的样式一律写在层外，包括 appearance: none。
+ */
+
+/* ==========================================================================
+   层外：原生控件
+   ========================================================================== */
+
+.rt__btn,
+.rt__gbtn {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: transparent;
+  border-radius: 8px;
+}
+
+.rt__btn {
+  padding: 7px 16px;
+  font-size: 13px;
+  color: var(--text-dim);
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.rt__btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-raised);
+}
+
+.rt__btn--primary {
+  color: var(--accent-ink, #fff8f2);
+  background: var(--accent, #c93d22);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.rt__btn--primary:hover:not(:disabled) {
+  background: var(--accent-soft, #ec6a4a);
+  color: var(--accent-ink, #fff8f2);
+}
+
+.rt__btn--ghost {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-color: var(--line-soft);
+}
+
+.rt__gbtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: 1 1 0;
+  padding: 9px 6px;
+  border-radius: 9px;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.rt__gbtn:hover:not(:disabled) {
+  background: var(--bg-raised);
+}
+
+.rt__gbtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/*
+ * 四档配色按「记住程度」递进：
+ * 忘了偏红、勉强偏黄、还行偏绿、很熟更绿。
+ * 只染边框，不染大面积底色 —— 底色太重会抢掉题干。
+ */
+.rt__gbtn--again {
+  border-color: color-mix(in srgb, var(--bad) 55%, var(--line));
+}
+.rt__gbtn--hard {
+  border-color: color-mix(in srgb, var(--warn) 55%, var(--line));
+}
+.rt__gbtn--good {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--line));
+}
+.rt__gbtn--easy {
+  border-color: color-mix(in srgb, var(--ok) 75%, var(--line));
+}
+
+.rt__gbtn--again:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+}
+.rt__gbtn--hard:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+}
+.rt__gbtn--good:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+.rt__gbtn--easy:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+}
+
+/* ==========================================================================
+   层内：布局
+   ========================================================================== */
+
+@layer {
+  .rt {
+    /*
+     * 复习面板占满可用宽度（2026-11-09）。
+     *
+     * 原值 `max-width: 780px` + 父容器不居中，导致整块挤在左上角，
+     * 右边一大片空 —— 截图里很明显。复习是「一屏一件事」的界面，
+     * 卡片该占据视觉中心，而不是缩成左上角一小块。
+     *
+     * 题干本身另有 78ch 上限（见 `.rt__prompt`）：容器铺满是为了
+     * 让卡片与回顾网格有足够宽度，文字仍然保持易读行宽。
+     */
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+    max-width: 860px;
+    margin: 0 auto;
+  }
+
+  .rt__head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12.5px;
+    color: var(--text-dim);
+  }
+
+  .rt__pos {
+    font-variant-numeric: tabular-nums;
+    flex: 0 0 auto;
+  }
+
+  .rt__bar {
+    flex: 1 1 auto;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--line-soft);
+    overflow: hidden;
+  }
+
+  .rt__bar-fill {
+    height: 100%;
+    background: var(--accent, #c93d22);
+    transition: width 200ms ease;
+  }
+
+  .rt__tag {
+    flex: 0 0 auto;
+    padding: 1px 7px;
+    border-radius: 5px;
+    border: 1px solid var(--line-soft);
+    font-size: 11px;
+  }
+
+  .rt__tag--new {
+    border-color: color-mix(in srgb, var(--info) 45%, var(--line));
+    color: var(--info);
+  }
+
+  .rt__hint {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .rt__card {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 20px 22px;
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius-card, 16px);
+    background: var(--bg-surface);
+  }
+
+  .rt__prompt {
+    margin: 0;
+    font-size: 15.5px;
+    line-height: 1.8;
+    color: var(--text);
+    max-width: 78ch;
+  }
+
+  .rt__recall-hint {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--text-muted);
+  }
+
+  .rt__actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--line-soft);
+  }
+
+  .rt__options {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .rt__option {
+    display: flex;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    font-size: 13.5px;
+    line-height: 1.65;
+    color: var(--text-dim);
+  }
+
+  .rt__option--right {
+    color: var(--text);
+    background: color-mix(in srgb, var(--ok) 12%, transparent);
+  }
+
+  .rt__opt-key {
+    flex: 0 0 auto;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  .rt__option--right .rt__opt-key {
+    color: var(--ok);
+  }
+
+  .rt__answer {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text);
+  }
+
+  .rt__explain {
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 9px;
+    background: var(--bg-raised);
+    font-size: 13.5px;
+    line-height: 1.75;
+    color: var(--text-dim);
+  }
+
+  .rt__grade-row {
+    display: flex;
+    gap: 7px;
+    padding-top: 6px;
+    border-top: 1px dashed var(--line-soft);
+  }
+
+  .rt__gbtn-label {
+    font-size: 13.5px;
+    font-weight: 600;
+  }
+
+  .rt__gbtn-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .rt__empty {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text);
+  }
+
+  .rt__empty-hint {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--text-muted);
+  }
+
+  /* ---- 回顾 ---- */
+  .rt__card--recap {
+    gap: 14px;
+  }
+
+  .rt__recap-title {
+    margin: 0;
+    font-size: var(--fs-xl);
+    font-weight: 650;
+  }
+
+  .rt__recap-lead {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--text-dim);
+  }
+
+  .rt__grades {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .rt__grade {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--line-soft);
+    background: var(--bg-raised);
+  }
+
+  .rt__grade-n {
+    font-size: var(--fs-2xl);
+    font-weight: 300;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.15;
+  }
+
+  .rt__grade-l {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .rt__grade--again .rt__grade-n {
+    color: var(--bad);
+  }
+  .rt__grade--hard .rt__grade-n {
+    color: var(--warn);
+  }
+  .rt__grade--good .rt__grade-n {
+    color: var(--ok);
+  }
+  .rt__grade--easy .rt__grade-n {
+    color: var(--ok);
+  }
+
+  .rt__recap-note {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+
+  .rt__recap-actions {
+    display: flex;
+    gap: 8px;
+    padding-top: 4px;
+  }
+
+  @media (max-width: 560px) {
+    .rt__grades {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .rt__grade-row {
+      flex-wrap: wrap;
+    }
+
+    .rt__gbtn {
+      flex: 1 1 45%;
+    }
+  }
+}

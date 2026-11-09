@@ -11,6 +11,8 @@ import { TasksPage } from './TasksPage.tsx';
 import { SkeletonPage } from './SkeletonPage.tsx';
 import { GuidePage } from './GuidePage.tsx';
 import { BookPage } from './BookPage.tsx';
+import { buildReviewQueue, type ReviewQueue } from './review-session.ts';
+import { todayLocal, type ReviewGrade } from '@/v2/core/srs.ts';
 import { NotesPage } from './NotesPage.tsx';
 import { ExamPage } from './ExamPage.tsx';
 import { MapPage } from './MapPage.tsx';
@@ -156,15 +158,23 @@ export function App({
   const [readerFrom, setReaderFrom] = useState<PageId | null>(null);
 
   /**
-   * 进「复习巩固」时是否直接开始自测（2026-11-09）。
+   * 进「复习巩固」时是否直接开始**今日复习**（2026-11-09 改）。
    *
-   * 用户把「开始复习」绑到了复习巩固页：点它就该开始复习，
-   * 而不是进去再点一次「自测这一卷」。
+   * 用户把「开始复习」绑到了复习巩固页：点它就该开始复习。
+   * 原来的实现进的是「自测」，用户实测后指出那跟做题没区别 ——
+   * 现在进的是真正的复习会话（只做到期、先回想再看答案、写间隔）。
    *
-   * 用完即清 —— 否则下次从侧栏正常进这一页也会被直接拽进自测。
+   * 用完即清 —— 否则下次从侧栏正常进这一页也会被直接拽进复习。
    */
-  const [autoSelfTest, setAutoSelfTest] = useState(false);
-
+  const [autoReview, setAutoReview] = useState(false);
+  /**
+   * 今日复习队列（2026-11-09）。
+   *
+   * 由 computeReviewQueue() 算好放在这里，BookPage 直接拿来开始 ——
+   * 不让它自己去查库：队列的构造口径（哪些算到期、批次多长）
+   * 必须与首页「今日到期」一致，放在 App 一处才不会两处漂。
+   */
+  const [reviewQueue, setReviewQueue] = useState<ReviewQueue | null>(null);
   /**
    * 全局返回栈（2026-11-09）。
    *
@@ -726,6 +736,63 @@ export function App({
     }
   }, [loadCards, reviewService]);
 
+  /**
+   * 算出「今日复习」队列并开始（2026-11-09）。
+   *
+   * ## 为什么与 computeDueCards 分开
+   *
+   * `computeDueCards` 给**做题页**用：它只算到期卡，让用户自己挑模式。
+   * 而「今日复习」的语义更强 —— 到期卡 + 新卡、按批次截断、逾期最久在前。
+   * 两者口径不同（一个纯到期、一个含新卡），混用会产生
+   * 「首页说 9 张、复习页说 12 张」那种对不上的数字。
+   *
+   * ## 为什么新卡也算进来
+   *
+   * 用户库里常常没有到期卡（刚建库、或旧记录已处理完）。
+   * 那时若只做到期，点「开始复习」会面对一个空页面。
+   * Anki 的做法也是新卡与到期卡一起排进今日队列 —— 照做。
+   */
+  const startTodayReview = useCallback(async (): Promise<boolean> => {
+    try {
+      const all = await loadCards();
+      const records = await reviewService.listRecords();
+      const dueAtByCard = new Map(records.map((r) => [r.cardId, r.state.dueAt]));
+      const today = todayLocal();
+
+      const queue = buildReviewQueue({
+        cards: all.map((c) => ({ id: c.id, question: c })),
+        dueAtByCard,
+        today,
+        promptOf: (q) => (q as { prompt?: string }).prompt ?? '',
+      });
+
+      setReviewQueue(queue);
+      setAutoReview(true);
+      goPage('book', true);
+      return queue.total > 0;
+    } catch {
+      /* 算不出来也要进页面 —— 那里会显示「今天没有到期的卡」并给下一步 */
+      setReviewQueue({ due: [], fresh: [], total: 0, availableBeforeLimit: 0 });
+      setAutoReview(true);
+      goPage('book', true);
+      return false;
+    }
+  }, [loadCards, reviewService, goPage]);
+
+  /**
+   * 自评一档 → 写复习记录（2026-11-09）。
+   *
+   * 这是「复习」与「自测」的本质区别：自测不写，复习写。
+   * 写入后立刻刷新首页概览，否则回到首页看到的还是旧数字。
+   */
+  const handleReviewGrade = useCallback(
+    async (cardId: string, g: ReviewGrade) => {
+      await reviewService.review(cardId, 'question', g);
+      void refreshData();
+    },
+    [reviewService, refreshData],
+  );
+
   const navigate = useCallback(
     async (id: PageId) => {
       setPage(id);
@@ -898,8 +965,10 @@ export function App({
             openReader(sourceId, { sourceId, page, quote })
           }
           onOpenDecks={() => setPage('decks')}
-          autoStartSelfTest={autoSelfTest}
-          onAutoStartConsumed={() => setAutoSelfTest(false)}
+          autoStartReview={autoReview}
+          onAutoStartConsumed={() => setAutoReview(false)}
+          reviewQueue={reviewQueue}
+          onReviewGrade={handleReviewGrade}
         />
       ) : page === 'guide' ? (
         <GuidePage onNavigate={(id) => setPage(id)} />
@@ -1046,27 +1115,15 @@ export function App({
            */
           onStartReview={() => {
             /*
-             * 「开始复习」= 去「复习巩固」并直接开始自测（2026-11-09）。
+             * 「开始复习」= 进入**今日复习会话**（2026-11-09 再改）。
              *
-             * 用户要求把这两个绑起来：原来它直跳做题页，那和「开始做题」
-             * 差别只在队列不同。绑到复习巩固后，两条路的性质真正分开了：
-             *  - 开始做题：进做题页，**会写复习记录**，影响间隔安排
-             *  - 开始复习：进复习巩固自测，**只就地过一遍**，不改进度
+             * 上一版把它指向「自测」，用户实测后指出那跟做题没区别——
+             * 因为自测仍是「自由挑卷、随时翻页、不写记录」。
              *
-             * 先算出「今天有多少到期」用于说明，再决定跳不跳 ——
-             * 一道到期都没有时说清楚，别让用户进去看到空书。
+             * 现在走 startTodayReview：只做到期 + 新卡、先回想再看答案、
+             * 自评四档**写进间隔**、做完出今日回顾。这才是复习。
              */
-            void (async () => {
-              const due = await computeDueCards();
-              setAutoSelfTest(true);
-              goPage('book', true);
-              /*
-               * 到期为 0 也照样进这一页 —— 它还能按资料通读/自测，
-               * 不像做题页那样空了就没东西看。提示交给 StudyPage 那句
-               * 「今天没有到期的卡」已经说过了，这里不再重复。
-               */
-              void due;
-            })();
+            void startTodayReview();
             return true;
           }}
           onOpenKnowledge={() => setPage('knowledge')}
@@ -1198,7 +1255,17 @@ export function App({
            * （读卡片、算 due、setDueCards / setQueueTotal），setPage 全绕过了。
            * 于是选题页拿到 dueCards=[]、dueTotal=0，而首页明明写着 8 张。
            */
-          onStartReview={() => void navigate('review')}
+          /*
+           * 首页的「开始复习」（2026-11-09 改）。
+           *
+           * 这里长期写的是 `navigate('review')` —— 也就是进**做题页**。
+           * 用户反复反馈「开始复习跟开始做题没区别」，根因就在这一行：
+           * 上一轮只改了「开始学习」页里那个入口，首页这个漏了，
+           * 而首页才是用户最常用的入口。
+           *
+           * 现在与「开始学习」一致，走真正的今日复习会话。
+           */
+          onStartReview={() => void startTodayReview()}
           onOpenDecks={() => setPage('decks')}
           onOpenDeck={(deckId) => {
             /*
