@@ -14,6 +14,7 @@ import { IconSources } from './icons.tsx';
 import { MathText } from './MathText.tsx';
 import { ReaderFigure } from './ReaderFigure.tsx';
 import { ReaderSidePanel } from './ReaderSidePanel.tsx';
+import { paintTextMarks, clearTextMarks } from './paint-marks.ts';
 import { splitByFigures } from '@/core/mineru/images.ts';
 import './reader-figure.css';
 
@@ -86,6 +87,18 @@ type LoadPhase =
       figures: SourceImageRecord[];
     }
   | { kind: 'error'; message: string };
+
+/**
+ * 「锚点覆盖整段」的判定阈值（2026-11-09）。
+ *
+ * `segmentsToMaterials` 给「从原文出题」的锚点是 `charStart=0 /
+ * charEnd=整段长度`。这种范围不该在高亮里当普通区间画出来 ——
+ * 那会把整页刷亮，看着像界面坏了。
+ *
+ * 0.8 而不是 1.0：`charEnd` 用的是 `text.trim().length`，而 seg.text
+ * 可能带首尾空白，两者不完全相等。留余量避免漏判。
+ */
+const WHOLE_SEGMENT_RATIO = 0.8;
 
 /** 高亮落点。null 表示这一页没有可高亮的区间（纯阅读）。 */
 interface Highlight {
@@ -231,10 +244,31 @@ export function ReaderPage({
 
     const text = seg.text;
 
+    /*
+     * 「整段锚点」不该整页刷亮（2026-11-09 修）。
+     *
+     * 「从原文出题」的锚点是 `charStart=0 / charEnd=整段长度` ——
+     * 它表示「这道题出自这一段」，不是「这整段都是重点」。
+     * 以前把它当普通偏移处理，用户从错题跳过来看到的是**满屏高亮**，
+     * 像界面坏了（用户实测反馈：「整个页面都是高光，这有点抽象」）。
+     *
+     * 现在：跨度接近整段时**不画高亮**，只靠跳页 + 上方那句
+     * 「这道题从原文整段出的，点一下到第 N 页看完整上下文」说明位置。
+     * 整段落高亮不传递任何信息，只制造视觉噪音。
+     */
+    const csRaw = target.charStart;
+    const ceRaw = target.charEnd;
+    const spanIsWholeSegment =
+      typeof csRaw === 'number' &&
+      typeof ceRaw === 'number' &&
+      text.length > 0 &&
+      ceRaw - csRaw >= text.length * WHOLE_SEGMENT_RATIO;
+
     // 1) 先试偏移。这是最可靠的：偏移是从这份正文里实测出来的。
     const cs = target.charStart;
     const ce = target.charEnd;
     if (
+      !spanIsWholeSegment &&
       typeof cs === 'number' &&
       typeof ce === 'number' &&
       cs >= 0 &&
@@ -268,7 +302,21 @@ export function ReaderPage({
       }
     }
 
-    // 3) 都没找到 —— 只显示页码，明说没定位到
+    /*
+     * 3) 整段锚点：不画高亮，但要**说清为什么**（2026-11-09）。
+     *
+     * 静默什么都不做会让用户以为定位失败。这里明确告诉他：
+     * 题是从这一整段出的，不是某一句。
+     */
+    if (spanIsWholeSegment) {
+      setHighlight({ start: 0, end: 0, via: 'none' });
+      setJumpNote(
+        `这道题出自第 ${seg.page} 页的整段内容（不是某一句），所以不单独高亮。`,
+      );
+      return;
+    }
+
+    // 4) 都没找到 —— 只显示页码，明说没定位到
     setHighlight({ start: 0, end: 0, via: 'none' });
   }, [phase, target]);
 
@@ -424,6 +472,37 @@ export function ReaderPage({
     document.addEventListener('selectionchange', onSelectionChange);
     return () => document.removeEventListener('selectionchange', onSelectionChange);
   }, []);
+
+  /**
+   * 把用户批注画到正文上（2026-11-09）。
+   *
+   * ## 为什么放在渲染之后、还要等一帧
+   *
+   * 走的是 CSS Custom Highlight API，需要正文 DOM **已经存在**
+   * 才能把「段内字符区间」映射成 Range。这个 effect 依赖
+   * pageNo / pageMarks / seg，DOM 更新在同一轮 commit 里完成，
+   * 但为了躲开 React 的批处理边界，延一帧再画最稳。
+   *
+   * ## 依赖里为什么有 seg.text.length 而不是整个 seg
+   *
+   * 换页时段对象会换，但**同一份资料重解析后 text 可能变长变短**
+   * 而页码不变。带上长度才能在那种情况下重画。
+   */
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el || !seg) {
+      clearTextMarks();
+      return;
+    }
+    const raf = requestAnimationFrame(() => {
+      paintTextMarks(el, seg, pageMarks);
+    });
+    return () => {
+      cancelAnimationFrame(raf);
+      /* 翻页/卸载时清掉，避免上一页的标记残留在新页上 */
+      clearTextMarks();
+    };
+  }, [seg, pageMarks, pageNo, showOriginal]);
 
   /** 加一条标记：把当前选区做成锚点存进这一页 */
   const handleAddMark = useCallback(
@@ -661,14 +740,20 @@ export function ReaderPage({
         </button>
       </header>
 
-      {/* 定位状态：如实说清这次是「偏移命中」还是「靠引文找回」还是「没找到」 */}
-      {highlight ? (
+      {/*
+        定位状态：如实说清这次是「偏移命中」还是「靠引文找回」还是「没找到」。
+
+        2026-11-09 修：`via: 'none'` 时**不再**显示那句「没能定位到具体句子」。
+        因为「整段锚点」也走 via='none'，而它并不是定位失败 ——
+        是有意不圈句子。两行同时出现会互相矛盾（实测截图里
+        第一行说「没能定位到具体句子」、第二行说「出自整段内容」）。
+        整段的情况由下面的 jumpNote 独自说明，语义更准确。
+      */}
+      {highlight && highlight.via !== 'none' ? (
         <p className={`reader-jump reader-jump--${highlight.via}`}>
           {highlight.via === 'anchor'
             ? `已定位到第 ${seg?.page ?? 1} 页的原文位置。`
-            : highlight.via === 'quote'
-              ? `原文偏移对不上了，靠引文在第 ${seg?.page ?? 1} 页找回来的。`
-              : `只找到页码（第 ${seg?.page ?? 1} 页），没能定位到具体句子 —— 这份资料的正文可能重新解析过。`}
+            : `原文偏移对不上了，靠引文在第 ${seg?.page ?? 1} 页找回来的。`}
         </p>
       ) : null}
       {jumpNote ? <p className="reader-jump reader-jump--none">{jumpNote}</p> : null}

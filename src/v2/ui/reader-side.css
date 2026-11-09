@@ -113,6 +113,29 @@
  * 层内：纯布局
  * ------------------------------------------------------------------ */
 
+/*
+ * 正文里的批注绘制（CSS Custom Highlight API）。
+ *
+ * 名字必须与 paint-marks.ts 里的 HIGHLIGHT_NAMES 一致。
+ * 只改背景/下划线/删除线，**不动文字颜色与字号** ——
+ * 正文的配色已达 WCAG AA，用 ::highlight 改字色会破坏对比度。
+ */
+::highlight(leaner-mark-highlight) {
+  background-color: rgba(234, 179, 8, 0.32);
+}
+
+::highlight(leaner-mark-underline) {
+  text-decoration: underline;
+  text-decoration-color: rgba(234, 179, 8, 0.95);
+  text-decoration-thickness: 2px;
+}
+
+::highlight(leaner-mark-strike) {
+  text-decoration: line-through;
+  text-decoration-color: rgba(220, 100, 100, 0.9);
+  text-decoration-thickness: 1.5px;
+}
+
 @layer {
   .rside {
     display: flex;
