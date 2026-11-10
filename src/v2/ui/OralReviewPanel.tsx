@@ -27,6 +27,7 @@
  */
 
 import { useCallback, useState } from 'react';
+import type { ReactNode } from 'react';
 import type {
   OralJudgement,
   OralMaterial,
@@ -73,6 +74,15 @@ export interface OralReviewPanelProps {
   onOpenAnchor?: (sourceId: string, page: number | null, quote: string | null) => void;
   /** 系统设置里的「自动保存」是否开启 */
   autoSave?: boolean;
+  /**
+   * 顶部要插的范围选择器（2026-11-10）。
+   *
+   * 只有「从资料中提问」这条路会出现 —— 划选提问已经明确了范围
+   * （就是那一段），再给一个下拉反而不合理。
+   * 做成 slot 而不是让本组件自己去读库：面板只管问与答，
+   * 范围怎么取、能取哪些是宿主的事（见 OralScopePicker）。
+   */
+  scopePicker?: ReactNode;
 }
 
 export function OralReviewPanel({
@@ -85,6 +95,7 @@ export function OralReviewPanel({
   onExit,
   onOpenAnchor,
   autoSave = false,
+  scopePicker,
 }: OralReviewPanelProps) {
   const [phase, setPhase] = useState<Phase>({ kind: 'asking' });
   const [draft, setDraft] = useState('');
@@ -193,6 +204,12 @@ export function OralReviewPanel({
           结束
         </button>
       </div>
+
+      {/*
+        范围选择器（2026-11-10）。只在宿主传了才出现 ——
+        划选提问那条路已经明确了「就这段」，不该再有下拉。
+      */}
+      {scopePicker ? <div className="orp__picker">{scopePicker}</div> : null}
 
       {phase.kind === 'asking' ? (
         <div className="orp__card">

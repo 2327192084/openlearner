@@ -129,6 +129,20 @@
     color: var(--text-muted);
   }
 
+  /*
+   * 范围选择器所在行（2026-11-10）。
+   *
+   * 单独一行、与头部分开：头部是「我在问哪部分 + 结束」，
+   * 换范围是另一个动作。挤在同一行会让「结束」离下拉太近，
+   * 有误点风险。
+   */
+  .orp__picker {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
   .orp__card {
     display: flex;
     flex-direction: column;

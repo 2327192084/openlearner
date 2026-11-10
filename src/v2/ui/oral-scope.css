@@ -1,0 +1,130 @@
+/*
+ * 提问范围选择器样式（2026-11-10）。
+ *
+ * ⚠️ 硬约束：base.css 有**不在任何 @layer 内**的 button/input/select/textarea
+ * 规则，级联「层级先于特异性」。所以 select 的样式（含 appearance: none）
+ * 一律写在层外 —— 写进 @layer 会被那条层外规则盖掉。
+ * 这是项目里踩过六次以上的坑，新增控件样式都要遵守。
+ *
+ * 色值全部取自 tokens.css（暖黑书桌 + 朱砂主操作）。
+ */
+
+/* ==========================================================================
+   层外：原生控件（select）
+   ========================================================================== */
+
+.osp__select {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+
+  /*
+   * 自定义下拉箭头。
+   *
+   * appearance: none 之后浏览器不再画箭头，必须自己补一个 ——
+   * 否则下拉框看着像普通输入框，用户不知道能点。
+   * 用内联 SVG（data URI）：不额外加 DOM，也不依赖图标字体。
+   * 三角用 currentColor 编码不方便，直接写死主题里的 --text-muted 近似值。
+   */
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23a59d91' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding: 7px 30px 7px 12px;
+
+  color: var(--text, #efe9df);
+  background-color: var(--bg-raised, #26231f);
+  border: 1px solid var(--line, #332f2a);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+
+  /* 长章名不要撑破布局 */
+  max-width: 100%;
+  text-overflow: ellipsis;
+}
+
+.osp__select:hover:not(:disabled) {
+  border-color: var(--line-strong, #4a443c);
+}
+
+.osp__select:focus-visible {
+  outline: 2px solid var(--accent-soft, #ec6a4a);
+  outline-offset: 2px;
+}
+
+.osp__select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/*
+ * 下拉选项（option）在部分平台的深色背景下默认是白底黑字。
+ * 显式给出配色，避免「点开一片白」那种刺眼跳变。
+ */
+.osp__select option {
+  background: var(--bg-surface, #1e1b18);
+  color: var(--text, #efe9df);
+}
+
+/* ==========================================================================
+   层内：布局（非原生控件，可以进层）
+   ========================================================================== */
+
+@layer study.features {
+  .osp {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    font-size: 12.5px;
+    color: var(--text-dim, #c5bdb1);
+  }
+
+  .osp__field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .osp__label {
+    color: var(--text-muted, #a59d91);
+    white-space: nowrap;
+  }
+
+  .osp__hint {
+    color: var(--text-faint, #958e84);
+    font-size: 12px;
+  }
+
+  .osp__error {
+    color: var(--bad, #d76c93);
+    font-size: 12px;
+  }
+
+  .osp__empty {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text-muted, #a59d91);
+  }
+
+  /* 窄屏：标签与下拉换行显示，不要挤成一行 */
+  @media (max-width: 560px) {
+    .osp {
+      align-items: stretch;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .osp__field {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 4px;
+    }
+
+    .osp__select {
+      width: 100%;
+    }
+  }
+}

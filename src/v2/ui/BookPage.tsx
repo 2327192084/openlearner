@@ -27,6 +27,8 @@ import { BookSelfTest } from './BookSelfTest.tsx';
 import { ReviewToday } from './ReviewToday.tsx';
 import { FlashcardsPanel } from './FlashcardsPanel.tsx';
 import { OralReviewPanel } from './OralReviewPanel.tsx';
+import { OralScopePicker } from './OralScopePicker.tsx';
+import type { OralScopeOption } from '@/core/oral-scope-service.ts';
 import type { FlashcardView } from '@/core/flashcards.ts';
 import type { FlashcardCandidate } from '@/core/ai/pick-flashcards.ts';
 import type { OralJudgement, OralMaterial } from '@/core/oral-review.ts';
@@ -124,6 +126,22 @@ export interface BookPageProps {
   autoStartOral?: boolean;
   /** 消费掉 autoStartOral 标记 */
   onAutoStartOralConsumed?: () => void;
+  /**
+   * 从资料中提问：可选范围（2026-11-10）。
+   *
+   * 由 App 读好传下来（读它要过每份资料的段落表，不该由本页重复查）。
+   * 与「知识点随机」「划选片段」是并列的三条取素材路径，
+   * 面板顶部的下拉就是在这几条范围之间切。
+   */
+  oralScopes?: readonly OralScopeOption[];
+  /** 当前选中的范围 id */
+  oralScopeId?: string;
+  /** 换范围 */
+  onOralScopeChange?: (id: string) => void;
+  /** 正在按新范围取素材 */
+  oralScopeLoading?: boolean;
+  /** 取范围失败的原因 */
+  oralScopeError?: string | null;
 }
 
 /** 一个题组在书里的样子 */
@@ -169,6 +187,11 @@ export function BookPage({
   oralAutoSave = false,
   autoStartOral = false,
   onAutoStartOralConsumed,
+  oralScopes = [],
+  oralScopeId = 'all',
+  onOralScopeChange,
+  oralScopeLoading = false,
+  oralScopeError = null,
 }: BookPageProps) {
   const [state, setState] = useState<Load>({ kind: 'loading' });
   /** 当前显示的筛选：只看某一份资料 */
@@ -437,7 +460,20 @@ export function BookPage({
     return (
       <div className="book-page">
         <OralReviewPanel
-          key={oralKey}
+          /*
+           * key 里带上素材 id（2026-11-10 修）。
+           *
+           * 原来只用 oralKey，它只在「换一题」时自增。加了范围下拉之后
+           * 出现一个真 bug：换了范围、素材也换了，但 oralKey 没变，
+           * 组件不重建 → phase 停在上一个范围的那道题上。
+           * 截图实测：范围已经写着「导读：这一节要解决什么问题」，
+           * 底下问题还是「确定性信号与随机信号…」。
+           *
+           * 把 material.id 拼进 key，任何素材变化都会重建。
+           * 这比「在换范围的回调里手动 +oralKey」可靠 ——
+           * 那条路要求每个改素材的地方都记得自增，漏一处就复发。
+           */
+          key={`${oralKey}:${oralMaterial?.id ?? 'none'}`}
           scopeLabel={oralScopeLabel}
           material={oralMaterial}
           onAsk={async (m) => (onOralAsk ? onOralAsk(m) : Promise.reject(new Error('未接入出题')))}
@@ -453,6 +489,25 @@ export function BookPage({
             setOralKey((k) => (k ?? 0) + 1);
           }}
           onExit={() => setOralKey(null)}
+          /*
+           * 范围选择器（2026-11-10）。
+           *
+           * 只有「从资料中提问」这条路给下拉：划选提问已经明确了
+           * 「就这段」，再给一个下拉会让用户以为划选没生效。
+           * 判断依据是 onOralScopeChange 有没有传 ——
+           * 宿主不传就是不支持按资料换范围。
+           */
+          scopePicker={
+            onOralScopeChange ? (
+              <OralScopePicker
+                options={oralScopes}
+                value={oralScopeId}
+                onChange={onOralScopeChange}
+                loading={oralScopeLoading}
+                error={oralScopeError}
+              />
+            ) : null
+          }
           onOpenAnchor={
             onOpenSourceAt
               ? (sourceId, page, quote) => onOpenSourceAt(sourceId, page ?? 1, quote ?? undefined)
@@ -588,8 +643,15 @@ export function BookPage({
           提问式复习入口（2026-11-10）。
           只要接了 AI 就能用 —— 它不依赖闪卡或队列。
           门放在「有没有可提问的素材」上：没素材点进去只会看到空页面。
+
+          ⚠️ 判定条件放宽（2026-11-10 加范围选择器时改的）：
+          原来写 `oralMaterial ?`，要求「已经有一条素材」才显示入口。
+          加了范围下拉之后，素材可能因为「刚切换范围、还没取完」而暂时为空，
+          入口就会消失 —— 用户选完范围发现按钮没了，等于把功能关掉。
+          改成看「可选的提问范围」有没有：有范围就说明这个库能提问，
+          素材由面板自己按范围去取。
         */}
-        {onOralAsk && onOralJudge && oralMaterial ? (
+        {onOralAsk && onOralJudge && (oralMaterial || oralScopes.length > 0) ? (
           <button
             type="button"
             className="btn-ghost btn-ghost--sm"

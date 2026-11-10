@@ -24,6 +24,11 @@ import {
   type OralJudgement,
   type OralMaterial,
 } from '@/core/oral-review.ts';
+import {
+  listOralScopes,
+  materialsForScope,
+  type OralScopeOption,
+} from '@/core/oral-scope-service.ts';
 import { todayLocal, type ReviewGrade } from '@/v2/core/srs.ts';
 import { NotesPage } from './NotesPage.tsx';
 import { ExamPage } from './ExamPage.tsx';
@@ -907,6 +912,50 @@ export function App({
     selectionOralRef.current = false;
   }, [page]);
 
+  /*
+   * 进复习巩固页时读一次「可选的提问范围」（2026-11-10）。
+   *
+   * 只在这一页读：`listOralScopes` 要把每份资料的段落表过一遍，
+   * 首页/错题页不该付这个成本。
+   *
+   * 读失败不弹错：范围选择器是增强功能，
+   * 读不到就保持空列表（选择器自己显示「还没有能提问的正文」），
+   * 不该因此让整个复习巩固页不可用。
+   */
+  useEffect(() => {
+    if (page !== 'book') return;
+    void (async () => {
+      try {
+        const sources = await sourceService.list();
+        const docScopes = await listOralScopes(sourceService, sources);
+
+        /*
+         * 知识点范围也列进来（2026-11-10）。
+         *
+         * 三期只有这一条路。加了资料范围后必须把它也摆进同一个下拉，
+         * 否则「下拉写整库、实际还是知识点」会分裂。
+         * 放在最前面，且作为默认选中项 —— 保持三期行为不变。
+         */
+        const points = await knowledgeService.listAll();
+        const pointMats = pointsToMaterials(points);
+        const pointsOption: OralScopeOption = {
+          id: 'points',
+          label: '知识点随机',
+          scope: { kind: 'points', pointIds: points.map((p) => p.id), title: '知识点随机' },
+          count: pointMats.length,
+        };
+
+        /* 资料范围里把「整库随机」去掉：知识点已是整库粒度，重复了 */
+        const rest = docScopes.filter((o) => o.id !== 'all');
+        const next = [pointsOption, ...rest];
+        setOralScopes(next);
+        setOralScopeId((prev) => (next.some((s) => s.id === prev) ? prev : 'points'));
+      } catch {
+        /* 读不到就保持空列表，不阻塞页面 */
+      }
+    })();
+  }, [page, sourceService, knowledgeService]);
+
   const handleAddFlashcards = useCallback(
     async (ids: string[]) => {
       await flashcardsService.addMany(
@@ -1087,6 +1136,82 @@ export function App({
       goPage('book');
     },
     [goPage],
+  );
+
+  // ---------------------------------------------------------------------------
+  // 从资料中提问（2026-11-10）
+  // ---------------------------------------------------------------------------
+
+  /**
+   * 可选的提问范围（整库 / 整本 / 某章）。
+   *
+   * 进了复习巩固页才读 —— 读它要把每份资料的段落表都过一遍，
+   * 首页、错题页都不需要这份数据，不该在那里付这个成本。
+   */
+  const [oralScopes, setOralScopes] = useState<OralScopeOption[]>([]);
+  /** 当前选中的范围 id */
+  const [oralScopeId, setOralScopeId] = useState('all');
+  /** 正在按新范围取素材 */
+  const [oralScopeLoading, setOralScopeLoading] = useState(false);
+  /** 取范围或素材失败的原因 */
+  const [oralScopeError, setOralScopeError] = useState<string | null>(null);
+
+  /**
+   * 换一个提问范围（2026-11-10）。
+   *
+   * ## 为什么知识点也要走这个下拉
+   *
+   * 三期只有「知识点随机」这一条路。加了资料范围后，如果下拉里只列资料，
+   * 就会出现「下拉写着整库随机、但实际素材还是知识点」的分裂。
+   * 所以把知识点也做成选项之一 —— 一个下拉、一个真相来源。
+   * 默认仍选「知识点随机」，保持三期已有的行为不变。
+   *
+   * ## 为什么要清掉 selectionOralRef
+   *
+   * 用户从划选进来后又主动改范围，说明他不要「就那一段」了。
+   * 不清的话，那个守卫会一直挡着，让范围切换不生效 ——
+   * 表现为「下拉选了没反应」。
+   */
+  const handleOralScopeChange = useCallback(
+    async (id: string) => {
+      setOralScopeId(id);
+      setOralScopeLoading(true);
+      setOralScopeError(null);
+      try {
+        const opt = oralScopes.find((o) => o.id === id);
+        if (!opt) throw new Error('这个范围已经不在了，换一个试试。');
+
+        /*
+         * 知识点范围不走 materialsForScope（那是资料段落专用）。
+         * 直接复用三期的 pointsToMaterials，口径完全一致。
+         */
+        let pool: OralMaterial[];
+        if (opt.scope.kind === 'points') {
+          const points = await knowledgeService.listAll();
+          const wanted = new Set(opt.scope.pointIds);
+          pool = pointsToMaterials(points.filter((p) => wanted.has(p.id)));
+        } else {
+          pool = await materialsForScope(sourceService, opt.scope);
+        }
+
+        if (pool.length === 0) {
+          setOralPool([]);
+          setOralMaterial(null);
+          setOralScopeLabel('这个范围没有可提问的内容');
+          return;
+        }
+        /* 用户主动换范围 → 划选那条路的守卫不再适用 */
+        selectionOralRef.current = false;
+        setOralPool(pool);
+        setOralMaterial(pickMaterial(pool));
+        setOralScopeLabel(opt.label);
+      } catch (e) {
+        setOralScopeError(e instanceof Error ? e.message : '取这段内容失败');
+      } finally {
+        setOralScopeLoading(false);
+      }
+    },
+    [oralScopes, sourceService, knowledgeService],
   );
 
   const handleOralSave = useCallback(    async (input: {
@@ -1301,6 +1426,11 @@ export function App({
           oralAutoSave={oralAutoSave}
           autoStartOral={autoOral}
           onAutoStartOralConsumed={() => setAutoOral(false)}
+          oralScopes={oralScopes}
+          oralScopeId={oralScopeId}
+          onOralScopeChange={(id) => void handleOralScopeChange(id)}
+          oralScopeLoading={oralScopeLoading}
+          oralScopeError={oralScopeError}
         />
       ) : page === 'guide' ? (
         <GuidePage onNavigate={(id) => setPage(id)} />
