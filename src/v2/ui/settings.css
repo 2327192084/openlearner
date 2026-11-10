@@ -177,7 +177,7 @@
     align-items: baseline;
     gap: var(--space-3);
     padding: var(--space-3) var(--space-4);
-    border: 1px solid var(--border);
+    border: 1px solid var(--line);
     border-radius: var(--radius-sm);
     background: transparent;
     text-align: left;
@@ -239,7 +239,7 @@
   .grading-table td {
     text-align: left;
     padding: var(--space-2) var(--space-3);
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--line);
     font-variant-numeric: tabular-nums;
   }
 

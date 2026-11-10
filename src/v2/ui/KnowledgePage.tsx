@@ -7,6 +7,7 @@ import { ConfirmDialog } from './dialog.tsx';
 import { MathText } from './MathText.tsx';
 import { KpTagsEditor } from './KpTagsEditor.tsx';
 import { COGNITIVE_LEVEL_LABEL, COGNITIVE_LEVEL_META } from '@/core/cognitive-levels.ts';
+import { EmptyCard } from './EmptyCard.tsx';
 
 /**
  * 知识库 —— 按资料文件归类所有知识点。
@@ -500,30 +501,31 @@ export function KnowledgePage({
       ) : null}
 
       {totalPoints === 0 ? (
-        <div className="kb-empty">
-          <IconBook size={30} />
-          <p className="kb-empty__title">知识库还是空的</p>
-          <p className="kb-hint">
-            知识点是从资料正文里整理出来的。先到「资料」导入一份讲义，
-            再去「整理知识点」把它过一遍，结果就会出现在这里。
-          </p>
-          {/*
-            空状态里再给一个按钮。
-            这里是用户最需要它的地方 —— 他刚看到「空的」，
-            下一步动作就该是「去整理」，不该让他自己去找入口。
-          */}
-          {onOpenOrganize ? (
-            <button
-              type="button"
-              className="kb-empty__action"
-              onClick={() => onOpenOrganize(null)}
-            >
-              去整理知识点
-            </button>
-          ) : null}
-        </div>
+        /*
+         * 空态改用共享的 EmptyCard（2026-11-10 美化）。
+         *
+         * 原来的 .kb-empty 是深色底 + 淡边框的方块，与设计系统里
+         * 「唯一的实体是一张米色索引卡」不一致 —— 它看起来像「一个空面板」，
+         * 而不是「一张等你填的卡」。换成纸卡后与首页的今日卡同一语言。
+         *
+         * 动作沿用原逻辑：不传 onOpenOrganize 就不给按钮（不摆假开关）。
+         */
+        <EmptyCard
+          icon={<IconBook size={22} />}
+          title="知识库还是空的"
+          hint="知识点是从资料正文里整理出来的。先到「资料」导入一份讲义，再去「整理知识点」把它过一遍，结果就会出现在这里。"
+          {...(onOpenOrganize
+            ? { action: { label: '去整理知识点', onClick: () => onOpenOrganize(null) } }
+            : {})}
+        />
       ) : filtered.length === 0 ? (
-        <p className="kb-hint">没有匹配「{query}」的知识点。</p>
+        <p className="kb-hint">
+          {query.trim()
+            ? `没有匹配「${query}」的知识点。`
+            : pickedLevels.size > 0
+              ? '这个类型下没有知识点。换个类型或清空筛选试试。'
+              : '没有匹配的知识点。'}
+        </p>
       ) : (
         <div className="kb-files">
           {filtered.map((group) => {

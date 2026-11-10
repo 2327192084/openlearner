@@ -444,7 +444,7 @@
   max-height: 70vh;
   object-fit: contain;
   border: 1px solid var(--c-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius);
   background: var(--c-surface);
 }
 
@@ -518,7 +518,7 @@
   padding: var(--sp-1) var(--sp-2);
   background: var(--c-surface);
   border: 1px solid var(--c-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius);
   font-size: 12px;
   z-index: 3;
 }
@@ -661,7 +661,7 @@
   padding: 4px;
   background: var(--c-surface);
   border: 1px solid var(--c-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius);
   box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
   z-index: 60;
 }
@@ -813,7 +813,7 @@
   margin-top: var(--sp-2);
   background: var(--c-surface);
   border: 1px solid var(--c-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius);
   box-shadow: 0 2px 8px rgb(0 0 0 / 6%);
   z-index: 10;
   font-size: 13px;
@@ -881,7 +881,7 @@
   gap: 2px;
   background: var(--c-surface);
   border: 1px solid var(--c-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius);
   box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
   z-index: 20;
 }

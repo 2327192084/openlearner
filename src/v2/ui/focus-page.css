@@ -168,9 +168,18 @@
 
   /* ---------- 统计 ---------- */
   .focus-stats {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-6);
+    /*
+     * 等宽网格而不是 flex + gap（2026-11-10 美化）。
+     *
+     * 原来是 `display:flex; gap:24px`：四个数字各自只有内容宽度，
+     * 全部挤在左侧，右边留一大片空白（截图里很明显）。
+     * 改成等宽列后数字均匀铺开，与上方计时面板的宽度也对得上。
+     *
+     * minmax(0,1fr) 而不是 1fr：允许列被压缩，窄屏下才不会被内容撑破。
+     */
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-4);
     padding: var(--space-4) 0;
     border-top: 1px solid var(--line-soft);
     border-bottom: 1px solid var(--line-soft);
@@ -184,8 +193,8 @@
   }
 
   .focus-stat__n {
-    font-size: var(--fs-lg, 18px);
-    font-weight: 600;
+    font-size: var(--fs-xl, 19px);
+    font-weight: 550;
     color: var(--text-dim);
     font-variant-numeric: tabular-nums;
     line-height: 1.2;
@@ -199,6 +208,13 @@
   .focus-stat__label {
     font-size: var(--fs-xs, 11px);
     color: var(--text-faint);
+  }
+
+  /* 窄屏：两列两行，比挤成一行好读 */
+  @media (max-width: 560px) {
+    .focus-stats {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
 
   /* ---------- 最近记录 ---------- */

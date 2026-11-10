@@ -1022,7 +1022,7 @@ a.sl-tabs__item:hover {
   position: relative;
   width: 100%;
   /* aspect-ratio 由行内样式按 SLIDE_SIZE 设定 */
-  border-radius: var(--r-md);
+  border-radius: var(--radius);
   background: repeating-linear-gradient(
     45deg,
     var(--c-border) 0,

@@ -407,8 +407,15 @@
 
 /* ---------- 知识库页头的「整理知识点」按钮（层外！见文件头） ---------- */
 
-.kb-head__action,
-.kb-empty__action {
+/*
+ * 2026-11-10：这里原本还带着 `.kb-empty__action`（知识库空态里的按钮）。
+ * 知识库空态改用共享的 EmptyCard 之后那个类名不再被渲染，
+ * 留着会让下一个人以为空态还有一套独立按钮样式。
+ * 用 scripts/check-dead-css.cjs 扫出来的。
+ *
+ * 注意 `.kb-head__action` 还在用（页头那个常驻按钮），不能一起删。
+ */
+.kb-head__action {
   appearance: none;
   -webkit-appearance: none;
   border: 1px solid var(--line-strong, rgba(255, 255, 255, 0.2));
@@ -424,17 +431,10 @@
   align-self: flex-start;
 }
 
-.kb-head__action:hover,
-.kb-empty__action:hover {
+.kb-head__action:hover {
   background: color-mix(in srgb, var(--text-1, #efe9df) 10%, transparent);
   border-color: color-mix(in srgb, var(--c-primary, #e06a3b) 55%, transparent);
   color: var(--c-primary, #e06a3b);
-}
-
-.kb-empty__action {
-  margin-top: var(--space-3, 12px);
-  /* 空状态里按钮居中更好看 */
-  align-self: center;
 }
 
 /* ---------- 做题页：逐选项解析（2026-11-08） ---------- */

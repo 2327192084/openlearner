@@ -102,6 +102,20 @@
   }
 
   /* ---------- 统计行 ---------- */
+  /*
+   * ⚠️ 类名必须与 TodayPage 的 Stat 组件一致（2026-11-10 修）。
+   *
+   * 这里原来写的是 `.stat__value / .stat__label / .stat__unit`，
+   * 而组件渲染的是 `today__stat-value / today__stat-label / today__stat-unit`
+   * —— 一个都对不上，于是这几条规则**从未生效**：
+   *   · 数字没有 23px 的显示级字号，退化成继承的正文大小
+   *   · 单位没有 margin-left，与数字粘成「15张」
+   *   · 没有 tabular-nums，多个数字竖向对不齐
+   * 截图里看着「有点挤」，根因就是这里，不是间距调得不够。
+   *
+   * 教训：CSS 类名写错不报错、只静默不生效。改这类「看着像设计问题」
+   * 的地方之前，先确认类名真的对得上。
+   */
   .today__stats {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
@@ -109,24 +123,31 @@
     padding: var(--space-4) 0;
   }
 
-  .stat__label {
-    font-size: var(--fs-xs);
-    color: var(--text-faint);
-    margin-bottom: 2px;
+  .today__stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
 
-  .stat__value {
+  .today__stat-value {
     font-size: var(--fs-2xl);
     font-weight: 300; /* display 光学尺寸用细字重 */
     font-variant-numeric: tabular-nums;
     line-height: var(--lh-tight);
+    color: var(--text);
   }
 
-  .stat__unit {
+  .today__stat-unit {
     font-size: var(--fs-sm);
     font-weight: 400;
     color: var(--text-muted);
+    /* 与数字拉开：原来缺这一条，所以「15张」粘在一起 */
     margin-left: 3px;
+  }
+
+  .today__stat-label {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
   }
 
   .today__done {

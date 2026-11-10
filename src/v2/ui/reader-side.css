@@ -36,7 +36,7 @@
 }
 
 .rside__tab--on {
-  background: var(--surface-raised);
+  background: var(--bg-raised);
   color: var(--text);
   border-color: var(--line);
 }
@@ -53,7 +53,7 @@
 }
 
 .rside__kind:hover:not(:disabled) {
-  background: var(--surface-raised);
+  background: var(--bg-raised);
 }
 
 .rside__kind:disabled {
@@ -70,7 +70,7 @@
 
 .rside__mini:hover {
   color: var(--text);
-  background: var(--surface-raised);
+  background: var(--bg-raised);
 }
 
 .rside__note {
@@ -164,7 +164,7 @@
     margin-left: 5px;
     padding: 0 5px;
     border-radius: 8px;
-    background: var(--surface-raised);
+    background: var(--bg-raised);
     font-size: 11px;
     color: var(--text-dim);
   }
@@ -222,7 +222,7 @@
   .rside__tip {
     padding: 7px 8px;
     border-radius: 6px;
-    background: var(--surface-raised);
+    background: var(--bg-raised);
   }
 
   .rside__kinds {
@@ -251,7 +251,7 @@
   .rside__item {
     padding: 7px 8px;
     border-radius: 7px;
-    background: var(--surface-raised);
+    background: var(--bg-raised);
     border: 1px solid var(--line);
   }
 

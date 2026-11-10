@@ -424,10 +424,15 @@
   box-shadow: var(--shadow-card);
 }
 
-/* 每张卡内部的标题与文字用纸面墨色，不继承外层深色主题的浅字 */
-.home-widget .paper__eyebrow,
-.home-widget .paper__big,
-.home-widget .paper__unit {
+/*
+ * 每张卡内部的标题用纸面墨色，不继承外层深色主题的浅字。
+ *
+ * 2026-11-10：这里原本还列了 `.paper__big` 与 `.paper__unit`，
+ * 但 HomeWidgets 早已不渲染这两个元素（大数字换成 `.home-widget__big`，
+ * 见下方）。留着它们只会让下一个人以为还有一处「大数字」在别处。
+ * 用 scripts/check-dead-css.cjs 扫出来的。
+ */
+.home-widget .paper__eyebrow {
   color: var(--paper-dim);
 }
 

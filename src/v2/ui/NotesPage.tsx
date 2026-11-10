@@ -28,6 +28,8 @@ import type { NoteService } from '@/core/notes.ts';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { SourceService } from '@/core/sources.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
+import { EmptyCard } from './EmptyCard.tsx';
+import { IconNotes } from './icons.tsx';
 
 export interface NotesPageProps {
   notes: NoteService;
@@ -221,15 +223,17 @@ export function NotesPage({
       {flash ? <div className="nt-flash">{flash}</div> : null}
 
       {rows.length === 0 ? (
-        <div className="nt-empty">
-          <p>还没有任何笔记。</p>
-          <p className="nt-hint">
-            笔记有两处入口：做题时在题目卡下方，或者在阅读器里给某份资料留一句。
-          </p>
-          <button type="button" className="btn-ghost" onClick={onOpenKnowledge}>
-            去知识库看看
-          </button>
-        </div>
+        /*
+         * 空态用共享的 EmptyCard（2026-11-10 美化）。
+         * 原来是一块左对齐的 padding + 三行字，在深色背景上几乎看不出
+         * 「这一页是空的」——更像加载失败。换成纸卡后有了视觉重心。
+         */
+        <EmptyCard
+          icon={<IconNotes size={22} />}
+          title="还没有任何笔记"
+          hint="笔记有两处入口：做题时在题目卡下方，或者在阅读器里给某份资料留一句。记下来的内容会在复习到那一题时再次出现。"
+          action={{ label: '去知识库看看', onClick: onOpenKnowledge }}
+        />
       ) : (
         <>
           {/* ---- 搜索 ---- */}

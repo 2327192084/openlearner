@@ -1,0 +1,189 @@
+/*
+ * 空态卡片样式（2026-11-10）。
+ *
+ * 复用 `.paper` 那套纸面语言（paper.css）：顶部 2px 朱砂线、
+ * 索引卡横格、16px 圆角、纸面阴影。空态是「桌上摊着一张待填的卡」，
+ * 而不是「一片留白中间几行字」。
+ *
+ * ⚠️ 硬约束：这里有两个 button，样式一律写**层外** ——
+ * base.css 有不在任何 @layer 内的 button 规则，级联层级先于特异性。
+ */
+
+.empty-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+
+  background: var(--paper);
+  color: var(--paper-ink);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-8) var(--space-6);
+
+  /*
+   * 这里**故意不用**整片横格线。
+   *
+   * 第一版照抄 .paper 的 `repeating-linear-gradient` 铺满整张卡，
+   * 结果横线穿过图标、标题和说明文字 —— 因为空态卡里是居中的短文字，
+   * 不像 .paper 那样是连续段落，格子对不上任何一行，只会显得脏。
+   * 第二版想用 `background-position: 0 100%` 让线从底部起算，
+   * 但 repeating 渐变仍从元素顶端开始铺，线还是压在字上（截图确认）。
+   *
+   * 结论：空态卡不需要「有横格的纸」，它需要的只是「一张纸」。
+   * 保留纸色、圆角、阴影与顶部朱砂线，去掉横格 —— 更干净也更符合
+   * 「一张等你填的空卡」这个含义。
+   *
+   * ⚠️ 这里**不能**写 `overflow: hidden`：伪元素画的顶部朱砂线是
+   * 贴着卡片上边缘的（inset: 0 0 auto 0），overflow 会把它裁掉一半，
+   * 截图放大后确认过。改了之后没有需要裁的内容（横格已去掉），
+   * 所以直接去掉这条。
+   */
+
+  /* 宽度上限：太宽的纸卡读起来散，也不像一张能拿起来的卡 */
+  width: 100%;
+  max-width: 560px;
+  /* 在页面里居中，而不是贴左 */
+  margin-inline: auto;
+}
+
+/*
+ * 顶部 2px 朱砂横线 —— 索引卡的顶栏线。
+ *
+ * 用伪元素而不是 border-top：border 会被 border-radius 切成弧形，
+ * 而这根线在真实索引卡上是**笔直贯通**的，不跟着圆角弯。
+ *
+ * 给它一点左右内缩（12px）并配上圆角，让两端收在卡片圆角内侧，
+ * 不会从圆角缺口里「伸出去」—— 这是它跟真索引卡顶栏线的差别所在。
+ */
+.empty-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 12px;
+  right: 12px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 0 0 2px 2px;
+}
+
+/* 图标托底：把图标从纸面上「抬起来」 */
+.empty-card__icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  margin-bottom: var(--space-4);
+  border-radius: 50%;
+  /* 纸面上没有「更深一层的纸」，用极淡墨色压出一个圆 */
+  background: color-mix(in srgb, var(--paper-ink) 7%, transparent);
+  color: var(--paper-dim);
+}
+
+.empty-card__title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-lg);
+  font-weight: 550;
+  line-height: var(--lh-tight);
+  color: var(--paper-ink);
+}
+
+.empty-card__hint {
+  margin: 0;
+  /* 说明文字比标题窄一点，读起来更像一段注解而不是正文 */
+  max-width: 46ch;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--paper-dim);
+}
+
+.empty-card__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* ==========================================================================
+   层外：原生控件
+   ========================================================================== */
+
+.empty-card__btn {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  border-radius: var(--radius-pill);
+  padding: 7px 16px;
+  font-size: var(--fs-sm);
+  /* 纸面是浅底，主操作仍用朱砂实底 —— 与全应用的主操作一致 */
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 1px solid transparent;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.empty-card__btn:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.empty-card__btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/*
+ * 次要操作用「纸上的描边按钮」：不填色，靠墨色描边。
+ * 在米色纸上不能用深色主题那套透明底 —— 那样会看不见边界。
+ */
+.empty-card__btn--ghost {
+  background: transparent;
+  color: var(--paper-dim);
+  border-color: color-mix(in srgb, var(--paper-ink) 22%, transparent);
+}
+
+.empty-card__btn--ghost:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--paper-ink) 6%, transparent);
+  color: var(--paper-ink);
+}
+
+/* ==========================================================================
+   尺寸变体
+   ========================================================================== */
+
+/* 嵌在区块里的小空态：去掉大留白与图标圆底 */
+.empty-card--inline {
+  padding: var(--space-5) var(--space-4);
+  align-items: flex-start;
+  text-align: left;
+}
+
+.empty-card--inline .empty-card__icon {
+  width: 32px;
+  height: 32px;
+  margin-bottom: var(--space-2);
+}
+
+.empty-card--inline .empty-card__title {
+  font-size: var(--fs-md);
+}
+
+.empty-card--inline .empty-card__actions {
+  margin-top: var(--space-3);
+  justify-content: flex-start;
+}
+
+/* 窄屏：收紧外留白，标题允许换行 */
+@media (max-width: 560px) {
+  .empty-card {
+    padding: var(--space-6) var(--space-4);
+  }
+
+  .empty-card__hint {
+    max-width: none;
+  }
+}
