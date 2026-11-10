@@ -227,9 +227,17 @@
   }
 
   .focus-empty {
+    /*
+     * 与待办页的空态一致：虚线容器（2026-11-10 美化）。
+     * 两处都是「列表区域暂时没有内容」，用同一种视觉语言，
+     * 用户不需要为同一个含义学两种画法。
+     */
     font-size: var(--fs-sm);
-    color: var(--text-dim);
-    padding: var(--space-4) 0;
+    color: var(--text-faint);
+    padding: var(--space-5) var(--space-4);
+    text-align: center;
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
   }
 
   .focus-list {

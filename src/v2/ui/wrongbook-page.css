@@ -114,21 +114,36 @@
   }
 
   .wbk-stat {
+    /*
+     * 内容居中（2026-11-10 美化）。
+     *
+     * 原来是左对齐：三张卡片等分整行、都很宽，数字与标签挤在左上角，
+     * 每张卡的右侧与底部留大片空白，看着像「没对齐完」。
+     * 居中后三块各自成为一个小整体，与首页/学习地图的统计行也更一致。
+     */
     display: flex;
     flex-direction: column;
+    align-items: center;
     gap: 2px;
-    padding: var(--space-3) var(--space-4);
+    padding: var(--space-4);
     border: 1px solid var(--line-soft);
     border-radius: var(--radius);
     background: var(--bg-surface);
   }
 
   .wbk-stat__n {
-    font-size: var(--fs-3xl);
-    font-weight: 300;
+    /*
+     * 数字放大（2026-11-10）。
+     * 原来是 fs-3xl(28px) + 字重 300：在等宽卡片里显得单薄，
+     * 与首页修好的 fs-2xl(23px) 相比反而没有层次。
+     * 提到 34px、字重 350 —— 仍是细体（display 光学尺寸），
+     * 但在卡片里足够成为视觉重心。
+     */
+    font-size: var(--fs-4xl, 34px);
+    font-weight: 350;
     color: var(--text);
     font-variant-numeric: tabular-nums;
-    line-height: 1.15;
+    line-height: 1.1;
   }
 
   /*

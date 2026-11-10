@@ -49,10 +49,22 @@
   }
 
   .bd-empty {
-    padding: var(--space-6) 0;
+    /*
+     * 空态给一个虚线容器（2026-11-10 美化）。
+     *
+     * 原来只有一行灰字浮在背景上，看着像「加载完了但渲染丢了」。
+     * 加虚线框后它读作「这里是列表区，现在还没有内容」——
+     * 与上面那个「快速添加」输入框形成「写 → 出现在这里」的空间关系。
+     *
+     * 用虚线而不是实线：虚线的语义是「占位、临时」，
+     * 与「以后会被填满」一致；实线会抢过输入框的注意力。
+     */
+    padding: var(--space-6) var(--space-4);
     color: var(--text-faint);
     font-size: var(--fs-md);
     text-align: center;
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
   }
 
   /* ---------- 快速添加 ---------- */
