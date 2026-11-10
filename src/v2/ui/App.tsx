@@ -826,6 +826,24 @@ export function App({
     setFlashcardPoints(points);
   }, []);
 
+  /**
+   * 从阅读器「用这段提问」进来时，直接开始提问（2026-11-10）。
+   *
+   * 与 autoReview 同一套做法：标记用完即清。
+   * 不清的话，下次从侧栏正常进这一页也会被直接拽进提问面板。
+   *
+   * 声明位置在「进复习巩固页时备素材」那个 effect **之前** ——
+   * 那个 effect 要读它来决定「不要覆盖划选素材」。
+   */
+  const [autoOral, setAutoOral] = useState(false);
+  /**
+   * 「这一轮素材由划选指定」的守卫（ref，不是 state）。
+   *
+   * 用 ref 的理由见下面「进复习巩固页备素材」那个 effect 里的长注释 ——
+   * 简言之：state 版会被 setAutoOral(false) 连带复位，守卫失效。
+   */
+  const selectionOralRef = useRef(false);
+
   /* 进复习巩固页时读一次；换页不必重读（闪卡不常变） */
   useEffect(() => {
     if (page !== 'book') return;
@@ -841,12 +859,53 @@ export function App({
        */
       const points = await knowledgeService.listAll();
       const pool = pointsToMaterials(points);
+
+      /*
+       * ⚠️ 这一轮是「划选提问」进来的，就**不要**覆盖素材（2026-11-10）。
+       *
+       * 不加这个判断是个真 bug：handleAskAboutSelection 先设好
+       * 「就这段提问」的素材，随后 goPage('book') 触发本 effect，
+       * 异步读完知识点后把 oralPool / oralMaterial 全部改回随机知识点 ——
+       * 用户点了「用这段提问」，进到面板却看到一条毫不相干的知识点。
+       *
+       * 因为本 effect 是异步的（要读库），它一定在划选设置之后跑完，
+       * 所以这个覆盖是稳定发生的，不是偶发竞态。
+       *
+       * ## 为什么用 ref 而不是 autoOral 这个 state（第一版错了）
+       *
+       * 第一版这里写 `if (autoOral) return;` 并把 autoOral 放进依赖。
+       * 实测截图抓到的结果：面板顶部写着「知识点随机提问」而不是
+       * 「划选片段提问」—— 划选素材还是被覆盖了。
+       *
+       * 原因是这个守卫**会把自己消耗掉**：
+       *   autoOral=true → 本 effect 跑，return（正确）
+       *   → BookPage 的 effect 消费标记，调 setAutoOral(false)
+       *   → 依赖变化，本 effect **再跑一遍**，这次 autoOral=false
+       *   → 覆盖发生。
+       *
+       * ref 不受依赖数组管辖，setAutoOral(false) 不会让它复位；
+       * 它又只在真正离开复习巩固页时才清（见下面那个 effect）。
+       */
+      if (selectionOralRef.current) return;
+
       setOralPool(pool);
       /* 默认素材：从池子里抽一条；池子空则为 null（界面会说明原因） */
       setOralMaterial(pickMaterial(pool));
       setOralScopeLabel('知识点随机提问');
     })();
   }, [page, reloadFlashcards]);
+
+  /*
+   * 离开复习巩固页时清掉「划选素材」标记。
+   *
+   * 必须清：用户下次从侧栏正常进这一页时，应该回到知识点随机，
+   * 而不是还停在十分钟前划的那一段上。这与 autoOral 那套
+   * 「用完即清」的意图相同，只是清得晚一点（等页面真的离开）。
+   */
+  useEffect(() => {
+    if (page === 'book') return;
+    selectionOralRef.current = false;
+  }, [page]);
 
   const handleAddFlashcards = useCallback(
     async (ids: string[]) => {
@@ -999,8 +1058,38 @@ export function App({
     [resolveBackend],
   );
 
-  const handleOralSave = useCallback(
-    async (input: {
+  /**
+   * 阅读器里划选了一段 → 拿它提问（2026-11-10）。
+   *
+   * ## 为什么池子里只放这一条
+   *
+   * 用户明确指了「就这段」。把划选素材混进知识点池会让「换一题」
+   * 悄悄跳到别的知识点上 —— 那已经不是他要问的东西了。
+   * 池子只装这一条，他的「换一题」就是重新就这段再出一问。
+   *
+   * App.tsx 里有一句旧注释正好预言了这个设计（在 oralPool 那段）：
+   * 「段落池留给『用户在原文里划选一段』那条路 —— 那是显式选择，
+   * 不该混进随机池里」。这里就是那条路。
+   *
+   * ## 为什么要清掉 readerFrom 之外的导航痕迹
+   *
+   * 不进 reader：用户点的是「提问」，不是「继续读」。
+   * 直接走 goPage 到复习巩固页，返回栈里自然记着「从阅读器来的」。
+   */
+  const handleAskAboutSelection = useCallback(
+    (material: OralMaterial) => {
+      setOralPool([material]);
+      setOralMaterial(material);
+      setOralScopeLabel('划选片段提问');
+      /* 守卫必须在 setAutoOral 之前挂上，且整个「留在这一页」期间都不清 */
+      selectionOralRef.current = true;
+      setAutoOral(true);
+      goPage('book');
+    },
+    [goPage],
+  );
+
+  const handleOralSave = useCallback(    async (input: {
       material: OralMaterial;
       question: string;
       answer: string;
@@ -1210,6 +1299,8 @@ export function App({
           onOralSave={handleOralSave}
           onOralNext={handleOralNext}
           oralAutoSave={oralAutoSave}
+          autoStartOral={autoOral}
+          onAutoStartOralConsumed={() => setAutoOral(false)}
         />
       ) : page === 'guide' ? (
         <GuidePage onNavigate={(id) => setPage(id)} />
@@ -1438,6 +1529,14 @@ export function App({
           /* 回到**来时那一页**（原来一律回「资料」，从错题进来时等于回不去） */
           onBack={closeReader}
           backLabel={readerFrom ? PAGE_LABEL_FOR_BACK[readerFrom] : undefined}
+          /*
+           * 划选提问（2026-11-10）。
+           *
+           * 没接模型时不传这个 prop —— 阅读器就不显示浮层，
+           * 而不是显示一个点了报错的按钮（硬约束第 7 条：不做假开关）。
+           */
+          onAskAboutSelection={conn.connected ? handleAskAboutSelection : undefined}
+          askDisabledReason={conn.connected ? null : '还没接入模型，先到设置里加一个后端'}
         />
       ) : page === 'organize' ? (
         <OrganizePage

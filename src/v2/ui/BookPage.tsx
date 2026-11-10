@@ -114,6 +114,16 @@ export interface BookPageProps {
   onOralNext?: () => void;
   /** 设置里是否开了「自动保存」 */
   oralAutoSave?: boolean;
+  /**
+   * 进来就**直接开始提问**（2026-11-10）。
+   *
+   * 用户在阅读器里划了一段、点了「用这段提问」，意图已经明确 ——
+   * 让他在复习巩固页上再点一次「提问式复习」是多余的一步。
+   * 与 autoStartReview 同一套模式：标记用完即清（由宿主回传给清掉）。
+   */
+  autoStartOral?: boolean;
+  /** 消费掉 autoStartOral 标记 */
+  onAutoStartOralConsumed?: () => void;
 }
 
 /** 一个题组在书里的样子 */
@@ -157,6 +167,8 @@ export function BookPage({
   onOralSave,
   onOralNext,
   oralAutoSave = false,
+  autoStartOral = false,
+  onAutoStartOralConsumed,
 }: BookPageProps) {
   const [state, setState] = useState<Load>({ kind: 'loading' });
   /** 当前显示的筛选：只看某一份资料 */
@@ -230,6 +242,37 @@ export function BookPage({
     /* 让 App 清掉标记：下次正常进这一页不该又被拽进复习 */
     onAutoStartConsumed?.();
   }, [autoStartReview, reviewQueue, onAutoStartConsumed]);
+
+  /**
+   * 从阅读器「用这段提问」进来时直接开始提问（2026-11-10）。
+   *
+   * ## 为什么要等 oralMaterial
+   *
+   * 不做这个判断就会进到提问面板却**没有素材** —— 面板会显示
+   * 「这一轮没问题可问」那种空白态。用户刚划了一段字，
+   * 看到空白会以为划选没生效。
+   *
+   * ## 为什么复用 oralKey 而不是另开一个状态
+   *
+   * oralKey 的语义本来就是「进提问面板 + 换一轮」。这里要的正是它，
+   * 而且它已经有「换素材必须重建组件」的保证（否则 phase 会停在
+   * 上一题的判定结果上）。
+   *
+   * ## 为什么单独一个 ref
+   *
+   * 与 autostartedRef 分开：两个标记可能同时到达（从首页点复习、
+   * 又从阅读器提问），共用一个 ref 会让后来的那个永远进不去。
+   */
+  const oralAutostartedRef = useRef(false);
+  useEffect(() => {
+    if (!autoStartOral || oralAutostartedRef.current) return;
+    if (!onOralAsk || !onOralJudge) return;
+    /* 素材还没就位就先等着 —— 下面的依赖会在它到位后重跑 */
+    if (!oralMaterial) return;
+    oralAutostartedRef.current = true;
+    enterOral();
+    onAutoStartOralConsumed?.();
+  }, [autoStartOral, oralMaterial, onOralAsk, onOralJudge, enterOral, onAutoStartOralConsumed]);
 
   const load = useCallback(async () => {
     try {

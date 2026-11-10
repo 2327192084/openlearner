@@ -1,0 +1,188 @@
+/*
+ * 选区浮层样式（2026-11-10）。
+ *
+ * ⚠️ 硬约束：base.css 有**不在任何 @layer 内**的 button 规则，
+ * 级联「层级先于特异性」。原生控件的样式（含 appearance: none）
+ * 一律写在层外 —— 这是项目里踩过六次以上的坑。
+ *
+ * 色值全部取自 tokens.css（暖黑书桌 + 朱砂主操作）。
+ * 不在这里发明颜色：设计体系已经完整，多一个色号就多一处不一致。
+ */
+
+/* ==========================================================================
+   层外：原生控件（button）
+   ========================================================================== */
+
+.selbar__btn {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  cursor: pointer;
+
+  /*
+   * 朱砂底 + 浅字：它是浮层上唯一的主操作。
+   *
+   * 设计体系里朱砂只给「开始 / 在推进」这类主操作，浮层上就一个按钮，
+   * 用它正合适。用 --accent-ink 而不是白：那个值是按朱砂底算过对比度的。
+   */
+  background: var(--accent, #c93d22);
+  color: var(--accent-ink, #fff8f2);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  line-height: 1.2;
+  white-space: nowrap;
+  transition: background 120ms ease;
+}
+
+.selbar__btn:hover:not(:disabled) {
+  background: var(--accent-soft, #ec6a4a);
+}
+
+.selbar__btn:focus-visible {
+  outline: 2px solid var(--accent-soft, #ec6a4a);
+  outline-offset: 2px;
+}
+
+.selbar__btn:disabled {
+  /* 禁用态保留形状、明确变灰：不做点了没反应的按钮 */
+  background: var(--bg-raised, #26231f);
+  color: var(--text-faint, #958e84);
+  cursor: not-allowed;
+}
+
+/* ==========================================================================
+   层内：布局（非原生控件，可以进层）
+   ========================================================================== */
+
+@layer study.features {
+  /*
+   * 浮层本体。
+   *
+   * position: fixed + 视口坐标：挂在 <body> 下的 portal，
+   * 不随正文容器滚动裁切。z-index 要高过右栏与阅读器顶栏
+   * （右栏是 20 以内，顶栏 10 量级，取 60 留余量）。
+   */
+  .selbar {
+    position: fixed;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    /*
+     * 圆角与阴影跟着设计体系走。
+     *
+     * 深色主题下阴影几乎看不见，所以再加一圈 --line-strong 描边 ——
+     * 否则浮层贴在深色正文上会糊成一团，看不出边界。
+     */
+    padding: 6px;
+    border-radius: 999px;
+    background: var(--bg-surface, #1e1b18);
+    border: 1px solid var(--line-strong, #4a443c);
+    box-shadow: 0 6px 20px rgb(0 0 0 / 45%);
+
+    /*
+     * 不让浮层被选区的高亮/focus 样式影响，也不让它自己获得焦点
+     * 时被浏览器滚进视野（那会让页面忽然跳动）。
+     */
+    overflow: visible;
+    animation: selbar-in 110ms ease-out;
+  }
+
+  /*
+   * 出现动画：轻微上浮。
+   *
+   * 110ms 是有意的 —— 再长用户会觉得「点了才出来」，
+   * 再短就看不出有过渡（等于没有）。
+   * 放在下边时反向：从下往上冒会像掉下来，改成从上往下。
+   */
+  @keyframes selbar-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .selbar--below {
+    animation-name: selbar-in-below;
+  }
+
+  @keyframes selbar-in-below {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* 小箭头：指向选区。用伪元素画三角形，不额外加 DOM */
+  .selbar::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    width: 8px;
+    height: 8px;
+    background: inherit;
+    border: inherit;
+    border-width: 1px;
+    transform: translateX(-50%) rotate(45deg);
+  }
+
+  .selbar--above::after {
+    bottom: -5px;
+    /* 只留左下两条边：旋转后看起来是朝下的小三角 */
+    border-top-color: transparent;
+    border-left-color: transparent;
+  }
+
+  .selbar--below::after {
+    top: -5px;
+    border-bottom-color: transparent;
+    border-right-color: transparent;
+  }
+
+  /* 禁用原因：说清楚为什么不能点，而不是只把按钮变灰 */
+  .selbar__why {
+    font-size: 12px;
+    color: var(--text-muted, #a59d91);
+    padding-right: 6px;
+    max-width: 220px;
+  }
+
+  /*
+   * 窄屏：浮层别超过视口。
+   *
+   * 手机/窄窗口下「用这段提问」六个字 + 原因说明可能撑破屏幕。
+   * 560px 断点与项目其它页面一致（错题页概览、闪卡、提问式复习都补过）。
+   */
+  @media (max-width: 560px) {
+    .selbar {
+      max-width: calc(100vw - 16px);
+    }
+
+    .selbar__why {
+      display: none;
+    }
+  }
+
+  /*
+   * 减少动效偏好：关掉出现动画。
+   *
+   * 前庭功能敏感的用户会被这种小动画影响；系统性偏好要尊重。
+   */
+  @media (prefers-reduced-motion: reduce) {
+    .selbar,
+    .selbar--below {
+      animation: none;
+    }
+  }
+}

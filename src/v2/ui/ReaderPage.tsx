@@ -9,12 +9,17 @@ import type {
 } from '@/core/model.ts';
 import type { SourceService } from '@/core/sources.ts';
 import type { AnnotationService } from '@/core/annotation-service.ts';
+import type { PassageSelection } from '@/core/selection-passage.ts';
+import { locateSelection, passageToMaterial } from '@/core/selection-passage.ts';
+import type { OralMaterial } from '@/core/oral-review.ts';
 import { newId } from '@/core/id.ts';
 import { IconSources } from './icons.tsx';
 import { MathText } from './MathText.tsx';
 import { ReaderFigure } from './ReaderFigure.tsx';
 import { ReaderSidePanel } from './ReaderSidePanel.tsx';
 import { paintTextMarks, clearTextMarks } from './paint-marks.ts';
+import { SelectionActionBar, measureSelectionRect } from './SelectionActionBar.tsx';
+import type { RectLike } from './selection-bar-place.ts';
 import { splitByFigures } from '@/core/mineru/images.ts';
 import './reader-figure.css';
 
@@ -76,6 +81,20 @@ export interface ReaderPageProps {
    * 用户从错题跳进来最怕「返回后不知道自己在哪」。
    */
   backLabel?: string;
+  /**
+   * 「用这段提问」（2026-11-10）。
+   *
+   * 用户在正文里选中一段后，浮层上的按钮调它，参数是**已经拼好的素材**
+   * （在 ReaderPage 里拼，因为要这一段的完整正文来给短选区扩上下文 ——
+   * 见 handleAskAboutSelection 的注释）。阅读器不知道提问怎么问、
+   * 谁来问，它只知道「用户选了这段，想拿它提问」。
+   *
+   * 可选：不传就不显示浮层。这保证「没接 AI」的场景下
+   * 不会冒出一个点了没反应的按钮（硬约束第 7 条：不做假开关）。
+   */
+  onAskAboutSelection?: (material: OralMaterial) => void;
+  /** 不能提问的原因；有值就把按钮禁用并显示原因 */
+  askDisabledReason?: string | null;
   onBack: () => void;
 }
 
@@ -126,6 +145,8 @@ export function ReaderPage({
   initialSourceId,
   target,
   backLabel,
+  onAskAboutSelection,
+  askDisabledReason,
   onBack,
 }: ReaderPageProps) {
   const [phase, setPhase] = useState<LoadPhase>({ kind: 'loading' });
@@ -147,6 +168,14 @@ export function ReaderPage({
   const [pageMarks, setPageMarks] = useState<TextMark[]>([]);
   /** 正文里当前选中的文字（空串 = 没选中）。决定「加标记」按钮是否可用 */
   const [selectionText, setSelectionText] = useState('');
+  /**
+   * 选区的视口矩形（2026-11-10）。
+   *
+   * 与 selectionText 分开放：文字用于判断「有没有选」，
+   * 矩形用于定位浮层。两者一起变化，但消费方不同
+   * （浮层要矩形，右栏要布尔）。
+   */
+  const [selectionRect, setSelectionRect] = useState<RectLike | null>(null);
 
   /**
    * 原图查看。
@@ -465,16 +494,26 @@ export function ReaderPage({
       const sel = window.getSelection();
       if (!el || !sel || sel.rangeCount === 0) {
         setSelectionText('');
+        setSelectionRect(null);
         return;
       }
       const text = sel.toString().trim();
       if (!text) {
         setSelectionText('');
+        setSelectionRect(null);
         return;
       }
       const root = sel.getRangeAt(0).commonAncestorContainer;
       const inside = el.contains(root.nodeType === 1 ? root : root.parentNode);
       setSelectionText(inside ? text : '');
+      /*
+       * 顺手把选区的视口矩形一起量下来（2026-11-10）。
+       *
+       * 复用这一次监听而不是再挂一份：两处监听会在时序上打架
+       * （一处已经 setState 了，另一处还在读旧 Range）。
+       * 量的具体做法在 SelectionActionBar 里，这里只管取。
+       */
+      setSelectionRect(inside ? measureSelectionRect(el) : null);
     };
 
     document.addEventListener('selectionchange', onSelectionChange);
@@ -580,13 +619,88 @@ export function ReaderPage({
     [annotations, sourceId, seg, selectionText],
   );
 
+  /**
+   * 把当前选区做成一条提问素材并交给宿主（2026-11-10）。
+   *
+   * ## 为什么要重新量一次偏移，而不是复用 handleAddMark 那段
+   *
+   * handleAddMark 里那段 Range 测量埋在它的回调里、还混着建标记的
+   * 其它逻辑。这里需要的只是「选区起点 ≈ 段内第几个字」这一个数，
+   * 抽出来单独量更清楚，也不会因为改标记逻辑而连带坏掉提问。
+   *
+   * ## 为什么量不到也要继续
+   *
+   * `start = -1` 时 `evidenceText()` 会只用引文本身（不扩上下文）。
+   * 这比「不提问」好：用户看到的是它拿自己选的那句话去问了，
+   * 只是短选区时少了点上下文 —— 而且界面会如实说明。
+   */
+  const handleAskAboutSelection = useCallback(
+    (text: string) => {
+      if (!onAskAboutSelection || !sourceId || !seg) return;
+
+      /* 量「选区起点之前有多少文字」—— 与 handleAddMark 同一套做法 */
+      let hintStart = -1;
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        try {
+          const range = sel.getRangeAt(0);
+          const el = bodyRef.current;
+          if (el && el.contains(range.startContainer)) {
+            const head = range.cloneRange();
+            head.selectNodeContents(el);
+            head.setEnd(range.startContainer, range.startOffset);
+            /*
+             * 用 head.toString().length 而不是取末 40 字再 indexOf：
+             * 前者是「字符数」，与 seg.text 的偏移同一量纲；
+             * 后者要处理「截断处正好在多字节边界」等噪声。
+             */
+            hintStart = head.toString().length;
+          }
+        } catch {
+          /* Range 操作失败就退回按引文搜（locateSelection 的兜底） */
+        }
+      }
+
+      const { start, end } = locateSelection(seg.text, text, hintStart);
+      const selection: PassageSelection = {
+        sourceId,
+        page: seg.page,
+        quote: text.trim(),
+        start,
+        end,
+        chapter: seg.chapter,
+      };
+
+      /*
+       * 在这里就把素材拼好（而不是把 PassageSelection 丢给宿主）。
+       *
+       * 理由：拼素材需要**这一段的完整正文**（短选区要扩上下文）
+       * 与资料标题，这两样此刻就在手边（seg.text / phase.source.title）。
+       * 交给宿主的话它得为了一段文字再查一次库 ——
+       * 628 页的资料读全部段落，只为取一段，明显不值。
+       */
+      const material = passageToMaterial(
+        selection,
+        seg.text,
+        phase.kind === 'ready' ? phase.source.title : '',
+      );
+
+      /* 清掉选区与浮层，避免同一段被连点两次 */
+      window.getSelection()?.removeAllRanges();
+      setSelectionText('');
+      setSelectionRect(null);
+
+      onAskAboutSelection(material);
+    },
+    [onAskAboutSelection, sourceId, seg, phase],
+  );
+
   const handleRemoveMark = useCallback(
     async (markId: string) => {
       if (!annotations || !sourceId || !seg) return;
       await annotations.removeTextMark(sourceId, seg.page, markId);
       const rec = await annotations.get(sourceId, seg.page);
-      setPageMarks(rec?.textMarks ?? []);
-    },
+      setPageMarks(rec?.textMarks ?? []);    },
     [annotations, sourceId, seg],
   );
 
@@ -878,6 +992,20 @@ export function ReaderPage({
         ) : null}
       </div>
       </div>
+
+      {/*
+        选区浮层：选中正文就冒出的「用这段提问」（2026-11-10）。
+        抽成独立文件（SelectionActionBar.tsx），宿主只插这一行 ——
+        ReaderPage 已经 1200+ 行，项目对往大文件里插代码有过教训。
+        只在宿主接了 onAskAboutSelection 时才渲染（没接 AI 就不冒按钮）。
+      */}
+      {onAskAboutSelection ? (
+        <SelectionActionBar
+          selection={selectionRect && selectionText ? { rect: selectionRect, text: selectionText } : null}
+          onAsk={handleAskAboutSelection}
+          disabledReason={askDisabledReason ?? null}
+        />
+      ) : null}
 
       {/*
         右侧边栏：查看 / 批注（2026-11-09）。
