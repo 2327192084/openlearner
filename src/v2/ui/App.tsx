@@ -821,6 +821,45 @@ export function App({
   /** 可挑选的知识点（闪卡候选） */
   const [flashcardPoints, setFlashcardPoints] = useState<KnowledgePoint[]>([]);
 
+  // ---------------------------------------------------------------------------
+  // 从闪卡跳知识库挑知识点（2026-11-10）
+  // ---------------------------------------------------------------------------
+
+  /**
+   * 是否正「从闪卡来知识库挑知识点」。
+   *
+   * 用户原话：「记忆闪卡制作闪卡直接让用户跳转到知识库选择好一点，
+   * 按知识骨架那四个类型分类后用户也好选择需要加入闪卡的知识点」。
+   *
+   * 白名单式的一个标记：只有它为真时知识库才进入挑选模式。
+   * 平时从侧栏进知识库，看到的仍是纯浏览页（不多一行控件）。
+   */
+  const [pickingForFlashcards, setPickingForFlashcards] = useState(false);
+  /**
+   * 挑完回闪卡时自动展开闪卡视图。
+   *
+   * 与 autoOral 同一套「进来就到位」的模式：用户点的是「加进闪卡」，
+   * 加完就该看到那些卡，而不是停在复习巩固的列表页再点一次。
+   */
+  const [showFlashcardsFromKnowledge, setShowFlashcardsFromKnowledge] = useState(false);
+
+  /**
+   * 从闪卡面板点「去知识库挑」。
+   *
+   * 先读出知识点（知识库要候选列表），再进挑选模式。
+   * 不用 effect 自动读：这条路径是显式点击，读一次即可。
+   */
+  const handleGoPickKnowledge = useCallback(async () => {
+    try {
+      const points = await knowledgeService.listAll();
+      setFlashcardPoints(points);
+    } catch {
+      /* 读不到也照样进页面：知识库自己还会读一次并显示错误 */
+    }
+    setPickingForFlashcards(true);
+    setPage('knowledge');
+  }, [knowledgeService]);
+
   /** 读闪卡与候选知识点。建卡/删卡后都要重读 */
   const reloadFlashcards = useCallback(async () => {
     const [views, points] = await Promise.all([
@@ -1417,6 +1456,9 @@ export function App({
           onAddFlashcards={handleAddFlashcards}
           onRemoveFlashcard={handleRemoveFlashcard}
           onPickFlashcardsWithAi={handlePickFlashcards}
+          onGoPickKnowledge={() => void handleGoPickKnowledge()}
+          autoShowFlashcards={showFlashcardsFromKnowledge}
+          onAutoShowFlashcardsConsumed={() => setShowFlashcardsFromKnowledge(false)}
           oralScopeLabel={oralScopeLabel}
           oralMaterial={oralMaterial}
           onOralAsk={handleOralAsk}
@@ -1568,6 +1610,31 @@ export function App({
             await knowledgeService.update(id, { tags });
             void refreshShellState();
           }}
+          /*
+            从闪卡跳过来挑知识点（2026-11-10）。
+            只有 pickingForFlashcards 为真时才进挑选模式 ——
+            平时进知识库仍是纯浏览，不多任何控件。
+          */
+          onPickPoints={
+            pickingForFlashcards
+              ? async (ids) => {
+                  await handleAddFlashcards(ids);
+                  /*
+                   * 加完回闪卡看结果。
+                   *
+                   * 不留在知识库：用户刚挑的卡最想在翻卡视图里看到，
+                   * 留在原地会让他怀疑「到底加进去了没有」
+                   * （交接文档记过同类 bug：建完卡停在挑卡页）。
+                   */
+                  setPickingForFlashcards(false);
+                  setShowFlashcardsFromKnowledge(true);
+                  setPage('book');
+                }
+              : undefined
+          }
+          pickTitle="挑要加进闪卡的知识点"
+          onCancelPick={() => setPickingForFlashcards(false)}
+          alreadyPickedIds={flashcards.map((v) => v.card.knowledgePointId)}
         />
       ) : page === 'study' ? (
         <StudyPage

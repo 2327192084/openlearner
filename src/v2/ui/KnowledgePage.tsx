@@ -6,6 +6,7 @@ import { IconBook } from './icons.tsx';
 import { ConfirmDialog } from './dialog.tsx';
 import { MathText } from './MathText.tsx';
 import { KpTagsEditor } from './KpTagsEditor.tsx';
+import { COGNITIVE_LEVEL_LABEL, COGNITIVE_LEVEL_META } from '@/core/cognitive-levels.ts';
 
 /**
  * 知识库 —— 按资料文件归类所有知识点。
@@ -78,6 +79,37 @@ export interface KnowledgePageProps {
    * 参数是资料 id；`null` 对应「没有归属资料」那一组。
    */
   onRemoveSourcePoints?: (sourceId: string | null) => Promise<void>;
+  /**
+   * 挑选模式（2026-11-10）。
+   *
+   * ## 为什么加这个
+   *
+   * 用户原话：「记忆闪卡制作闪卡直接让用户跳转到知识库选择好一点，
+   * 按知识骨架那四个类型分类后用户也好选择需要加入闪卡的知识点」。
+   *
+   * 原来的挑卡是在闪卡面板里平铺一列（`FlashcardsPanel` 的 available 列表）。
+   * 那个列表没有资料分组、没有类型筛选、也不能按章节收窄 ——
+   * 一个 59 条知识点的库，找「想背的那三条」要靠滚动翻。
+   * 而知识库这一页本来就有「文件 → 章节 → 类型」三层组织，
+   * 直接在这里挑，用户能一路收窄到想要的那几条。
+   *
+   * ## 为什么不把知识库整页复制一份到闪卡里
+   *
+   * 复制会产生两套会漂的实现（分组逻辑、类型筛选、标签编辑都得各写一遍）。
+   * 加一个模式开关，同一份视图两种用途 —— 收窄的方式完全一致。
+   *
+   * ## 不传这些 prop 时行为完全不变
+   *
+   * 只有传了 `onPickPoints` 才进入挑选模式、才显示勾选框与确认栏。
+   * 知识库作为普通浏览页时，一个多余控件都不会出现。
+   */
+  onPickPoints?: (ids: string[]) => Promise<void> | void;
+  /** 挑选模式的标题（比如「挑要加进闪卡的知识点」） */
+  pickTitle?: string;
+  /** 取消挑选（回到调用方） */
+  onCancelPick?: () => void;
+  /** 已经在闪卡里、不该再被挑中的知识点 id */
+  alreadyPickedIds?: readonly string[];
 }
 
 interface SourceGroup {
@@ -102,6 +134,10 @@ export function KnowledgePage({
   onRemovePoint,
   onRemoveSourcePoints,
   onUpdateTags,
+  onPickPoints,
+  pickTitle,
+  onCancelPick,
+  alreadyPickedIds,
 }: KnowledgePageProps) {
   const [points, setPoints] = useState<KnowledgePoint[] | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
@@ -109,6 +145,47 @@ export function KnowledgePage({
   const [query, setQuery] = useState('');
   /** 收起了哪些文件（默认全展开） */
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  /** 是否在挑选模式（只有调用方传了 onPickPoints 才启用） */
+  const picking = Boolean(onPickPoints);
+  /** 已勾选的知识点 id（挑选模式用；普通浏览时一直是空的） */
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  /** 已在闪卡里的（置灰、不可勾） */
+  const alreadyPicked = useMemo(() => new Set(alreadyPickedIds ?? []), [alreadyPickedIds]);
+
+  const toggleChosen = useCallback((id: string) => {
+    setChosen((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  /** 正在把勾选的知识点加进闪卡 */
+  const [pickSaving, setPickSaving] = useState(false);
+  /** 加入失败的原因（不静默吞掉：用户点过的东西没生效必须说） */
+  const [pickError, setPickError] = useState<string | null>(null);
+
+  const doPick = useCallback(async () => {
+    if (!onPickPoints || pickSaving || chosen.size === 0) return;
+    setPickSaving(true);
+    setPickError(null);
+    try {
+      await onPickPoints([...chosen]);
+      /*
+       * 加入成功后不清空勾选、也不自动退出。
+       *
+       * 用户可能想「这几条加完了，再加那几条」—— 自动退出会打断他，
+       * 清空勾选会让他看不到刚加了什么。由调用方决定什么时候回闪卡
+       * （它的 onPickPoints 里会 goPage 过去）。
+       */
+    } catch (e) {
+      setPickError(e instanceof Error ? e.message : '加入闪卡失败');
+    } finally {
+      setPickSaving(false);
+    }
+  }, [onPickPoints, pickSaving, chosen]);
 
   /**
    * 已有章节名，给标签输入当建议（2026-11-10）。
@@ -243,28 +320,77 @@ export function KnowledgePage({
     });
   }, [points, sources]);
 
-  /** 搜索过滤（按 statement / quote / 章节名） */
+  /**
+   * 按认知类型筛选（2026-11-10）。
+   *
+   * ## 为什么需要它
+   *
+   * 用户原话：「知识库的知识分类应该在同一个资料下按知识骨架那四个类型
+   * 进行分类，这样用户好筛选想看的知识点」。
+   *
+   * 知识骨架页早就按这四个类型筛（`SkeletonPage` 的 LEVELS），
+   * 但知识库这一页没有 —— 两页看的是同一批知识点，一个能按类型收窄、
+   * 一个不能，用户得来回跳。这里补上，口径与骨架页完全一致
+   * （记忆 / 理解 / 应用 / 分析，顺序由浅到深）。
+   *
+   * ## 为什么是「与」关系而不是切成另一种视图
+   *
+   * 与搜索、与文件分组都是**与**：用户可能想「在《信号与系统》里
+   * 看所有『分析』类」。砍掉分组会让「同一资料下分类」这个诉求落空。
+   *
+   * 多选（Set）而不是单选：他可能想看「理解 + 应用」两类。
+   */
+  const [pickedLevels, setPickedLevels] = useState<Set<KnowledgePoint['cognitiveLevel']>>(
+    new Set(),
+  );
+
+  const toggleLevel = useCallback((lv: KnowledgePoint['cognitiveLevel']) => {
+    setPickedLevels((prev) => {
+      const next = new Set(prev);
+      if (next.has(lv)) next.delete(lv);
+      else next.add(lv);
+      return next;
+    });
+  }, []);
+
+  /** 每种类型在全库里的条数（按钮上的数字按全部知识点算，不随筛选变） */
+  const levelTotals = useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const p of points ?? []) out[p.cognitiveLevel] = (out[p.cognitiveLevel] ?? 0) + 1;
+    return out;
+  }, [points]);
+
+  /** 搜索 + 类型筛选（两者是「与」关系） */
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return groups;
+    const levels = pickedLevels;
+
+    /* 两个条件都没设：原样返回，不做无谓的复制 */
+    if (!q && levels.size === 0) return groups;
+
     return groups
       .map((g) => {
         const chapters = g.chapters
           .map((c) => ({
             ...c,
-            points: c.points.filter(
-              (p) =>
+            points: c.points.filter((p) => {
+              /* 类型条件 */
+              if (levels.size > 0 && !levels.has(p.cognitiveLevel)) return false;
+              /* 搜索条件 */
+              if (!q) return true;
+              return (
                 p.statement.toLowerCase().includes(q) ||
                 p.quotes.some((qt) => qt.toLowerCase().includes(q)) ||
-                c.name.toLowerCase().includes(q),
-            ),
+                c.name.toLowerCase().includes(q)
+              );
+            }),
           }))
           .filter((c) => c.points.length > 0);
         const points2 = chapters.flatMap((c) => c.points);
         return { ...g, chapters, points: points2 };
       })
-      .filter((g) => g.points.length > 0 || g.title.toLowerCase().includes(q));
-  }, [groups, query]);
+      .filter((g) => g.points.length > 0 || (q !== '' && g.title.toLowerCase().includes(q)));
+  }, [groups, query, pickedLevels]);
 
   const totalPoints = points?.length ?? 0;
   const totalLocated = (points ?? []).filter((p) => p.anchors.length > 0).length;
@@ -278,13 +404,22 @@ export function KnowledgePage({
   }
 
   return (
-    <div className="kb-page">
+    <div className={`kb-page${picking ? ' kb-page--picking' : ''}`}>
       <header className="kb-head">
         <div>
-          <h1 className="kb-title">知识库</h1>
+          <h1 className="kb-title">{picking ? (pickTitle ?? '挑知识点') : '知识库'}</h1>
           <p className="kb-lead">
-            所有整理出来的知识点都收在这里，按来源文件归类。共 {totalPoints} 条
-            {totalPoints > 0 ? `，其中 ${totalLocated} 条能点回原文` : ''}。
+            {picking ? (
+              <>
+                用下面的「按类型」和文件分组收窄范围，勾选要加进闪卡的知识点。
+                已选中 {chosen.size} 条。
+              </>
+            ) : (
+              <>
+                所有整理出来的知识点都收在这里，按来源文件归类。共 {totalPoints} 条
+                {totalPoints > 0 ? `，其中 ${totalLocated} 条能点回原文` : ''}。
+              </>
+            )}
           </p>
         </div>
         {/*
@@ -321,6 +456,44 @@ export function KnowledgePage({
           {query ? (
             <button type="button" className="btn-ghost" onClick={() => setQuery('')}>
               清空
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/*
+        按认知类型筛选（2026-11-10）。
+        与知识骨架页的 LEVELS 同一套四个类型、同一个顺序 ——
+        两页看的是同一批知识点，筛选口径不能有两份。
+        按钮上的数字按全部知识点统计，不随筛选变化（否则数字会越筛越小，
+        看着像知识点丢了）。
+      */}
+      {totalPoints > 0 ? (
+        <div className="kb-levels">
+          <span className="kb-levels__label">按类型</span>
+          {COGNITIVE_LEVEL_META.map((lv) => {
+            const on = pickedLevels.has(lv.key);
+            return (
+              <button
+                key={lv.key}
+                type="button"
+                className={`kb-level${on ? ' kb-level--on' : ''}`}
+                aria-pressed={on}
+                title={lv.hint}
+                onClick={() => toggleLevel(lv.key)}
+              >
+                {lv.label}
+                <span className="kb-level__n">{levelTotals[lv.key] ?? 0}</span>
+              </button>
+            );
+          })}
+          {pickedLevels.size > 0 ? (
+            <button
+              type="button"
+              className="btn-ghost kb-levels__clear"
+              onClick={() => setPickedLevels(new Set())}
+            >
+              清空类型
             </button>
           ) : null}
         </div>
@@ -412,8 +585,33 @@ export function KnowledgePage({
                         <ul className="kb-points">
                           {chapter.points.map((p) => {
                             const anchor = p.anchors[0];
+                            const inFlashcards = alreadyPicked.has(p.id);
+                            const isChosen = chosen.has(p.id);
                             return (
-                              <li key={p.id} className="kb-point">
+                              <li
+                                key={p.id}
+                                className={`kb-point${isChosen ? ' kb-point--chosen' : ''}${
+                                  picking && inFlashcards ? ' kb-point--done' : ''
+                                }`}
+                              >
+                                {/*
+                                  挑选模式的勾选框（2026-11-10）。
+                                  已在闪卡里的置灰不可勾 —— 再勾一次只会
+                                  让服务层白跑一遍，用户还以为是新建了。
+                                */}
+                                {picking ? (
+                                  <label className="kb-point__pick">
+                                    <input
+                                      type="checkbox"
+                                      checked={isChosen}
+                                      disabled={inFlashcards}
+                                      onChange={() => toggleChosen(p.id)}
+                                    />
+                                    {inFlashcards ? (
+                                      <span className="kb-point__picked">已在闪卡里</span>
+                                    ) : null}
+                                  </label>
+                                ) : null}
                                 <p className="kb-point__statement"><MathText text={p.statement} /></p>
                                 {p.quotes[0] ? (
                                   <p className="kb-point__quote">
@@ -549,13 +747,40 @@ export function KnowledgePage({
           {removeError ? <p className="kb-remove-error">{removeError}</p> : null}
         </ConfirmDialog>
       ) : null}
+
+      {/*
+        挑选模式的底部确认栏（2026-11-10）。
+        固定吸底：用户在长列表里勾到一半时，不该为了点「加入」再滚回顶部。
+      */}
+      {picking ? (
+        <div className="kb-pickbar">
+          <span className="kb-pickbar__count">
+            已选 {chosen.size} 条
+            {chosen.size === 0 ? ' —— 勾选上面的知识点' : ''}
+          </span>
+          {pickError ? <span className="kb-pickbar__err">{pickError}</span> : null}
+          <button
+            type="button"
+            className="kb-pickbar__ok"
+            disabled={chosen.size === 0 || pickSaving}
+            onClick={() => void doPick()}
+          >
+            {pickSaving ? '正在加入…' : `加入闪卡（${chosen.size}）`}
+          </button>
+          {onCancelPick ? (
+            <button
+              type="button"
+              className="kb-pickbar__cancel"
+              disabled={pickSaving}
+              onClick={onCancelPick}
+            >
+              取消
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-const LEVEL_LABEL: Record<KnowledgePoint['cognitiveLevel'], string> = {
-  remember: '记忆',
-  understand: '理解',
-  apply: '应用',
-  analyze: '分析',
-};
+const LEVEL_LABEL = COGNITIVE_LEVEL_LABEL;

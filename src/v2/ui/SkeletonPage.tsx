@@ -21,6 +21,7 @@ import type { KnowledgePoint, Question, Source } from '@/core/model.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { SourceService } from '@/core/sources.ts';
 import type { DeckService } from '@/core/questions/service.ts';
+import { COGNITIVE_LEVEL_META } from '@/core/cognitive-levels.ts';
 import {
   coverageOf,
   describeGap,
@@ -40,13 +41,15 @@ export interface SkeletonPageProps {
   onOpenOrganize: (sourceId: string | null) => void;
 }
 
-/** 认知层级的显示名（顺序即由浅到深） */
-const LEVELS = [
-  { key: 'remember', label: '记忆', hint: '能记住定义与事实' },
-  { key: 'understand', label: '理解', hint: '能解释、能举例' },
-  { key: 'apply', label: '应用', hint: '能用来解题' },
-  { key: 'analyze', label: '分析', hint: '能比较、能推论' },
-] as const;
+/**
+ * 认知层级的显示名（顺序即由浅到深）。
+ *
+ * 2026-11-10 改为从 `core/cognitive-levels.ts` 取。原来这里内联一份、
+ * 知识库内联一份、`pages/decks/types.ts` 又一份（那份写的是「识记」
+ * 而不是「记忆」）。用户要求知识库「按知识骨架那四个类型」分类时，
+ * 三处漂着会让同一个类型在两页叫不同名字。现在只有一处定义。
+ */
+const LEVELS = COGNITIVE_LEVEL_META;
 
 type Level = (typeof LEVELS)[number]['key'];
 

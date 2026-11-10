@@ -91,6 +91,23 @@ export interface BookPageProps {
   /** 让 AI 挑一批候选（只返回候选，不建卡） */
   onPickFlashcardsWithAi?: () => Promise<FlashcardCandidate[]>;
   /**
+   * 从闪卡「去知识库挑」（2026-11-10）。
+   *
+   * 用户要求做闪卡时直接跳知识库选 —— 那边有文件分组与类型筛选，
+   * 几十条知识点也能收窄。不传则闪卡面板只保留面板内平铺列表。
+   */
+  onGoPickKnowledge?: () => void;
+  /**
+   * 从知识库挑完卡回来时自动展开闪卡视图（2026-11-10）。
+   *
+   * 与 autoStartReview / autoStartOral 同一套「进来就到位」的模式：
+   * 用户点的是「加进闪卡」，加完就该看到那些卡。
+   * 标记用完即清（由本页回传给宿主清掉）。
+   */
+  autoShowFlashcards?: boolean;
+  /** 消费掉 autoShowFlashcards 标记 */
+  onAutoShowFlashcardsConsumed?: () => void;
+  /**
    * 提问式复习（2026-11-10）。
    *
    * 与另外两种复习方式的区别：这是**开放回答 + 模型判定**。
@@ -178,6 +195,9 @@ export function BookPage({
   onAddFlashcards,
   onRemoveFlashcard,
   onPickFlashcardsWithAi,
+  onGoPickKnowledge,
+  autoShowFlashcards = false,
+  onAutoShowFlashcardsConsumed,
   oralScopeLabel = '随机提问',
   oralMaterial = null,
   onOralAsk,
@@ -296,6 +316,21 @@ export function BookPage({
     enterOral();
     onAutoStartOralConsumed?.();
   }, [autoStartOral, oralMaterial, onOralAsk, onOralJudge, enterOral, onAutoStartOralConsumed]);
+
+  /**
+   * 从知识库挑完卡回来时自动展开闪卡（2026-11-10）。
+   *
+   * 用 effect + ref 而不是直接在渲染里判断：标记是「这次进来要展开」，
+   * 消费掉就该清空，否则用户下次从侧栏进这一页也会被拽进闪卡。
+   * ref 与 autostartedRef 分开 —— 两个标记可能在不同时机到达。
+   */
+  const flashAutoshownRef = useRef(false);
+  useEffect(() => {
+    if (!autoShowFlashcards || flashAutoshownRef.current) return;
+    flashAutoshownRef.current = true;
+    enterFlashcards();
+    onAutoShowFlashcardsConsumed?.();
+  }, [autoShowFlashcards, enterFlashcards, onAutoShowFlashcardsConsumed]);
 
   const load = useCallback(async () => {
     try {
@@ -543,6 +578,7 @@ export function BookPage({
               : undefined
           }
           onPickWithAi={onPickFlashcardsWithAi}
+          onGoKnowledge={onGoPickKnowledge}
           onExit={() => setShowFlashcards(false)}
         />
       </div>

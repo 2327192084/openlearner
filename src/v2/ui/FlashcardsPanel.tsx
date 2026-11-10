@@ -38,6 +38,16 @@ export interface FlashcardsPanelProps {
   onOpenAnchor?: (sourceId: string, page?: number, quote?: string) => void;
   /** 让 AI 挑一批候选（返回候选；不直接建卡） */
   onPickWithAi?: () => Promise<FlashcardCandidate[]>;
+  /**
+   * 跳到知识库挑知识点（2026-11-10）。
+   *
+   * 用户原话：「记忆闪卡制作闪卡直接让用户跳转到知识库选择好一点，
+   * 按知识骨架那四个类型分类后用户也好选择需要加入闪卡的知识点」。
+   *
+   * 不传就只在本面板内平铺列表（旧行为）。传了就多一个
+   * 「去知识库挑」的入口 —— 那边有文件分组 + 类型筛选，找起来快得多。
+   */
+  onGoKnowledge?: () => void;
   /** 退出闪卡，回到阅读模式 */
   onExit: () => void;
 }
@@ -51,6 +61,7 @@ export function FlashcardsPanel({
   onRemove,
   onOpenAnchor,
   onPickWithAi,
+  onGoKnowledge,
   onExit,
 }: FlashcardsPanelProps) {
   const [mode, setMode] = useState<Mode>(cards.length > 0 ? 'review' : 'pick');
@@ -62,6 +73,7 @@ export function FlashcardsPanel({
         existingIds={new Set(cards.map((c) => c.card.knowledgePointId))}
         onAdd={onAdd}
         onPickWithAi={onPickWithAi}
+        onGoKnowledge={onGoKnowledge}
         onCancel={() => setMode('review')}
         onExit={onExit}
         hasCards={cards.length > 0}
@@ -264,6 +276,7 @@ function PickView({
   existingIds,
   onAdd,
   onPickWithAi,
+  onGoKnowledge,
   onCancel,
   onExit,
   hasCards,
@@ -272,6 +285,7 @@ function PickView({
   existingIds: ReadonlySet<string>;
   onAdd: (ids: string[]) => Promise<void> | void;
   onPickWithAi?: () => Promise<FlashcardCandidate[]>;
+  onGoKnowledge?: () => void;
   onCancel: () => void;
   onExit: () => void;
   hasCards: boolean;
@@ -338,6 +352,23 @@ function PickView({
     <div className="fcp">
       <div className="fcp__bar">
         <span className="fcp__pose">挑闪卡</span>
+        {/*
+          去知识库挑（2026-11-10）。
+          放在 AI 挑前面：它是「我自己想清楚要哪些」这条路的入口，
+          而下面那个平铺列表只适合条数少的时候。知识库那边有文件分组
+          与按类型筛选，几十条知识点也能收窄到想背的那几条。
+        */}
+        {onGoKnowledge ? (
+          <button
+            type="button"
+            className="fcp__btn"
+            onClick={onGoKnowledge}
+            disabled={busy}
+            title="按资料、章节或认知类型筛选后再挑，比在长列表里翻快得多"
+          >
+            去知识库挑
+          </button>
+        ) : null}
         {onPickWithAi ? (
           <button
             type="button"
