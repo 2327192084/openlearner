@@ -5,6 +5,7 @@ import { BackendService } from '@/core/backends.ts';
 import { CourseService, SourceService } from '@/core/sources.ts';
 import { KnowledgeService } from '@/core/knowledge/service.ts';
 import { FlashcardService } from '@/core/flashcards.ts';
+import { OralReviewService } from '@/core/oral-review-service.ts';
 import { DeckService } from '@/core/questions/service.ts';
 import { SlideService } from '@/core/slides/service.ts';
 import { UsageService } from '@/core/usage.ts';
@@ -89,6 +90,8 @@ function Bootstrap() {
     const slides = new SlideService(storage, usage);
     /* 记忆闪卡（2026-11-10）：只读写 flashcards 分区，不碰复习记录 */
     const flashcards = new FlashcardService(storage);
+    /* 提问式复习的记录（2026-11-10）：判定逻辑在 core/oral-review.ts */
+    const oralReviews = new OralReviewService(storage);
 
     library
       .init()
@@ -169,6 +172,7 @@ function Bootstrap() {
           decks,
           slides,
           flashcards,
+          oralReviews,
           trash,
           env: detectEnv(),
         });

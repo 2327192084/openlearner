@@ -14,6 +14,16 @@ import { BookPage } from './BookPage.tsx';
 import { buildReviewQueue, type ReviewQueue } from './review-session.ts';
 import { buildPickPrompt, parsePicks, type FlashcardCandidate } from '@/core/ai/pick-flashcards.ts';
 import type { FlashcardView } from '@/core/flashcards.ts';
+import {
+  buildAskPrompt,
+  buildJudgePrompt,
+  buildOralSystemPrompt,
+  parseJudgement,
+  pickMaterial,
+  pointsToMaterials,
+  type OralJudgement,
+  type OralMaterial,
+} from '@/core/oral-review.ts';
 import { todayLocal, type ReviewGrade } from '@/v2/core/srs.ts';
 import { NotesPage } from './NotesPage.tsx';
 import { ExamPage } from './ExamPage.tsx';
@@ -394,6 +404,7 @@ export function App({
     trash: trashService,
     knowledge: knowledgeService,
     flashcards: flashcardsService,
+    oralReviews: oralReviewService,
   } = useServices();
 
   /**
@@ -817,7 +828,24 @@ export function App({
 
   /* 进复习巩固页时读一次；换页不必重读（闪卡不常变） */
   useEffect(() => {
-    if (page === 'book') void reloadFlashcards();
+    if (page !== 'book') return;
+    void (async () => {
+      await reloadFlashcards();
+      /*
+       * 同时备好「提问式复习」的素材池（2026-11-10）。
+       *
+       * 用知识点而不是段落：知识点的 quotes 已经是逐字原文、
+       * 而且自带出处（资料 + 页码），跳回原文最准。
+       * 段落池留给「用户在原文里划选一段」那条路 —— 那是显式选择，
+       * 不该混进随机池里（否则随机可能抽到一整页无关内容）。
+       */
+      const points = await knowledgeService.listAll();
+      const pool = pointsToMaterials(points);
+      setOralPool(pool);
+      /* 默认素材：从池子里抽一条；池子空则为 null（界面会说明原因） */
+      setOralMaterial(pickMaterial(pool));
+      setOralScopeLabel('知识点随机提问');
+    })();
   }, [page, reloadFlashcards]);
 
   const handleAddFlashcards = useCallback(
@@ -889,6 +917,110 @@ export function App({
 
     return parsePicks(res.content, pool);
   }, [flashcardPoints]);
+
+  // ---------------------------------------------------------------------------
+  // 提问式复习（2026-11-10）
+  // ---------------------------------------------------------------------------
+
+  /** 这一轮从哪来（显示用） */
+  const [oralScopeLabel, setOralScopeLabel] = useState('随机提问');
+  /** 当前素材 */
+  const [oralMaterial, setOralMaterial] = useState<OralMaterial | null>(null);
+  /**
+   * 可提问的素材池（用于「换一题」）。
+   *
+   * 与 oralMaterial 分开：material 是「当前这一条」，池子是「还能抽哪些」。
+   * 换题时从池子里再抽一条，而不是重新查库 —— 池子不变，不必重读。
+   */
+  const [oralPool, setOralPool] = useState<OralMaterial[]>([]);
+  /** 设置里的「自动保存」 */
+  const [oralAutoSave] = useState(false);
+
+  /**
+   * 统一的「拿到一个可用后端」。
+   *
+   * 抽出来是因为三期要调三次模型（出题 / 判定），加上二期的挑卡 ——
+   * 每处都写一遍「取列表、筛 ready、读凭据」既啰嗦又容易漏掉某一步。
+   */
+  const resolveBackend = useCallback(async () => {
+    const list = await backends.list();
+    const ready = list.filter((b) => b.status === 'ready');
+    if (ready.length === 0) {
+      throw new Error('还没有可用的模型。先到「设置」里添加一个后端。');
+    }
+    const b = ready[0]!;
+    const apiKey = await backends.readCredential(b.id);
+    if (!apiKey) throw new Error('读不到这个后端的 API Key，请到设置页重新填一次。');
+    return { ...b, apiKey };
+  }, []);
+
+  /** 让 AI 就一条材料提问 */
+  const handleOralAsk = useCallback(
+    async (m: OralMaterial): Promise<string> => {
+      const b = await resolveBackend();
+      const { chatCompletion } = await import('@/core/ai/deepseek-client.ts');
+      const res = await chatCompletion({
+        apiKey: b.apiKey,
+        model: b.model,
+        ...(b.baseUrl ? { baseUrl: b.baseUrl } : {}),
+        provider: b.provider,
+        systemPrompt: buildOralSystemPrompt(),
+        userPrompt: buildAskPrompt(m),
+        /* 出题要稳定，不要发散 */
+        temperature: 0.3,
+        maxTokens: 400,
+      });
+      const q = res.content.trim();
+      if (!q) throw new Error('模型没有给出问题，换一条材料再试。');
+      /* 模型有时会加「问题：」前缀，去掉 */
+      return q.replace(/^\s*(问题|问答|题目)[：:]\s*/, '');
+    },
+    [resolveBackend],
+  );
+
+  /** 让 AI 判定用户的回答 */
+  const handleOralJudge = useCallback(
+    async (m: OralMaterial, q: string, a: string): Promise<OralJudgement> => {
+      const b = await resolveBackend();
+      const { chatCompletion } = await import('@/core/ai/deepseek-client.ts');
+      const res = await chatCompletion({
+        apiKey: b.apiKey,
+        model: b.model,
+        ...(b.baseUrl ? { baseUrl: b.baseUrl } : {}),
+        provider: b.provider,
+        systemPrompt: buildOralSystemPrompt(),
+        userPrompt: buildJudgePrompt(m, q, a),
+        /* 判定要稳，不要发挥 */
+        temperature: 0.1,
+        maxTokens: 1200,
+      });
+      return parseJudgement(res.content, m);
+    },
+    [resolveBackend],
+  );
+
+  const handleOralSave = useCallback(
+    async (input: {
+      material: OralMaterial;
+      question: string;
+      answer: string;
+      judgement: OralJudgement;
+      savedAs: 'full' | 'brief';
+    }) => {
+      await oralReviewService.save(input);
+    },
+    [],
+  );
+
+  /** 换一题：从池子里再抽一条 */
+  const handleOralNext = useCallback(() => {
+    const next = pickMaterial(oralPool);
+    if (next) {
+      setOralMaterial(next);
+    } else {
+      setOralMaterial(null);
+    }
+  }, [oralPool]);
 
   const navigate = useCallback(
     async (id: PageId) => {
@@ -1071,6 +1203,13 @@ export function App({
           onAddFlashcards={handleAddFlashcards}
           onRemoveFlashcard={handleRemoveFlashcard}
           onPickFlashcardsWithAi={handlePickFlashcards}
+          oralScopeLabel={oralScopeLabel}
+          oralMaterial={oralMaterial}
+          onOralAsk={handleOralAsk}
+          onOralJudge={handleOralJudge}
+          onOralSave={handleOralSave}
+          onOralNext={handleOralNext}
+          oralAutoSave={oralAutoSave}
         />
       ) : page === 'guide' ? (
         <GuidePage onNavigate={(id) => setPage(id)} />

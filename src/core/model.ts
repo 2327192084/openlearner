@@ -14,7 +14,7 @@
  * v15：新增 sourceImages（MinerU 转换出的教材插图，2026-11-08）
  * v16：新增 trash（回收站，2026-11-08）
  */
-export const LIBRARY_SCHEMA_VERSION = 18;
+export const LIBRARY_SCHEMA_VERSION = 19;
 
 /**
  * 位置信息 —— 全项目「点回原文」的唯一依据。
@@ -1170,6 +1170,70 @@ export interface Flashcard {
   createdAt: string;
   updatedAt: string;
 }
+
+/**
+ * 提问式复习的一条记录（2026-11-10）。
+ *
+ * ## 为什么单独一个分区而不是塞进 answerRecords
+ *
+ * `answerRecords` 绑定 `questionId` / `deckId` —— 那是「题目」的作答记录。
+ * 提问式复习的问题是 AI 现生成的、不属于任何题组，硬塞进去会把
+ * 「这题我答错过几次」的统计口径搞乱。
+ *
+ * ## 为什么必须存判定依据
+ *
+ * AI 判「记忆错误 vs 理解偏差」的准确度靠不住（见 oral-review.ts 注释）。
+ * 存下它引用的原文 + `quoteVerified`，用户以后回看时能自己判断
+ * 「这次判定可信吗」，而不是只看到一句结论。
+ */
+export interface OralReviewRecord {
+  /** `oral_<uuid>` */
+  id: string;
+  /**
+   * 提问范围的说明，如「第 9 页 · 1.2 离散时间信号」「整库随机」。
+   *
+   * 存字符串而不是结构化 scope：记录是给人看的，一个可读的来源
+   * 比一个能反查的 id 更有用（资料可能已经被删）。
+   */
+  scopeLabel: string;
+  /** 资料 id（跳回原文用）；整库随机且素材来自知识点时可能为空 */
+  sourceId: string | null;
+  /** 页码（跳回原文用） */
+  page: number | null;
+  /** 原文片段（跳回原文定位用的引文） */
+  quote: string | null;
+  /** AI 出的问题 */
+  question: string;
+  /** 用户的回答 */
+  answer: string;
+  /** 判定类别 */
+  verdict: 'correct' | 'memory' | 'understanding';
+  /** AI 引用的原文依据（逐字） */
+  quotedFromSource: string;
+  /**
+   * 引文是否真的在材料里找到过。
+   *
+   * false = 模型编了依据或没给。界面要标出来，
+   * 否则用户会把一个可能是错的结论当成权威。
+   */
+  quoteVerified: boolean;
+  /** 针对这次回答的说明 */
+  explanation: string;
+  /** 正确的说法 */
+  correction: string;
+  /**
+   * 保存形态。
+   *
+   * - `full`：连同完整原文一起留
+   * - `brief`：只留说明与纠正（原文不留）
+   *
+   * 用户主动保存时二选一；系统设置开了自动保存则一律 `brief`。
+   */
+  savedAs: 'full' | 'brief';
+  /** 完整原文（savedAs==='full' 时才有值） */
+  fullText: string | null;
+  createdAt: string;
+}
 export interface TrashRecord {
   /** `trash_<uuid>` */
   id: string;
@@ -1303,6 +1367,13 @@ export interface LibraryBackup {
    * 而且它是**用户挑选过的东西** —— 换机器后要重新挑一遍太糟。
    */
   flashcards?: Flashcard[];
+  /**
+   * 提问式复习记录（2026-11-10）。
+   *
+   * 进备份：这是「我错在哪」的记录 —— 用户回头复盘的依据，
+   * 换机器后比闪卡本身更值得留着。纯文本，几 KB/条。
+   */
+  oralReviews?: OralReviewRecord[];
   backends: BackendConfig[];
   /**
    * 用量统计。跟库一起备份：换机器后账单不该归零。

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { migrateBackup } from './migrations.ts';
+import { LIBRARY_SCHEMA_VERSION } from './model.ts';
 import type { LibraryBackup } from './model.ts';
 
 /**
@@ -45,9 +46,10 @@ function backupOf(over: Record<string, unknown> = {}): LibraryBackup {
 }
 
 describe('v17 → v18 迁移：flashcards', () => {
-  it('补空数组，并把版本升到 18', () => {
+  it('补空数组，并把版本升到最新', () => {
     const out = migrateBackup(backupOf());
-    expect(out.schemaVersion).toBe(18);
+    /* 断言「升到当前最新」而不是写死 18 —— 每加一条迁移都改数字是没意义的负担 */
+    expect(out.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
     expect(Array.isArray((out as unknown as { flashcards: unknown[] }).flashcards)).toBe(true);
     expect((out as unknown as { flashcards: unknown[] }).flashcards).toHaveLength(0);
   });
@@ -85,9 +87,9 @@ describe('v17 → v18 迁移：flashcards', () => {
     expect((out as unknown as { flashcards: unknown[] }).flashcards).toHaveLength(1);
   });
 
-  it('从 v1 一路升到 18（迁移链完整）', () => {
+  it('从 v1 一路升到最新（迁移链完整）', () => {
     const out = migrateBackup(backupOf({ schemaVersion: 1 }));
-    expect(out.schemaVersion).toBe(18);
+    expect(out.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
   });
 
   it('flashcards 被写成非数组时纠正为空数组', () => {

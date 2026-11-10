@@ -18,6 +18,7 @@ import type {
   SourceImageRecord,
   TrashRecord,
   Flashcard,
+  OralReviewRecord,
   GenerationRun,
   AnswerRecord,
   UsageRecord,
@@ -170,6 +171,20 @@ export const STORES = [
    * **进备份**：纯文本，几十字节/条。
    */
   'flashcards',
+  /**
+   * 提问式复习的记录（2026-11-10）。
+   *
+   * 一条 = 一轮问答：问题、用户的回答、AI 的判定、以及用户选择
+   * 保存的形态（完整原文 / 精简）。
+   *
+   * **只有用户主动保存才写**：默认不保存（他可能只是随手试试）。
+   * 系统设置里可开「自动保存」，那也存精简版 —— 存完整原文会
+   * 让库迅速膨胀，而大多数人不会回头读原文。
+   *
+   * **进备份**：纯文本，几 KB/条；而且这是「我错在哪」的记录，
+   * 换机器后比闪卡更值得留着。
+   */
+  'oralReviews',
 ] as const;
 
 export type StoreName = (typeof STORES)[number];
@@ -226,6 +241,8 @@ export const BACKUP_STORES = [
   'trash',
   /* 记忆闪卡：纯文本，进备份。理由同上（用户想留着的东西不该换机器就没了） */
   'flashcards',
+  /* 提问式复习记录：那是「我错在哪」的记录，比闪卡更值得留着 */
+  'oralReviews',
 ] as const;
 
 export type BackupStoreName = (typeof BACKUP_STORES)[number];
@@ -240,6 +257,8 @@ export interface StoreRecordMap {
   trash: TrashRecord;
   /** 记忆闪卡（2026-11-10）。引用知识点，不复制内容 */
   flashcards: Flashcard;
+  /** 提问式复习记录（2026-11-10）：一轮问答 + AI 判定 + 用户选的保存形态 */
+  oralReviews: OralReviewRecord;
   focusSessions: FocusSession;
   settings: SettingsRecord;
   courses: Course;

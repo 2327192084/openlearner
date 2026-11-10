@@ -533,6 +533,23 @@ const migrations: Record<number, Migration> = {
     schemaVersion: 18,
     flashcards: Array.isArray(backup.flashcards) ? backup.flashcards : [],
   }),
+
+  /**
+   * v18 → v19
+   *
+   * 新增 `oralReviews`（提问式复习记录，2026-11-10）。
+   *
+   * 补空数组：旧备份里没有这个键。升级前没有提问式复习功能，
+   * 所以也不存在「本该有但丢了」的记录。
+   *
+   * 与 flashcards 那条同样的理由：**不在迁移里造记录**。
+   * 提问式复习的每一条都是「用户真的答过一次」，编不出来。
+   */
+  18: (backup) => ({
+    ...backup,
+    schemaVersion: 19,
+    oralReviews: Array.isArray(backup.oralReviews) ? backup.oralReviews : [],
+  }),
 };
 
 /**

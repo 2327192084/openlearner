@@ -26,8 +26,10 @@ import { MathText } from './MathText.tsx';
 import { BookSelfTest } from './BookSelfTest.tsx';
 import { ReviewToday } from './ReviewToday.tsx';
 import { FlashcardsPanel } from './FlashcardsPanel.tsx';
+import { OralReviewPanel } from './OralReviewPanel.tsx';
 import type { FlashcardView } from '@/core/flashcards.ts';
 import type { FlashcardCandidate } from '@/core/ai/pick-flashcards.ts';
+import type { OralJudgement, OralMaterial } from '@/core/oral-review.ts';
 import {
   startSession,
   type ReviewQueue,
@@ -86,6 +88,32 @@ export interface BookPageProps {
   onRemoveFlashcard?: (id: string) => Promise<void> | void;
   /** 让 AI 挑一批候选（只返回候选，不建卡） */
   onPickFlashcardsWithAi?: () => Promise<FlashcardCandidate[]>;
+  /**
+   * 提问式复习（2026-11-10）。
+   *
+   * 与另外两种复习方式的区别：这是**开放回答 + 模型判定**。
+   * 今日复习是客观题判分，闪卡是只看不判。
+   */
+  /** 这一轮从哪来（显示在顶部） */
+  oralScopeLabel?: string;
+  /** 当前素材；null = 这个范围里没内容 */
+  oralMaterial?: OralMaterial | null;
+  /** 让 AI 出题 */
+  onOralAsk?: (material: OralMaterial) => Promise<string>;
+  /** 让 AI 判定 */
+  onOralJudge?: (m: OralMaterial, q: string, a: string) => Promise<OralJudgement>;
+  /** 保存一条记录 */
+  onOralSave?: (input: {
+    material: OralMaterial;
+    question: string;
+    answer: string;
+    judgement: OralJudgement;
+    savedAs: 'full' | 'brief';
+  }) => Promise<void>;
+  /** 换一条素材再来一轮 */
+  onOralNext?: () => void;
+  /** 设置里是否开了「自动保存」 */
+  oralAutoSave?: boolean;
 }
 
 /** 一个题组在书里的样子 */
@@ -122,6 +150,13 @@ export function BookPage({
   onAddFlashcards,
   onRemoveFlashcard,
   onPickFlashcardsWithAi,
+  oralScopeLabel = '随机提问',
+  oralMaterial = null,
+  onOralAsk,
+  onOralJudge,
+  onOralSave,
+  onOralNext,
+  oralAutoSave = false,
 }: BookPageProps) {
   const [state, setState] = useState<Load>({ kind: 'loading' });
   /** 当前显示的筛选：只看某一份资料 */
@@ -157,10 +192,25 @@ export function BookPage({
    * 三者互斥：进闪卡时另外两个必须是 null，否则界面上会叠两层。
    */
   const [showFlashcards, setShowFlashcards] = useState(false);
+  /**
+   * 是否在提问式复习里（2026-11-10）。
+   *
+   * 第四种全屏子视图。用 key 而不是布尔值：换素材（再来一题）时
+   * 要**重建组件**，否则面板内部的 phase（judged）会留在原地 ——
+   * 用户看到的是上一题的判定结果，而问题已经换了。
+   */
+  const [oralKey, setOralKey] = useState<number | null>(null);
+  const enterOral = useCallback(() => {
+    setReviewSession(null);
+    setSelfTestVolume(null);
+    setShowFlashcards(false);
+    setOralKey((k) => (k ?? 0) + 1);
+  }, []);
   /* 进任一子视图时把另外两个清掉 —— 互斥的约束集中在一处，不靠调用方记得 */
   const enterFlashcards = useCallback(() => {
     setReviewSession(null);
     setSelfTestVolume(null);
+    setOralKey(null);
     setShowFlashcards(true);
   }, []);
 
@@ -335,6 +385,43 @@ export function BookPage({
   }
 
   /*
+   * 提问式复习（2026-11-10）。
+   *
+   * 第四种子视图。key 每次进入都变 —— 见 oralKey 的注释：
+   * 换素材必须重建组件，否则 phase 停在上一题的判定结果上。
+   */
+  if (oralKey !== null) {
+    return (
+      <div className="book-page">
+        <OralReviewPanel
+          key={oralKey}
+          scopeLabel={oralScopeLabel}
+          material={oralMaterial}
+          onAsk={async (m) => (onOralAsk ? onOralAsk(m) : Promise.reject(new Error('未接入出题')))}
+          onJudge={async (m, q, a) =>
+            onOralJudge ? onOralJudge(m, q, a) : Promise.reject(new Error('未接入判定'))
+          }
+          onSave={async (input) => {
+            await onOralSave?.(input);
+          }}
+          onNext={() => {
+            /* 换一题 = 换素材 + 重建面板 */
+            onOralNext?.();
+            setOralKey((k) => (k ?? 0) + 1);
+          }}
+          onExit={() => setOralKey(null)}
+          onOpenAnchor={
+            onOpenSourceAt
+              ? (sourceId, page, quote) => onOpenSourceAt(sourceId, page ?? 1, quote ?? undefined)
+              : undefined
+          }
+          autoSave={oralAutoSave}
+        />
+      </div>
+    );
+  }
+
+  /*
    * 记忆闪卡（2026-11-10）。
    *
    * 与「今日复习」「自测」并列的第三种全屏子视图，三者互斥。
@@ -451,6 +538,22 @@ export function BookPage({
             title="一次一张、先自己想再翻面；不参与复习排期"
           >
             记忆闪卡{flashcards.length > 0 ? `（${flashcards.length} 张）` : ''}
+          </button>
+        ) : null}
+
+        {/*
+          提问式复习入口（2026-11-10）。
+          只要接了 AI 就能用 —— 它不依赖闪卡或队列。
+          门放在「有没有可提问的素材」上：没素材点进去只会看到空页面。
+        */}
+        {onOralAsk && onOralJudge && oralMaterial ? (
+          <button
+            type="button"
+            className="btn-ghost btn-ghost--sm"
+            onClick={enterOral}
+            title="就一段材料向你提问，你回答后由模型判断是记错还是理解偏了"
+          >
+            提问式复习
           </button>
         ) : null}
 

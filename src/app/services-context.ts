@@ -5,6 +5,7 @@ import type { CourseService, SourceService } from '@/core/sources.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { FlashcardService } from '@/core/flashcards.ts';
+import type { OralReviewService } from '@/core/oral-review-service.ts';
 import type { SlideService } from '@/core/slides/service.ts';
 import type { UsageService } from '@/core/usage.ts';
 import type { AnnotationService } from '@/core/annotation-service.ts';
@@ -55,6 +56,12 @@ export interface AppServices {
    * （那是 ReviewService 的事）。
    */
   flashcards: FlashcardService;
+  /**
+   * 提问式复习的记录（2026-11-10）。
+   *
+   * 与 flashcards 一样是纯存储服务 —— 判定逻辑在 core/oral-review.ts。
+   */
+  oralReviews: OralReviewService;
   /** P4：学习 PPT（大纲 → 导出 .pptx） */
   slides: SlideService;
   /** P5：用量统计（按天、按后端） */

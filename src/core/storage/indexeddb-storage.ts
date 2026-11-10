@@ -23,7 +23,8 @@ const DB_NAME = 'openleaner';
 /** v9：新增 sourceImages（MinerU 转换出的教材插图） */
 /** v10：新增 trash（回收站） */
 /** v11：新增 flashcards（记忆闪卡，2026-11-10） */
-const DB_VERSION = 11;
+/** v12：新增 oralReviews（提问式复习记录，2026-11-10） */
+const DB_VERSION = 12;
 
 /**
  * IndexedDB 存储适配器（浏览器与 Electron 渲染进程用）。
