@@ -92,7 +92,8 @@
       "createStartMenuShortcut": true,
       "shortcutName": "OpenLeaner",
       "uninstallDisplayName": "OpenLeaner ${version}",
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "differentialPackage": false
     }
   }
 }
