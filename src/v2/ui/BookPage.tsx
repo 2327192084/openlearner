@@ -18,13 +18,16 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Deck, Question, Source } from '@/core/model.ts';
+import type { Deck, KnowledgePoint, Question, Source } from '@/core/model.ts';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { SourceService } from '@/core/sources.ts';
 import { downloadBlob } from '@/pages/slides/download.ts';
 import { MathText } from './MathText.tsx';
 import { BookSelfTest } from './BookSelfTest.tsx';
 import { ReviewToday } from './ReviewToday.tsx';
+import { FlashcardsPanel } from './FlashcardsPanel.tsx';
+import type { FlashcardView } from '@/core/flashcards.ts';
+import type { FlashcardCandidate } from '@/core/ai/pick-flashcards.ts';
 import {
   startSession,
   type ReviewQueue,
@@ -68,6 +71,21 @@ export interface BookPageProps {
   reviewQueue?: ReviewQueue | null;
   /** 自评一档 → 写复习记录（App 负责落库） */
   onReviewGrade?: (cardId: string, grade: ReviewGrade) => Promise<void> | void;
+  /**
+   * 记忆闪卡（2026-11-10）。
+   *
+   * 与「今日复习」不同：翻闪卡**不写复习记录**、不参与排期。
+   * 它是用户自己挑出来的重点，随时过一遍。
+   */
+  flashcards?: readonly FlashcardView[];
+  /** 可挑选的全部知识点（闪卡候选） */
+  flashcardPoints?: readonly KnowledgePoint[];
+  /** 建卡 */
+  onAddFlashcards?: (ids: string[]) => Promise<void> | void;
+  /** 删卡 */
+  onRemoveFlashcard?: (id: string) => Promise<void> | void;
+  /** 让 AI 挑一批候选（只返回候选，不建卡） */
+  onPickFlashcardsWithAi?: () => Promise<FlashcardCandidate[]>;
 }
 
 /** 一个题组在书里的样子 */
@@ -99,6 +117,11 @@ export function BookPage({
   onAutoStartConsumed,
   reviewQueue,
   onReviewGrade,
+  flashcards = [],
+  flashcardPoints = [],
+  onAddFlashcards,
+  onRemoveFlashcard,
+  onPickFlashcardsWithAi,
 }: BookPageProps) {
   const [state, setState] = useState<Load>({ kind: 'loading' });
   /** 当前显示的筛选：只看某一份资料 */
@@ -126,6 +149,20 @@ export function BookPage({
    * 都要能重置，由宿主控制更清楚。
    */
   const [reviewSession, setReviewSession] = useState<ReviewSession | null>(null);
+
+  /**
+   * 是否在闪卡面板里（2026-11-10）。
+   *
+   * 与 reviewSession / selfTestVolume 并列的第三种「全屏子视图」。
+   * 三者互斥：进闪卡时另外两个必须是 null，否则界面上会叠两层。
+   */
+  const [showFlashcards, setShowFlashcards] = useState(false);
+  /* 进任一子视图时把另外两个清掉 —— 互斥的约束集中在一处，不靠调用方记得 */
+  const enterFlashcards = useCallback(() => {
+    setReviewSession(null);
+    setSelfTestVolume(null);
+    setShowFlashcards(true);
+  }, []);
 
   /**
    * 从「开始复习」进来时自动开始今日复习。
@@ -298,6 +335,36 @@ export function BookPage({
   }
 
   /*
+   * 记忆闪卡（2026-11-10）。
+   *
+   * 与「今日复习」「自测」并列的第三种全屏子视图，三者互斥。
+   * 闪卡不参与间隔排期 —— 见 core/flashcards.ts 头部注释。
+   */
+  if (showFlashcards) {
+    return (
+      <div className="book-page">
+        <FlashcardsPanel
+          cards={flashcards}
+          points={flashcardPoints}
+          onAdd={async (ids) => {
+            await onAddFlashcards?.(ids);
+          }}
+          onRemove={async (id) => {
+            await onRemoveFlashcard?.(id);
+          }}
+          onOpenAnchor={
+            onOpenSourceAt
+              ? (sourceId, page, quote) => onOpenSourceAt(sourceId, page ?? 1, quote)
+              : undefined
+          }
+          onPickWithAi={onPickFlashcardsWithAi}
+          onExit={() => setShowFlashcards(false)}
+        />
+      </div>
+    );
+  }
+
+  /*
    * 自测模式（2026-11-09）。
    *
    * 在「卷」这一层切换：进自测就整页变成一次小测，退出回到阅读。
@@ -368,6 +435,22 @@ export function BookPage({
             title="只做今天到期的和新卡；先自己回想，再看答案，然后自评"
           >
             开始今日复习（{reviewQueue.total} 张）
+          </button>
+        ) : null}
+
+        {/*
+          记忆闪卡入口（2026-11-10）。
+          只要有知识点就能挑卡，所以不依赖 reviewQueue。
+          已有卡时显示张数，让用户知道点进去会看到什么。
+        */}
+        {flashcardPoints.length > 0 || flashcards.length > 0 ? (
+          <button
+            type="button"
+            className="btn-ghost btn-ghost--sm"
+            onClick={enterFlashcards}
+            title="一次一张、先自己想再翻面；不参与复习排期"
+          >
+            记忆闪卡{flashcards.length > 0 ? `（${flashcards.length} 张）` : ''}
           </button>
         ) : null}
 

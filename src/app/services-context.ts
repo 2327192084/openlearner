@@ -4,6 +4,7 @@ import type { BackendService } from '@/core/backends.ts';
 import type { CourseService, SourceService } from '@/core/sources.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { DeckService } from '@/core/questions/service.ts';
+import type { FlashcardService } from '@/core/flashcards.ts';
 import type { SlideService } from '@/core/slides/service.ts';
 import type { UsageService } from '@/core/usage.ts';
 import type { AnnotationService } from '@/core/annotation-service.ts';
@@ -47,6 +48,13 @@ export interface AppServices {
   knowledge: KnowledgeService;
   /** P3：习题集、作答与错题 */
   decks: DeckService;
+  /**
+   * 记忆闪卡（2026-11-10）。
+   *
+   * 引用知识点、不复制内容；翻卡**不写复习记录**、不参与间隔排期
+   * （那是 ReviewService 的事）。
+   */
+  flashcards: FlashcardService;
   /** P4：学习 PPT（大纲 → 导出 .pptx） */
   slides: SlideService;
   /** P5：用量统计（按天、按后端） */

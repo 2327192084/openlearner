@@ -17,6 +17,7 @@ import type {
   SourceSegment,
   SourceImageRecord,
   TrashRecord,
+  Flashcard,
   GenerationRun,
   AnswerRecord,
   UsageRecord,
@@ -155,6 +156,20 @@ export const STORES = [
    * 大二进制（原始 PDF、插图）刻意不收，见 model.ts 的 TrashRecord.skipped。
    */
   'trash',
+  /**
+   * 记忆闪卡（2026-11-10）。
+   *
+   * 一条闪卡**引用**一个知识点（`knowledgePointId`），而不是复制它的内容。
+   * 理由：知识点自带 `anchors` 与 `quotes`，是「可点回原文」的锚点；
+   * 复制一份就把这层关系丢了，改了知识点两边还会漂移。
+   *
+   * 但同时冗余存一份 `frontText`：知识点被删/被改时，闪卡仍能显示
+   * 原来的那句话，并标「已过期」—— 比翻到一张空白卡好。
+   * 详见 model.ts 的 Flashcard 注释。
+   *
+   * **进备份**：纯文本，几十字节/条。
+   */
+  'flashcards',
 ] as const;
 
 export type StoreName = (typeof STORES)[number];
@@ -209,6 +224,8 @@ export const BACKUP_STORES = [
    * 换机器时不该凭空消失。只有文本记录，不会撑大备份。
    */
   'trash',
+  /* 记忆闪卡：纯文本，进备份。理由同上（用户想留着的东西不该换机器就没了） */
+  'flashcards',
 ] as const;
 
 export type BackupStoreName = (typeof BACKUP_STORES)[number];
@@ -221,6 +238,8 @@ export interface StoreRecordMap {
   sourceImages: SourceImageRecord;
   /** 回收站。进备份：用户删掉但可能还想要的东西 */
   trash: TrashRecord;
+  /** 记忆闪卡（2026-11-10）。引用知识点，不复制内容 */
+  flashcards: Flashcard;
   focusSessions: FocusSession;
   settings: SettingsRecord;
   courses: Course;

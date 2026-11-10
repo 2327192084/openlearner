@@ -14,7 +14,7 @@
  * v15：新增 sourceImages（MinerU 转换出的教材插图，2026-11-08）
  * v16：新增 trash（回收站，2026-11-08）
  */
-export const LIBRARY_SCHEMA_VERSION = 17;
+export const LIBRARY_SCHEMA_VERSION = 18;
 
 /**
  * 位置信息 —— 全项目「点回原文」的唯一依据。
@@ -1109,6 +1109,67 @@ export interface LibraryMeta {
  * v2 从不写它」这种遗留，软删除标记一旦漏过滤就会静默复活数据。
  * 硬删除 + 独立回收站，语义只有一处。
  */
+
+/**
+ * 一张记忆闪卡（2026-11-10）。
+ *
+ * ## 为什么引用知识点而不是复制内容
+ *
+ * 知识点自带 `anchors`（原文位置）与 `quotes`（逐字引文），
+ * 那是「可点回原文」的凭据。复制一份内容就把这层关系丢了，
+ * 而且知识点以后被修正时两边会漂移 —— 用户不知道闪卡上那句话
+ * 还是不是原来的。
+ *
+ * ## 为什么还要冗余 frontText
+ *
+ * 只存 id 的话：知识点被删 → 闪卡翻开是一片空白，用户以为坏了；
+ * 每次翻卡还要查一次知识点表。所以冗余存一份正面文本，
+ * 并在读取时**校验知识点是否还在**：
+ *  - 还在 → 正常显示，`stale` 为 false
+ *  - 已删 → 仍然显示 frontText，但标 `stale`，界面提示「原知识点已删除」
+ *
+ * 这与项目里 trash 记 skipped 是同一个原则：**如实记录缺了什么，
+ * 而不是静默给一个看起来正常的结果**。
+ */
+export interface Flashcard {
+  /** `fc_<uuid>` */
+  id: string;
+  /** 引用的知识点。理论上必填，但数据可能是旧版/手工导入的，读取方要容错 */
+  knowledgePointId: string;
+  /**
+   * 正面文本（冗余自知识点的 statement）。
+   *
+   * 冗余的原因见上面接口注释。**不为空**：一张没有正面的卡没有意义，
+   * 建卡时就要求有。
+   */
+  frontText: string;
+  /**
+   * 背面补充（可选）。
+   *
+   * 默认留空 —— 背面主要靠知识点的 `quotes`（原文引证）动态取。
+   * 用户想自己加一句提示时才有值。
+   */
+  backNote: string | null;
+  /**
+   * 这张卡是怎么来的。
+   *
+   * - `ai`：AI 从知识点里挑出来的（用户勾选确认后入库）
+   * - `user`：用户自己手动加的
+   *
+   * 为什么记这个：以后可以「只看 AI 挑的」或「重新让 AI 挑一遍」，
+   * 也可以让用户知道哪几张是自己加的、删起来更放心。
+   */
+  origin: 'ai' | 'user';
+  /**
+   * 归属资料（冗余）。
+   *
+   * 从知识点抄来的，用于「按资料看闪卡」而不用反查知识点表。
+   * 知识点可能没有 sourceId（手工录入的），那时这里也是 null。
+   */
+  sourceId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 export interface TrashRecord {
   /** `trash_<uuid>` */
   id: string;
@@ -1235,6 +1296,13 @@ export interface LibraryBackup {
    * 大二进制（原始 PDF、插图）刻意不收，见 TrashRecord.skipped。
    */
   trash?: TrashRecord[];
+  /**
+   * 记忆闪卡（2026-11-10）。
+   *
+   * 进备份：纯文本（正面那句话 + 少量元数据），几十字节/条。
+   * 而且它是**用户挑选过的东西** —— 换机器后要重新挑一遍太糟。
+   */
+  flashcards?: Flashcard[];
   backends: BackendConfig[];
   /**
    * 用量统计。跟库一起备份：换机器后账单不该归零。

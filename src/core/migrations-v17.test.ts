@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { migrateBackup } from './migrations.ts';
+import { LIBRARY_SCHEMA_VERSION } from './model.ts';
 import type { LibraryBackup } from './model.ts';
 
 /**
@@ -66,7 +67,12 @@ describe('v16 → v17 迁移：补 segmentId', () => {
     const out = migrateBackup(b);
     const anchors = (out.questions[0] as unknown as { anchors: Array<Record<string, unknown>> }).anchors;
     expect(anchors[0]!.segmentId).toBe('s1');
-    expect(out.schemaVersion).toBe(17);
+    /*
+     * 断言「升到当前最新版本」而不是写死 17。
+     * 每加一条迁移都要回来改这个数字是没意义的负担 —— 这条用例
+     * 要守的是「v16 的备份能被正确升级」，不是「最终是 17」。
+     */
+    expect(out.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
   });
 
   it('同一 page 对应多段时**留空**，不挑第一条', () => {
@@ -167,9 +173,9 @@ describe('v16 → v17 迁移：补 segmentId', () => {
     expect(() => migrateBackup(b)).not.toThrow();
   });
 
-  it('来源早已从 v1 的备份也能升到 17（迁移链完整）', () => {
+  it('来源早已从 v1 的备份也能升到最新版（迁移链完整）', () => {
     const b = backupOf({ schemaVersion: 1 });
     const out = migrateBackup(b);
-    expect(out.schemaVersion).toBe(17);
+    expect(out.schemaVersion).toBe(LIBRARY_SCHEMA_VERSION);
   });
 });

@@ -1,0 +1,304 @@
+/*
+ * 记忆闪卡面板样式（2026-11-10）。
+ *
+ * ⚠️ 原生控件（button）的样式一律写在 @layer 之外 ——
+ * base.css 有不在任何 @layer 内的 button 规则，级联「层级先于特异性」。
+ */
+
+/* ==========================================================================
+   层外：原生控件
+   ========================================================================== */
+
+.fcp__btn,
+.fcp__row,
+.fcp__link {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: transparent;
+  border-radius: 8px;
+}
+
+.fcp__btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--text-dim);
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+
+.fcp__btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-raised);
+}
+
+.fcp__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.fcp__btn--primary {
+  color: var(--accent-ink, #fff8f2);
+  background: var(--accent, #c93d22);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.fcp__btn--primary:hover:not(:disabled) {
+  background: var(--accent-soft, #ec6a4a);
+  color: var(--accent-ink, #fff8f2);
+}
+
+.fcp__btn--ghost {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-color: var(--line-soft);
+}
+
+/*
+ * 卡片本身。做成「真实的卡」而不是普通容器：
+ * 米色底 + 轻微投影，与 tokens 里「the card is the only physical object」
+ * 那条设计原则一致。
+ */
+.fcp__card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 220px;
+  padding: 26px 28px;
+  border-radius: var(--radius-card, 16px);
+  border: 1px solid var(--line-soft);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm, 0 1px 2px #0000004d);
+}
+
+.fcp__row {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  text-align: left;
+  border-color: var(--line-soft);
+  font-size: 13px;
+}
+
+.fcp__row:hover {
+  background: var(--bg-raised);
+}
+
+.fcp__row--on {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.fcp__link {
+  align-self: flex-start;
+  padding: 3px 9px;
+  font-size: 12px;
+  color: var(--accent-text, #ec6a4a);
+  border-color: transparent;
+}
+
+.fcp__link:hover {
+  border-color: var(--line);
+}
+
+/* ==========================================================================
+   层内：布局
+   ========================================================================== */
+
+@layer {
+  .fcp {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+    max-width: 760px;
+    margin: 0 auto;
+  }
+
+  .fcp__bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--text-dim);
+  }
+
+  .fcp__pos,
+  .fcp__pose {
+    font-variant-numeric: tabular-nums;
+    flex: 0 0 auto;
+  }
+
+  .fcp__pose {
+    margin-right: auto;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .fcp__bar .fcp__btn:first-of-type {
+    margin-left: auto;
+  }
+
+  .fcp__stale {
+    margin: 0;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border-left: 2px solid var(--warn);
+    background: color-mix(in srgb, var(--warn) 8%, transparent);
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-dim);
+  }
+
+  .fcp__face {
+    display: flex;
+    align-items: center;
+    min-height: 80px;
+  }
+
+  .fcp__front {
+    margin: 0;
+    font-size: 17px;
+    line-height: 1.75;
+    color: var(--text);
+  }
+
+  .fcp__back {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--line-soft);
+  }
+
+  .fcp__note {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-dim);
+    font-style: italic;
+  }
+
+  .fcp__quote-block {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .fcp__quote-label {
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+
+  .fcp__quote {
+    margin: 0;
+    padding: 9px 12px;
+    border-radius: 8px;
+    background: var(--bg-raised);
+    font-size: 13.5px;
+    line-height: 1.75;
+    color: var(--text-dim);
+  }
+
+  .fcp__hint {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-faint);
+  }
+
+  .fcp__nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .fcp__foot {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .fcp__origin {
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+
+  .fcp__actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .fcp__empty,
+  .fcp__error,
+  .fcp__aipick {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.7;
+  }
+
+  .fcp__empty {
+    color: var(--text-dim);
+    padding: 20px 0;
+  }
+
+  .fcp__error {
+    color: var(--bad);
+  }
+
+  .fcp__aipick {
+    color: var(--text-muted);
+  }
+
+  .fcp__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 56vh;
+    overflow-y: auto;
+  }
+
+  .fcp__check {
+    flex: 0 0 16px;
+    width: 16px;
+    height: 16px;
+    margin-top: 2px;
+    border-radius: 4px;
+    border: 1px solid var(--line-strong);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: var(--accent-ink, #fff8f2);
+    background: transparent;
+  }
+
+  .fcp__row--on .fcp__check {
+    background: var(--accent, #c93d22);
+    border-color: var(--accent, #c93d22);
+  }
+
+  .fcp__row-body {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .fcp__row-text {
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--text);
+  }
+
+  .fcp__row-meta {
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+}

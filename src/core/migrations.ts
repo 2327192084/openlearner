@@ -515,6 +515,24 @@ const migrations: Record<number, Migration> = {
       questions: migratedQuestions,
     };
   },
+
+  /**
+   * v17 → v18
+   *
+   * 新增 `flashcards`（记忆闪卡，2026-11-10）。
+   *
+   * 补空数组：旧备份里没有这个键，用户升级后闪卡库应该是**空的** ——
+   * 因为升级前根本没有闪卡功能，不存在「本该有但丢了」的卡。
+   *
+   * 刻意**不自动生成闪卡**：那需要模型判断哪些知识点适合做卡，
+   * 是一次有成本的调用，而且用户可能不想要。让他自己点「让 AI 挑」
+   * 比升级时静默塞进 20 张卡好得多 —— 后者会让人以为哪来的垃圾。
+   */
+  17: (backup) => ({
+    ...backup,
+    schemaVersion: 18,
+    flashcards: Array.isArray(backup.flashcards) ? backup.flashcards : [],
+  }),
 };
 
 /**

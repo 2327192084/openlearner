@@ -12,6 +12,8 @@ import { SkeletonPage } from './SkeletonPage.tsx';
 import { GuidePage } from './GuidePage.tsx';
 import { BookPage } from './BookPage.tsx';
 import { buildReviewQueue, type ReviewQueue } from './review-session.ts';
+import { buildPickPrompt, parsePicks, type FlashcardCandidate } from '@/core/ai/pick-flashcards.ts';
+import type { FlashcardView } from '@/core/flashcards.ts';
 import { todayLocal, type ReviewGrade } from '@/v2/core/srs.ts';
 import { NotesPage } from './NotesPage.tsx';
 import { ExamPage } from './ExamPage.tsx';
@@ -28,7 +30,7 @@ import { KnowledgePage } from './KnowledgePage.tsx';
 import { TrashPage } from './TrashPage.tsx';
 import { DEFAULT_WIDGETS, widgetsFromSettings, type HomeWidget } from './home-widgets.ts';
 import { fetchDailyQuote } from './daily-quote.ts';
-import type { Todo } from '@/core/model.ts';
+import type { KnowledgePoint, Todo } from '@/core/model.ts';
 import { StatsPage } from './StatsPage.tsx';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { DeckService } from '@/core/questions/service.ts';
@@ -391,6 +393,7 @@ export function App({
     focus: focusService,
     trash: trashService,
     knowledge: knowledgeService,
+    flashcards: flashcardsService,
   } = useServices();
 
   /**
@@ -793,6 +796,100 @@ export function App({
     [reviewService, refreshData],
   );
 
+  // ---------------------------------------------------------------------------
+  // 记忆闪卡（2026-11-10）
+  // ---------------------------------------------------------------------------
+
+  /** 全部闪卡（带知识点与过期标记） */
+  const [flashcards, setFlashcards] = useState<FlashcardView[]>([]);
+  /** 可挑选的知识点（闪卡候选） */
+  const [flashcardPoints, setFlashcardPoints] = useState<KnowledgePoint[]>([]);
+
+  /** 读闪卡与候选知识点。建卡/删卡后都要重读 */
+  const reloadFlashcards = useCallback(async () => {
+    const [views, points] = await Promise.all([
+      flashcardsService.listWithPoints(),
+      knowledgeService.listAll(),
+    ]);
+    setFlashcards(views);
+    setFlashcardPoints(points);
+  }, []);
+
+  /* 进复习巩固页时读一次；换页不必重读（闪卡不常变） */
+  useEffect(() => {
+    if (page === 'book') void reloadFlashcards();
+  }, [page, reloadFlashcards]);
+
+  const handleAddFlashcards = useCallback(
+    async (ids: string[]) => {
+      await flashcardsService.addMany(
+        ids.map((id) => ({ knowledgePointId: id, origin: 'user' as const })),
+        flashcardPoints,
+      );
+      await reloadFlashcards();
+    },
+    [flashcardPoints],
+  );
+
+  const handleRemoveFlashcard = useCallback(async (id: string) => {
+    await flashcardsService.remove(id);
+    setFlashcards((prev) => prev.filter((v) => v.card.id !== id));
+  }, []);
+
+  /**
+   * 「让 AI 挑闪卡」。
+   *
+   * ## 为什么只返回候选、不直接建卡
+   *
+   * AI 的判断可能不合用户直觉。直接入库会让他面对一堆不想背的卡，
+   * 还得一条条删。所以这里只给候选，界面用勾选框让用户确认。
+   *
+   * ## 为什么不用出题后端
+   *
+   * 出题后端是 `generate(points, options)` 这套形状，产出的是题目草稿。
+   * 挑闪卡只要「从给定清单里选编号」，用通用的 `chatCompletion` 更直接，
+   * 也不必把一个新能力塞进那个接口。
+   */
+  const handlePickFlashcards = useCallback(async (): Promise<FlashcardCandidate[]> => {
+    const list = await backends.list();
+    const ready = list.filter((b) => b.status === 'ready');
+    if (ready.length === 0) {
+      throw new Error('还没有可用的模型。先到「设置」里添加一个后端。');
+    }
+    const b = ready[0]!;
+    const apiKey = await backends.readCredential(b.id);
+    if (!apiKey) throw new Error('读不到这个后端的 API Key，请到设置页重新填一次。');
+
+    /* 只挑「偏记忆」或短小的知识点 —— 全量丢过去既贵又没必要 */
+    const pool = flashcardPoints.filter(
+      (p) =>
+        p.anchorStatus !== 'unlocated' ||
+        p.cognitiveLevel === 'remember' ||
+        p.statement.length <= 60,
+    );
+    if (pool.length === 0) throw new Error('知识库里还没有可以做成闪卡的知识点。');
+
+    /* 最多挑 20 张：一次翻 20 张已经是不少的量 */
+    const LIMIT = 20;
+    const { system, user } = buildPickPrompt(pool, LIMIT);
+
+    /* 动态引入，避免首屏加载 AI 客户端 */
+    const { chatCompletion } = await import('@/core/ai/deepseek-client.ts');
+    const res = await chatCompletion({
+      apiKey,
+      model: b.model,
+      ...(b.baseUrl ? { baseUrl: b.baseUrl } : {}),
+      provider: b.provider,
+      systemPrompt: system,
+      userPrompt: user,
+      temperature: 0.2,
+      /* 挑卡是短回答，不需要长输出；给个上限防止它写小作文 */
+      maxTokens: 2000,
+    });
+
+    return parsePicks(res.content, pool);
+  }, [flashcardPoints]);
+
   const navigate = useCallback(
     async (id: PageId) => {
       setPage(id);
@@ -969,6 +1066,11 @@ export function App({
           onAutoStartConsumed={() => setAutoReview(false)}
           reviewQueue={reviewQueue}
           onReviewGrade={handleReviewGrade}
+          flashcards={flashcards}
+          flashcardPoints={flashcardPoints}
+          onAddFlashcards={handleAddFlashcards}
+          onRemoveFlashcard={handleRemoveFlashcard}
+          onPickFlashcardsWithAi={handlePickFlashcards}
         />
       ) : page === 'guide' ? (
         <GuidePage onNavigate={(id) => setPage(id)} />

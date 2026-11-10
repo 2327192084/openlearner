@@ -4,6 +4,7 @@ import { LibraryService } from '@/core/library.ts';
 import { BackendService } from '@/core/backends.ts';
 import { CourseService, SourceService } from '@/core/sources.ts';
 import { KnowledgeService } from '@/core/knowledge/service.ts';
+import { FlashcardService } from '@/core/flashcards.ts';
 import { DeckService } from '@/core/questions/service.ts';
 import { SlideService } from '@/core/slides/service.ts';
 import { UsageService } from '@/core/usage.ts';
@@ -86,6 +87,8 @@ function Bootstrap() {
     const knowledge = new KnowledgeService(storage, sources, usage, trash);
     const decks = new DeckService(storage, usage, trash);
     const slides = new SlideService(storage, usage);
+    /* 记忆闪卡（2026-11-10）：只读写 flashcards 分区，不碰复习记录 */
+    const flashcards = new FlashcardService(storage);
 
     library
       .init()
@@ -165,6 +168,7 @@ function Bootstrap() {
           knowledge,
           decks,
           slides,
+          flashcards,
           trash,
           env: detectEnv(),
         });
