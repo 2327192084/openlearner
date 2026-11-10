@@ -1095,6 +1095,17 @@ export function App({
             void refreshShellState();
             void refreshTrashBadge();
           }}
+          /*
+            改知识点标签（2026-11-10）。
+
+            只改 tags —— 它不参与定位，所以锚点与「可点回原文」都不受影响，
+            已出的题也不受牵连。这条路径存在的意义是：AI 的分类可能不对，
+            得让用户能自己纠正，而不是只能删了重整理。
+          */
+          onUpdateTags={async (id, tags) => {
+            await knowledgeService.update(id, { tags });
+            void refreshShellState();
+          }}
         />
       ) : page === 'study' ? (
         <StudyPage

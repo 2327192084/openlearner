@@ -5,6 +5,7 @@ import type { SourceService } from '@/core/sources.ts';
 import { IconBook } from './icons.tsx';
 import { ConfirmDialog } from './dialog.tsx';
 import { MathText } from './MathText.tsx';
+import { KpTagsEditor } from './KpTagsEditor.tsx';
 
 /**
  * 知识库 —— 按资料文件归类所有知识点。
@@ -61,6 +62,17 @@ export interface KnowledgePageProps {
    */
   onRemovePoint?: (id: string) => Promise<void>;
   /**
+   * 改一条知识点的分类标签（2026-11-10）。
+   *
+   * 只给 tags：它不参与定位（anchors 由 quotes 定位产生），
+   * 所以改它不会让「可点回原文」失效，也不牵动已出的题。
+   * 页面注释里那条「不做编辑」的顾虑针对的是 statement，
+   * 标签不在此列。
+   *
+   * 不传则不显示「改」按钮（不摆假开关）。
+   */
+  onUpdateTags?: (id: string, tags: string[]) => Promise<void> | void;
+  /**
    * 删掉一份资料的全部知识点（2026-11-08）。
    *
    * 参数是资料 id；`null` 对应「没有归属资料」那一组。
@@ -89,6 +101,7 @@ export function KnowledgePage({
   onOpenOrganize,
   onRemovePoint,
   onRemoveSourcePoints,
+  onUpdateTags,
 }: KnowledgePageProps) {
   const [points, setPoints] = useState<KnowledgePoint[] | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
@@ -96,6 +109,23 @@ export function KnowledgePage({
   const [query, setQuery] = useState('');
   /** 收起了哪些文件（默认全展开） */
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  /**
+   * 已有章节名，给标签输入当建议（2026-11-10）。
+   *
+   * 为什么是「建议」不是「白名单」：章节名是解析时从正文标题行猜出来的
+   * （见 parsers/pdf.ts 的 detectChapter），不一定覆盖所有小节。
+   * 做成硬白名单会把用户想用的正确标签挡在外面。
+   */
+  const chapterNames = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of points ?? []) {
+      const c = (p.chapter ?? '').trim();
+      if (c) set.add(c);
+      for (const t of p.tags ?? []) if (t.trim()) set.add(t.trim());
+    }
+    return [...set].sort();
+  }, [points]);
 
   /**
    * 待确认的删除（2026-11-08）。
@@ -394,6 +424,17 @@ export function KnowledgePage({
                                   <span className="kb-point__level">
                                     {LEVEL_LABEL[p.cognitiveLevel]}
                                   </span>
+                                  {/*
+                                    标签编辑器（2026-11-10）。
+                                    只放行 tags：它不参与定位，改它不会让
+                                    anchors 失效 —— 这是「不做完整编辑」那条
+                                    注释留下的安全缺口，正好用来纠正 AI 的分类。
+                                  */}
+                                  <KpTagsEditor
+                                    tags={p.tags ?? []}
+                                    suggestions={chapterNames}
+                                    onSave={(next) => onUpdateTags?.(p.id, next)}
+                                  />
                                   {anchor && onOpenAnchor ? (
                                     <button
                                       type="button"

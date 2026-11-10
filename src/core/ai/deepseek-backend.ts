@@ -300,11 +300,63 @@ function normalizePoint(raw: unknown): KnowledgeDraft | null {
     ? (levelRaw as KnowledgeDraft['cognitiveLevel'])
     : 'understand'; // 非法值给个安全的默认，不丢这条
 
-  const tags = Array.isArray(p.tags)
-    ? p.tags.filter((t): t is string => typeof t === 'string').slice(0, 8)
-    : [];
+  /*
+   * 标签清洗（2026-11-10）。
+   *
+   * prompt 已经要求「从材料的小节标题取」，但模型不一定听话 ——
+   * 实测这类字段最常见的两种污染：
+   *  1. 带 Markdown 标记：`## 1.1 线性时不变系统`
+   *  2. 泛词充数：「基础概念」「重点」「核心」——它们对分类毫无用处，
+   *     只会把骨架页的标签云塞满噪音
+   *
+   * 这里做的是**收紧而不是猜测**：清掉能确定的污染，认不出的保留
+   * （用户可以在界面上手改，那比他看到一份被悄悄删光的标签好）。
+   */
+  const tags = Array.isArray(p.tags) ? cleanTags(p.tags) : [];
 
   return { statement, quotes, cognitiveLevel, tags };
+}
+
+/**
+ * 清洗知识点标签。
+ *
+ * 与「白名单严格校验」的区别：我们没有一份可靠的小节标题清单
+ * （标题是解析时猜的，见 parsers/pdf.ts 的 detectChapter），
+ * 所以不做「不在清单里就丢」——那会误杀大量正确的标签。
+ * 只清能确定是垃圾的：Markdown 标记、过长过短、纯泛词。
+ */
+function cleanTags(raw: unknown[]): string[] {
+  const GENERIC = new Set([
+    '基础概念', '基础', '概念', '重点', '难点', '核心', '要点', '知识点',
+    '关键', '总结', '概述', '简介', '其他', '其他内容', '无', '可选标签',
+  ]);
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  for (const t of raw) {
+    if (typeof t !== 'string') continue;
+
+    /* 去 Markdown 标记与首尾空白 */
+    const cleaned = t
+      .replace(/^#{1,6}\s*/, '')
+      .replace(/\*\*/g, '')
+      .replace(/`/g, '')
+      .trim();
+
+    if (!cleaned) continue;
+    /* 太短（一个字的标签没有分类价值）或太长（多半是整句）都丢 */
+    if (cleaned.length < 2 || cleaned.length > 40) continue;
+    if (GENERIC.has(cleaned)) continue;
+    /* 去重（保留第一次出现） */
+    if (seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    out.push(cleaned);
+    /* 一条知识点最多两个标签：多了会稀释分类意义 */
+    if (out.length >= 2) break;
+  }
+
+  return out;
 }
 
 function chunk<T>(items: T[], size: number): T[][] {

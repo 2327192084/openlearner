@@ -581,3 +581,78 @@ describe('提示词：几条硬规则必须在场', () => {
     expect(user).not.toContain('再次提醒');
   });
 });
+
+/**
+ * 标签清洗（2026-11-10）。
+ *
+ * 知识骨架的分类完全依赖 tags。之前这个字段是「可选标签」，
+ * 模型可以填任何东西 —— 实测最容易出现两类污染：
+ * 带 Markdown 标记、用「基础概念」这类泛词充数。
+ *
+ * 这组测试守的是**收紧但不误杀**：清掉能确定的垃圾，
+ * 认不出的保留（用户可以在界面上手改）。
+ */
+describe('知识点标签清洗', () => {
+  function tagsOf(rawTags: unknown): string[] {
+    const drafts = parsePointsJson(
+      JSON.stringify({
+        points: [
+          {
+            statement: '线性时不变系统的定义',
+            quotes: ['线性时不变系统同时满足叠加性与时不变性'],
+            cognitiveLevel: 'remember',
+            tags: rawTags,
+          },
+        ],
+      }),
+    );
+    return drafts[0]?.tags ?? [];
+  }
+
+  it('正常的标签原样保留', () => {
+    expect(tagsOf(['1.1 线性时不变系统'])).toEqual(['1.1 线性时不变系统']);
+  });
+
+  it('剥掉 Markdown 标题标记', () => {
+    /* 模型经常把原文的 `## 1.1 xxx` 连标记一起抄进标签 */
+    expect(tagsOf(['## 1.1 线性时不变系统'])).toEqual(['1.1 线性时不变系统']);
+    expect(tagsOf(['**核心概念**'])).toEqual(['核心概念']);
+  });
+
+  it('泛词被丢弃（「基础概念」这类对分类毫无用处）', () => {
+    expect(tagsOf(['基础概念'])).toEqual([]);
+    expect(tagsOf(['重点', '难点'])).toEqual([]);
+    expect(tagsOf(['可选标签'])).toEqual([]);
+  });
+
+  it('泛词后面跟着真标签时，保留真的那个', () => {
+    expect(tagsOf(['基础概念', '1.2 系统分类'])).toEqual(['1.2 系统分类']);
+  });
+
+  it('最多保留两个标签（多了会稀释分类意义）', () => {
+    expect(tagsOf(['甲标签', '乙标签', '丙标签', '丁标签'])).toEqual(['甲标签', '乙标签']);
+  });
+
+  it('去重', () => {
+    expect(tagsOf(['1.1 信号', '1.1 信号'])).toEqual(['1.1 信号']);
+  });
+
+  it('太短或太长的标签被丢弃', () => {
+    expect(tagsOf(['短'])).toEqual([]);            // 一个字没有分类价值
+    expect(tagsOf(['这'.repeat(45)])).toEqual([]);  // 多半是整句
+  });
+
+  it('非字符串条目被忽略，不炸', () => {
+    expect(tagsOf([123, null, { a: 1 }, '1.1 有效标签'])).toEqual(['1.1 有效标签']);
+  });
+
+  it('tags 缺失或不是数组时给空数组', () => {
+    expect(tagsOf(undefined)).toEqual([]);
+    expect(tagsOf('不是数组')).toEqual([]);
+  });
+
+  it('只有 Markdown 标记的标签清完为空，不留空串', () => {
+    expect(tagsOf(['##'])).toEqual([]);
+    expect(tagsOf(['**'])).toEqual([]);
+  });
+});

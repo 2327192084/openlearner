@@ -1,0 +1,166 @@
+/*
+ * 知识点标签编辑器样式（2026-11-10）。
+ *
+ * ⚠️ 原生控件（button / input）的样式一律写在 @layer 之外 ——
+ * base.css 有不在任何 @layer 内的 button/input 规则，
+ * 级联「层级先于特异性」，写层内会被盖掉。
+ */
+
+/* ==========================================================================
+   层外：原生控件
+   ========================================================================== */
+
+.kpt__mini,
+.kpt__x {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--line-soft);
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 6px;
+}
+
+.kpt__mini {
+  padding: 2px 9px;
+  font-size: 11.5px;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+
+.kpt__mini:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-raised);
+  border-color: var(--line);
+}
+
+.kpt__mini:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.kpt__mini--primary {
+  color: var(--accent-ink, #fff8f2);
+  background: var(--accent, #c93d22);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.kpt__mini--primary:hover:not(:disabled) {
+  background: var(--accent-soft, #ec6a4a);
+  color: var(--accent-ink, #fff8f2);
+}
+
+.kpt__x {
+  border: none;
+  padding: 0 3px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-muted);
+}
+
+.kpt__x:hover {
+  color: var(--bad);
+}
+
+.kpt__input {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  font-size: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-sunken);
+  color: var(--text);
+}
+
+.kpt__input:focus {
+  outline: none;
+  border-color: var(--accent, #c93d22);
+}
+
+.kpt__input::placeholder {
+  color: var(--text-faint);
+}
+
+/* ==========================================================================
+   层内：布局
+   ========================================================================== */
+
+@layer {
+  .kpt {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .kpt--editing {
+    align-items: flex-start;
+  }
+
+  .kpt__label {
+    flex: 0 0 auto;
+    color: var(--text-faint);
+  }
+
+  .kpt__none {
+    color: var(--text-faint);
+    font-style: normal;
+    padding: 1px 7px;
+    border: 1px dashed var(--line-soft);
+    border-radius: 5px;
+  }
+
+  .kpt__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .kpt__tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 8px;
+    border-radius: 5px;
+    border: 1px solid var(--line-soft);
+    background: var(--bg-raised);
+    color: var(--text-dim);
+    font-size: 11.5px;
+    line-height: 1.7;
+  }
+
+  .kpt__tag--removable {
+    padding-right: 3px;
+  }
+
+  .kpt__edit {
+    flex: 1 1 220px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+  }
+
+  .kpt__actions {
+    display: flex;
+    gap: 5px;
+    flex: 0 0 auto;
+    padding-top: 1px;
+  }
+
+  .kpt__hint {
+    margin: 0;
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+}

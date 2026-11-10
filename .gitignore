@@ -35,3 +35,6 @@ coverage/
 # Python 缓存（_patch.py 生成的）
 __pycache__/
 *.pyc
+
+# StudyHub 会话数据（StudyHub 自己的工具管，不进代码库）
+.dsh-study/

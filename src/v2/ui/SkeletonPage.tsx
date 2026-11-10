@@ -17,7 +17,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Question, Source } from '@/core/model.ts';
+import type { KnowledgePoint, Question, Source } from '@/core/model.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { SourceService } from '@/core/sources.ts';
 import type { DeckService } from '@/core/questions/service.ts';
@@ -74,7 +74,19 @@ interface SourceGroup {
 type Load =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
-  | { kind: 'ready'; groups: SourceGroup[]; topTags: { tag: string; count: number }[] };
+  | {
+      kind: 'ready';
+      groups: SourceGroup[];
+      topTags: { tag: string; count: number }[];
+      /**
+       * 资料 id → 原始知识点（2026-11-10 加）。
+       *
+       * `SourceGroup.chapters` 只存计数（省内存），没法在页面层按标签
+       * 重新过滤。所以把原表一并放在状态里 —— 59 条知识点留一份引用
+       * 不构成负担，换来「筛选时数字能跟着重算」。
+       */
+      rawBySource: Map<string, KnowledgePoint[]>;
+    };
 
 export function SkeletonPage({
   knowledge,
@@ -194,7 +206,11 @@ export function SkeletonPage({
         .sort((a, b) => b.count - a.count)
         .slice(0, 20);
 
-      setState({ kind: 'ready', groups, topTags });
+      /* 顺手把原表带上，供页面层按筛选重新聚合 */
+      const rawBySource = new Map<string, KnowledgePoint[]>();
+      for (const { source, points } of perSource) rawBySource.set(source.id, points);
+
+      setState({ kind: 'ready', groups, topTags, rawBySource });
     } catch (err) {
       setState({
         kind: 'error',
@@ -209,6 +225,103 @@ export function SkeletonPage({
 
   const groups = state.kind === 'ready' ? state.groups : [];
   const topTags = state.kind === 'ready' ? state.topTags : [];
+
+  /**
+   * 当前选中的筛选：按标签 / 按层级（2026-11-10）。
+   *
+   * ## 为什么需要这两个筛选
+   *
+   * 实测 86 条知识点里 85 条没有 chapter —— 章节名是解析时从标题行
+   * 猜出来的，经常猜不到。所以「按章节摊开」实际表现为全堆在「未归章」。
+   *
+   * 而 tags 不依赖解析结果（是整理时让模型按小节标题写的，也可以手改），
+   * 所以它才是**可靠的那个组织维度**。这一层筛选就是在纠正
+   * 「骨架只能按章节看」这个不成立的前提。
+   *
+   * 空集 = 不筛选。用集合而不是单选：用户可能想同时看两个小节。
+   */
+  const [pickedTags, setPickedTags] = useState<Set<string>>(new Set());
+  const [pickedLevels, setPickedLevels] = useState<Set<Level>>(new Set());
+
+  const rawBySource = state.kind === 'ready' ? state.rawBySource : new Map<string, KnowledgePoint[]>();
+
+  /**
+   * 原始知识点（按资料分组），筛选时用它重新聚合。
+   *
+   * 为什么不直接用 `groups`：`ChapterGroup` 只存了计数
+   * （count / byLevel / unlocated），没有存知识点本身 ——
+   * 那是为了省内存，但也就没法在页面层按标签重新过滤。
+   */
+  const rawPoints = rawBySource;
+
+  /** 按当前筛选过滤后的分组（章节计数也要跟着变，否则数字对不上） */
+  const filteredGroups = useMemo(() => {
+    if (pickedTags.size === 0 && pickedLevels.size === 0) return groups;
+
+    const out: SourceGroup[] = [];
+    for (const g of groups) {
+      const pts = rawPoints.get(g.sourceId) ?? [];
+      const kept = pts.filter((p) => {
+        if (pickedLevels.size > 0 && !pickedLevels.has(p.cognitiveLevel)) return false;
+        if (pickedTags.size > 0) {
+          const tags = p.tags ?? [];
+          if (!tags.some((t) => pickedTags.has(t))) return false;
+        }
+        return true;
+      });
+      if (kept.length === 0) continue;
+
+      /* 用保留下来的知识点重新分章，保证「章节 · N 条」与筛选结果一致 */
+      const chapters: ChapterGroup[] = [];
+      let total = 0;
+      const byLevel = emptyLevels();
+      let unlocated = 0;
+      const byChapter = new Map<string, KnowledgePoint[]>();
+      for (const p of kept) {
+        const key = p.chapter?.trim() || UNCHAPTERED;
+        const arr = byChapter.get(key) ?? [];
+        arr.push(p);
+        byChapter.set(key, arr);
+      }
+      for (const [chapter, list] of byChapter) {
+        const cLevel = emptyLevels();
+        let cUn = 0;
+        for (const p of list) {
+          cLevel[p.cognitiveLevel] += 1;
+          byLevel[p.cognitiveLevel] += 1;
+          if (p.anchorStatus === 'unlocated') {
+            cUn += 1;
+            unlocated += 1;
+          }
+        }
+        total += list.length;
+        chapters.push({ chapter, count: list.length, byLevel: cLevel, unlocated: cUn });
+      }
+
+      out.push({ ...g, chapters, total, byLevel, unlocated });
+    }
+    return out;
+  }, [groups, rawPoints, pickedTags, pickedLevels]);
+
+  const toggleTag = useCallback((t: string) => {
+    setPickedTags((prev) => {
+      const next = new Set(prev);
+      if (next.has(t)) next.delete(t);
+      else next.add(t);
+      return next;
+    });
+  }, []);
+
+  const toggleLevel = useCallback((lv: Level) => {
+    setPickedLevels((prev) => {
+      const next = new Set(prev);
+      if (next.has(lv)) next.delete(lv);
+      else next.add(lv);
+      return next;
+    });
+  }, []);
+
+  const hasFilter = pickedTags.size > 0 || pickedLevels.size > 0;
 
   /** 全库层级汇总 */
   const totals = useMemo(() => {
@@ -330,24 +443,74 @@ export function SkeletonPage({
       ) : null}
 
       {/* ---- 高频标签 ---- */}
-      {topTags.length > 0 ? (
+      {/*
+        分类筛选（2026-11-10）。
+        标签从「不可点的标签云」改成可点筛选 —— 它现在真的能用来缩小范围，
+        而不只是展示。层级筛选与标签是**与**关系（同时满足）。
+      */}
+      {topTags.length > 0 || hasFilter ? (
         <section className="sk-tags">
-          <h2 className="sk-subtitle">反复出现的概念</h2>
+          <h2 className="sk-subtitle">
+            按分类筛选
+            {hasFilter ? (
+              <button
+                type="button"
+                className="sk-clear"
+                onClick={() => {
+                  setPickedTags(new Set());
+                  setPickedLevels(new Set());
+                }}
+              >
+                清空筛选
+              </button>
+            ) : null}
+          </h2>
+
+          {/* 层级 */}
           <div className="sk-tag-list">
-            {topTags.map((t) => (
-              <span key={t.tag} className="sk-tag">
-                {t.tag}
-                <span className="sk-tag__n">{t.count}</span>
-              </span>
+            {LEVELS.map((lv) => (
+              <button
+                key={lv.key}
+                type="button"
+                className={`sk-tag sk-tag--btn${pickedLevels.has(lv.key) ? ' sk-tag--on' : ''}`}
+                aria-pressed={pickedLevels.has(lv.key)}
+                onClick={() => toggleLevel(lv.key)}
+                title={lv.hint}
+              >
+                {lv.label}
+                <span className="sk-tag__n">{totals.byLevel[lv.key]}</span>
+              </button>
             ))}
           </div>
+
+          {/* 标签（小节名） */}
+          {topTags.length > 0 ? (
+            <div className="sk-tag-list sk-tag-list--wrap">
+              {topTags.map((t) => (
+                <button
+                  key={t.tag}
+                  type="button"
+                  className={`sk-tag sk-tag--btn${pickedTags.has(t.tag) ? ' sk-tag--on' : ''}`}
+                  aria-pressed={pickedTags.has(t.tag)}
+                  onClick={() => toggleTag(t.tag)}
+                >
+                  {t.tag}
+                  <span className="sk-tag__n">{t.count}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="sk-hint">
+              还没有分类标签。重新整理知识点、或到「知识库」里给每条点「改」填上小节名，这里就能按分类筛了。
+            </p>
+          )}
         </section>
       ) : null}
 
       {/* ---- 按资料 → 章节 ---- */}
       <section className="sk-tree">
         <h2 className="sk-subtitle">按资料与章节</h2>
-        {groups.map((g) => {
+        {filteredGroups.map((g) => {
           const isOpen = !collapsed[g.sourceId];
           return (
             <div key={g.sourceId} className="sk-source">

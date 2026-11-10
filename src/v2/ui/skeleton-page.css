@@ -383,3 +383,79 @@
     color: var(--text-dim);
   }
 }
+
+/* ==========================================================================
+   分类筛选（2026-11-10）
+   ==========================================================================
+
+   ⚠️ 标签从 <span> 改成了 <button>（可点击筛选），所以样式必须写在层外 ——
+   base.css 有不在任何 @layer 内的 button 规则，级联「层级先于特异性」，
+   写层内会被它盖掉（项目踩过六次以上）。
+   -------------------------------------------------------------------------- */
+
+.sk-tag--btn,
+.sk-clear {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: transparent;
+}
+
+.sk-tag--btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill, 999px);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text-dim);
+  font-size: var(--fs-xs, 12px);
+  line-height: 1.8;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.sk-tag--btn:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+/*
+ * 选中态用朱砂细边 + 淡底。
+ * 不整块涂朱砂 —— 项目规矩：朱砂只给主操作与进度，
+ * 一堆标签全涂成朱砂会让主按钮失去焦点。
+ */
+.sk-tag--btn.sk-tag--on {
+  color: var(--accent-text, #ec6a4a);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.sk-clear {
+  margin-left: 10px;
+  padding: 1px 8px;
+  border-radius: 6px;
+  font-size: var(--fs-xs, 12px);
+  color: var(--text-muted);
+  border-color: var(--line-soft);
+  font-weight: 400;
+}
+
+.sk-clear:hover {
+  color: var(--text);
+  background: var(--bg-raised);
+}
+
+@layer study.features {
+  .sk-tag-list--wrap {
+    flex-wrap: wrap;
+  }
+
+  .sk-hint {
+    margin: var(--space-2) 0 0;
+    font-size: var(--fs-xs, 12px);
+    color: var(--text-faint);
+    line-height: 1.7;
+  }
+}
