@@ -171,6 +171,16 @@ export function ReaderPage({
   const [searchKeyword, setSearchKeyword] = useState('');
   /** 当前正在看第几条命中 */
   const [activeHit, setActiveHit] = useState(0);
+  /** 搜索结果「只看当前页」（2026-11-11 用户要求加） */
+  const [onlyCurrentPage, setOnlyCurrentPage] = useState(false);
+  /**
+   * 右栏要切到哪个页签（2026-11-11 晚，「先选再写」用）。
+   *
+   * 用户点浮层「写备注」→ 设成 'note'，右栏跟过去。
+   * 用递增 token 而不是布尔，见 ReaderSidePanel 的 focusNoteToken 注释。
+   */
+  const [sideMode, setSideMode] = useState<'view' | 'annotate' | 'note' | undefined>(undefined);
+  const [noteFocusToken, setNoteFocusToken] = useState(0);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const markRef = useRef<HTMLElement | null>(null);
   /**
@@ -502,6 +512,14 @@ export function ReaderPage({
    * 这里从 phase 直接取，未 ready 时是 null。
    */
   const sourceId = phase.kind === 'ready' ? phase.source.id : null;
+  /**
+   * 这一页能不能写备注（2026-11-11 晚）。
+   *
+   * 选区浮层里是否出现「写备注」取决于它 —— 没有资料 id 或没有
+   * 注释服务时不该给一个点了没反应的按钮。
+   * ⚠️ 必须定义在 sourceId 之后（它是 const，有暂时性死区）。
+   */
+  const notesEnabled = Boolean(annotations && sourceId && seg);
 
   /**
    * 翻页或换资料时重新载入这一页的标记。
@@ -1376,6 +1394,9 @@ export function ReaderPage({
           hits={searchHits}
           activeIndex={activeHit}
           keyword={searchKeyword}
+          currentPage={seg?.page}
+          onlyCurrentPage={onlyCurrentPage}
+          onToggleOnlyCurrentPage={setOnlyCurrentPage}
           onPick={(i) => {
             jumpToHit(searchHits, i);
             setSearchNote(`已跳到第 ${i + 1} 处（第 ${searchHits[i]?.page ?? 1} 页）。`);
@@ -1491,16 +1512,43 @@ export function ReaderPage({
       </div>
 
       {/*
-        选区浮层：选中正文就冒出的「用这段提问」（2026-11-10）。
+        选区浮层：选中正文就冒出的动作（2026-11-10 起「用这段提问」，
+        2026-11-11 晚加「写备注」）。
+
         抽成独立文件（SelectionActionBar.tsx），宿主只插这一行 ——
-        ReaderPage 已经 1200+ 行，项目对往大文件里插代码有过教训。
-        只在宿主接了 onAskAboutSelection 时才渲染（没接 AI 就不冒按钮）。
+        ReaderPage 已经 1700+ 行，项目对往大文件里插代码有过教训。
+
+        渲染条件放宽了：原来只在接了 onAskAboutSelection 时才渲染
+        （没接 AI 就整个浮层不出现）。但现在「写备注」也要用这个浮层，
+        所以只要**任一动作可用**就该出现 —— 否则没接 AI 的用户
+        永远拿不到「先选再写」这条顺手路径。
       */}
-      {onAskAboutSelection ? (
+      {onAskAboutSelection || notesEnabled ? (
         <SelectionActionBar
           selection={selectionRect && selectionText ? { rect: selectionRect, text: selectionText } : null}
+          /*
+           * ⚠️ 必须传 handleAskAboutSelection，不能直接传 onAskAboutSelection：
+           * 后者收到的类型是 OralMaterial（宿主已转过），而浮层给的是
+           * 选区文字 string。转义由 handleAskAboutSelection 负责。
+           */
           onAsk={handleAskAboutSelection}
-          disabledReason={askDisabledReason ?? null}
+          disabledReason={onAskAboutSelection ? (askDisabledReason ?? null) : '这个版本没接 AI'}
+          onNote={
+            notesEnabled
+              ? () => {
+                  /*
+                   * 用户点了「写备注」：右栏切到备注页、聚焦输入框。
+                   *
+                   * 选区文字与原文偏移在 selectionchange 时已经记下了
+                   * （recentSelection / recentSelRange），所以这里不必再取一次 ——
+                   * 而且此刻浏览器选区已经被清掉，想取也取不到了。
+                   */
+                  setSideMode('note');
+                  setNoteFocusToken((n) => n + 1);
+                }
+              : undefined
+          }
+          noteDisabledReason={notesEnabled ? null : '这一页还不能写备注'}
         />
       ) : null}
 
@@ -1524,6 +1572,8 @@ export function ReaderPage({
          * 而那时用户其实已经选好了，正准备写字。
          */
         hasSelection={!!(selectionText || recentSelection)}
+        forceMode={sideMode}
+        focusNoteToken={noteFocusToken}
         knowledgeCount={pageKnowledgeCount}
         figureCount={pageFigures.length}
         onAddSelectionNote={(note, image) => void handleAddNote(note, false, image)}

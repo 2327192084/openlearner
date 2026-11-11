@@ -46,6 +46,16 @@ export interface SearchResultsProps {
   onClose: () => void;
   /** 搜索的关键词，用于在片段里标出来 */
   keyword: string;
+  /**
+   * 当前页的页码（2026-11-11 用户要求加「只看当前页」）。
+   *
+   * 传 `undefined` 表示不知道当前页 → 不显示这个开关。
+   */
+  currentPage?: number;
+  /** 是否只看当前页 */
+  onlyCurrentPage: boolean;
+  /** 切换「只看当前页」 */
+  onToggleOnlyCurrentPage: (next: boolean) => void;
 }
 
 /** 把片段里出现的所有关键词包成 <mark>（不区分大小写） */
@@ -81,62 +91,105 @@ export function SearchResults({
   onPick,
   onClose,
   keyword,
+  currentPage,
+  onlyCurrentPage,
+  onToggleOnlyCurrentPage,
 }: SearchResultsProps) {
   if (hits.length === 0) return null;
+
+  /*
+   * 「只看当前页」过滤（2026-11-11 用户要求）。
+   *
+   * ⚠️ 关键：过滤**不能改变 onPick 的 index 语义**。
+   * 传出去的 index 必须是 hits 这个**全量数组**里的下标，
+   * 否则点了列表第 1 条会跳到全量第 1 条（不是当前页的第 1 条）——
+   * 这类「过滤后下标错位」的 bug 界面上看着像「跳错页」，极难查。
+   * 所以这里先带原下标过滤，渲染时仍用它。
+   */
+  const indexed = hits.map((hit, index) => ({ hit, index }));
+  const shown =
+    onlyCurrentPage && typeof currentPage === 'number'
+      ? indexed.filter((x) => x.hit.page === currentPage)
+      : indexed;
 
   /* 按页分组，保持原有顺序 */
   const groups: { page: number; chapter: string | null; items: { hit: SearchHit; index: number }[] }[] =
     [];
-  hits.forEach((hit, index) => {
+  for (const it of shown) {
     const last = groups[groups.length - 1];
-    if (last && last.page === hit.page) {
-      last.items.push({ hit, index });
+    if (last && last.page === it.hit.page) {
+      last.items.push(it);
     } else {
-      groups.push({ page: hit.page, chapter: hit.chapter, items: [{ hit, index }] });
+      groups.push({ page: it.hit.page, chapter: it.hit.chapter, items: [it] });
     }
-  });
+  }
+
+  const pageHitCount =
+    typeof currentPage === 'number'
+      ? hits.filter((h) => h.page === currentPage).length
+      : 0;
 
   return (
     <section className="reader-hits" aria-label="搜索结果">
       <header className="reader-hits__head">
         <span className="reader-hits__title">
           「{keyword}」共 {hits.length} 处
-          <span className="reader-hits__sub"> · {groups.length} 页</span>
+          <span className="reader-hits__sub"> · {groups.length === 0 ? 0 : new Set(hits.map((h) => h.page)).size} 页</span>
         </span>
+
+        {/* 只看当前页（2026-11-11 用户要求） */}
+        {typeof currentPage === 'number' ? (
+          <label className="reader-hits__filter">
+            <input
+              type="checkbox"
+              checked={onlyCurrentPage}
+              onChange={(e) => onToggleOnlyCurrentPage(e.target.checked)}
+            />
+            只看本页
+            <span className="reader-hits__sub">（{pageHitCount}）</span>
+          </label>
+        ) : null}
+
         <button type="button" className="btn-ghost reader-hits__close" onClick={onClose}>
           收起
         </button>
       </header>
 
-      <ul className="reader-hits__list">
-        {groups.map((g) => (
-          <li key={g.page} className="reader-hits__group">
-            <p className="reader-hits__page">
-              第 {g.page} 页
-              {g.chapter ? <span className="reader-hits__chapter">{g.chapter}</span> : null}
-              {g.items.length > 1 ? (
-                <span className="reader-hits__count">{g.items.length} 处</span>
-              ) : null}
-            </p>
-            <ul className="reader-hits__items">
-              {g.items.map(({ hit, index }) => (
-                <li key={index}>
-                  <button
-                    type="button"
-                    className={`reader-hits__item${index === activeIndex ? ' reader-hits__item--on' : ''}`}
-                    onClick={() => onPick(index)}
-                    title="跳到这一处"
-                  >
-                    <span className="reader-hits__snippet">
-                      {renderSnippet(hit.snippet, keyword)}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </li>
-        ))}
-      </ul>
+      {shown.length === 0 ? (
+        <p className="reader-hits__empty">
+          本页没有「{keyword}」。取消勾选「只看本页」可以看到其他 {hits.length} 处。
+        </p>
+      ) : (
+        <ul className="reader-hits__list">
+          {groups.map((g) => (
+            <li key={g.page} className="reader-hits__group">
+              <p className="reader-hits__page">
+                第 {g.page} 页
+                {g.chapter ? <span className="reader-hits__chapter">{g.chapter}</span> : null}
+                {g.items.length > 1 ? (
+                  <span className="reader-hits__count">{g.items.length} 处</span>
+                ) : null}
+              </p>
+              <ul className="reader-hits__items">
+                {g.items.map(({ hit, index }) => (
+                  <li key={index}>
+                    <button
+                      type="button"
+                      className={`reader-hits__item${index === activeIndex ? ' reader-hits__item--on' : ''}`}
+                      onClick={() => onPick(index)}
+                      title="跳到这一处"
+                    >
+                      <span className="reader-hits__snippet">
+                        {renderSnippet(hit.snippet, keyword)}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

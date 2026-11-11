@@ -754,3 +754,36 @@
 .reader-pagenote__img:hover img {
   border-color: var(--accent);
 }
+
+/* ---------- 搜索结果：「只看本页」过滤（2026-11-11 晚） ---------- */
+
+.reader-hits__filter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+/*
+ * 原生复选框（硬约束 2：原生控件配色一律写层外，本文件不套 @layer，
+ * 所以这里安全）。accent-color 只改选中色，不改外观尺寸逻辑。
+ */
+.reader-hits__filter input[type='checkbox'] {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.reader-hits__empty {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-faint);
+}

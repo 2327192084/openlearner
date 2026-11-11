@@ -21,7 +21,7 @@
  * 每次进来都要先切一下，反而碍事。
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SourceSegment, TextMark, TextMarkKind, NotemarkImage } from '@/core/model.ts';
 import { MARK_COLORS, isWholePageNote } from '@/core/text-anchor.ts';
 import { NoteImageField, fileToNoteImage, imageFromPaste } from './NoteImageField.tsx';
@@ -61,6 +61,21 @@ export interface ReaderSidePanelProps {
   figureCount?: number;
   /** 默认模式 */
   initialMode?: ReaderSideMode;
+  /**
+   * 外部要求切到某个页签（2026-11-11 晚，「先选再写」流程用）。
+   *
+   * 用户在正文选中 → 点浮层「写备注」→ 宿主把它设成 'note'，
+   * 右栏跟过去。不设就一直是 undefined，页签仍由用户自己点。
+   */
+  forceMode?: ReaderSideMode;
+  /**
+   * 递增这个数字就聚焦备注输入框（2026-11-11 晚）。
+   *
+   * 为什么用「递增的 token」而不是布尔开关：布尔值第二次设成 true
+   * 时 React 认为没变化、不重跑 effect，于是第二次点「写备注」
+   * 光标不会进输入框 —— 这种「第二次失效」的 bug 很难被发现。
+   */
+  focusNoteToken?: number;
   /**
    * 新建一条**划选备注**（2026-11-11）。
    *
@@ -162,11 +177,26 @@ export function ReaderSidePanel({
   knowledgeCount,
   figureCount,
   initialMode = 'view',
+  /*
+   * 外部要求切到某个页签（2026-11-11 晚）。
+   *
+   * 「先选再写」的流程需要它：用户在正文里选中 → 点浮层的「写备注」→
+   * 右栏必须切到备注页。没有这个 prop 的话右栏停在「查看」，
+   * 用户点完按钮看不到任何变化，会以为没生效。
+   */
+  forceMode,
+  /** 递增一次就聚焦备注输入框（配合 forceMode='note' 用） */
+  focusNoteToken = 0,
   onAddSelectionNote,
   onAddPageNote,
   onLocateMark,
 }: ReaderSidePanelProps) {
   const [mode, setMode] = useState<ReaderSideMode>(initialMode);
+
+  /* 外部要求切页签时跟过去（2026-11-11 晚，「先选再写」用） */
+  useEffect(() => {
+    if (forceMode) setMode(forceMode);
+  }, [forceMode]);
   /** 正在编辑备注的那条标记 id */
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -198,6 +228,40 @@ export function ReaderSidePanel({
     setEditing(mark.id);
     setDraft(mark.note ?? '');
   }, []);
+
+  /**
+   * 「先选再写」流程的收尾（2026-11-11 晚）：把光标放进备注输入框。
+   *
+   * 用户点浮层的「写备注」后，右栏已切到备注页、选区也记住了，
+   * 接下来就该直接开始打字 —— 让他再去点一下输入框是多余的一步。
+   *
+   * 依赖 focusNoteToken 而不是 focus：token 每次递增都会重跑，
+   * 用布尔值的话第二次点「写备注」不会重新聚焦（值没变）。
+   */
+  const noteRef = useRef<HTMLTextAreaElement | null>(null);
+  /** 已经为哪个 token 聚过焦 —— 防止用户手动切回备注页时又被抢焦点 */
+  const focusedToken = useRef(0);
+  useEffect(() => {
+    if (focusNoteToken <= 0) return;
+    if (focusedToken.current === focusNoteToken) return;
+
+    /*
+     * 依赖里必须带 mode（2026-11-11 晚实测踩到）。
+     *
+     * 「点写备注」那一刻 mode 还是 'view'，textarea 根本不在 DOM 里 ——
+     * 此时 rAF 里 focus() 拿到的是 null，光标留在 body。
+     * mode 变成 'note' 后本 effect 会再跑一次，那时才真正能聚焦。
+     */
+    if (mode !== 'note') return;
+
+    const id = requestAnimationFrame(() => {
+      if (noteRef.current) {
+        noteRef.current.focus();
+        focusedToken.current = focusNoteToken;
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [focusNoteToken, mode]);
 
   const commitEdit = useCallback(
     (markId: string) => {
@@ -317,12 +381,24 @@ export function ReaderSidePanel({
           <section className="rside__sec">
             <h3 className="rside__h">写备注</h3>
             <p className="rside__lead">
+              {/*
+                2026-11-11 晚改：引导语跟着交互顺序改。
+                用户明确要求「先选取再输入」——
+                选中之后浮层里有「写备注」，点了会自动切到这一页，
+                所以文案要说这条顺手路径，而不是让人先在这里打字。
+              */}
               {hasSelection
-                ? '已选中文字 —— 「划选备注」会挂在这句话上。'
-                : '要备注某句话，先在正文里选中它；也可以给整页写一条。'}
+                ? '已选中文字 —— 写完点「划选备注」就挂在这句话上。'
+                : (
+                    <>
+                      先在正文里<strong>选中</strong>要备注的那句话，浮层里点「写备注」就会到这里；
+                      也可以直接给整页写一条。
+                    </>
+                  )}
             </p>
 
             <textarea
+              ref={noteRef}
               className="rside__note-input"
               rows={3}
               value={newNote}
@@ -395,16 +471,20 @@ export function ReaderSidePanel({
             </div>
 
             {/*
-              实时说明「还差什么」（2026-11-11）。
+              实时说明「还差什么」（2026-11-11，晚改）。
               用户报「划线备注按钮不可用」，实测按钮确实是禁用的 ——
               但原因是输入框为空，而界面上没有任何文字提示这件事。
               加一行状态说明，把「为什么不能点」直接写出来。
+
+              ⚠️ 2026-11-11 晚：步骤顺序改成「先选后写」。
+              原文案是「① 先写内容 → ② 再选中」，正是用户说的
+              「不符合日常习惯」那个顺序。现在按真实操作顺序说。
             */}
             <p className="rside__note-why">
-              {!newNote.trim()
-                ? '① 先在上面写内容'
-                : !hasSelection
-                  ? '② 再在正文里选中要备注的那句话'
+              {!hasSelection
+                ? '① 先在正文里选中要备注的那句话'
+                : !newNote.trim()
+                  ? '② 再在上面写下备注内容'
                   : '③ 可以点「划选备注」了'}
             </p>
           </section>

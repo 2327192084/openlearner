@@ -55,11 +55,37 @@ export interface SelectionActionBarProps {
   selection: { rect: RectLike; text: string } | null;
   /** 点「用这段提问」 */
   onAsk: (text: string) => void;
+  /**
+   * 点「写备注」（2026-11-11 晚新增）。
+   *
+   * ## 为什么加在这里
+   *
+   * 用户反馈：「备注功能先输入内容再选取我感觉有点怪，不符合使用日常习惯。
+   * 我建议改成先选取再输入。」
+   *
+   * 摘录 / 批注这类工具的通例都是「选中 → 就地冒出动作 → 再写」。
+   * 而原来的备注要先在右栏输入框写内容，再回正文选句子 —— 顺序反了。
+   *
+   * 浮层是选区旁边唯一顺手的位置，所以在这里加一个「写备注」：
+   * 点了之后右栏切到备注页、选区已记住、光标落进输入框，
+   * 用户接着写就行（不再需要回头去点输入框）。
+   *
+   * 不传就只显示提问那一个按钮（宿主没接备注时不影响）。
+   */
+  onNote?: (text: string) => void;
+  /** 用「写备注」时的禁用原因（例如没有资料 id） */
+  noteDisabledReason?: string | null;
   /** 是否禁用（比如没接 AI）—— 禁用时给出原因，不做点了没反应的按钮 */
   disabledReason?: string | null;
 }
 
-export function SelectionActionBar({ selection, onAsk, disabledReason }: SelectionActionBarProps) {
+export function SelectionActionBar({
+  selection,
+  onAsk,
+  onNote,
+  noteDisabledReason,
+  disabledReason,
+}: SelectionActionBarProps) {
   const barRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState<{ left: number; top: number; placement: 'above' | 'below' } | null>(
     null,
@@ -117,6 +143,20 @@ export function SelectionActionBar({ selection, onAsk, disabledReason }: Selecti
     onAsk(text);
   }, [selection, onAsk]);
 
+  /**
+   * 点「写备注」（2026-11-11 晚）。
+   *
+   * 与 handleAsk 一样先记住选区文字再清掉 —— 但**不能清 RecentSelRange**
+   * 之外的东西：宿主还要用那次选区的原文偏移把备注锚在正确位置
+   * （ReaderPage 在 selectionchange 里已经把偏移算好存进 recentSelRange）。
+   */
+  const handleNote = useCallback(() => {
+    if (!selection || !onNote) return;
+    const text = selection.text;
+    window.getSelection()?.removeAllRanges();
+    onNote(text);
+  }, [selection, onNote]);
+
   if (!usable || !selection) return null;
 
   /*
@@ -148,7 +188,25 @@ export function SelectionActionBar({ selection, onAsk, disabledReason }: Selecti
       >
         用这段提问
       </button>
-      {disabledReason ? <span className="selbar__why">{disabledReason}</span> : null}
+      {/*
+        「写备注」（2026-11-11 晚加）。
+        用户要求「先选取再输入」—— 摘录类工具的通例就是这个顺序。
+        点了之后右栏切到备注页并聚焦输入框，用户接着写。
+      */}
+      {onNote ? (
+        <button
+          type="button"
+          className="selbar__btn"
+          onClick={handleNote}
+          disabled={Boolean(noteDisabledReason)}
+          title={noteDisabledReason ?? '先选中再写备注，挂在选中的这句话上'}
+        >
+          写备注
+        </button>
+      ) : null}
+      {disabledReason || noteDisabledReason ? (
+        <span className="selbar__why">{noteDisabledReason ?? disabledReason}</span>
+      ) : null}
     </div>,
     document.body,
   );

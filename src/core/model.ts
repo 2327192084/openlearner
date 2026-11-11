@@ -1600,11 +1600,14 @@ export interface NotemarkImage {
 /**
  * 备注附图的大小上限（字节）。
  *
- * 512KB 的依据：base64 后约 683KB，存进 IndexedDB 仍属轻量；
- * 而一张手机截屏通常 200–400KB，能覆盖「把题目图贴进备注」这个真实用途。
- * 超过就拒绝并提示，而不是静默压缩 —— 静默改变用户给的图会让人困惑。
+ * 2MB（2026-11-11 晚用户定的）。原先是 512KB，
+ * 理由是「手机截屏通常 200–400KB」，但用户要贴教材整页扫描，那种更大。
+ *
+ * base64 后约 2.7MB，存进 IndexedDB 仍属可接受
+ * （相对整个库几十 MB 的量级，单条备注图不会成为瓶颈）。
+ * 超过就明确拒绝并提示，而不是静默压缩 —— 静默改变用户给的图会让人困惑。
  */
-export const MAX_NOTE_IMAGE_BYTES = 512 * 1024;
+export const MAX_NOTE_IMAGE_BYTES = 2 * 1024 * 1024;
 
 /** 页面上的一个文本框 */
 export interface TextNote {
