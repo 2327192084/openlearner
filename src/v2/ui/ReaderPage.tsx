@@ -6,8 +6,9 @@ import type {
   SourceSegment,
   TextMark,
   TextMarkKind,
+  NotemarkImage,
 } from '@/core/model.ts';
-import type { SourceService } from '@/core/sources.ts';
+import type { SourceService, SearchHit } from '@/core/sources.ts';
 import type { AnnotationService } from '@/core/annotation-service.ts';
 import type { PassageSelection } from '@/core/selection-passage.ts';
 import { locateSelection, passageToMaterial } from '@/core/selection-passage.ts';
@@ -21,6 +22,7 @@ import { MarkdownBodyMarked } from './MarkdownBodyMarked.tsx';
 import { paintTextMarks, clearTextMarks } from './paint-marks.ts';
 import { domPointToRaw } from './dom-text-map.ts';
 import { SelectionActionBar, measureSelectionRect } from './SelectionActionBar.tsx';
+import { SearchResults } from './SearchResults.tsx';
 import type { RectLike } from './selection-bar-place.ts';
 import { snapFiguresToBlocks } from './snap-figures.ts';
 import './reader-figure.css';
@@ -158,6 +160,17 @@ export function ReaderPage({
   const [jumpNote, setJumpNote] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [searchNote, setSearchNote] = useState<string | null>(null);
+  /**
+   * 搜索的全部命中（2026-11-11）。
+   *
+   * 用户搜「分析」得到 24 处，旧版只跳第一处。现在全部留在 state 里
+   * 交给 SearchResults 列出，点哪条跳哪条。
+   */
+  const [searchHits, setSearchHits] = useState<readonly SearchHit[]>([]);
+  /** 产生这批结果的关键词（用于在片段里标出来；与输入框分开，避免边打字边变） */
+  const [searchKeyword, setSearchKeyword] = useState('');
+  /** 当前正在看第几条命中 */
+  const [activeHit, setActiveHit] = useState(0);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const markRef = useRef<HTMLElement | null>(null);
   /**
@@ -880,7 +893,7 @@ export function ReaderPage({
    *    （见 ReaderSidePanel 里 isWholePageNote 的分支）
    */
   const handleAddNote = useCallback(
-    async (noteText: string, wholePage: boolean) => {
+    async (noteText: string, wholePage: boolean, image?: NotemarkImage | null) => {
       if (!annotations || !sourceId || !seg) return;
       const text = noteText.trim();
       if (!text) return;
@@ -1001,6 +1014,8 @@ export function ReaderPage({
           end,
         },
         note: text,
+        /* 备注附图（2026-11-11）。可选字段，旧数据没有也不影响 */
+        ...(image ? { image } : {}),
         createdAt: new Date().toISOString(),
       };
 
@@ -1126,6 +1141,30 @@ export function ReaderPage({
     [phase],
   );
 
+  /**
+   * 跳到第 index 条命中（2026-11-11）。
+   *
+   * 从 doSearch 里抽出来，因为「点列表里的某一条」和「首次搜索」要共用
+   * 同一套跳转逻辑 —— 分开写就会出现「搜索跳得对、点列表跳错页」那种
+   * 两边不一致的 bug。
+   */
+  const jumpToHit = useCallback(
+    (hits: readonly SearchHit[], index: number) => {
+      if (phase.kind !== 'ready') return;
+      const hit = hits[index];
+      if (!hit) return;
+      const segIdx =
+        phase.segments.find((s) => s.id === hit.segmentId)?.index ??
+        phase.segments.find((s) => s.page === hit.page)?.index ??
+        1;
+      setPageNo(segIdx);
+      setHighlight({ start: hit.charStart, end: hit.charEnd, via: 'quote' });
+      setJumpNote(null);
+      setActiveHit(index);
+    },
+    [phase],
+  );
+
   /** 在当前资料里搜一句，命中就跳过去高亮 */
   const doSearch = useCallback(async () => {
     const q = query.trim();
@@ -1134,26 +1173,31 @@ export function ReaderPage({
     try {
       const hits = await sourceService.search(initialSourceId ?? '', q);
       if (hits.length === 0) {
+        setSearchHits([]);
+        setSearchKeyword(q);
+        setActiveHit(0);
         setSearchNote(`这份资料里没有找到「${q}」。`);
         return;
       }
-      const hit = hits[0]!;
-      const segIdx =
-        phase.segments.find((s) => s.id === hit.segmentId)?.index ??
-        phase.segments.find((s) => s.page === hit.page)?.index ??
-        1;
-      setPageNo(segIdx);
-      setHighlight({ start: hit.charStart, end: hit.charEnd, via: 'quote' });
-      setJumpNote(null);
+      /*
+       * 把**全部**命中留下来，供列表展示（2026-11-11 用户要求）。
+       *
+       * 旧版只用 hits[0]，其余 23 处（用户搜「分析」时）无从选择。
+       * 数据本来就在（sourceService.search 返回全部），只是没展示。
+       */
+      setSearchHits(hits);
+      setSearchKeyword(q);
+      setActiveHit(0);
+      jumpToHit(hits, 0);
       setSearchNote(
         hits.length > 1
-          ? `找到 ${hits.length} 处，已跳到第 1 处（第 ${hit.page} 页）。`
-          : `在第 ${hit.page} 页找到。`,
+          ? `找到 ${hits.length} 处，已在下方列出，点任意一条跳过去。`
+          : `在第 ${hits[0]!.page} 页找到。`,
       );
     } catch (err) {
       setSearchNote(err instanceof Error ? err.message : '搜索失败。');
     }
-  }, [query, phase, sourceService, initialSourceId]);
+  }, [query, phase, sourceService, initialSourceId, jumpToHit]);
 
   // ---------- 渲染 ----------
   if (phase.kind === 'loading') {
@@ -1322,6 +1366,28 @@ export function ReaderPage({
       {searchNote ? <p className="reader-hint">{searchNote}</p> : null}
 
       {/*
+        搜索结果列表（2026-11-11 用户要求）。
+        用户原话：「我搜索关键词『分析』，找到了 24 个结果，但只给我跳转至第一处，
+        有没有办法把这 24 个结果都展示出来，供用户自行选择跳转。」
+        全部命中已存在 searchHits 里，这里全部列出，点哪条跳哪条。
+      */}
+      {searchHits.length > 0 ? (
+        <SearchResults
+          hits={searchHits}
+          activeIndex={activeHit}
+          keyword={searchKeyword}
+          onPick={(i) => {
+            jumpToHit(searchHits, i);
+            setSearchNote(`已跳到第 ${i + 1} 处（第 ${searchHits[i]?.page ?? 1} 页）。`);
+          }}
+          onClose={() => {
+            setSearchHits([]);
+            setSearchNote(null);
+          }}
+        />
+      ) : null}
+
+      {/*
         划选备注定位失败提示（2026-11-11）。
         旧行为是静默兜底成整页备注 —— 用户以为存上了，其实是错锚点。
         现在明确告诉用户没定位到，让他重新选。
@@ -1399,7 +1465,24 @@ export function ReaderPage({
             {wholePageNotes.map((m) => (
               <li key={m.id} className="reader-pagenote">
                 <span className="reader-pagenote__tag">整页备注</span>
-                <span className="reader-pagenote__text">{m.note}</span>
+                <span className="reader-pagenote__text">
+                  {m.note}
+                  {/*
+                    整页备注也可以带图（2026-11-11）。
+                    与侧栏一致：缩略图 + 点开看大图。
+                  */}
+                  {m.image ? (
+                    <a
+                      className="reader-pagenote__img"
+                      href={m.image.dataUri}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={`点击查看大图（${m.image.width}×${m.image.height}）`}
+                    >
+                      <img src={m.image.dataUri} alt="备注附图" loading="lazy" />
+                    </a>
+                  ) : null}
+                </span>
               </li>
             ))}
           </ul>
@@ -1443,8 +1526,8 @@ export function ReaderPage({
         hasSelection={!!(selectionText || recentSelection)}
         knowledgeCount={pageKnowledgeCount}
         figureCount={pageFigures.length}
-        onAddSelectionNote={(note) => void handleAddNote(note, false)}
-        onAddPageNote={(note) => void handleAddNote(note, true)}
+        onAddSelectionNote={(note, image) => void handleAddNote(note, false, image)}
+        onAddPageNote={(note, image) => void handleAddNote(note, true, image)}
         onLocateMark={(id) => handleLocateMark(id)}
       />
       </div>

@@ -1565,8 +1565,46 @@ export interface TextMark {
   color?: string;
   /** 用户给这条标记写的批注（可选）—— NoteIn 的「备注」就是它 */
   note?: string;
+  /**
+   * 备注附带的图片（2026-11-11）。data URI，与插图（SourceImageRecord.dataUri）同一形式。
+   *
+   * ## 为什么用可选字段而不是新分区
+   *
+   * 它只是备注的一个附件，生命周期与备注完全一致（随备注删除而消失）。
+   * 新建一个分区要动迁移三件套（STORES / BACKUP_STORES / StoreRecordMap /
+   * StoreName），风险与本收益不成比例。
+   *
+   * 可选字段对旧数据天然兼容：没有这个字段的记录读出来就是 `undefined`，
+   * 不触发任何迁移。
+   *
+   * ## 为什么存 byteSize
+   *
+   * data URI 存进 IndexedDB 后会比原文件大约 33%（base64）。
+   * 界面要能如实告诉用户「这条备注带图，占了多少」，
+   * 也要能拒绝过大的图（见 MAX_NOTE_IMAGE_BYTES）。
+   */
+  image?: NotemarkImage;
   createdAt: string;
 }
+
+/** 备注附图（2026-11-11） */
+export interface NotemarkImage {
+  /** `data:image/...;base64,...` */
+  dataUri: string;
+  /** 原始图片字节数（不含 base64 膨胀），用于显示占用与限额判断 */
+  byteSize: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * 备注附图的大小上限（字节）。
+ *
+ * 512KB 的依据：base64 后约 683KB，存进 IndexedDB 仍属轻量；
+ * 而一张手机截屏通常 200–400KB，能覆盖「把题目图贴进备注」这个真实用途。
+ * 超过就拒绝并提示，而不是静默压缩 —— 静默改变用户给的图会让人困惑。
+ */
+export const MAX_NOTE_IMAGE_BYTES = 512 * 1024;
 
 /** 页面上的一个文本框 */
 export interface TextNote {

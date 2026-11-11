@@ -227,12 +227,10 @@ export function MarkdownBodyMarked({
           >
             {withMark(ns, ne, hit)}
             {/*
-              行末角标：告诉「这段有备注」。
-              用户 2026-11-11 反馈「角标也没渲染出来」——
-              重写渲染层时漏了这一行，现在补回。
-              用 aria-hidden：它是纯视觉提示，读屏用户从备注列表拿信息。
+              行末角标：2026-11-11 晚用户要求**去掉**。
+              「备注的那个红色角标小点不要了，保留下划线就够。」
+              红色下划线本身已经能定位到具体哪几个字，小点属于多余装饰。
             */}
-            <span className="reader-note__dot" aria-hidden="true" />
           </span>
         ) : null}
         {after ? withMark(ne, s.length, after) : null}
@@ -281,7 +279,6 @@ export function MarkdownBodyMarked({
         }}
       >
         {marked}
-        <span className="reader-note__dot" aria-hidden="true" />
       </span>
     ) : (
       marked

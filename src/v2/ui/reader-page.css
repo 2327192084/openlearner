@@ -111,6 +111,153 @@
   color: var(--text-muted);
 }
 
+/* 定位失败提示：要能让用户立刻看到，所以用暖色而不是普通灰 */
+.reader-hint--warn {
+  color: #d98324;
+}
+
+/* ---------- 搜索结果列表（2026-11-11） ----------
+ *
+ * 用户要求：「找到 24 个结果，但只跳转第一处，能不能都展示出来自己选」。
+ *
+ * 布局参考 Apple Preview / Acrobat 的结果侧栏（见 SearchResults.tsx 头部）。
+ * 但这里不放在右侧独立栏，而是**收在搜索条下方**的一块可滚动区域 ——
+ * 阅读器右侧已经有「批注/备注」面板，再挤一个栏会把正文压得太窄。
+ *
+ * 高度用 max-height 而不是固定值：结果少时只占需要的空间，
+ * 多时（比如 24 处）内部滚动，不会把正文挤出屏幕。
+ */
+
+.reader-hits {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--bg-sunken);
+  overflow: hidden;
+}
+
+.reader-hits__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2, 8px);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.reader-hits__title {
+  font-size: var(--fs-sm, 13px);
+  color: var(--text);
+}
+
+.reader-hits__sub,
+.reader-hits__count {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.reader-hits__close {
+  flex: none;
+}
+
+.reader-hits__list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  /* 24 处时内部滚动，不把正文挤走 */
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.reader-hits__group {
+  padding: 2px 0;
+}
+
+/* 页码分隔：让用户一眼看出「这几处都在第 3 页」 */
+.reader-hits__page {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 10px 2px;
+  font-size: 12px;
+  color: var(--text-faint);
+  position: sticky;
+  top: 0;
+  background: var(--bg-sunken);
+  /* 滚动时页码贴顶，长列表里不会迷失在哪一页 */
+  z-index: 1;
+}
+
+.reader-hits__chapter {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+}
+
+.reader-hits__count {
+  margin-left: auto;
+}
+
+.reader-hits__items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/*
+ * 单条结果。用 button 而不是 div：可键盘 Tab、可回车，
+ * 也天然带焦点环（无障碍）。
+ *
+ * ⚠️ 按 hard constraint 2：原生控件配色必须写在 @layer 外面 ——
+ * 本文件本来就不套 @layer，所以这里没问题（见文件头）。
+ */
+.reader-hits__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 10px 5px 18px;
+  font-size: var(--fs-sm, 13px);
+  line-height: 1.55;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-left: 2px solid transparent;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.reader-hits__item:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.reader-hits__item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* 当前正在看的那一条：左侧竖条 + 底色，一眼能找回位置 */
+.reader-hits__item--on {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.reader-hits__snippet {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+/* 片段里的关键词：标出来，否则用户还得在一行字里自己找 */
+.reader-hits__kw {
+  background: #d9a44173;
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+}
+
 /* ---------- 翻页 / 搜索条 ---------- */
 
 .reader-bar {
@@ -280,11 +427,14 @@
 }
 
 /*
- * 行末小圆点：2026-11-11 第二轮**加大并改为实心红**。
+ * 行末小圆点：**2026-11-11 晚已停用**（用户要求）。
  *
- * 用户说「角标也没渲染出来」——5px + super 在中文行高里确实几乎不可见。
- * 现在 7px、`vertical-align: baseline` 上抬 2px，颜色跟随红线。
- * 它仍然只是「这段有备注」的提示，具体位置靠红下划线。
+ * 原话：「备注的那个红色角标小点不要了，保留下划线就够。」
+ *
+ * 规则保留但没有元素使用（MarkdownBodyMarked 里已移除该节点）。
+ * 没有直接删掉，是因为 `check-dead-css.cjs` 会把它报成死类名 ——
+ * 那正好是对的：下面这条注释就是给下一个看到告警的人的解释。
+ * 如果确实想彻底清掉，把这段一起删即可。
  */
 .reader-note__dot {
   display: inline-block;
@@ -581,4 +731,26 @@
   flex: 1;
   min-width: 0;
   white-space: pre-wrap;
+}
+
+/* ---------- 整页备注里的附图（2026-11-11） ---------- */
+
+.reader-pagenote__img {
+  display: block;
+  margin-top: 5px;
+}
+
+.reader-pagenote__img img {
+  display: block;
+  max-width: 100%;
+  max-height: 160px;
+  width: auto;
+  height: auto;
+  border-radius: 4px;
+  border: 1px solid var(--line-soft);
+  object-fit: contain;
+}
+
+.reader-pagenote__img:hover img {
+  border-color: var(--accent);
 }

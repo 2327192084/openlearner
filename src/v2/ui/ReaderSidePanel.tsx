@@ -22,8 +22,9 @@
  */
 
 import { useCallback, useMemo, useState } from 'react';
-import type { SourceSegment, TextMark, TextMarkKind } from '@/core/model.ts';
+import type { SourceSegment, TextMark, TextMarkKind, NotemarkImage } from '@/core/model.ts';
 import { MARK_COLORS, isWholePageNote } from '@/core/text-anchor.ts';
+import { NoteImageField, fileToNoteImage, imageFromPaste } from './NoteImageField.tsx';
 import './reader-side.css';
 
 /** 右栏的两种模式 */
@@ -67,14 +68,14 @@ export interface ReaderSidePanelProps {
    * 「拿选中的文字 + 用户写的备注，一起存成 kind:'note' 的标记」。
    * 两个回调在正文层做的事不同（一个不需要文字，一个必须有文字）。
    */
-  onAddSelectionNote?: (note: string) => void;
+  onAddSelectionNote?: (note: string, image: NotemarkImage | null) => void;
   /**
    * 新建一条**整页备注**（2026-11-11）。
    *
    * 整页备注不依赖选区，所以按钮永远可用。
    * 存成 note 标记但 anchor 覆盖整段（见 text-anchor 的 isWholePageNote）。
    */
-  onAddPageNote?: (note: string) => void;
+  onAddPageNote?: (note: string, image: NotemarkImage | null) => void;
   /** 点「定位」时跳到正文里的那条标记 */
   onLocateMark?: (markId: string) => void;
 }
@@ -171,6 +172,27 @@ export function ReaderSidePanel({
   const [draft, setDraft] = useState('');
   /** 备注页里正在写的新备注（划选与整页共用这个输入框，但各自提交） */
   const [newNote, setNewNote] = useState('');
+  /** 这条备注附带的图（2026-11-11）。提交后清空 */
+  const [newNoteImage, setNewNoteImage] = useState<NotemarkImage | null>(null);
+  /** 粘贴图片失败的原因（要显示出来，不能静默） */
+  const [pasteError, setPasteError] = useState<string | null>(null);
+
+  /**
+   * 粘贴图片（2026-11-11）。
+   *
+   * 与「＋添加图片」共用 `fileToNoteImage`，所以大小上限与格式校验
+   * 两条路径完全一致 —— 分开写就会出现「选文件能过、粘贴不能过」。
+   */
+  const acceptPastedImage = useCallback(async (file: File) => {
+    setPasteError(null);
+    try {
+      setNewNoteImage(await fileToNoteImage(file));
+    } catch (e) {
+      /* 失败必须说出来：用户粘了一张 1.2MB 的截图时，
+         右下角什么都没发生会让人以为功能坏了。 */
+      setPasteError(e instanceof Error ? e.message : '粘贴图片失败。');
+    }
+  }, []);
 
   const startEdit = useCallback((mark: TextMark) => {
     setEditing(mark.id);
@@ -306,7 +328,29 @@ export function ReaderSidePanel({
               value={newNote}
               placeholder="写下你当时的想法、疑问或理解…"
               onChange={(e) => setNewNote(e.target.value)}
+              /*
+                截图后直接 Ctrl+V 就把图挂上（2026-11-11）。
+                「把图加进备注」最常见的来源是截图，不是去文件管理器翻文件。
+                若粘贴的是纯文本就放行默认行为，不拦。
+              */
+              onPaste={(e) => {
+                const img = imageFromPaste(e);
+                if (img) {
+                  e.preventDefault();
+                  void acceptPastedImage(img);
+                }
+              }}
             />
+
+            {/* 备注附图（2026-11-11） */}
+            <NoteImageField
+              value={newNoteImage}
+              onChange={(img) => {
+                setNewNoteImage(img);
+                setPasteError(null);
+              }}
+            />
+            {pasteError ? <p className="rside__img-error">{pasteError}</p> : null}
 
             <div className="rside__note-actions">
               <button
@@ -328,8 +372,9 @@ export function ReaderSidePanel({
                       : '挂到选中的那句话上'
                 }
                 onClick={() => {
-                  onAddSelectionNote?.(newNote.trim());
+                  onAddSelectionNote?.(newNote.trim(), newNoteImage);
                   setNewNote('');
+                  setNewNoteImage(null);
                 }}
               >
                 划选备注
@@ -340,8 +385,9 @@ export function ReaderSidePanel({
                 disabled={!newNote.trim() || !onAddPageNote}
                 title={!newNote.trim() ? '先在上面写下备注内容' : '记这一整页的想法，不绑定具体句子'}
                 onClick={() => {
-                  onAddPageNote?.(newNote.trim());
+                  onAddPageNote?.(newNote.trim(), newNoteImage);
                   setNewNote('');
+                  setNewNoteImage(null);
                 }}
               >
                 整页备注
@@ -421,6 +467,24 @@ export function ReaderSidePanel({
 
                     {/* 备注正文（用户写的话）—— 这才是重点，放最上面 */}
                     <p className="rside__note-text">{m.note ?? '（没有写内容）'}</p>
+
+                    {/*
+                      备注附图（2026-11-11）。
+                      点开看大图：备注里的图通常是题目截图或公式，缩略图看不清。
+                      用 <a> 而不是自定义弹层 —— data URI 在新窗口里能直接打开，
+                      交给浏览器处理缩放最省事。
+                    */}
+                    {m.image ? (
+                      <a
+                        className="rside__note-img"
+                        href={m.image.dataUri}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={`点击查看大图（${m.image.width}×${m.image.height}）`}
+                      >
+                        <img src={m.image.dataUri} alt="备注附图" loading="lazy" />
+                      </a>
+                    ) : null}
 
                     {/* 被备注的原文；整页备注不显示引文（它不属于某一句） */}
                     {!isWholePageNote(m, segment?.text.length ?? 0) && m.anchor.exact ? (
