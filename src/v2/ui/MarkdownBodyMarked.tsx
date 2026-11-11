@@ -46,6 +46,21 @@ export interface MarkdownBodyMarkedProps {
    * 所以传进来时要减去这个偏移。
    */
   baseOffset?: number;
+  /**
+   * 备注区间（2026-11-11）。
+   *
+   * 与 `marks`（定位高亮）分开传，因为**渲染方式完全不同**：
+   *  - marks → 黄色底色（`.reader-mark`）
+   *  - notes → 虚线下划线 + 行末小圆点（`.reader-note`）
+   *
+   * 用户要求「除了小点，再加一个下划线好分辨具体位置」：
+   * 小点告诉「这段有备注」，下划线告诉「具体是哪几个字」。
+   * 用**虚线**而不是实线，是为了与批注的「下划线」区分 ——
+   * 那一种才是真下划线，实线。
+   */
+  notes?: readonly MarkRange[];
+  /** 第一个备注元素，供滚动定位 */
+  noteRef?: RefObject<HTMLElement | null>;
 }
 
 /** 把「相对整段」的高亮换算成「相对本切片」 */
@@ -60,34 +75,92 @@ export function MarkdownBodyMarked({
   marks = [],
   markRef,
   baseOffset = 0,
+  notes = [],
+  noteRef,
 }: MarkdownBodyMarkedProps) {
   const local = toLocal(marks, baseOffset);
+  const localNotes = toLocal(notes, baseOffset);
   const blocks = splitBlocks(text);
 
   const key = { n: 0 };
   const out: React.ReactNode[] = [];
 
-  /** 渲染一段文字；若与高亮相交就套 mark */
+  /**
+   * 渲染一段文字，可能同时叠加三种修饰：
+   *  1. 定位高亮（`marks`）→ 黄色底色，包在 <mark> 里
+   *  2. 备注（`notes`）→ 虚线下划线，包在 <span class="reader-note"> 里
+   *
+   * ## 为什么两者能同时生效而不打架
+   *
+   * 这是用户最担心的一点（「不要与被批注部分冲突」）。做法是
+   * **正交叠加**：先把文字按备注区间切三段，有备注那一段再按高亮区间
+   * 切一次。因为两层都用相对本段文字的偏移，嵌套不会有歧义。
+   *
+   * 具体形状（以「备注包住高亮」为例）：
+   *   <span class="reader-note"><mark class="reader-mark">…</mark></span>
+   * 底色来自 mark、虚线来自外层 span，视觉上互不覆盖。
+   */
   const renderInline = (s: string, from: number, to: number) => {
-    const hit = local
+    /* ---- 先算两层各自的局部区间 ---- */
+    const markHit = local
       .map((m) => intersect(from, to, m.start, m.end))
       .find((x) => x !== null);
 
-    if (!hit) return <MathText text={s} />;
+    const noteHit = localNotes
+      .map((m) => intersect(from, to, m.start, m.end))
+      .find((x) => x !== null);
 
-    const { before, hit: mid, after } = sliceForMark(s, hit.start, hit.end);
+    /* 两层都没有：原样输出，不制造多余 DOM */
+    if (!markHit && !noteHit) return <MathText text={s} />;
+
+    /** 在 [a,b) 内套高亮；无高亮就原样返回这段文字 */
+    const withMark = (a: number, b: number, seg: string) => {
+      if (!markHit) return <MathText text={seg} />;
+      /* 高亮与 [a,b) 的交集 */
+      const ms = Math.max(a, markHit.start);
+      const me = Math.min(b, markHit.end);
+      if (me <= ms) return <MathText text={seg} />;
+      const cut = sliceForMark(seg, ms - a, me - a);
+      return (
+        <>
+          <MathText text={cut.before} />
+          <mark
+            className="reader-mark"
+            ref={(el) => {
+              if (el && markRef && !markRef.current) markRef.current = el;
+            }}
+          >
+            <MathText text={cut.hit} />
+          </mark>
+          <MathText text={cut.after} />
+        </>
+      );
+    };
+
+    /* ---- 没有备注，只有高亮：直接套 mark ---- */
+    if (!noteHit) return withMark(0, s.length, s);
+
+    /* ---- 有备注：把文字切成「备注前 / 备注内 / 备注后」，中间那段套虚线下划线 ---- */
+    const n = sliceForMark(s, noteHit.start, noteHit.end);
     return (
       <>
-        <MathText text={before} />
-        <mark
-          className="reader-mark"
-          ref={(el) => {
-            if (el && markRef && !markRef.current) markRef.current = el;
-          }}
-        >
-          <MathText text={mid} />
-        </mark>
-        <MathText text={after} />
+        {n.before ? withMark(0, noteHit.start, n.before) : null}
+        {n.hit ? (
+          <span
+            className="reader-note"
+            ref={(el) => {
+              if (el && noteRef && !noteRef.current) noteRef.current = el;
+            }}
+          >
+            {withMark(noteHit.start, noteHit.end, n.hit)}
+            {/*
+              小圆点：告诉「这段有备注」，即使备注区间在屏幕外也能看到。
+              用 aria-hidden —— 它是纯视觉提示，读屏用户从 title 得到信息。
+            */}
+            <span className="reader-note__dot" aria-hidden="true" />
+          </span>
+        ) : null}
+        {n.after ? withMark(noteHit.end, s.length, n.after) : null}
       </>
     );
   };

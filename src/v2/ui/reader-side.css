@@ -289,3 +289,116 @@
     margin-top: 4px;
   }
 }
+
+/* ==========================================================================
+   备注页（2026-11-11）
+   ⚠️ 原生控件（textarea / button）样式一律写层外 ——
+   base.css 有不在任何 @layer 内的 textarea / button 规则。
+   ========================================================================== */
+
+.rside__note-input {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  margin: var(--space-2) 0;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+}
+
+.rside__note-input::placeholder {
+  color: var(--text-faint);
+}
+
+.rside__note-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.rside__note-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* 两个备注按钮：划选是主操作（朱砂），整页是次要（描边） */
+.rside__note-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-dim);
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.rside__note-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--line-strong);
+  background: var(--bg-hover);
+}
+
+.rside__note-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.rside__note-btn--primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: transparent;
+}
+
+.rside__note-btn--primary:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.rside__note-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 备注卡片的左边框用 info 蓝，与批注（琥珀）区分 */
+.rside__item--note {
+  border-left: 2px solid var(--info, #86a9c6);
+  padding-left: var(--space-2);
+}
+
+/* 备注正文：这是用户写的话，比引文更重要 */
+.rside__note-text {
+  margin: var(--space-1) 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+/* 定位时闪一下（见 ReaderPage 的 handleLocateMark） */
+.reader-note--flash {
+  outline: 2px solid var(--info, #86a9c6);
+  outline-offset: 2px;
+  border-radius: 3px;
+  animation: reader-note-flash 1.2s ease-out;
+}
+
+@keyframes reader-note-flash {
+  0% {
+    background: color-mix(in srgb, var(--info, #86a9c6) 35%, transparent);
+  }
+  100% {
+    background: color-mix(in srgb, var(--info, #86a9c6) 7%, transparent);
+  }
+}

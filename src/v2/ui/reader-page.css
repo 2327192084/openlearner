@@ -217,15 +217,86 @@
  *  - 再加 2px 下划线与一层外扩阴影，扫视时也能一眼找到。
  * 文字色不改（仍是 --text），保证对比度不下降。
  */
+/*
+ * 定位高亮（打开知识点跳过来的那一处）。
+ *
+ * 2026-11-11 用户要求：**不要下划线**，黄色底色已经足够说明位置。
+ * 原来这里有一条 `inset 0 -2px 0 0 var(--warn)` 的下划线 ——
+ * 它和「下划线批注」撞了：用户分不清这条线是定位高亮带的，
+ * 还是自己真的画了一条下划线批注。
+ *
+ * 现在只留底色 + 一圈极淡描边（描边让密排中文里的边界更清楚，
+ * 但不参与「线」的语义）。
+ */
 .reader-mark {
   background: #d9a44173;
   color: inherit;
   padding: 1px 2px;
   border-radius: 3px;
-  /* 下划线让「被定位的那几个字」在密排中文里也有边界 */
-  box-shadow:
-    inset 0 -2px 0 0 var(--warn),
-    0 0 0 1px #d9a44159;
+  box-shadow: 0 0 0 1px #d9a44159;
+}
+
+/* ---------- 备注（2026-11-11） ----------
+ *
+ * 用户要求：除了小圆点，再加一个下划线好分辨具体位置。
+ *
+ * 三种修饰必须一眼分得清，所以姿态各不相同：
+ *   高亮      → 黄色**底色**（整片）
+ *   批注下划线 → 实线（`text-decoration: underline`）
+ *   备注      → **虚线**下划线 + 行末小圆点
+ *
+ * 为什么用虚线而不是实线：实线已经被「下划线批注」占用了。
+ * 两条实线叠在一起，用户没法判断这是批注还是备注。
+ * 虚线在中文排版里天然读作「标注 / 提示」，不抢正文。
+ *
+ * 为什么小圆点用 `position: absolute` 相对备注区间定位：
+ * 它要贴在**这段备注的末尾**，而不是整行末尾 ——
+ * 一行里有三处备注时，三个点各归各的位置。
+ */
+.reader-note {
+  position: relative;
+  /* 虚线贴着字底，不改变行高（否则整页会跳一下） */
+  text-decoration: underline dashed var(--info, #86a9c6);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  /* 极淡的底：让「有备注」这件事在扫读时也能被看到，但不盖住原文 */
+  background: color-mix(in srgb, var(--info, #86a9c6) 7%, transparent);
+  border-radius: 2px;
+}
+
+/* 行末小圆点：告诉「这里写了东西」，鼠标悬停看摘要 */
+.reader-note__dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 2px;
+  border-radius: 50%;
+  background: var(--info, #86a9c6);
+  /* 与文字基线对齐，不会把行撑高 */
+  vertical-align: super;
+  /* 纯装饰：读屏用户从备注列表拿信息 */
+  pointer-events: none;
+}
+
+/* 整页备注：不落在任何行内，用页面底部的一条独立区块表示（见 .reader-pagenote） */
+.reader-pagenote {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border-left: 2px solid var(--info, #86a9c6);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--info, #86a9c6) 8%, transparent);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--text-dim);
+}
+
+.reader-pagenote__tag {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--info, #86a9c6);
 }
 
 /* ---------- 空态 / 错误 ---------- */
@@ -458,5 +529,21 @@
 
 /* 高亮段落的行距与普通段落一致，避免切段后行高跳动 */
 .reader-para--marked {
+  white-space: pre-wrap;
+}
+
+/* 整页备注列表（2026-11-11）：放在正文下方，与正文有明显区隔 */
+.reader-pagenote-list {
+  list-style: none;
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.reader-pagenote__text {
+  flex: 1;
+  min-width: 0;
   white-space: pre-wrap;
 }

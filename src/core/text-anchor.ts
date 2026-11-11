@@ -245,6 +245,12 @@ export const MARK_COLORS = {
   highlight: '#fde68a',
   underline: '#2563eb',
   strikethrough: '#ef4444',
+  /*
+   * 备注没有"颜色"这个概念 —— 它不改文字样式。
+   * 但这个值要给小圆点用（见 reader-page.css 的 .reader-note-dot），
+   * 取 info 蓝而非朱砂：朱砂留给主操作。
+   */
+  note: '#86a9c6',
 } as const;
 
 /** 标记的显示名 */
@@ -252,4 +258,28 @@ export const MARK_LABELS = {
   highlight: '高亮',
   underline: '下划线',
   strikethrough: '删除线',
+  note: '备注',
 } as const;
+
+/**
+ * 这条 mark 是不是「整页备注」（2026-11-11）。
+ *
+ * 整页备注与划选备注共用 `note` 类型，区别在锚点形状：
+ *  - 划选备注：exact 是被选中的那句话，start/end 只覆盖那句
+ *  - 整页备注：exact 为整段首句（可能被截断），start=0 且 end 覆盖整段
+ *
+ * 判定用 start === 0 且覆盖长度接近整段 —— 不能只看 start===0，
+ * 因为用户可能正好从第一个字开始划选。
+ *
+ * @param mark 待判定的标记
+ * @param segmentLength 该段正文的总长度（不含 trim）
+ */
+export function isWholePageNote(
+  mark: { kind: string; anchor: { start: number; end: number } },
+  segmentLength: number,
+): boolean {
+  if (mark.kind !== 'note') return false;
+  if (mark.anchor.start !== 0) return false;
+  /* 容差：整页备注的 end 允许与段长差一点（trim / 末尾换行） */
+  return mark.anchor.end >= segmentLength - 2;
+}

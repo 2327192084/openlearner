@@ -1504,7 +1504,26 @@ export interface SourceAnnotation {
  * 不是坐标。换字号、换窗口宽度后仍然落在同一句话上 ——
  * 手写笔迹做不到这一点（它是画在某个像素位置的）。
  */
-export type TextMarkKind = 'highlight' | 'underline' | 'strikethrough';
+export type TextMarkKind = 'highlight' | 'underline' | 'strikethrough' | 'note';
+
+/**
+ * 为什么备注（`note`）也是一种 mark，而不是另开分区（2026-11-11）
+ *
+ * 用户要「划选备注」：对一段文字留一句话。它在结构上与高亮**完全同构** ——
+ * 都是「某页某处的字符区间 + 一段用户文字」，只是没有底色。
+ * 若另开一个 notes 分区，会得到两份几乎一样的锚点逻辑
+ * （消歧、回查、迁移），而且两边容易写出不一致的定位行为。
+ *
+ * 区别只在**渲染方式**：
+ *  - highlight / underline / strikethrough → 给文字本身加样式
+ *  - note → 不动文字，在段落右侧画一个小圆点
+ *
+ * 这样同一段文字可以**同时**有高亮和备注、互不覆盖，
+ * 正是用户担心的「不要与被批注部分冲突」。
+ *
+ * 整页备注也用 note，但 anchor 指向整段（start=0 / end=段长），
+ * 由界面按 `isWholePageNote()` 区分显示位置（页脚而非行内）。
+ */
 
 /**
  * 文本锚点：把标记钉在「某一段文字的某个位置」上。

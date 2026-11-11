@@ -13,6 +13,7 @@ import type { PassageSelection } from '@/core/selection-passage.ts';
 import { locateSelection, passageToMaterial } from '@/core/selection-passage.ts';
 import type { OralMaterial } from '@/core/oral-review.ts';
 import { newId } from '@/core/id.ts';
+import { isWholePageNote } from '@/core/text-anchor.ts';
 import { IconSources } from './icons.tsx';
 import { ReaderFigure } from './ReaderFigure.tsx';
 import { ReaderSidePanel } from './ReaderSidePanel.tsx';
@@ -695,6 +696,126 @@ export function ReaderPage({
     [onAskAboutSelection, sourceId, seg, phase],
   );
 
+  /**
+   * 新建一条备注（2026-11-11）。
+   *
+   * 两种形态共用这个函数：
+   *  - `wholePage === false` → 划选备注：拿当前选区，锚点只覆盖那句
+   *  - `wholePage === true`  → 整页备注：锚点覆盖整段（start=0 / end=段长）
+   *
+   * ## 为什么不复用 handleAddMark
+   *
+   * 那个函数的 kind 是「上色类」，而且它假定用户已经选中了文字。
+   * 整页备注**不需要选区**，用它会在一开始就被 `!selectionText` 挡掉。
+   *
+   * ## 整页备注的 exact 存什么
+   *
+   * 存整段的开头一小段（不超过 40 字）。理由：
+   *  - 锚点的 exact 用于消歧与回查，不能空着
+   *  - 但整页备注的 exact 不是「用户指的那句话」，所以界面不显示它
+   *    （见 ReaderSidePanel 里 isWholePageNote 的分支）
+   */
+  const handleAddNote = useCallback(
+    async (noteText: string, wholePage: boolean) => {
+      if (!annotations || !sourceId || !seg) return;
+      const text = noteText.trim();
+      if (!text) return;
+
+      let start = 0;
+      let end = seg.text.length;
+      let exact = seg.text.slice(0, 40);
+
+      if (!wholePage) {
+        /* 划选备注必须有真实选区 */
+        if (!selectionText) return;
+        exact = selectionText;
+
+        /* 用与 handleAddMark 相同的办法量出段内偏移 */
+        let hint = -1;
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+          try {
+            const range = sel.getRangeAt(0);
+            const el = bodyRef.current;
+            if (el && el.contains(range.startContainer)) {
+              const head = range.cloneRange();
+              head.selectNodeContents(el);
+              head.setEnd(range.startContainer, range.startOffset);
+              hint = head.toString().length;
+            }
+          } catch {
+            /* 退回按引文搜 */
+          }
+        }
+        const located = locateSelection(seg.text, exact, hint);
+        start = located.start >= 0 ? located.start : 0;
+        end = located.start >= 0 ? located.end : seg.text.length;
+      }
+
+      const mark: TextMark = {
+        id: newId('mark'),
+        kind: 'note',
+        anchor: {
+          page: seg.page,
+          exact,
+          prefix: start > 20 ? seg.text.slice(start - 20, start) : seg.text.slice(0, start),
+          suffix: seg.text.slice(end, end + 20),
+          start,
+          end,
+        },
+        note: text,
+        createdAt: new Date().toISOString(),
+      };
+
+      await annotations.addTextMark(sourceId, seg.page, mark);
+      const rec = await annotations.get(sourceId, seg.page);
+      setPageMarks(rec?.textMarks ?? []);
+      /* 存完清选区：同一段不该被连标两次 */
+      window.getSelection()?.removeAllRanges();
+      setSelectionText('');
+      setSelectionRect(null);
+    },
+    [annotations, sourceId, seg, selectionText],
+  );
+
+  /**
+   * 定位到某条备注（2026-11-11）。
+   *
+   * 用 id 查 DOM 里对应的 `.reader-note` 元素并滚过去 —— 但它没有
+   * data-id 属性，所以改用**按区间重算**的办法：找到这条 note 的
+   * start/end，再从所有 `.reader-note` 里挑文字内容匹配的那个。
+   *
+   * 为什么不在渲染时打 data-id：那要给 markdown-marks 的渲染
+   * 多传一个「每条备注的 id」映射，为了一个定位功能改渲染核心不划算。
+   * 按内容匹配已经足够（同一页上两条备注文字相同的情况极少）。
+   */
+  const handleLocateMark = useCallback(
+    (markId: string) => {
+      const m = pageMarks.find((x) => x.id === markId);
+      if (!m || !seg) return;
+
+      const whole = isWholePageNote(m, seg.text.length);
+      const target = m.anchor.exact.slice(0, 20);
+
+      const nodes = Array.from(document.querySelectorAll<HTMLElement>('.reader-note'));
+      const hit =
+        nodes.find((n) => n.innerText.replace(/\s+/g, '').includes(target.replace(/\s+/g, ''))) ??
+        nodes[0];
+
+      if (whole || !hit) {
+        /* 整页备注没有行内元素可跳 —— 滚到页面顶部即可 */
+        document.querySelector('.reader-body')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+
+      hit.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      /* 短暂闪一下，让用户看清跳到了哪 */
+      hit.classList.add('reader-note--flash');
+      setTimeout(() => hit.classList.remove('reader-note--flash'), 1200);
+    },
+    [pageMarks, seg],
+  );
+
   const handleRemoveMark = useCallback(
     async (markId: string) => {
       if (!annotations || !sourceId || !seg) return;
@@ -730,6 +851,18 @@ export function ReaderPage({
     if (phase.kind !== 'ready' || !seg) return [];
     return phase.figures.filter((f) => f.page === seg.page);
   }, [phase, seg]);
+
+  /**
+   * 本页的整页备注（2026-11-11）。
+   *
+   * 与划选备注分开：整页备注不落在任何一句上，显示在正文下方的页脚。
+   * 判定用 `isWholePageNote`（start===0 且覆盖整段），
+   * 不能只看 kind === 'note' —— 那样划选备注也会跑到页脚去。
+   */
+  const wholePageNotes = useMemo(() => {
+    if (!seg) return [];
+    return pageMarks.filter((m) => isWholePageNote(m, seg.text.length));
+  }, [pageMarks, seg]);
 
   const goPage = useCallback(
     (next: number) => {
@@ -988,7 +1121,27 @@ export function ReaderPage({
             phase.kind === 'ready'
               ? phase.figures.filter((f) => f.page === seg.page)
               : [],
+            /* 划选备注要高亮到正文上（2026-11-11） */
+            pageMarks,
           )
+        ) : null}
+
+        {/*
+          整页备注显示在正文下方（2026-11-11）。
+
+          为什么放在页脚而不是正文里：整页备注不绑定任何一句，
+          塞进正文会让用户以为它属于某一段。放页脚时它读作
+          「关于这一整页的批注」，语义才正确。
+        */}
+        {wholePageNotes.length > 0 ? (
+          <ul className="reader-pagenote-list">
+            {wholePageNotes.map((m) => (
+              <li key={m.id} className="reader-pagenote">
+                <span className="reader-pagenote__tag">整页备注</span>
+                <span className="reader-pagenote__text">{m.note}</span>
+              </li>
+            ))}
+          </ul>
         ) : null}
       </div>
       </div>
@@ -1023,6 +1176,9 @@ export function ReaderPage({
         hasSelection={!!selectionText}
         knowledgeCount={pageKnowledgeCount}
         figureCount={pageFigures.length}
+        onAddSelectionNote={(note) => void handleAddNote(note, false)}
+        onAddPageNote={(note) => void handleAddNote(note, true)}
+        onLocateMark={(id) => handleLocateMark(id)}
       />
       </div>
     </div>
@@ -1035,6 +1191,8 @@ function renderBody(
   highlight: Highlight | null,
   markRef: RefObject<HTMLElement | null>,
   figures: readonly SourceImageRecord[],
+  /** 本页的标记：用来画划选备注（2026-11-11） */
+  pageMarks: readonly TextMark[] = [],
 ) {
   const chapter = seg.chapter?.trim() ?? '';
   /*
@@ -1068,6 +1226,7 @@ function renderBody(
           text={seg.text}
           marks={highlightMarks(highlight)}
           markRef={markRef}
+          notes={noteRanges(pageMarks, seg.text.length)}
         />
       )}
       <p className="reader-meta">
@@ -1212,4 +1371,28 @@ function highlightMarks(highlight: Highlight | null): { start: number; end: numb
   if (highlight.via === 'none') return [];
   if (highlight.end <= highlight.start) return [];
   return [{ start: highlight.start, end: highlight.end }];
+}
+
+/**
+ * 取出本页所有「划选备注」的区间（2026-11-11）。
+ *
+ * ## 为什么要排除整页备注
+ *
+ * 整页备注的 anchor 覆盖整段（start=0 / end=段长）。若把它当普通备注
+ * 传进去，整段正文都会被画上虚线 —— 那等于把页面搞花，而且信息量为零
+ * （用户看不出「备注的到底是哪一句」）。
+ * 整页备注在页面底部单独显示（见 `.reader-pagenote`）。
+ *
+ * @param marks 本页全部标记
+ * @param segLength 本段正文长度
+ */
+function noteRanges(
+  marks: readonly TextMark[],
+  segLength: number,
+): { start: number; end: number }[] {
+  return marks
+    .filter((m) => m.kind === 'note')
+    .filter((m) => !isWholePageNote(m, segLength))
+    .map((m) => ({ start: m.anchor.start, end: m.anchor.end }))
+    .filter((r) => r.end > r.start);
 }
