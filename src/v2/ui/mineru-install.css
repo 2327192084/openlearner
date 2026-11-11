@@ -1,0 +1,353 @@
+/**
+ * MinerU 一键安装面板的样式（2026-11-11 晚）。
+ *
+ * ## 层级约定（硬约束 2）
+ *
+ * `base.css` 里有**不在任何 @layer 内**的 button/input/select/textarea 规则。
+ * 级联「层级先于特异性」—— 所以本文件里凡是给原生控件上样式的规则
+ * （`.mineru-btn` 等），一律写在 @layer 外，一条都不放进去。
+ *
+ * ## token 约定（硬约束 13）
+ *
+ * 只用 v2 的 token（--bg-* / --text* / --accent* / --line* / --space-*）。
+ * **不要用 `--c-*`** —— 那是 v1 浅色主题的，在深色页上会变成
+ * 近白底 + 浅字，几乎读不出来。
+ */
+
+@layer components {
+  /* 面板分块 */
+  .mineru-inst-block {
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .mineru-inst-block__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+  }
+
+  /* 步骤序号的小圆牌 */
+  .mineru-inst-step-no {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--accent-soft, rgba(255, 138, 60, 0.16));
+    color: var(--accent, #ff8a3c);
+  }
+
+  /* ---- 选目录 ---- */
+  .mineru-inst-pick {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: var(--space-2) 0;
+  }
+
+  .mineru-inst-pick__value {
+    flex: 1;
+    min-width: 0;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--bg-sunken);
+    color: var(--text-muted, var(--text));
+    font-size: var(--fs-sm);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ---- 磁盘一览 ---- */
+  .mineru-inst-drives {
+    list-style: none;
+    margin: var(--space-2) 0 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .mineru-inst-drive {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font-size: var(--fs-sm);
+    color: var(--text);
+    background: var(--bg-raised);
+  }
+
+  /* 空间不足：置灰（用户明确要求「直接置灰」） */
+  .mineru-inst-drive--off {
+    opacity: 0.45;
+    text-decoration: line-through;
+  }
+
+  .mineru-inst-drive__letter {
+    font-weight: 600;
+  }
+
+  .mineru-inst-drive__free {
+    color: var(--text-muted, var(--text));
+  }
+
+  .mineru-inst-drive__tag {
+    font-size: 11px;
+    color: var(--text-muted, var(--text));
+  }
+
+  .mineru-inst-drive--off .mineru-inst-drive__tag {
+    color: var(--bad);
+  }
+
+  /* ---- 已有 MinerU 的提示（A 方案） ---- */
+  .mineru-inst-detect {
+    margin-top: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--bg-raised);
+  }
+
+  .mineru-inst-detect--found {
+    border-color: var(--ok, #30a46c);
+    background: color-mix(in oklab, var(--ok, #30a46c) 8%, var(--bg-raised));
+  }
+
+  .mineru-inst-detect__title {
+    margin: 0 0 var(--space-2);
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .mineru-inst-detect__path {
+    display: block;
+    margin: var(--space-2) 0;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    background: var(--bg-sunken);
+    color: var(--text-muted, var(--text));
+    font-size: var(--fs-sm);
+    word-break: break-all;
+  }
+
+  /* ---- 进度 ---- */
+  .mineru-inst-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin-top: var(--space-2);
+  }
+
+  .mineru-inst-steps {
+    list-style: none;
+    margin: var(--space-3) 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .mineru-inst-step {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--fs-sm);
+    color: var(--text-muted, var(--text));
+  }
+
+  .mineru-inst-step__mark {
+    flex: none;
+    width: 18px;
+    text-align: center;
+    font-weight: 700;
+  }
+
+  .mineru-inst-step--running {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .mineru-inst-step--running .mineru-inst-step__mark {
+    color: var(--accent, #ff8a3c);
+  }
+
+  .mineru-inst-step--done .mineru-inst-step__mark {
+    color: var(--ok, #30a46c);
+  }
+
+  .mineru-inst-step--failed {
+    color: var(--bad);
+  }
+
+  .mineru-inst-step--skipped {
+    opacity: 0.6;
+  }
+
+  .mineru-inst-step__note {
+    font-size: 11px;
+    color: var(--text-muted, var(--text));
+  }
+
+  .mineru-inst-progress {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+  }
+
+  .mineru-inst-progress__bar {
+    flex: 1;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--bg-sunken);
+    overflow: hidden;
+  }
+
+  .mineru-inst-progress__fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--accent);
+    transition: width 0.25s ease-out;
+  }
+
+  /*
+   * 拿不到总大小时的不确定态（2026-11-11）。
+   *
+   * 为什么不干脆显示 30%：那是在编数字。有些服务器不给 content-length，
+   * 这时只能表示「在动，但不知道还有多久」。所以用一条来回跑的亮条。
+   */
+  .mineru-inst-progress__fill--indeterminate {
+    width: 35%;
+    animation: mineru-inst-indeterminate 1.4s ease-in-out infinite;
+  }
+
+  @keyframes mineru-inst-indeterminate {
+    0% { margin-left: 0; }
+    50% { margin-left: 65%; }
+    100% { margin-left: 0; }
+  }
+
+  .mineru-inst-progress__text {
+    flex: none;
+    font-size: var(--fs-sm);
+    color: var(--text-muted, var(--text));
+    font-variant-numeric: tabular-nums;
+  }
+
+  .mineru-inst-line {
+    margin-top: var(--space-2);
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--text-muted, var(--text));
+    word-break: break-all;
+  }
+
+  /* ---- 结果 ---- */
+  .mineru-inst-result {
+    margin-top: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--bg-raised);
+  }
+
+  .mineru-inst-result--ok {
+    border-color: var(--ok, #30a46c);
+  }
+
+  .mineru-inst-result--bad {
+    border-color: var(--bad);
+  }
+
+  .mineru-inst-result__title {
+    margin: 0 0 var(--space-2);
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  /* 失败原因原文（可复制） */
+  .mineru-hint-box {
+    margin: var(--space-2) 0 0;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    background: var(--bg-sunken);
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--text-muted, var(--text));
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 160px;
+    overflow: auto;
+  }
+
+  /* ---- 卸载区 ---- */
+  .mineru-inst-danger {
+    margin-top: var(--space-5);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .mineru-inst-danger__head {
+    margin-bottom: var(--space-2);
+  }
+
+  .mineru-inst-danger__confirm {
+    margin-top: var(--space-2);
+  }
+
+  .mineru-inst-danger__warn {
+    margin: 0;
+    color: var(--bad);
+    font-size: var(--fs-sm);
+  }
+}
+
+/* ==========================================================================
+ * 层外：原生控件（button）的样式。
+ * 硬约束 2：这些一条都不能放进 @layer，否则会被 base.css 的层外规则压掉。
+ * ========================================================================== */
+
+.mineru-btn {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  appearance: none;
+}
+
+.mineru-btn:hover:not(:disabled) {
+  border-color: var(--accent, #ff8a3c);
+  color: var(--accent, #ff8a3c);
+}
+
+.mineru-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mineru-btn--danger {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.mineru-btn--danger:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--bad) 14%, var(--bg-raised));
+  border-color: var(--bad);
+  color: var(--bad);
+}

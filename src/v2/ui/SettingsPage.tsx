@@ -4,6 +4,7 @@ import { LIBRARY_SCHEMA_VERSION } from '@/core/model.ts';
 import { LibraryError, backupFileName } from '@/core/library.ts';
 import { LibraryLocationRow } from './LibraryLocationRow.tsx';
 import { MineruSetupPanel } from './MineruSetupPanel.tsx';
+import { MineruInstallPanel } from './MineruInstallPanel.tsx';
 import type { BackendDraft, BackendView } from '@/core/backends.ts';
 import { DEFAULT_BACKEND_DRAFT } from '@/core/backends.ts';
 import type { ConnectionTestResult } from '@/core/ai/deepseek-backend.ts';
@@ -264,7 +265,16 @@ export function SettingsPage({ onChanged }: SettingsPageProps) {
               onFlash={setFlash}
             />
           ) : cat === 'parse' ? (
-            <MineruSetupPanel />
+            <>
+              {/*
+                一键安装放最前（2026-11-11 晚）。
+                原来的 MineruSetupPanel 是「状态 + 手动路径 + 五段 pip 命令」，
+                对不懂 Python 的用户门槛太高。现在先给一键安装，
+                下面的手动方式保留给高级用户（也当装不上时的备选）。
+              */}
+              <MineruInstallPanel />
+              <MineruSetupPanel />
+            </>
           ) : (
             <BackupPane
               meta={meta}

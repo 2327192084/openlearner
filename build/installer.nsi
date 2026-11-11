@@ -130,8 +130,48 @@ Section "Uninstall"
   ; （用 taskkill 而不是 FindWindow：它不挑窗口标题）
   ExecWait 'taskkill /F /IM ${APP_EXE}' $0
 
+  ;
+  ; ⚠️ 先把可能存在的 openleaner-data 挪出去（2026-11-11 修）。
+  ;
+  ; ## 原来的 bug
+  ;
+  ; 这里原本直接写：
+  ;     Delete "$INSTDIR\Uninstall.exe"
+  ;     RMDir /r "$INSTDIR"
+  ; 下面注释着「刻意不删 openleaner-data」。但 `RMDir /r` 是**递归删整个目录**，
+  ; 它会把 `$INSTDIR\openleaner-data` 一起删掉 —— 注释与行为相悖。
+  ;
+  ; 实测证据：用 `RMDir /r` 对一个含 `openleaner-data` 的目录跑，整个目录全没了。
+  ;
+  ; ## 实际风险有多大
+  ;
+  ; 现在程序的库在 `%APPDATA%\OpenLeaner`（`ensureUserDataDir` 决定的），
+  ; **不在**安装目录里，所以真实用户数据目前是安全的。
+  ; 但绿色版/旧版可能把数据放在安装目录旁的 `openleaner-data`，
+  ; 那时这个 bug 就会真的删掉学习库。既然注释承诺了保留，就不能靠运气。
+  ;
+  ; ## 做法
+  ;
+  ; 删之前把数据目录移到安装目录**之外**（同盘的临时位置），
+  ; 删完再移回来。这样既清干净程序，又真的保住数据。
+  ;
+  StrCpy $1 "$INSTDIR\openleaner-data"
+  StrCpy $2 "$INSTDIR.uninstall-data-keep"   ; 同级目录，不在 $INSTDIR 里
+  StrCpy $3 "0"                              ; 标记：有没有挪过
+
+  IfFileExists "$1\*.*" 0 +4
+    RMDir /r "$2"
+    Rename "$1" "$2"
+    StrCpy $3 "1"
+
   Delete "$INSTDIR\Uninstall.exe"
   RMDir /r "$INSTDIR"
+
+    ; 把数据挪回来 —— 即使安装目录已经没了，也要重建它放数据
+  ${If} $3 == "1"
+    CreateDirectory "$INSTDIR"
+    Rename "$2" "$1"
+  ${EndIf}
 
   Delete "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk"
   Delete "$SMPROGRAMS\${APP_NAME}\卸载 ${APP_NAME}.lnk"

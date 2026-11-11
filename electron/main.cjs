@@ -55,6 +55,26 @@ function readMineruCustomPath() {
 }
 
 /**
+ * 写 / 清用户指定的 mineru.exe（2026-11-11 晚抽出）。
+ *
+ * 原来是内联在 IPC handler 里的。一键安装成功、或卸载后，
+ * 主进程也要自己改这个配置 —— 所以抽成函数复用，避免两处逻辑走偏。
+ *
+ * @param p 绝对路径；传 null 清除
+ */
+function writeMineruCustomPath(p) {
+  if (p === null) {
+    if (fs.existsSync(MINERU_FILE)) fs.unlinkSync(MINERU_FILE);
+    return;
+  }
+  if (typeof p !== 'string' || !path.isAbsolute(p)) {
+    throw new Error('需要一个绝对路径');
+  }
+  fs.mkdirSync(LOCATION_FILE_DIR, { recursive: true });
+  fs.writeFileSync(MINERU_FILE, JSON.stringify({ path: p }), 'utf8');
+}
+
+/**
  * 读用户指定过的库位置；没指定过返回 null。
  *
  * 失败一律当「没指定」处理：一个坏掉的配置文件不该让软件起不来。
@@ -1029,6 +1049,135 @@ function registerMineru() {
     } catch (e) {
       return { ok: false, message: e && e.message };
     }
+  });
+
+  /* ==========================================================================
+   * MinerU 一键安装 / 卸载（2026-11-11 晚）
+   *
+   * 引擎在 electron/mineru-install.cjs（纯 node，可独立跑）。
+   * 这里只做三件事：转发进度、弹框选目录、把结果写回 customExe。
+   * ========================================================================== */
+
+  /* 延迟 require：与 mineru.cjs 的用法保持一致，避免启动时就加载 */
+  const mineruInstall = require('./mineru-install.cjs');
+
+  /** 列出磁盘与剩余空间（界面据此置灰） */
+  ipcMain.handle('openleaner:mineru-install-drives', () => {
+    try {
+      return { ok: true, drives: mineruInstall.listDrives() };
+    } catch (e) {
+      return { ok: false, error: String(e && e.message), drives: [] };
+    }
+  });
+
+  /** 探测已有 MinerU（A 方案：已有就不装第二份） */
+  ipcMain.handle('openleaner:mineru-install-detect', () => {
+    try {
+      const r = mineruInstall.detectExisting({ customExe: readMineruCustomPath() });
+      return { ok: true, ...r };
+    } catch (e) {
+      return { ok: false, found: false, error: String(e && e.message) };
+    }
+  });
+
+  /** 弹框让用户选安装目录（只选一次 —— venv 建好不能搬） */
+  ipcMain.handle('openleaner:mineru-install-pick-dir', async (event, payload) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const body = payload && typeof payload === 'object' ? payload : {};
+    const startAt = typeof body.defaultPath === 'string' ? body.defaultPath : undefined;
+
+    const result = await dialog.showOpenDialog(win, {
+      title: '选择 MinerU 的安装位置',
+      properties: ['openDirectory', 'createDirectory'],
+      buttonLabel: '装到这里',
+      ...(startAt ? { defaultPath: startAt } : {}),
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+
+    const dir = result.filePaths[0];
+    /*
+     * 用户选的是「目录」，我们真正装到它下面的 mineru/ 子目录 ——
+     * 否则他选桌面或文档时，一堆 python/venv 会塞进他现有的文件中间。
+     */
+    const target = path.join(dir, 'mineru');
+    let free = null;
+    try {
+      free = mineruInstall.freeBytesAt(dir);
+    } catch {
+      free = null;
+    }
+    return {
+      ok: true,
+      dir,
+      target,
+      freeBytes: free,
+      enough: free === null ? true : free >= mineruInstall.REQUIRED_FREE_BYTES,
+    };
+  });
+
+  /**
+   * 开始安装。
+   *
+   * 进度通过 `openleaner:mineru-install-event` 推给页面。
+   * 不用 invoke 的返回值传进度：一次 invoke 只回一次，装 20 分钟没法显示。
+   */
+  ipcMain.handle('openleaner:mineru-install-start', async (event, payload) => {
+    const body = payload && typeof payload === 'object' ? payload : {};
+    const root = typeof body.root === 'string' ? body.root : '';
+    const force = body.force === true;
+    if (!path.isAbsolute(root)) {
+      return { ok: false, error: '安装目录必须是绝对路径' };
+    }
+
+    const sender = event.sender;
+    const push = (data) => {
+      try {
+        if (!sender.isDestroyed()) sender.send('openleaner:mineru-install-event', data);
+      } catch {
+        /* 窗口关了就算了 */
+      }
+    };
+
+    const result = await mineruInstall.install({
+      root,
+      force,
+      customExe: readMineruCustomPath(),
+      onStep: (e) => push({ type: 'step', ...e }),
+      onLine: (line) => push({ type: 'line', line }),
+      onProgress: (p) => push({ type: 'progress', ...p }),
+    });
+
+    /*
+     * 装好（或复用已有的）就把路径写进 customExe ——
+     * 否则解析时还得用户手动去选一次，那就不叫一键了。
+     */
+    if (result.ok && result.exePath) {
+      try {
+        writeMineruCustomPath(result.exePath);
+      } catch {
+        /* 写不进去不影响安装本身 */
+      }
+    }
+    return result;
+  });
+
+  /** 卸载 MinerU（只删它的目录，绝不碰用户学习库） */
+  ipcMain.handle('openleaner:mineru-uninstall', async (_event, payload) => {
+    const body = payload && typeof payload === 'object' ? payload : {};
+    const root = typeof body.root === 'string' ? body.root : '';
+    if (!path.isAbsolute(root)) {
+      return { ok: false, error: '目录必须是绝对路径' };
+    }
+    const r = await mineruInstall.uninstall({ root });
+    if (r.ok) {
+      /* 清掉指向已删目录的配置，否则探测会一直失败 */
+      try {
+        writeMineruCustomPath(null);
+      } catch {
+        /* ignore */
+      }
+    }
+    return r;
   });
 
   ipcMain.handle('openleaner:remember-source-path', (_event, payload) => {    const body = payload && typeof payload === 'object' ? payload : {};

@@ -191,6 +191,48 @@ const openleanerApi = Object.freeze({
   }),
 
   /**
+   * MinerU 一键安装 / 卸载（2026-11-11 晚）。
+   *
+   * ## 为什么不复用上面那个 mineruCustom
+   *
+   * 那个只管「路径」这一件事（读/写/选文件）。
+   * 安装是另一类动作：要列磁盘、可选目录、要跑 20 分钟、要收进度事件。
+   * 混在一起会让那个小桥变得难懂，而且安装会改配置 —— 语义不同。
+   *
+   * ## 为什么进度要单独订阅
+   *
+   * 安装要下 2.7GB，invoke 只回一次结果，没法显示进度。
+   * onEvent 返回取消订阅函数 —— 组件卸载时必须调用，
+   * 否则会往已卸载的组件里写状态。
+   */
+  mineruInstaller: Object.freeze({
+    /** 列出磁盘与剩余空间（界面据此置灰） */
+    drives: () => ipcRenderer.invoke('openleaner:mineru-install-drives'),
+    /** 探测已有 MinerU（A 方案：已有就不装第二份） */
+    detect: () => ipcRenderer.invoke('openleaner:mineru-install-detect'),
+    /** 弹框选安装目录；取消返回 null */
+    pickDir: (defaultPath) =>
+      ipcRenderer.invoke('openleaner:mineru-install-pick-dir', { defaultPath }),
+    /** 开始安装（进度走 onEvent） */
+    start: (root, force) =>
+      ipcRenderer.invoke('openleaner:mineru-install-start', { root, force: force === true }),
+    /** 卸载 MinerU */
+    uninstall: (root) => ipcRenderer.invoke('openleaner:mineru-uninstall', { root }),
+    /** 订阅安装事件；返回取消订阅函数 */
+    onEvent: (cb) => {
+      const listener = (_e, data) => cb(data);
+      ipcRenderer.on('openleaner:mineru-install-event', listener);
+      return () => {
+        try {
+          ipcRenderer.removeListener('openleaner:mineru-install-event', listener);
+        } catch {
+          /* 已经没了 */
+        }
+      };
+    },
+  }),
+
+  /**
    * 本机 MinerU 转换（扫描件 / 图片 → 带页码的正文）。
    *
    * ## 为什么必须走主进程
