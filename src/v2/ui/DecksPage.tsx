@@ -7,7 +7,7 @@ import type { BackendService } from '@/core/backends.ts';
 import { GeneratePage } from './GeneratePage.tsx';
 import { ConfirmDialog } from './dialog.tsx';
 import { IconGenerate } from './icons.tsx';
-import { MathText } from './MathText.tsx';
+import { QuestionEditor } from './QuestionEditor.tsx';
 
 /**
  * 「我的题组」—— 列出现有题组，看题、检查待审核、发布。
@@ -141,9 +141,18 @@ export function DecksPage({
     };
   }, [list]);
 
-  async function openDeck(deckId: string) {
+  /**
+   * 展开一个题组并读它的题目。
+   *
+   * @param force 为 true 时忽略缓存重新读（2026-11-11 晚加）。
+   *
+   * 为什么需要它：改题/删题之后必须重新读，否则界面还显示旧题目。
+   * 原来的实现里 `if (questions[deckId]) return` 会把调用直接挡回去 ——
+   * 编辑器保存成功、列表却纹丝不动，看起来像没生效。
+   */
+  async function openDeck(deckId: string, opts: { force?: boolean } = {}) {
     setOpenId(deckId);
-    if (questions[deckId]) return; // 已经加载过
+    if (!opts.force && questions[deckId]) return; // 已经加载过
     setLoadingQuestions(deckId);
     try {
       const qs = await decks.getQuestions(deckId);
@@ -403,36 +412,25 @@ export function DecksPage({
                     ) : (
                       <ol className="deck-q-list">
                         {(qs ?? []).map((q, i) => (
-                          <li key={q.id} className="deck-q">
-                            <span className="deck-q__no">{i + 1}</span>
-                            <div className="deck-q__body">
-                              <p className="deck-q__prompt"><MathText text={q.prompt} /></p>
-                              {q.options.length > 0 ? (
-                                <ul className="deck-q__options">
-                                  {q.options.map((o) => (
-                                    <li
-                                      key={o.key}
-                                      className={
-                                        o.key === q.answer ? 'deck-q__opt deck-q__opt--right' : 'deck-q__opt'
-                                      }
-                                    >
-                                      <span className="deck-q__key">{o.key}</span>
-                                      <MathText text={o.text} />
-                                    </li>
-                                  ))}
-                                </ul>
-                              ) : (
-                                <p className="deck-q__answer">答案：<MathText text={q.answer} /></p>
-                              )}
-                              {q.anchors.length > 0 ? (
-                                <p className="deck-q__anchor">
-                                  出处：第 {q.anchors[0]?.page ?? '?'} 页
-                                </p>
-                              ) : (
-                                <p className="deck-q__anchor deck-q__anchor--none">没找到原文位置</p>
-                              )}
-                            </div>
-                          </li>
+                          /*
+                            题目改成可编辑组件（2026-11-11 晚）。
+
+                            用户反馈：「加一个题库编辑功能，要不然待审核按钮
+                            相当于没用，不能删除出错题目或是重新对出错题目
+                            进行纠正生成」。
+
+                            原来这里是写死的一段只读 <li>，既不能改也不能删 ——
+                            发现一道错题只能删掉整个题组重来。
+                            服务层的 updateQuestion / removeQuestion 早就有了
+                            （service.ts:662 / 677），缺的只是这个入口。
+                          */
+                          <QuestionEditor
+                            key={q.id}
+                            question={q}
+                            index={i + 1}
+                            decks={decks}
+                            onChanged={() => void openDeck(deck.id, { force: true })}
+                          />
                         ))}
                       </ol>
                     )}

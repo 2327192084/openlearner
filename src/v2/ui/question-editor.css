@@ -1,0 +1,115 @@
+/**
+ * 题目编辑器样式（2026-11-11 晚）。
+ *
+ * ## 两条硬约束
+ *
+ * 1. **token 只用 v2 的**（--bg-* / --text* / --accent* / --line* / --space-* / --fs-*）。
+ *    `--c-*` 是 v1 浅色主题，用在深色页上会变成近白底 + 浅字。
+ *    危险色是 `--bad`（tokens.css:49），不是 `--danger`。
+ * 2. **原生控件（input / textarea / button）的样式写在 @layer 外**。
+ *    base.css 里有不在任何 @layer 内的同名规则，级联「层级先于特异性」，
+ *    放进 layer 里会被压掉。
+ */
+
+@layer components {
+  .deck-q--editing {
+    background: var(--bg-raised);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .qed-field {
+    display: block;
+    margin-bottom: var(--space-2);
+  }
+
+  .qed-label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+  }
+
+  .qed-opt {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: 4px;
+  }
+
+  .qed-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin-top: var(--space-2);
+  }
+
+  .qed-note {
+    margin: var(--space-1) 0 0;
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+  }
+
+  .qed-confirm {
+    margin-top: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--bad);
+    border-radius: var(--radius-sm);
+    background: color-mix(in oklab, var(--bad) 8%, var(--bg-raised));
+  }
+
+  .qed-confirm__text {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--text);
+  }
+}
+
+/* ==========================================================================
+ * 层外：原生控件
+ * ========================================================================== */
+
+.qed-input {
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  appearance: none;
+}
+
+.qed-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.qed-input--area {
+  resize: vertical;
+  min-height: 64px;
+  line-height: 1.5;
+}
+
+.qed-del {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--bad);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  appearance: none;
+}
+
+.qed-del:hover:not(:disabled) {
+  border-color: var(--bad);
+  background: color-mix(in oklab, var(--bad) 10%, transparent);
+}
+
+.qed-del:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
