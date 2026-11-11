@@ -193,6 +193,24 @@ export async function importFigures(options: {
   sourceId: string;
   pages: readonly MinerUPage[];
   fetcher: FigureFetcher;
+  /**
+   * 本次解析**真正覆盖了哪几页**（2026-11-11 晚加）。
+   *
+   * - 省略 = 覆盖整份资料 → 清掉这份资料的全部旧图（完整解析走这条，
+   *   行为与原来完全一致）
+   * - 给了数组 = 分片解析 → 只清这几页的旧图，其余页的图原样保留
+   *
+   * ## 为什么必须由调用方显式给，不能从 pages 里推断
+   *
+   * `pages` 里混着**补位空页**（`placeholder`）：分片解析 1-2 页时，
+   * `parseMarkdown` 会按 `page N of 36` 补出 34 个空页。
+   * 靠「跳过 placeholder」来推断覆盖范围是错的 ——
+   * **完整解析时若某一页 MinerU 一个块都没产出，那一页也会是 placeholder**，
+   * 于是本来该清的旧图会留下来（图与正文对不上）。
+   * 两种模式在 `pages` 的形状上无法区分，只有调用方知道自己传的是
+   * `--pages all` 还是 `--pages 1-2`。
+   */
+  coveredPages?: readonly number[];
   /** 进度回调：已处理 / 总数。界面用来显示「正在取第 12/88 张」 */
   onProgress?: (done: number, total: number) => void;
 }): Promise<FigureImportReport> {
@@ -222,10 +240,24 @@ export async function importFigures(options: {
    * 为什么不「按 id 覆盖」就完事：重转后 block 编号可能变
    * （MinerU 换了 tier、或版面模型升级），旧 id 就再也匹配不上，
    * 那些记录会永远留着，还带着过期的 charOffset。
+   *
+   * ⚠️ 但分片解析时**只能删这次真解析过的页**（2026-11-11 晚修，用户实测）：
+   *
+   * 原来这里是「按 sourceId 全清」，完全不看这次解析了哪几页。
+   * 于是用户解析那份 PDF（2）的 1-2 页后，第 3-36 页的插图被一起删掉，
+   * 看到的是「文字还在，图没了」。
+   *
+   * 这与正文那条 bug 是同一个形状：正文那边 `writeSegments(mode:'merge')`
+   * 早已改成按页合并、跳过补位空页，插图这条路却还停在「整份重写」。
+   * 正文修了、图没修，所以只有图消失。
    */
+  const covered = options.coveredPages ? new Set(options.coveredPages) : null;
+
   const old = await storage.getAll('sourceImages');
   for (const rec of old) {
-    if (rec.sourceId === sourceId) await storage.remove('sourceImages', rec.id);
+    if (rec.sourceId !== sourceId) continue;
+    if (covered && !covered.has(rec.page)) continue;
+    await storage.remove('sourceImages', rec.id);
   }
 
   if (records.length > 0) await storage.putMany('sourceImages', records);

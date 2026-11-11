@@ -59,6 +59,49 @@ export function toPagesArg(mode: ParseMode, start: string, end: string): string 
 }
 
 /**
+ * 把 `--pages` 参数翻成「这次解析真正覆盖了哪几页」（2026-11-11 晚）。
+ *
+ * ## 为什么需要它
+ *
+ * 取图那一步（`importFigures`）要按页清理旧图：分片解析 1-2 页时
+ * 只能删第 1-2 页的旧图，第 3-36 页的必须留着。
+ * 否则用户分片解析后，别的页的插图会全被删掉 ——
+ * 实测就是「文字还在，图没了」。
+ *
+ * ## 为什么不用 `result.pages` 推断
+ *
+ * `parseMarkdown` 会把结果补成整本页数，分片解析时补位出几十个空页；
+ * 而**完整解析时某页若没有产出，那页也是补位空页**。
+ * 两种模式在 `pages` 的形状上无法区分，只有调用方知道自己传的是
+ * `--pages all` 还是 `--pages 1-2`。所以显式换算。
+ *
+ * @returns `undefined` = 覆盖整份（完整解析，清理全部旧图）；
+ *          数组 = 只覆盖这几页
+ */
+export function pagesArgToCoveredPages(pagesArg: string): number[] | undefined {
+  const s = String(pagesArg ?? '').trim();
+  if (!s || s === 'all') return undefined;
+
+  const out: number[] = [];
+  for (const part of s.split(',')) {
+    const seg = part.trim();
+    if (!seg) continue;
+    const m = /^(\d+)\s*-\s*(\d+)$/.exec(seg);
+    if (m) {
+      const a = Number.parseInt(m[1]!, 10);
+      const b = Number.parseInt(m[2]!, 10);
+      const lo = Math.min(a, b);
+      const hi = Math.max(a, b);
+      for (let p = lo; p <= hi; p++) out.push(p);
+      continue;
+    }
+    const one = Number.parseInt(seg, 10);
+    if (Number.isFinite(one)) out.push(one);
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+/**
  * 校验页范围（2026-11-11）。
  *
  * ## 为什么单独导出

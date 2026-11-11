@@ -9,7 +9,7 @@ import {
 import { getMinerURunner, type MinerUProgress, type MinerURunner } from '@/core/mineru/runner.ts';
 import type { MinerUResult } from '@/core/mineru/markdown.ts';
 import { countFigures, importFigures } from '@/core/mineru/images.ts';
-import { PageRangePicker, toPagesArg, validatePageRange } from './PageRangePicker.tsx';
+import { PageRangePicker, pagesArgToCoveredPages, toPagesArg, validatePageRange } from './PageRangePicker.tsx';
 import type { ParseMode } from './PageRangePicker.tsx';
 
 /**
@@ -68,6 +68,16 @@ async function backfillFigures(
   aliveRef: { current: boolean },
   setNote: (note: string | null) => void,
   onConverted: () => void,
+  /**
+   * 这次解析覆盖了哪几页（2026-11-11 晚）。
+   *
+   * `undefined` = 完整解析 → 清掉这份资料的全部旧图；
+   * 数组 = 分片解析 → 只清这几页的旧图，其余页保留。
+   *
+   * 不传就会退回「无条件全清」的旧行为 —— 那是用户报的
+   * 「分片解析 1-2 页后别的页的图全丢」。见 importFigures 的 coveredPages。
+   */
+  coveredPages?: readonly number[],
 ): Promise<void> {
   const counts = countFigures(result.pages);
   if (counts.total === 0) {
@@ -96,6 +106,7 @@ async function backfillFigures(
       storage: sourceService.figuresStorage,
       sourceId: source.id,
       pages: result.pages,
+      ...(coveredPages ? { coveredPages } : {}),
       fetcher: async (locator) => {
         const r = await bridge.readFigure(locator);
         if (!r.ok) return { ok: false, error: r.error };
@@ -344,7 +355,15 @@ export function ConvertPanel({
        * （实测：删 parsed 目录后报 `Requested parsed content is not cached.`）。
        * 这一步是整个功能可靠性的关键，不是优化。
        */
-      void backfillFigures(source, sourceService, result, aliveRef, setFigureNote, onConverted);
+      void backfillFigures(
+        source,
+        sourceService,
+        result,
+        aliveRef,
+        setFigureNote,
+        onConverted,
+        pagesArgToCoveredPages(toPagesArg(parseMode, rangeStart, rangeEnd)),
+      );
     } catch (err) {
       if (!aliveRef.current) return;
       const message = err instanceof Error ? err.message : '转换失败';

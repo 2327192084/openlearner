@@ -50,3 +50,23 @@ OpenLeaner-*-setup.exe
 # IndexedDB 残留（诊断脚本若在仓库根跑会建出 blobs/ 与 db/）
 /blobs/
 /db/
+
+# Chromium 临时 profile（诊断脚本若把 --user-data-dir 跑空会在仓库根建出这些）
+/Code Cache/
+/GPUCache/
+/DawnGraphiteCache/
+/DawnWebGPUCache/
+/Shared Dictionary/
+/Session Storage/
+/blob_storage/
+/WebStorage/
+/Local Storage/
+/Network/
+/Cache/
+/DIPS
+/DIPS-wal
+/DevToolsActivePort
+/Local State
+/Preferences
+/SharedStorage
+/SharedStorage-wal
