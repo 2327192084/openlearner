@@ -46,3 +46,7 @@ build/*.exe
 build/*.zip
 build/*.7z
 OpenLeaner-*-setup.exe
+
+# IndexedDB 残留（诊断脚本若在仓库根跑会建出 blobs/ 与 db/）
+/blobs/
+/db/
