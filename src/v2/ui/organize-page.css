@@ -617,3 +617,47 @@
 .prp__note--warn {
   color: var(--warn, #d9a441);
 }
+
+/* ---------- 「去文档解析」提醒（2026-11-11） ----------
+ *
+ * 用户反馈：解析过两页之后想继续解析时没有入口。
+ * 现在解析有独立页（侧栏「文档解析」），整理页这里给一句提醒指过去。
+ *
+ * ⚠️ 硬约束 2：button 样式写层外（本文件不套 @layer）。
+ */
+
+.org-hint--parse {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: var(--space-2, 8px);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+/* 行内链接式按钮：看起来像文字链，但语义是 button（可键盘操作） */
+.org-linkbtn {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 12.5px;
+  color: var(--accent-text, #ec6a4a);
+  background: none;
+  border: none;
+  border-radius: 3px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.org-linkbtn:hover {
+  color: var(--accent-soft, #ec6a4a);
+}
+
+.org-linkbtn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

@@ -1,0 +1,183 @@
+/*
+ * 文档解析页样式（2026-11-11）。
+ *
+ * ⚠️ 硬约束 2：本文件里的 button / input 都是原生控件，
+ * 样式一律写**层外**（本文件不套 @layer）。
+ *
+ * ⚠️ token 用 v2 的（--bg-* / --text* / --accent / --ok / --warn），
+ * 不要用 v1 的 --c-*（那是浅色主题，会把深色页刷白）。
+ */
+
+.parse-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 16px);
+  padding-bottom: var(--space-6, 32px);
+}
+
+/* ---------- 页头 ---------- */
+
+.pp-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+}
+
+.pp-title {
+  margin: 0;
+  font-size: var(--fs-2xl, 23px);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pp-lead {
+  margin: 0;
+  max-width: 62ch;
+  font-size: var(--fs-sm, 13px);
+  line-height: var(--lh-body, 1.65);
+  color: var(--text-muted);
+}
+
+.pp-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--fs-sm, 13px);
+}
+
+.pp-error {
+  margin: 0;
+  color: var(--bad, #d76c93);
+  font-size: var(--fs-sm, 13px);
+}
+
+/* ---------- 选资料 ---------- */
+
+.pp-field {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.pp-legend {
+  padding: 0;
+  margin-bottom: var(--space-2, 8px);
+  font-size: var(--fs-xs, 12px);
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+
+.pp-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 每份资料一行：名字 + 状态徽章 */
+.pp-source {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3, 12px);
+  width: 100%;
+  text-align: left;
+  padding: 10px 13px;
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 8px);
+  border-left: 3px solid transparent;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.pp-source:hover {
+  border-color: var(--line-strong);
+}
+
+.pp-source:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* 选中：左侧强调竖条 + 极淡底色 */
+.pp-source--on {
+  border-color: var(--accent);
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-surface));
+}
+
+.pp-source__name {
+  font-size: var(--fs-sm, 13px);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pp-source__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.pp-source__pages {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 状态徽章：待解析用暖色（要动手），已有正文用绿色（没事做） */
+.pp-badge {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill, 999px);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.pp-badge--todo {
+  color: var(--warn, #d9a441);
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+}
+
+.pp-badge--done {
+  color: var(--ok, #5fb58a);
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+}
+
+/* ---------- 解析面板容器 ---------- */
+
+.pp-panel {
+  /* ConvertPanel 自带边框与内边距，这里只做包裹定位 */
+  min-width: 0;
+}
+
+/* ---------- 下一步 ---------- */
+
+.pp-next {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3, 12px);
+  flex-wrap: wrap;
+  padding: 11px 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--bg-sunken);
+}
+
+.pp-next__lead {
+  margin: 0;
+  font-size: var(--fs-sm, 13px);
+  color: var(--text-dim);
+}
+
+.pp-next__actions {
+  display: flex;
+  gap: var(--space-2, 8px);
+  flex: none;
+}

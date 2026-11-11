@@ -48,6 +48,13 @@ export interface OrganizePageProps {
   onBack: () => void;
   /** 产出条目后通知上层刷新卡片池与侧栏计数 */
   onChanged: () => void;
+  /**
+   * 去「文档解析」页（2026-11-11）。
+   *
+   * 用户反馈解析过两页之后没有入口继续解析 —— 见页面里那段提醒的注释。
+   * 不传就不显示那个链接（不摆点了没反应的东西）。
+   */
+  onOpenParse?: (sourceId: string) => void;
   /** 点「可点回原文」—— 打开阅读器并定位到这条知识点的位置 */
   onOpenAnchor?: (target: {
     sourceId: string;
@@ -66,6 +73,7 @@ export function OrganizePage({
   onBack,
   onChanged,
   onOpenAnchor,
+  onOpenParse,
 }: OrganizePageProps) {
   const [sources, setSources] = useState<Source[] | null>(null);
   const [selected, setSelected] = useState<string | null>(initialSourceId);
@@ -359,6 +367,31 @@ export function OrganizePage({
                   }
                 : {})}
             />
+          ) : null}
+
+          {/*
+            「去文档解析」提醒（2026-11-11）。
+            
+            用户反馈：解析了两页之后想继续解析，发现没有入口。
+            根因是 ConvertPanel 只在「还没有正文」时渲染 —— 解析过之后
+            它就消失了。现在解析有了独立页（侧栏「文档解析」），
+            这里给一句提醒把用户指过去。
+            
+            为什么两处都留：整理页的流程不该被打断（需要补正文时就地能补），
+            但用户也该知道有个专门的地方可以慢慢解析整本。
+          */}
+          {currentSource ? (
+            <p className="org-hint org-hint--parse">
+              想解析更多页？到
+              <button
+                type="button"
+                className="org-linkbtn"
+                onClick={() => onOpenParse?.(currentSource.id)}
+              >
+                文档解析
+              </button>
+              页可以按页范围分几次解析，已解析的页不会丢。
+            </p>
           ) : null}
 
           <fieldset className="org-field">

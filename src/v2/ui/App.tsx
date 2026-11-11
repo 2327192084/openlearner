@@ -56,6 +56,7 @@ import type { Card } from '@/v2/core/cards.ts';
 import type { PageId } from './pages.ts';
 import { SettingsPage } from './SettingsPage.tsx';
 import { OrganizePage } from './OrganizePage.tsx';
+import { ParsePage } from './ParsePage.tsx';
 import { ReaderPage } from './ReaderPage.tsx';
 import type { ReaderTarget } from './ReaderPage.tsx';
 import { useServices } from '@/app/services-context.ts';
@@ -1754,6 +1755,16 @@ export function App({
           onAskAboutSelection={conn.connected ? handleAskAboutSelection : undefined}
           askDisabledReason={conn.connected ? null : '还没接入模型，先到设置里加一个后端'}
         />
+      ) : page === 'parse' ? (
+        <ParsePage
+          sourceService={sourceService}
+          initialSourceId={organizeSourceId}
+          onOpenReader={(sourceId) => openReader(sourceId, null)}
+          onOpenOrganize={(sourceId) => {
+            setOrganizeSourceId(sourceId);
+            setPage('organize');
+          }}
+        />
       ) : page === 'organize' ? (
         <OrganizePage
           sourceService={sourceService}
@@ -1769,6 +1780,11 @@ export function App({
           onOpenAnchor={(t) => {
             // 从知识点的「可点回原文」跳到阅读器，并定位到那一句
             openReader(t.sourceId, t);
+          }}
+          onOpenParse={(sourceId) => {
+            /* 2026-11-11：整理页给一句「去文档解析」的提醒，点了跳过去 */
+            setOrganizeSourceId(sourceId);
+            setPage('parse');
           }}
         />
       ) : page === 'decks' ? (
@@ -1907,6 +1923,7 @@ const PAGE_LABEL_FOR_BACK: Partial<Record<PageId, string>> = {
   wrongbook: '错题与待巩固',
   knowledge: '知识库',
   organize: '整理知识点',
+  parse: '文档解析',
   decks: '我的题组',
   sources: '资料',
   book: '复习巩固',
@@ -1941,6 +1958,7 @@ function Placeholder({ page, onBack }: { page: PageId; onBack: () => void }) {
     audio: '音频转写',
     record: '课堂实录',
     organize: '整理知识点',
+    parse: '文档解析',
     reader: '阅读原文',
     practice: '做题中',
     guide: '功能导览',

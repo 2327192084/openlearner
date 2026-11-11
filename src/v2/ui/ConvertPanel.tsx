@@ -158,6 +158,16 @@ export interface ConvertPanelProps {
   onOpenPage?: (page: number) => void;
   /** 注入 runner（测试用）；不传则取当前环境的真实实现 */
   runner?: MinerURunner;
+  /**
+   * 即使资料已经有正文也显示面板（2026-11-11）。
+   *
+   * 「解析」独立成页时用这个：用户解析了 2 页之后想接着解析第 3-10 页，
+   * 此时 textStatus 已是 ready，老的判断会让面板整个消失、没有入口。
+   *
+   * 默认 false —— 整理页里保持老行为（只在需要补正文时出现），
+   * 那边由 OrganizePage 自己给一句「去解析页继续」的提醒。
+   */
+  alwaysShow?: boolean;
 }
 
 export function ConvertPanel({
@@ -166,6 +176,7 @@ export function ConvertPanel({
   onConverted,
   onOpenPage,
   runner,
+  alwaysShow = false,
 }: ConvertPanelProps) {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
   /**
@@ -321,31 +332,71 @@ export function ConvertPanel({
     }
   }, [source, sourceService, effectiveRunner, onConverted, parseMode, rangeStart, rangeEnd]);
 
-  // 不需要转换的资料：不渲染这个面板（ready 的资料已经有正文）
-  if (!needsConversion(source.textStatus, source.kind)) return null;
+  /*
+   * 什么时候不再渲染这个面板（2026-11-11 改）。
+   *
+   * ## 原来的判断漏了一种情况
+   *
+   * 原来只要 `needsConversion()` 为 false（即 textStatus 已是 ready）
+   * 就整个不渲染。但分片解析之后 textStatus 正是 ready ——
+   * 用户解析了 2 页，想接着解析第 3-10 页时，**面板消失了，没有入口**。
+   * 这是我在做「分片合并」时留下的连带问题（合并让分片有意义了，
+   * 但入口没跟着留）。
+   *
+   * ## 现在的判断
+   *
+   * 用 `alwaysShow` 让宿主（解析页）永远挂这个面板；
+   * 不传时保持老行为（整理页里只在需要补正文时出现）。
+   */
+  if (!alwaysShow && !needsConversion(source.textStatus, source.kind)) return null;
 
   const unavailable = !effectiveRunner.available;
+  /**
+   * 资料已经有正文了（2026-11-11）。
+   *
+   * 这时面板的语义变了：不是「补正文」，而是「继续解析其它页」。
+   * 标题与说明都要换一套说法 —— 否则用户会看到
+   * 「这是一份扫描件，没有文字层」而困惑（明明有正文）。
+   */
+  const hasText = !needsConversion(source.textStatus, source.kind);
 
   return (
     <div className="convert-panel">
-      <p className="convert-panel__title">
-        {source.textStatus === 'no-text-layer'
-          ? '这是一份扫描件，没有文字层'
-          : source.textStatus === 'decode-failed'
-            ? '这份文件的文字取不出来'
-            : '这是一张图片'}
-      </p>
-      <p className="convert-panel__hint">
-        {source.textStatus === 'no-text-layer'
-          ? '它的内容是一张张图片，所以没有正文可以整理，也没法把知识点定位到具体句子。这不是文件坏了。'
-          : source.textStatus === 'decode-failed'
-            ? '文件里是有文字的（有字体、有绘制指令），但我们的解析没取出来。这是我们这边的问题 —— 用下面的按钮再试一次。'
-            : '图片本身没有文字层，需要先识别成文字才能整理成知识点。'}
-      </p>
-      <p className="convert-panel__hint">
-        可以用本机装的 MinerU 把它转成带页码的正文，转完就能照常整理知识点，
-        并且每条都能点回原文对应页。
-      </p>
+      {hasText ? (
+        <>
+          <p className="convert-panel__title">继续解析其它页</p>
+          <p className="convert-panel__hint">
+            这份资料已经有正文了（{source.segmentCount ?? 0} 段
+            {source.pageCount ? ` / 共 ${source.pageCount} 页` : ''}）。
+            想解析还没解析的页，用下面的「分片解析」再跑一次 ——
+            新解析的页会合并进来，已解析的页不会丢。
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="convert-panel__title">
+            {source.textStatus === 'no-text-layer'
+              ? '这是一份扫描件，没有文字层'
+              : source.textStatus === 'decode-failed'
+                ? '这份文件的文字取不出来'
+                : '这是一张图片'}
+          </p>
+          <p className="convert-panel__hint">
+            {source.textStatus === 'no-text-layer'
+              ? '它的内容是一张张图片，所以没有正文可以整理，也没法把知识点定位到具体句子。这不是文件坏了。'
+              : source.textStatus === 'decode-failed'
+                ? '文件里是有文字的（有字体、有绘制指令），但我们的解析没取出来。这是我们这边的问题 —— 用下面的按钮再试一次。'
+                : '图片本身没有文字层，需要先识别成文字才能整理成知识点。'}
+          </p>
+        </>
+      )}
+      {/* 「有正文」时这句不适用 —— 它说的是「先把正文弄出来」 */}
+      {hasText ? null : (
+        <p className="convert-panel__hint">
+          可以用本机装的 MinerU 把它转成带页码的正文，转完就能照常整理知识点，
+          并且每条都能点回原文对应页。
+        </p>
+      )}
 
       {unavailable ? (
         <div className="convert-panel__unavailable">
@@ -411,12 +462,21 @@ export function ConvertPanel({
                 className="btn-fill btn-fill--sm"
                 onClick={() => void start()}
               >
-                {parseMode === 'full' ? '用本机 MinerU 转成正文' : '解析这几页'}
+                {/*
+                  按钮文案要看语境（2026-11-11）。
+                  已有正文时「转成正文」是错的 —— 那是第一次解析的说法；
+                  这时用户是在「接着解析更多页」。
+                */}
+                {parseMode === 'full'
+                  ? (hasText ? '重新解析整本' : '用本机 MinerU 转成正文')
+                  : '解析这几页'}
               </button>
               <p className="convert-panel__note">
                 {parseMode === 'full'
-                  ? '首次运行可能要下载识别模型，会有一段时间没有反应 —— 那是正常的，不是卡死了。整本大书可能要几十分钟。'
-                  : '只解析指定的页范围，通常几十秒就好。适合先看某一章。'}
+                  ? (hasText
+                      ? '会把整本重新解析一遍，覆盖已有正文（通常只有识别质量不满意时才需要）。整本大书可能要几十分钟。'
+                      : '首次运行可能要下载识别模型，会有一段时间没有反应 —— 那是正常的，不是卡死了。整本大书可能要几十分钟。')
+                  : '只解析指定的页范围，通常几十秒就好。适合先看某一章，或分批把整本凑齐。'}
               </p>
             </>
           )}
