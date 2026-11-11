@@ -23,6 +23,7 @@ import { paintTextMarks, clearTextMarks } from './paint-marks.ts';
 import { domPointToRaw } from './dom-text-map.ts';
 import { SelectionActionBar, measureSelectionRect } from './SelectionActionBar.tsx';
 import { SearchResults } from './SearchResults.tsx';
+import { PageSlider } from './PageSlider.tsx';
 import type { RectLike } from './selection-bar-place.ts';
 import { snapFiguresToBlocks } from './snap-figures.ts';
 import './reader-figure.css';
@@ -181,6 +182,15 @@ export function ReaderPage({
    */
   const [sideMode, setSideMode] = useState<'view' | 'annotate' | 'note' | undefined>(undefined);
   const [noteFocusToken, setNoteFocusToken] = useState(0);
+
+  /**
+   * 页码输入框的值（2026-11-11 晚）。
+   *
+   * 独立受控而不是直接显示 pageNo：用户输入「1」想打「12」时，
+   * 若直接绑定 pageNo，第一下就会被 clamp 回 1，永远打不进两位数。
+   * 所以输入过程不生效，回车 / 失焦才跳。
+   */
+  const [pageInput, setPageInput] = useState('1');
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const markRef = useRef<HTMLElement | null>(null);
   /**
@@ -1155,6 +1165,12 @@ export function ReaderPage({
       setSelectionText('');
       setSelectionRect(null);
       bodyRef.current?.scrollTo({ top: 0 });
+      /*
+       * 同步页码输入框（2026-11-11 晚）。
+       * 不在这里同步的话，用「下一段」按钮或滑块跳页后，
+       * 输入框还停在上一个数字 —— 用户会以为跳转没生效。
+       */
+      setPageInput(String(clamped));
     },
     [phase],
   );
@@ -1334,9 +1350,32 @@ export function ReaderPage({
           >
             上一段
           </button>
-          <span className="reader-nav__pos">
-            {pageNo} / {totalSegments}
-          </span>
+          {/*
+            页码输入框（2026-11-11 晚）。
+            用户要「滑轮/输入页码」两种方式 —— 滑块管大致跳，输入框管精确跳。
+            两者都调 goPage，行为一致。
+          */}
+          <input
+            className="reader-nav__input"
+            type="number"
+            min={1}
+            max={totalSegments}
+            value={pageInput}
+            aria-label="跳到指定段"
+            onChange={(e) => setPageInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              const n = Number.parseInt(pageInput, 10);
+              if (Number.isFinite(n)) goPage(n);
+            }}
+            onBlur={() => {
+              /* 失焦时把输入框同步回真实页码，避免显示一个没生效的数字 */
+              const n = Number.parseInt(pageInput, 10);
+              if (Number.isFinite(n) && n !== pageNo) goPage(n);
+              else setPageInput(String(pageNo));
+            }}
+          />
+          <span className="reader-nav__pos">/ {totalSegments}</span>
           <button
             type="button"
             className="btn-ghost"
@@ -1346,6 +1385,14 @@ export function ReaderPage({
             下一段
           </button>
         </div>
+
+        {/*
+          翻页滑块（2026-11-11 晚）。
+          用户要「类似进度条，拖动圆形滑轮翻到大致想要的页面」。
+          滑块管大致跳、输入框管精确跳，两者都走 goPage。
+        */}
+        <PageSlider page={pageNo} total={totalSegments} onJump={goPage} unitLabel="段" />
+
         <div className="reader-search">
           <input
             className="reader-search__input"

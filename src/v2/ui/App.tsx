@@ -1080,8 +1080,6 @@ export function App({
    * 换题时从池子里再抽一条，而不是重新查库 —— 池子不变，不必重读。
    */
   const [oralPool, setOralPool] = useState<OralMaterial[]>([]);
-  /** 设置里的「自动保存」 */
-  const [oralAutoSave] = useState(false);
 
   /**
    * 统一的「拿到一个可用后端」。
@@ -1466,7 +1464,6 @@ export function App({
           onOralJudge={handleOralJudge}
           onOralSave={handleOralSave}
           onOralNext={handleOralNext}
-          oralAutoSave={oralAutoSave}
           autoStartOral={autoOral}
           onAutoStartOralConsumed={() => setAutoOral(false)}
           oralScopes={oralScopes}

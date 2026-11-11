@@ -72,8 +72,6 @@ export interface OralReviewPanelProps {
   onExit: () => void;
   /** 跳回原文 */
   onOpenAnchor?: (sourceId: string, page: number | null, quote: string | null) => void;
-  /** 系统设置里的「自动保存」是否开启 */
-  autoSave?: boolean;
   /**
    * 顶部要插的范围选择器（2026-11-10）。
    *
@@ -94,7 +92,6 @@ export function OralReviewPanel({
   onNext,
   onExit,
   onOpenAnchor,
-  autoSave = false,
   scopePicker,
 }: OralReviewPanelProps) {
   const [phase, setPhase] = useState<Phase>({ kind: 'asking' });
@@ -281,7 +278,6 @@ export function OralReviewPanel({
           judgement={phase.judgement}
           saved={saved}
           busy={busy}
-          autoSave={autoSave}
           onSave={doSave}
           onNext={onNext}
           onExit={onExit}
@@ -321,7 +317,6 @@ function Judged({
   judgement,
   saved,
   busy,
-  autoSave,
   onSave,
   onNext,
   onExit,
@@ -333,7 +328,6 @@ function Judged({
   judgement: OralJudgement;
   saved: 'full' | 'brief' | null;
   busy: boolean;
-  autoSave: boolean;
   onSave: (savedAs: 'full' | 'brief') => Promise<void>;
   onNext: () => void;
   onExit: () => void;
@@ -416,10 +410,15 @@ function Judged({
           </p>
         ) : (
           <>
+            {/*
+              ⚠️ 2026-11-11 晚：删掉了「自动保存」这个开关。
+              它原来只控制下面这句提示文字（`autoSave ? '已开启自动保存…'`），
+              而 `App.tsx` 里那个值是 `useState(false)` 且**没有 setter**、
+              不读设置、不持久化 —— 永远 false，是违反硬约束 8 的假开关。
+              用户决定不要这个功能，所以整条链路一起删掉。
+            */}
             <p className="orp__save-lead">
-              {autoSave
-                ? '已开启自动保存，默认存精简版。'
-                : '要留下这条记录吗？保存后可以在复习巩固页回看。'}
+              要留下这条记录吗？保存后可以在复习巩固页回看。
             </p>
             <div className="orp__actions">
               <button

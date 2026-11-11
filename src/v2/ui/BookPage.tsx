@@ -131,8 +131,6 @@ export interface BookPageProps {
   }) => Promise<void>;
   /** 换一条素材再来一轮 */
   onOralNext?: () => void;
-  /** 设置里是否开了「自动保存」 */
-  oralAutoSave?: boolean;
   /**
    * 进来就**直接开始提问**（2026-11-10）。
    *
@@ -204,7 +202,6 @@ export function BookPage({
   onOralJudge,
   onOralSave,
   onOralNext,
-  oralAutoSave = false,
   autoStartOral = false,
   onAutoStartOralConsumed,
   oralScopes = [],
@@ -548,7 +545,6 @@ export function BookPage({
               ? (sourceId, page, quote) => onOpenSourceAt(sourceId, page ?? 1, quote ?? undefined)
               : undefined
           }
-          autoSave={oralAutoSave}
         />
       </div>
     );

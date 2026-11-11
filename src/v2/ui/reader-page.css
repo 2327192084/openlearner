@@ -787,3 +787,107 @@
   line-height: 1.6;
   color: var(--text-faint);
 }
+
+/* ---------- 翻页滑块（2026-11-11 晚） ----------
+ *
+ * 用户原话：「类似于进度条，用户可以通过拖动一个圆形滑轮翻到大致想要的页面」。
+ *
+ * ⚠️ 硬约束 2：`input` 是原生控件，配色规则**必须写在 @layer 外面**。
+ * 本文件本来就不套 @layer（见文件头），所以这里是安全的。
+ * 圆形滑块靠 ::-webkit-slider-thumb —— Electron 就是 Chromium，只需管这一个前缀。
+ */
+
+.reader-slider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  /* 占满翻页按钮与搜索框之间的剩余空间 */
+  flex: 1 1 180px;
+  min-width: 120px;
+}
+
+.reader-slider__input {
+  flex: 1;
+  min-width: 0;
+  height: 18px;
+  /* 去掉系统默认外观，否则 thumb 样式在部分平台不生效 */
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  margin: 0;
+}
+
+/* 轨道 */
+.reader-slider__input::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+/* 圆形滑轮 */
+.reader-slider__input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--c-bg, #14110e);
+  /* 让圆心对齐轨道中线：(轨道高 4 - thumb 高 14) / 2 = -5 */
+  margin-top: -5px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 35%);
+  transition: transform 0.12s ease;
+}
+
+.reader-slider__input:hover::-webkit-slider-thumb {
+  transform: scale(1.15);
+}
+
+.reader-slider__input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* 位置标签：拖动中显示「跳到第 N 段」，静止显示「N / 总数」 */
+.reader-slider__label {
+  font-size: 12px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  min-width: 74px;
+  text-align: right;
+}
+
+/* 拖动中：变成强调色，明确「这一个数字是目标，还没跳」 */
+.reader-slider__label--on {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ---------- 页码输入框（2026-11-11 晚） ---------- */
+
+.reader-nav__input {
+  width: 52px;
+  padding: 4px 6px;
+  font-size: var(--fs-sm, 13px);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--text);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 8px);
+}
+
+.reader-nav__input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* 去掉 number 类型自带的上下箭头：占地方且与自定义样式不协调 */
+.reader-nav__input::-webkit-outer-spin-button,
+.reader-nav__input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
