@@ -1,7 +1,7 @@
 {
   "name": "openleaner",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "学习备考软件 — 把教材/课件整理成可复习的 PPT 与可刷的习题集，每条内容都能点回原文",
   "author": "OpenLeaner",
   "license": "MIT",

@@ -21,7 +21,7 @@ import { MarkdownBodyMarked } from './MarkdownBodyMarked.tsx';
 import { paintTextMarks, clearTextMarks } from './paint-marks.ts';
 import { SelectionActionBar, measureSelectionRect } from './SelectionActionBar.tsx';
 import type { RectLike } from './selection-bar-place.ts';
-import { splitByFigures } from '@/core/mineru/images.ts';
+import { snapFiguresToBlocks } from './snap-figures.ts';
 import './reader-figure.css';
 
 /**
@@ -177,6 +177,20 @@ export function ReaderPage({
    * （浮层要矩形，右栏要布尔）。
    */
   const [selectionRect, setSelectionRect] = useState<RectLike | null>(null);
+
+  /**
+   * 最近一次**有效**的正文选区（2026-11-11）。
+   *
+   * 为什么需要：用户「选中文字 → 点备注输入框 → 打字」时，
+   * 点进输入框会让浏览器清掉正文选区。如果没有这个记忆，
+   * `selectionText` 变空、「划选备注」按钮瞬间变灰，
+   * 用户没法提交刚选的那句话 —— 实测反馈就是「划线备注按钮不可用」。
+   *
+   * 用 ref 而不是 state：它不参与渲染，只在提交时读一次。
+   * 用 state 会多一次无意义重渲染，而且在选区频繁变化的场景下
+   * 容易和 selectionText 不同步。
+   */
+  const recentSelectionRef = useRef<string>('');
 
   /**
    * 原图查看。
@@ -494,27 +508,45 @@ export function ReaderPage({
       const el = bodyRef.current;
       const sel = window.getSelection();
       if (!el || !sel || sel.rangeCount === 0) {
-        setSelectionText('');
+        /*
+         * 选区没了 —— 但**不要立刻清空**（2026-11-11 修）。
+         *
+         * 用户的实际操作顺序是「在正文里选中 → 点备注输入框 → 打字」。
+         * 点进输入框会让浏览器把正文选区清掉，于是 selectionText 变空、
+         * 「划选备注」按钮瞬间变灰 —— 用户根本没法提交自己刚选的那句话。
+         *
+         * 实测反馈：「划线备注按钮不可用」。
+         *
+         * 修法：选区消失时**保留**上一次的记录（recentSelectionRef），
+         * 由「点击正文外部」或「提交后」显式清除。
+         * 这与批注的语义一致 —— 批注也允许选完再点按钮。
+         */
         setSelectionRect(null);
+        /* 只有确实没有历史选区时才清文字 */
+        if (!recentSelectionRef.current) setSelectionText('');
         return;
       }
       const text = sel.toString().trim();
       if (!text) {
-        setSelectionText('');
         setSelectionRect(null);
+        if (!recentSelectionRef.current) setSelectionText('');
         return;
       }
       const root = sel.getRangeAt(0).commonAncestorContainer;
       const inside = el.contains(root.nodeType === 1 ? root : root.parentNode);
-      setSelectionText(inside ? text : '');
-      /*
-       * 顺手把选区的视口矩形一起量下来（2026-11-10）。
-       *
-       * 复用这一次监听而不是再挂一份：两处监听会在时序上打架
-       * （一处已经 setState 了，另一处还在读旧 Range）。
-       * 量的具体做法在 SelectionActionBar 里，这里只管取。
-       */
-      setSelectionRect(inside ? measureSelectionRect(el) : null);
+
+      if (inside) {
+        /* 有效选区：记住它，供「点完输入框再提交」使用 */
+        recentSelectionRef.current = text;
+        setSelectionText(text);
+        setSelectionRect(measureSelectionRect(el));
+      } else {
+        /*
+         * 选区落在正文之外（比如用户在侧栏里选中了备注文字）。
+         * 不清历史 —— 用户可能只是点了别处，还想回来提交刚才那句。
+         */
+        setSelectionRect(null);
+      }
     };
 
     document.addEventListener('selectionchange', onSelectionChange);
@@ -726,9 +758,16 @@ export function ReaderPage({
       let exact = seg.text.slice(0, 40);
 
       if (!wholePage) {
-        /* 划选备注必须有真实选区 */
-        if (!selectionText) return;
-        exact = selectionText;
+        /*
+         * 优先用当前选区；没有就用「最近一次有效选区」。
+         *
+         * 后者是关键：用户点进输入框打字时，正文选区已经被浏览器清空，
+         * 但 recentSelectionRef 还记着他刚选的那句 —— 否则按钮永远是灰的
+         * （实测反馈「划线备注按钮不可用」）。
+         */
+        const selText = selectionText || recentSelectionRef.current;
+        if (!selText) return;
+        exact = selText;
 
         /* 用与 handleAddMark 相同的办法量出段内偏移 */
         let hint = -1;
@@ -770,8 +809,9 @@ export function ReaderPage({
       await annotations.addTextMark(sourceId, seg.page, mark);
       const rec = await annotations.get(sourceId, seg.page);
       setPageMarks(rec?.textMarks ?? []);
-      /* 存完清选区：同一段不该被连标两次 */
+      /* 存完清选区与记忆：同一段不该被连标两次 */
       window.getSelection()?.removeAllRanges();
+      recentSelectionRef.current = '';
       setSelectionText('');
       setSelectionRect(null);
     },
@@ -873,6 +913,14 @@ export function ReaderPage({
       setHighlight(null);
       setJumpNote(null);
       setSearchNote(null);
+      /*
+       * 翻页清掉选区记忆（2026-11-11）。
+       * 不清的话，用户在上一页选了一段、翻页后写备注，
+       * 备注会挂到新一页里「碰巧位置相同」的字符上。
+       */
+      recentSelectionRef.current = '';
+      setSelectionText('');
+      setSelectionRect(null);
       bodyRef.current?.scrollTo({ top: 0 });
     },
     [phase],
@@ -1173,7 +1221,13 @@ export function ReaderPage({
         onAddMark={handleAddMark}
         onRemoveMark={(id) => void handleRemoveMark(id)}
         onSetNote={(id, note) => void handleSetNote(id, note)}
-        hasSelection={!!selectionText}
+        /*
+         * 有当前选区**或**有历史选区都算「可备注」（2026-11-11）。
+         *
+         * 只判断当前选区会让按钮在「点了输入框之后」变灰 ——
+         * 而那时用户其实已经选好了，正准备写字。
+         */
+        hasSelection={!!(selectionText || recentSelectionRef.current)}
         knowledgeCount={pageKnowledgeCount}
         figureCount={pageFigures.length}
         onAddSelectionNote={(note) => void handleAddNote(note, false)}
@@ -1256,73 +1310,85 @@ function renderBody(
  * 切片逻辑已经有单测（images.ts 的 32 个用例），不重写一遍。
  * 但**偏移换算放在这里** —— 那是展示问题，不该塞进数据层。
  */
+/**
+ * 有插图时渲染正文（2026-11-08 起，2026-11-11 重写）。
+ *
+ * ## 2026-11-11 重写的原因：用户两次报「标注位置错」
+ *
+ * 老实现按 `charOffset` 把正文切成多片、每片单独渲染。问题在于
+ * `charOffset` 常落在**句子中间** —— 切出来的片可能是
+ * `"统\n\n## 1.0 引言…"` 这种以半个词开头的碎片。
+ * 而每个碎片都独立跑 Markdown 解析，第一行是「统」不是标题，
+ * 偏移量在两个坐标系间错开，高亮就落到别处。
+ *
+ * 新做法：先把插图位置**吸附到最近的块边界**（`snapFiguresToBlocks`），
+ * 再从这些边界处切分。这样每一片都是完整的 Markdown 块，
+ * `splitBlocks` 能正确识别结构，偏移全程以整段原文为准。
+ *
+ * 图挪到段落边界是安全的：`charOffset` 本来就是「大致在这儿」的近似值
+ * （见 model.ts 的 SourceImageRecord 注释），不是像素级对齐。
+ */
 function renderWithFigures(
   text: string,
   highlight: Highlight | null,
   markRef: RefObject<HTMLElement | null>,
   figures: readonly SourceImageRecord[],
+  pageMarks: readonly TextMark[] = [],
 ) {
-  const pieces = splitByFigures(text, figures);
+  /*
+   * 吸附：把每个图挪到最近的块边界。
+   * 多张图可能吸附到同一边界 —— 那就连着插，顺序保持原样。
+   */
+  const snapped = snapFiguresToBlocks(text, figures);
+
+  /* 按吸附后的偏移分组：offset → 该位置要插的图 */
+  const byOffset = new Map<number, SourceImageRecord[]>();
+  for (const { figure, offset } of snapped) {
+    const arr = byOffset.get(offset);
+    if (arr) arr.push(figure);
+    else byOffset.set(offset, [figure]);
+  }
+
+  /* 切分点：所有插图偏移 + 两端 */
+  const cuts = [...new Set([0, text.length, ...byOffset.keys()])].sort((a, b) => a - b);
+
   const out: React.ReactNode[] = [];
-  /** 当前文字切片在**整段**里的起始绝对偏移 */
-  let cursor = 0;
   let key = 0;
 
-  /* hasHighlight 已不需要：两条路径合并后，MarkdownBodyMarked 自己判断
-     有没有区间与块相交。*/
+  for (let i = 0; i < cuts.length; i++) {
+    const from = cuts[i]!;
+    const to = cuts[i + 1];
 
-  for (let i = 0; i < pieces.length; i++) {
-    const piece = pieces[i]!;
-
-    if (piece.kind === 'figure') {
-      /*
-       * 图注去重（2026-11-08 实测发现）。
-       *
-       * MinerU 把图注**当正文文字**留在图后面（图片行本身被去掉，
-       * 但「图1.1 含有电压源…」那句还在 text 里）。所以正文里
-       * 本来就会显示一遍图注；如果这里再渲染一个 <figcaption>，
-       * 同一句会出现两次 —— 我在补图后逐字对照切片时看到的就是这个。
-       *
-       * 修法上有个岔路，选了保守的那条：
-       *  ❌ 把图注从 text 里删掉 → 文字一变，95 个知识点的字符偏移全错位
-       *  ✅ 渲染时看后面那段文字是不是以图注开头，是就不重复渲染
-       *
-       * 代价是图注排版跟着正文走（不是居中小字）。这个代价可以接受 ——
-       * 排版可以以后调，偏移错位是不可接受的。
-       */
-      const next = pieces[i + 1];
-      const captionInBody =
-        next !== undefined &&
-        next.kind === 'text' &&
-        piece.figure.caption !== null &&
-        next.text.trimStart().startsWith(piece.figure.caption.trim());
-
-      out.push(
-        <ReaderFigure key={`fig-${key++}`} figure={piece.figure} hideCaption={captionInBody} />,
-      );
-      continue;
+    /* 先插这一位置上的图（如果有） */
+    const figsHere = byOffset.get(from);
+    if (figsHere) {
+      for (const figure of figsHere) {
+        /*
+         * 图注去重（2026-11-08 实测发现）：MinerU 把图注当正文留在图后面，
+         * 若这里再渲染 <figcaption>，同一句会出现两次。
+         * 判断后面那段文字是不是以图注开头，是就不重复渲染。
+         */
+        const nextSlice = to !== undefined ? text.slice(from, to) : '';
+        const captionInBody =
+          figure.caption !== null && nextSlice.trimStart().startsWith(figure.caption.trim());
+        out.push(
+          <ReaderFigure key={`fig-${key++}`} figure={figure} hideCaption={captionInBody} />,
+        );
+      }
     }
 
-    const slice = piece.text;
-    const sliceStart = cursor;
-    cursor += slice.length;
-
+    if (to === undefined) break;
+    const slice = text.slice(from, to);
     if (!slice) continue;
 
-    /*
-     * 每个文字切片都走 MarkdownBodyMarked（2026-11-11 统一）。
-     *
-     * 传 baseOffset = sliceStart：高亮区间是相对**整段**的，
-     * 组件内部换算成本切片的局部区间。
-     * 切块与偏移都从这一份 slice 原文算，所以按插图切分也不会让标注错位。
-     */
     out.push(
       <MarkdownBodyMarked
         key={`t-${key++}`}
         text={slice}
         marks={highlightMarks(highlight)}
-        baseOffset={sliceStart}
+        baseOffset={from}
         markRef={markRef}
+        notes={noteRanges(pageMarks, text.length)}
       />,
     );
   }
