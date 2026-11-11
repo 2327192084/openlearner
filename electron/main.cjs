@@ -60,6 +60,32 @@ function ensureUserDataDir() {
 
       // 显式指定，避免 Chromium 自己去找一个不存在的默认位置
       app.setPath('userData', dir);
+
+      /*
+       * 选定目录后，检查要不要从旧位置迁移数据（2026-11-11）。
+       *
+       * ## 为什么需要
+       *
+       * 旧版是绿色版，从 `release/win-unpacked/` 运行，
+       * 数据落在 `<安装目录>/openleaner-data/`。新版用 NSIS 装到
+       * `%LOCALAPPDATA%\Programs\OpenLeaner`，同一套探测顺序让它
+       * 落到了 `%APPDATA%\OpenLeaner` —— 两处是不同目录。
+       *
+       * 结果：升级后打开是全新空库，用户以为数据全丢了
+       * （实测确实发生过一次，靠 .tmp 里的副本才救回来）。
+       *
+       * ## 迁移规则（保守）
+       *
+       * 只有**同时满足**才迁移：
+       *   1. 新位置还没有 IndexedDB（否则说明已经在用了，不能覆盖）
+       *   2. 旧位置**有** IndexedDB 且非空
+       * 迁移只搬 IndexedDB 与 Local Storage —— 那两个才是学习库；
+       * Cache 之类的重建一次就好，没必要搬。
+       *
+       * 失败不阻塞启动：迁移是尽力而为，出问题也要让用户能进软件。
+       */
+      migrateLegacyData(dir);
+
       return { dir, ok: true };
     } catch {
       /* 换下一个候选 */
@@ -67,6 +93,74 @@ function ensureUserDataDir() {
   }
 
   return { dir: null, ok: false };
+}
+
+/**
+ * 把旧位置的数据迁到当前 userData（2026-11-11）。
+ *
+ * 见 ensureUserDataDir 里的长注释。这里只做「保守的一次性搬运」。
+ *
+ * @param target 当前选定的 userData 目录
+ */
+function migrateLegacyData(target) {
+  try {
+    const targetDb = path.join(target, 'IndexedDB');
+    /* 已经在用了就不动它 —— 覆盖用户现有数据是不可接受的 */
+    if (fs.existsSync(targetDb) && fs.readdirSync(targetDb).length > 0) return;
+
+    /*
+     * 老位置的候选。
+     *
+     * 第一个是本程序 exe 旁边（绿色版布局）；
+     * 第二个是旧版可能用过的 AppData 名字（大小写不同的两个目录）。
+     * 顺序即优先级：越可能装着真数据越靠前。
+     */
+    const legacy = [
+      path.join(path.dirname(process.execPath), 'openleaner-data'),
+      path.join(process.env.APPDATA || '', 'openleaner'),
+    ].filter((d) => d && path.resolve(d) !== path.resolve(target));
+
+    for (const from of legacy) {
+      const fromDb = path.join(from, 'IndexedDB');
+      if (!fs.existsSync(fromDb)) continue;
+      if (fs.readdirSync(fromDb).length === 0) continue;
+
+      console.log(`[迁移] 从旧位置发现学习库：${from}`);
+
+      /* 先把当前目标备份一份，万一搬坏了还能退 */
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const backup = path.join(target, `openleaner-data-migration-backup-${stamp}`);
+
+      for (const sub of ['IndexedDB', 'Local Storage']) {
+        const src = path.join(from, sub);
+        if (!fs.existsSync(src)) continue;
+        try {
+          fs.mkdirSync(backup, { recursive: true });
+          const cur = path.join(target, sub);
+          if (fs.existsSync(cur)) {
+            fs.cpSync(cur, path.join(backup, sub), { recursive: true });
+            fs.rmSync(cur, { recursive: true, force: true });
+          }
+          fs.mkdirSync(path.dirname(cur), { recursive: true });
+          fs.cpSync(src, cur, { recursive: true });
+          console.log(`[迁移] ${sub} 已迁移`);
+        } catch (e) {
+          console.log(`[迁移] ${sub} 失败：${e && e.message}`);
+        }
+      }
+
+      /*
+       * 不动旧目录。
+       *
+       * 虽然数据已经复制过来了，但删掉旧目录是有风险的（用户可能
+       * 还想回退到旧版）。留着他自己决定，日志里已经写了位置。
+       */
+      console.log(`[迁移] 完成。旧数据保留在 ${from}（可手动删除）`);
+      return;
+    }
+  } catch (e) {
+    console.log(`[迁移] 跳过：${e && e.message}`);
+  }
 }
 
 const userDataResult = ensureUserDataDir();
