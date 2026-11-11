@@ -609,16 +609,61 @@ export function ReaderPage({
           const el = bodyRef.current;
           if (el && el.contains(range.startContainer)) {
             /*
-             * 用 Range 从容器开头量到选区起点。cloneContents 会把
-             * DOM 转成片段，量它的文本长度即是「选区内起始偏移」的近似。
-             * 这是浏览器给的标准做法，比自己遍历节点可靠。
+             * ① 优先用「块上标的原文偏移」精确算（2026-11-11 修标题偏移）。
+             *
+             * 为什么要这条路：标题渲染时 `#` 被吃掉，DOM 文本比原文短。
+             * 若用下面的 headText.length 量，得到的偏移会比原文小
+             * （少的正是 `# ` 那几个字符），标注就往前偏 ——
+             * 用户报的「第一页的标题我进行了标注，但是发生了偏移」就是它。
+             *
+             * MarkdownBodyMarked 在标题/段落元素上写了 data-from
+             * （该块的原文起点）与 data-offset-base（该切片的基准偏移），
+             * 于是：原文偏移 = offsetBase + dataFrom + 块内字符偏移。
              */
-            const head = range.cloneRange();
-            head.selectNodeContents(el);
-            head.setEnd(range.startContainer, range.startOffset);
-            const headText = head.toString();
-            const near = seg.text.indexOf(exact, Math.max(0, headText.length - 40));
-            if (near >= 0) start = near;
+            let node = range.startContainer;
+            let blockEl: HTMLElement | null =
+              node.nodeType === 1 ? (node as HTMLElement) : node.parentElement;
+            while (blockEl && !blockEl.hasAttribute('data-from')) {
+              blockEl = blockEl.parentElement;
+              if (blockEl === el) {
+                blockEl = null;
+                break;
+              }
+            }
+
+            if (blockEl && blockEl.hasAttribute('data-from')) {
+              const dataFrom = Number(blockEl.getAttribute('data-from'));
+              const base = Number(blockEl.getAttribute('data-offset-base') || '0');
+
+              /*
+               * 块内偏移：从块首量到选区起点。
+               * 这一段量与原文一致（块内没有可被吃掉的 Markdown 语法，
+               * 标题的 `#` 已在块外）。
+               */
+              const inner = range.cloneRange();
+              inner.selectNodeContents(blockEl);
+              inner.setEnd(range.startContainer, range.startOffset);
+              const innerLen = inner.toString().length;
+
+              const candidate = base + dataFrom + innerLen;
+              /* 仍要校验：候选位置必须真的是这句话，否则宁可退回搜索 */
+              if (seg.text.slice(candidate, candidate + exact.length) === exact) {
+                start = candidate;
+              }
+            }
+
+            /*
+             * ② 兜底：用整容器文本长度做近似（老办法）。
+             * 只在 ① 不成立时用 —— 它对标题这类「DOM 比原文短」的情况会偏。
+             */
+            if (start < 0) {
+              const head = range.cloneRange();
+              head.selectNodeContents(el);
+              head.setEnd(range.startContainer, range.startOffset);
+              const headText = head.toString();
+              const near = seg.text.indexOf(exact, Math.max(0, headText.length - 40));
+              if (near >= 0) start = near;
+            }
           }
         } catch {
           /* Range 操作失败就退回全页搜 */

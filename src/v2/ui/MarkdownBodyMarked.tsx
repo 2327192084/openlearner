@@ -169,16 +169,39 @@ export function MarkdownBodyMarked({
     if (b.kind === 'heading') {
       const inner = renderInline(b.text, b.from, b.to);
       const cls = `reader-md-h reader-md-h--${b.level}`;
-      if (b.level === 1) out.push(<h1 className={cls} key={key.n++}>{inner}</h1>);
-      else if (b.level === 2) out.push(<h2 className={cls} key={key.n++}>{inner}</h2>);
-      else if (b.level === 3) out.push(<h3 className={cls} key={key.n++}>{inner}</h3>);
-      else out.push(<h4 className={cls} key={key.n++}>{inner}</h4>);
+      /*
+       * data-from / data-len：标出这一块在**原文**里的起点与长度。
+       *
+       * 为什么需要（2026-11-11 修「标题标注偏移」）：
+       * 用户在标题上做标注时，`handleAddMark` 用
+       * `Range.toString().length` 量偏移 —— 那是在**渲染后的 DOM** 上量的。
+       * 而标题渲染时 `#` 已被吃掉，DOM 文本比原文少了 `#` 与空格的字符数，
+       * 于是量出来的偏移比原文偏移小，标注就往前偏。
+       *
+       * 有了 data-from，取偏移的代码可以按「块的原文起点 + 块内偏移」
+       * 精确还原，不必依赖 DOM 文本长度。
+       */
+      const attrs = {
+        className: cls,
+        'data-from': b.from,
+        'data-offset-base': baseOffset,
+        key: key.n++,
+      };
+      if (b.level === 1) out.push(<h1 {...attrs}>{inner}</h1>);
+      else if (b.level === 2) out.push(<h2 {...attrs}>{inner}</h2>);
+      else if (b.level === 3) out.push(<h3 {...attrs}>{inner}</h3>);
+      else out.push(<h4 {...attrs}>{inner}</h4>);
       continue;
     }
 
     if (b.kind === 'para') {
       out.push(
-        <p className="reader-para" key={key.n++}>
+        <p
+          className="reader-para"
+          data-from={b.from}
+          data-offset-base={baseOffset}
+          key={key.n++}
+        >
           {renderInline(b.text, b.from, b.to)}
         </p>,
       );
