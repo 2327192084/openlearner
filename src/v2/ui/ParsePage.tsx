@@ -31,6 +31,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Source } from '@/core/model.ts';
 import type { SourceService } from '@/core/sources.ts';
 import { needsConversion } from '@/core/mineru/convert.ts';
+import { disambiguateTitles, formatImportedAt } from '@/core/source-title.ts';
 import { ConvertPanel } from './ConvertPanel.tsx';
 import { EmptyCard } from './EmptyCard.tsx';
 import { IconSources } from './icons.tsx';
@@ -92,6 +93,27 @@ export function ParsePage({
    * 而且会写出一批错页号的内容（实测把一份 2 页的 docx 写成 36 段）。
    */
   const eligibleKind = (kind: string) => kind === 'pdf' || kind === 'image';
+
+  /**
+   * 重名消歧（2026-11-11）。
+   *
+   * 实测用户库里有**两份同名 PDF**（内容不同：一份 36 页、一份只有 1-2 页），
+   * 列表里两行字一模一样，用户只能靠猜 —— 已经因此把分片解析写错过一次。
+   *
+   * `disambiguateTitles` 只给重名的那几份加「（1）」「（2）」，
+   * 不重名的保持干净。
+   */
+  const titleById = useMemo(() => disambiguateTitles(sources), [sources]);
+  /** 有没有重名 —— 有的话在每行补上导入时间，进一步帮用户区分 */
+  const hasDuplicates = useMemo(() => {
+    const seen = new Set<string>();
+    for (const s of sources) {
+      const k = s.title.trim();
+      if (seen.has(k)) return true;
+      seen.add(k);
+    }
+    return false;
+  }, [sources]);
 
   const current = useMemo(() => {
     const s = sources.find((x) => x.id === picked);
@@ -170,16 +192,29 @@ export function ParsePage({
               {ordered.map((s) => {
                 const needs = needsConversion(s.textStatus, s.kind);
                 const on = s.id === picked;
+                /* 重名的加「（1）」「（2）」，不重名的就是原标题 */
+                const shown = titleById.get(s.id) ?? s.title;
+                const importedAt = formatImportedAt(s.createdAt);
                 return (
                   <button
                     key={s.id}
                     type="button"
                     className={`pp-source${on ? ' pp-source--on' : ''}`}
                     onClick={() => setPicked(s.id)}
-                    title={needs ? '还没有正文，需要解析' : '已有正文'}
+                    title={
+                      (needs ? '还没有正文，需要解析' : '已有正文') +
+                      (importedAt ? ` · 导入于 ${importedAt}` : '')
+                    }
                   >
-                    <span className="pp-source__name">{s.title}</span>
+                    <span className="pp-source__name">{shown}</span>
                     <span className="pp-source__meta">
+                      {/*
+                        只有存在重名时才显示导入时间（2026-11-11）。
+                        没有歧义时每行都拖着日期只是噪音。
+                      */}
+                      {hasDuplicates && importedAt ? (
+                        <span className="pp-source__when">{importedAt}</span>
+                      ) : null}
                       {needs ? (
                         <span className="pp-badge pp-badge--todo">待解析</span>
                       ) : (

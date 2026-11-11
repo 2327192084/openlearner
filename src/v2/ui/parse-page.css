@@ -181,3 +181,16 @@
   gap: var(--space-2, 8px);
   flex: none;
 }
+
+/*
+ * 重名资料旁的导入时间（2026-11-11）。
+ *
+ * 只在存在重名时出现 —— 没有歧义时每行拖着日期只是噪音。
+ * 用更弱的颜色，它是辅助信息，不该抢标题和徽章的注意力。
+ */
+.pp-source__when {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

@@ -6,6 +6,7 @@ import type { BackendService } from '@/core/backends.ts';
 import { useOrganizeBackend } from './organize-backend.ts';
 import { ConvertPanel } from './ConvertPanel.tsx';
 import { needsConversion } from '@/core/mineru/convert.ts';
+import { disambiguateTitles } from '@/core/source-title.ts';
 import { IconSources } from './icons.tsx';
 import { MathText } from './MathText.tsx';
 
@@ -76,6 +77,13 @@ export function OrganizePage({
   onOpenParse,
 }: OrganizePageProps) {
   const [sources, setSources] = useState<Source[] | null>(null);
+  /**
+   * 重名消歧（2026-11-11）。
+   *
+   * 与「文档解析」页同一套处理 —— 那边已因此写错过一次。
+   * 下拉里的重名项长得一样，用户只能猜。
+   */
+  const titleById = useMemo(() => disambiguateTitles(sources ?? []), [sources]);
   const [selected, setSelected] = useState<string | null>(initialSourceId);
   const [segments, setSegments] = useState<SourceSegment[] | null>(null);
   const [points, setPoints] = useState<KnowledgePoint[] | null>(null);
@@ -345,7 +353,7 @@ export function OrganizePage({
             >
               {sources.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.title}（{s.segmentCount} 段）
+                  {titleById.get(s.id) ?? s.title}（{s.segmentCount} 段）
                 </option>
               ))}
             </select>
