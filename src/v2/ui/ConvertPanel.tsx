@@ -412,6 +412,14 @@ export function ConvertPanel({
           <p className="convert-panel__done-title">
             已转好 {phase.report.pagesWithText} / {phase.report.pageCount} 页，共{' '}
             {phase.report.segmentCount} 段
+            {/*
+              分片解析时补一句「这次只写了几页」，2026-11-11。
+              合并模式下 segmentCount 是库里总数，不说明会让人以为整本都被重写了。
+            */}
+            {phase.report.writtenPageCount !== undefined &&
+            phase.report.writtenPageCount !== phase.report.segmentCount
+              ? `（这次写入 ${phase.report.writtenPageCount} 页，其余页保持原样）`
+              : ''}
           </p>
           <p className="convert-panel__hint">
             页码与原书一一对应，可以逐页对照检查。识别难免有错字，

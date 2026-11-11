@@ -528,7 +528,7 @@ export class SourceService {
   }
 
   /**
-   * 整篇替换分段（OCR 写回用）。
+   * 写入分段。
    *
    * ## 为什么不放在 OcrService 里自己写
    *
@@ -538,24 +538,66 @@ export class SourceService {
    * 就是同一套规矩的第二个维护点，迟早不一致（而 `segmentCount`
    * 一旦对不上，列表页的「N 段」和点开看到的段数会不一样）。
    *
-   * ## 为什么必须先删旧段
+   * ## 两种模式（2026-11-11）
    *
-   * 扫描件原本是「每页一段、正文为空」。OCR 之后页数可能变（生成更多段），
-   * 只 `putMany` 新段会留下旧段里那些空记录，用户点开原文会看到
-   * 前几页是空的、后面突然有字。所以删干净再写。
+   * - `replace`（默认）：先删干净再写。OCR / 重建走这条，
+   *   因为扫描件原本是「每页一段、正文为空」，只覆盖不删会留下旧空段，
+   *   用户会看到前几页空、后面突然有字。
+   * - `merge`：按**页码**合并 —— 新写的页覆盖旧页，没写到的页原样保留。
+   *   分片解析（MinerU `--pages 3-15`）走这条：用户先解析 3-15、
+   *   再解析 16-30，两次的正文都该留着。
    *
-   * 顺序是**先删后写**，和 `remove()` 一致：最坏是「有资料没段」，
-   * 界面会显示 0 段、可以重跑一次 OCR；反过来则是脏数据被当成正常。
+   * 为什么按 page 合并是安全的：MinerU 的段落是**一页一段**
+   * （见 mineru/markdown.ts 的 pages 结构），页码就是 `p.page`。
+   * 若将来出现「一章跨多段」的写入方，它该用 replace 而不是 merge。
+   *
+   * ## 顺序为什么是先删后写
+   *
+   * 和 `remove()` 一致：最坏是「有资料没段」，界面显示 0 段、可以重跑；
+   * 反过来则是脏数据被当成正常。
    */
   async writeSegments(
     sourceId: string,
     segments: readonly WriteSegmentInput[],
     textStatus: Source['textStatus'],
+    /**
+     * 写入模式（2026-11-11）。
+     * 默认 `replace`，保持所有既有调用方的行为不变。
+     */
+    mode: 'replace' | 'merge' = 'replace',
   ): Promise<{ source: Source; segments: SourceSegment[] } | null> {
     const existing = await this.storage.get('sources', sourceId);
     if (!existing) return null;
 
     const ts = nowIso();
+
+    const old = await this.getSegments(sourceId);
+
+    /*
+     * merge 模式：把「这次没写到的页」原样接在后面。
+     *
+     * 先按页建索引，新页覆盖旧的同页记录；最后按页号排序，
+     * 保证「第 3 页」永远排在第 16 页前面 —— 索引是从 1 连续的，
+     * 顺序错了阅读器的「上一页/下一页」会跳来跳去。
+     */
+    let merged: { page: number; chapter: string | null; text: string }[];
+
+    if (mode === 'merge') {
+      const byPage = new Map<number, { page: number; chapter: string | null; text: string }>();
+      for (const s of old) {
+        byPage.set(s.page, { page: s.page, chapter: s.chapter ?? null, text: s.text });
+      }
+      for (const s of segments) {
+        byPage.set(s.page, { page: s.page, chapter: s.chapter ?? null, text: s.text });
+      }
+      merged = [...byPage.values()].sort((a, b) => a.page - b.page);
+    } else {
+      merged = segments.map((s) => ({
+        page: s.page,
+        chapter: s.chapter ?? null,
+        text: s.text,
+      }));
+    }
 
     /**
      * 按数组顺序重新编号，而不是信任调用方给的 index。
@@ -563,7 +605,7 @@ export class SourceService {
      * OCR 是按页顺序产出的，只要顺序对，编号就该由这里决定 ——
      * 让调用方自己填 `index: pageNo` 会在「跳过空白页」时留下空洞。
      */
-    const next: SourceSegment[] = segments.map((seg, i) => ({
+    const next: SourceSegment[] = merged.map((seg, i) => ({
       id: newId('seg'),
       sourceId,
       index: i + 1,
@@ -574,7 +616,6 @@ export class SourceService {
     }));
 
     // 先删旧段：只覆盖不删除会留下超出新段数的空段
-    const old = await this.getSegments(sourceId);
     for (const seg of old) {
       await this.storage.remove('sourceSegments', seg.id);
     }

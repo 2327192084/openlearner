@@ -153,9 +153,9 @@ export function PageRangePicker({
       ) : null}
 
       {mode === 'range' ? (
-        <p className="prp__note prp__note--warn">
-          ⚠️ 分片解析会<strong>替换</strong>这份资料现有的正文：只保留这一段，
-          其他页的正文会被清掉（原文件还在，随时可以再完整解析一次）。
+        <p className="prp__note">
+          分片解析只转这一段，<strong>其他页的正文会保留</strong> ——
+          可以分几次把整本凑齐（重新解析同一页会覆盖该页的旧内容）。
         </p>
       ) : null}
     </div>

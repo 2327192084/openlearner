@@ -50,8 +50,15 @@ export interface ConversionReport {
   /** 解析模式：ocr 表示真的走了 OCR */
   /** 生产者版本 */
   producer: string;
-  /** 写回后的段数 */
+  /** 写回后的段数（合并模式下是**库里总共**的段数） */
   segmentCount: number;
+  /**
+   * 这次实际写入/覆盖了几页（2026-11-11）。
+   *
+   * 与 `segmentCount` 分开是必须的：分片解析时这次写 13 页、
+   * 库里可能总共 36 段。只报一个数会让用户以为整本都被重写了。
+   */
+  writtenPageCount?: number;
 }
 
 /**
@@ -143,13 +150,36 @@ export async function convertAndWriteBack(options: {
   /*
    * 写回。注意 textStatus 用 'ready'：
    * 此时 sourceSegments 里已经是真实文字，搜索、出题、点回原文都能用了。
+   *
+   * ## merge 而不是 replace（2026-11-11 用户要求）
+   *
+   * 分片解析（`--pages 3-15`）只产出这一段。用 replace 会把用户
+   * 之前解析好的其他页全删掉 —— 那样「先解析 3-15、再解析 16-30」
+   * 就永远凑不齐整本。
+   *
+   * 用 merge 后：新写的页覆盖同页旧内容，没写到的页原样保留。
+   * MinerU 的段落是一页一段（见 mineru/markdown.ts），按 page 合并是准的。
+   * 完整解析下 merge 与 replace 结果相同（覆盖了每一页），所以统一用 merge
+   * 也不需要分支。
    */
-  const written = await sourceService.writeSegments(source.id, segments, 'ready');
+  const written = await sourceService.writeSegments(source.id, segments, 'ready', 'merge');
   if (!written) {
     throw new Error(`「${source.title}」在转换过程中被删掉了，结果没有写回。`);
   }
 
-  return { ...report, segmentCount: written.segments.length };
+  /*
+   * 如实汇报两个数字（2026-11-11）。
+   *
+   * 分片解析时它们不同：这次写了 13 页，库里可能总共已有 36 段。
+   * 只报一个数会让用户以为整本都被重写了。
+   */
+  return {
+    ...report,
+    /** 库里现在总共有几段（合并后） */
+    segmentCount: written.segments.length,
+    /** 这次实际写入/覆盖了几页 */
+    writtenPageCount: segments.length,
+  };
 }
 
 export { needsConversion };
