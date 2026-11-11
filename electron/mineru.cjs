@@ -501,6 +501,205 @@ function parseProgressLine(line) {
  * @param {object} options { exePath, spawnImpl, onProgress, signal, timeoutMs }
  * @returns {Promise<{ok:true, result:object} | {ok:false, trouble:string, message:string}>}
  */
+/**
+ * 确保 MinerU 的本地服务在运行（2026-11-11）。
+ *
+ * ## 为什么要有这个函数
+ *
+ * 用户反馈：遇到 `server_not_running` 时报错提示让他去命令行敲
+ * `mineru server start` —— 但用户**不知道怎么敲命令行**，也不该知道。
+ *
+ * 这个服务是程序自己的依赖，启动它属于程序的分内事：
+ * 装 MinerU 时就已经有了这个可执行文件，`server start` 只是一条命令，
+ * 主进程本来就有 spawn 能力。所以：
+ *
+ *   没能连上服务 → 程序自己启动它 → 再试一次
+ *
+ * 只有「自动启动也失败」时才需要告诉用户，而且那时要说的是
+ * **具体哪里失败**，不是让他自己想办法。
+ *
+ * ## 为什么先查状态再启动
+ *
+ * `server start` 在已运行时也能安全执行（输出 Server started / 已在运行），
+ * 但每次转换都跑一遍会多花几秒。先问一句 `status --json` 更省。
+ * 而且 status 的 JSON 里有 `running` 可以精确判断，不必解析自然语言。
+ *
+ * @returns {Promise<{ok:boolean, started:boolean, message?:string}>}
+ *   `started` 为 true 表示这次是它启起来的（用于给用户一句「已自动启动」的说明）。
+ */
+async function ensureServerRunning(exePath, options = {}) {
+  const execFileImpl = options.execFileImpl ?? execFile;
+  const timeoutMs = options.timeoutMs ?? 60000;
+
+  const run = (args, timeout) =>
+    new Promise((resolve) => {
+      try {
+        execFileImpl(
+          exePath,
+          args,
+          {
+            windowsHide: true,
+            timeout,
+            /* 服务命令的输出不大，给 1MB 足够；超了也只是取不到，不会崩 */
+            maxBuffer: 1024 * 1024,
+            cwd: path.dirname(exePath),
+            /*
+             * ⚠️ 必须与 runMineru 一致地传这套环境变量（2026-11-11 实测踩到）。
+             *
+             * 之前这里没传，于是 `mineru server start` 在 Electron 里
+             * 稳定失败，报：
+             *   [Errno 13] Permission denied: 'C:\Users\ASUS\.mineru\doclib.start.lock'
+             *
+             * 而命令行手动跑同样的命令却成功 —— 因为命令行是 UTF-8 / 有终端，
+             * Electron 主进程没有。MinerU 是 Python 程序，Windows 下默认
+             * GBK 编码会让它写路径/锁文件时出错，Python 把编码错误报成
+             * Permission denied（看起来像权限问题，其实是编码）。
+             *
+             * `PYTHONIOENCODING=utf-8` 是 runMineru 里早就有的做法，
+             * 这里当初漏了 —— 同一个外部程序，两处调用必须用同一套环境。
+             */
+            env: {
+              ...process.env,
+              PYTHONIOENCODING: 'utf-8',
+              PYTHONUTF8: '1',
+            },
+          },
+          (err, stdout, stderr) => {
+            resolve({
+              err,
+              text: String(stdout ?? '') + String(stderr ?? ''),
+            });
+          },
+        );
+      } catch (e) {
+        resolve({ err: e, text: String(e && e.message ? e.message : e) });
+      }
+    });
+
+  /* 1) 先看是不是已经在跑 */
+  const status = await run(['server', 'status', '--json'], Math.min(timeoutMs, 20000));
+  if (!status.err) {
+    try {
+      const obj = JSON.parse(status.text.slice(status.text.indexOf('{')));
+      if (obj && obj.running === true) {
+        return { ok: true, started: false };
+      }
+    } catch {
+      /* 输出不是 JSON，当作「不知道」，继续尝试启动 */
+    }
+  }
+
+  /*
+   * 2) 启动。
+   *
+   * `mineru server start` 在后台起服务后**立刻返回**（实测约 7-15 秒），
+   * 但它返回时服务不一定已经能接请求。所以启动后再轮询一次 status。
+   *
+   * ## 为什么要重试：`doclib.start.lock` 的瞬时冲突
+   *
+   * 实测（2026-11-11）在应用内自动启动会失败：
+   *   [Errno 13] Permission denied: 'C:\Users\ASUS\.mineru\doclib.start.lock'
+   *
+   * 但同样的命令在命令行手动跑就成功。查下来那个锁文件当时**并不存在**、
+   * 目录 ACL 也正常 —— 是**瞬时锁**：刚被上一个进程（或上一次 stop）
+   * 创建/删除，新的 start 正好撞上。
+   *
+   * 手动跑间隔长所以撞不上；程序里连着重启就容易撞。
+   * 处理办法就是等一会儿再试 —— 这类锁通常几百毫秒就释放。
+   */
+  let start = await run(['server', 'start'], timeoutMs);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const lockBusy = /Permission denied|doclib\.start\.lock|Errno 13/i.test(start.text);
+    /* 诊断：每一次尝试都记，而不是只记最后那次（2026-11-11 排查用） */
+    if (options.debugLog) {
+      try {
+        require('node:fs').appendFileSync(
+          options.debugLog,
+          `[autostart] attempt=${attempt} lockBusy=${lockBusy} err=${
+            start.err ? String(start.err.message).slice(0, 120) : 'null'
+          } text=${JSON.stringify(String(start.text).slice(0, 200))}\n`,
+        );
+      } catch {
+        /* 诊断失败不影响主流程 */
+      }
+    }
+    if (!lockBusy) break; /* 不是锁的问题，重试也没用 */
+    /*
+     * 退避时间逐次加长（1.5s → 3s → 4.5s → 6s）。
+     *
+     * 固定间隔在实测里不够：应用内第一次撞锁后，1.5 秒再试**仍然**撞。
+     * 而这份锁背后是一次完整的 Python 进程启动（要加载 jieba 词典，
+     * 日志里能看到约 1.7 秒），所以必须给足时间让它跑完那一次。
+     */
+    await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+    start = await run(['server', 'start'], timeoutMs);
+  }
+
+  /* 诊断：把 start 的真实结果落盘（排查「应用内为什么启不起来」用） */
+  if (options.debugLog) {
+    try {
+      const dbg = require('node:fs');
+      dbg.appendFileSync(
+        options.debugLog,
+        '[autostart] start err=' +
+          (start.err ? String(start.err).slice(0, 200) : 'null') +
+          ' text=' +
+          JSON.stringify(String(start.text).slice(0, 400)) +
+          '\n',
+      );
+    } catch {
+      /* 诊断失败不影响主流程 */
+    }
+  }
+
+  if (start.err && !/Server started|already running|已在运行/i.test(start.text)) {
+    /*
+     * 锁冲突到重试三次还不行时，给一句**能理解**的话。
+     *
+     * 原文是 `[Errno 13] Permission denied: '...doclib.start.lock'`，
+     * 用户看不懂「Errno 13」，也不知道那个 .lock 是什么。
+     */
+    if (/doclib\.start\.lock|Errno 13|Permission denied/i.test(start.text)) {
+      return {
+        ok: false,
+        started: false,
+        message:
+          'MinerU 的服务正在启动中（它的启动锁还占着），稍等一下再试就好。' +
+          '如果反复失败，先执行 mineru server stop 再重试。',
+      };
+    }
+    return {
+      ok: false,
+      started: false,
+      message: summarizeMineruError(start.text) || '启动 MinerU 服务失败。',
+    };
+  }
+
+  /* 3) 等它真的能接请求 */
+  for (let i = 0; i < 10; i += 1) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const st = await run(['server', 'status', '--json'], 15000);
+    if (!st.err) {
+      try {
+        const obj = JSON.parse(st.text.slice(st.text.indexOf('{')));
+        if (obj && obj.running === true) return { ok: true, started: true };
+      if (options.debugLog) {
+        try { require('node:fs').appendFileSync(options.debugLog, `[autostart] poll ${i} running=${obj && obj.running}
+`); } catch {}
+      }
+      } catch {
+        /* 继续等 */
+      }
+    }
+  }
+
+  return {
+    ok: false,
+    started: true,
+    message: 'MinerU 服务启动了，但一直没就绪。可能是它的 Python 环境有问题。',
+  };
+}
+
 async function runMineru(req, options = {}) {
   const exePath = options.exePath;
   const spawnImpl = options.spawnImpl ?? spawn;
@@ -958,4 +1157,5 @@ module.exports = {
   parseTqdm,
   runMineru,
   summarizeMineruError,
+  ensureServerRunning,
 };

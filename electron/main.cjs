@@ -1115,28 +1115,95 @@ function registerMineru() {
       return { ok: false, trouble: checked.trouble, message: checked.message };
     }
 
-    const result = await mineru.runMineru(checked.value, {
-      exePath: mineruStatus.exePath,
-      /*
-       * 有意**不传** MINERU_HOME。
-       *
-       * 2026-11-07 实测结论（推翻上一版注释）：
-       *  - `mineru parse` 走本地常驻服务，**服务自己知道用哪个 home**
-       *    （`mineru config show` 里 model.base_dir 就是它）。
-       *    外部再塞一个 MINERU_HOME，反而让 CLI 与服务用的 home 不一致，
-       *    报 `invalid_doclib_token`（token 在两个 home 里是不同的）。
-       *  - 只有当用户没装服务、退回 `mineru-kit` 那种一次性 CLI 时，
-       *    才需要显式指定 home。
-       *
-       * 所以：不传。让服务自己管。
-       */
-      onProgress: (p) => {
-        // 窗口可能已经关了
-        if (!event.sender.isDestroyed()) {
-          event.sender.send('openleaner:mineru-progress', p);
+    const runOnce = () =>
+      mineru.runMineru(checked.value, {
+        exePath: mineruStatus.exePath,
+        /*
+         * 有意**不传** MINERU_HOME。
+         *
+         * 2026-11-07 实测结论（推翻上一版注释）：
+         *  - `mineru parse` 走本地常驻服务，**服务自己知道用哪个 home**
+         *    （`mineru config show` 里 model.base_dir 就是它）。
+         *    外部再塞一个 MINERU_HOME，反而让 CLI 与服务用的 home 不一致，
+         *    报 `invalid_doclib_token`（token 在两个 home 里是不同的）。
+         *  - 只有当用户没装服务、退回 `mineru-kit` 那种一次性 CLI 时，
+         *    才需要显式指定 home。
+         *
+         * 所以：不传。让服务自己管。
+         */
+        onProgress: (p) => {
+          // 窗口可能已经关了
+          if (!event.sender.isDestroyed()) {
+            event.sender.send('openleaner:mineru-progress', p);
+          }
+        },
+      });
+
+    let result = await runOnce();
+
+    /*
+     * 服务没在跑时**自动启动它，再试一次**（2026-11-11）。
+     *
+     * ## 为什么不让用户自己去敲命令
+     *
+     * 上一版遇到 `server_not_running` 会提示用户「打开命令行执行
+     * mineru server start」。普通用户不知道命令行在哪、也不知道
+     * 怎么在 MinerU 的 venv 里执行 —— 那条提示只对我们自己有用。
+     *
+     * 这个服务是程序自己的依赖：exe 已经探测到了，`server start`
+     * 也只是一条子命令，主进程本来就能 spawn。启动它属于程序的份内事。
+     *
+     * ## 为什么只重试一次
+     *
+     * 启动失败的原因（环境坏了、模型没下全、权限不足）不会因为
+     * 多试几次就变好。重试一次是为了盖住「服务刚启动、还没就绪」
+     * 这个瞬时状态；再失败就该如实报错，而不是让用户盯着转圈。
+     */
+    if (
+      result &&
+      result.ok === false &&
+      result.trouble === 'server-not-running'
+    ) {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('openleaner:mineru-progress', {
+          phase: '正在启动 MinerU 服务…',
+          ratio: null,
+          detail: '第一次使用需要启动本地服务，稍等几秒',
+        });
+      }
+
+      const boot = await mineru.ensureServerRunning(mineruStatus.exePath, {
+        /* 诊断日志：写到 userData 下，方便排查「自动启动为什么没成」 */
+        debugLog: path.join(app.getPath('userData'), 'mineru-autostart.log'),
+      });
+      if (boot.ok) {
+        /* 服务起来了 —— 再试一次，这次应当能过 */
+        result = await runOnce();
+        /*
+         * 仍然失败时，把「已经自动启动过」这件事告诉用户，
+         * 避免他按上一版的提示再去手动启动一遍（那是无效动作）。
+         */
+        if (result && result.ok === false && result.trouble === 'server-not-running') {
+          result = {
+            ...result,
+            trouble: 'server-started-still-failing',
+            message:
+              '程序已经自动启动了 MinerU 服务，但它仍然报「服务未运行」。' +
+              '这通常说明服务启动后立刻退出了 —— 可能是模型没下全或 Python 环境有问题。',
+          };
         }
-      },
-    });
+      } else {
+        result = {
+          ok: false,
+          trouble: 'server-start-failed',
+          message:
+            'MinerU 的本地服务没在运行，程序尝试自动启动它也失败了。' +
+            (boot.message ? `\n失败原因：${boot.message}` : '') +
+            '\n这一步已经不需要你敲命令了 —— 失败原因通常是 MinerU 本体装得不完整。' +
+            '可以到设置的「文档解析」里检查 MinerU 的状态。',
+        };
+      }
+    }
 
     return result;
   });
