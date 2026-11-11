@@ -1430,7 +1430,19 @@ export function App({
           decks={decks}
           sourceService={sourceService}
           knowledge={knowledge}
+          annotations={annotations}
           onOpenSource={(sourceId) => openReader(sourceId, null)}
+          /*
+            「按资料看」每一条都要能点回**那一处**（2026-11-11），
+            所以给带 page/quote 的跳转，而不是只打开资料。
+          */
+          onOpenSourceAt={(sourceId, page, quote) =>
+            openReader(sourceId, {
+              sourceId,
+              page,
+              ...(quote !== undefined ? { quote } : {}),
+            })
+          }
           onOpenKnowledge={() => setPage('knowledge')}
         />
       ) : page === 'book' ? (
@@ -1606,6 +1618,15 @@ export function App({
           */
           onUpdateTags={async (id, tags) => {
             await knowledgeService.update(id, { tags });
+            void refreshShellState();
+          }}
+          /*
+            收藏知识点（2026-11-11）。
+            用 toggleFavorite 而不是让界面拼 patch：取反语义由服务层负责，
+            界面上连点两下能回到原状。
+          */
+          onToggleFavorite={async (id) => {
+            await knowledgeService.toggleFavorite(id);
             void refreshShellState();
           }}
           /*

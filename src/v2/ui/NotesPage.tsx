@@ -23,12 +23,14 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Note, Question, Source } from '@/core/model.ts';
+import type { Note, Question, Source, TextMark, KnowledgePoint } from '@/core/model.ts';
 import type { NoteService } from '@/core/notes.ts';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { SourceService } from '@/core/sources.ts';
+import type { AnnotationService } from '@/core/annotation-service.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import { EmptyCard } from './EmptyCard.tsx';
+import { NotesBySource } from './NotesBySource.tsx';
 import { IconNotes } from './icons.tsx';
 
 export interface NotesPageProps {
@@ -36,8 +38,17 @@ export interface NotesPageProps {
   decks: DeckService;
   sourceService: SourceService;
   knowledge: KnowledgeService;
+  /** 注释服务（读标注与备注，2026-11-11） */
+  annotations?: AnnotationService;
   /** 去阅读器看原文 */
   onOpenSource: (sourceId: string) => void;
+  /**
+   * 去阅读器**定位到某一页某一处**（2026-11-11）。
+   *
+   * 「按资料看」里每一条都要能点回原文的那一处，而不只是打开那份资料。
+   * 不传就退回 onOpenSource（只能到资料，不能到具体页）。
+   */
+  onOpenSourceAt?: (sourceId: string, page: number, quote?: string) => void;
   /** 去知识库 */
   onOpenKnowledge: () => void;
 }
@@ -63,7 +74,9 @@ export function NotesPage({
   decks,
   sourceService,
   knowledge,
+  annotations,
   onOpenSource,
+  onOpenSourceAt,
   onOpenKnowledge,
 }: NotesPageProps) {
   const [state, setState] = useState<Load>({ kind: 'loading' });
@@ -72,6 +85,49 @@ export function NotesPage({
   const [editing, setEditing] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
+
+  /**
+   * 页签（2026-11-11）：全部笔记 / 按资料看。
+   * 默认停在「全部笔记」—— 那是原有行为，不能因为加了新页签就改变默认落点。
+   */
+  const [tab, setTab] = useState<'notes' | 'bySource'>('notes');
+  /** 「按资料看」自己的关键词与数据 */
+  const [docKeyword, setDocKeyword] = useState('');
+  const [docAnnotations, setDocAnnotations] = useState<
+    readonly { sourceId: string; page: number; textMarks?: TextMark[] }[]
+  >([]);
+  const [docFavorites, setDocFavorites] = useState<readonly KnowledgePoint[]>([]);
+
+  /**
+   * 载入标注 / 备注 / 收藏（2026-11-11）。
+   *
+   * 与「全部笔记」分开加载：它要读另一个分区（sourceAnnotations）
+   * 和收藏筛选，放进主 load() 会让那次 Promise.all 多等几秒，
+   * 而大多数人打开这一页只是想看自己写的笔记。
+   */
+  const loadDocs = useCallback(async () => {
+    if (!annotations || !knowledge) return;
+    try {
+      const [anns, favs] = await Promise.all([
+        annotations.listAll(),
+        knowledge.listFavorites(),
+      ]);
+      setDocAnnotations(anns);
+      setDocFavorites(favs);
+    } catch {
+      /* 读不到就显示空态，不阻塞「全部笔记」那一栏 */
+      setDocAnnotations([]);
+      setDocFavorites([]);
+    }
+  }, [annotations, knowledge]);
+
+  useEffect(() => {
+    if (tab === 'bySource') void loadDocs();
+  }, [tab, loadDocs]);
+
+  /** 两条数据的总数（页签上的数字） */
+  const docTotal =
+    docAnnotations.reduce((n, a) => n + (a.textMarks?.length ?? 0), 0) + docFavorites.length;
 
   const load = useCallback(async () => {
     try {
@@ -222,7 +278,68 @@ export function NotesPage({
 
       {flash ? <div className="nt-flash">{flash}</div> : null}
 
-      {rows.length === 0 ? (
+      {/*
+        两个页签（2026-11-11）：
+          - 全部笔记：用户在题 / 知识点上写的自由文字（Note）
+          - 按资料看：原文上的标注与备注 + 收藏的知识点，
+                      每一条都能点回原文
+
+        为什么不合成一个列表：两者数据源不同、跳转方式也不同。
+        硬混在一起会让「我写的一句话」和「我在原文上画的一道」看起来一样，
+        而它们其实完全不是一回事。
+      */}
+      <div className="nt-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'notes'}
+          className={`nt-tab${tab === 'notes' ? ' nt-tab--on' : ''}`}
+          onClick={() => setTab('notes')}
+        >
+          全部笔记
+          <span className="nt-tab__n">{rows.length}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'bySource'}
+          className={`nt-tab${tab === 'bySource' ? ' nt-tab--on' : ''}`}
+          onClick={() => setTab('bySource')}
+        >
+          按资料看
+          <span className="nt-tab__n">{docTotal}</span>
+        </button>
+      </div>
+
+      {tab === 'bySource' ? (
+        <>
+          {/*
+            「按资料看」也有自己的搜索框。
+            共用上面那个 keyword 是错的 —— 用户在「全部笔记」里搜的东西
+            切到这一栏时应该清空，否则会看到一个莫名其妙的空列表。
+          */}
+          <div className="nt-toolbar">
+            <input
+              className="nt-search"
+              type="search"
+              placeholder="搜索标注、备注、收藏…"
+              value={docKeyword}
+              onChange={(e) => setDocKeyword(e.target.value)}
+            />
+          </div>
+          <NotesBySource
+            annotations={docAnnotations}
+            favorites={docFavorites}
+            sources={state.kind === 'ready' ? state.sources : []}
+            keyword={docKeyword}
+            onOpen={(item, sourceId) => {
+              if (sourceId) onOpenSourceAt?.(sourceId, item.page ?? 1, item.quote ?? undefined);
+              else if (item.category === 'favorite') onOpenKnowledge();
+              else onOpenKnowledge();
+            }}
+          />
+        </>
+      ) : rows.length === 0 ? (
         /*
          * 空态用共享的 EmptyCard（2026-11-10 美化）。
          * 原来是一块左对齐的 padding + 三行字，在深色背景上几乎看不出

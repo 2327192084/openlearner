@@ -550,10 +550,12 @@ export class KnowledgeService {
     }
   }
 
-  /** 编辑一条知识点（改表述、改层级、改标签） */
+  /** 编辑一条知识点（改表述、改层级、改标签、收藏） */
   async update(
     id: string,
-    patch: Partial<Pick<KnowledgePoint, 'statement' | 'cognitiveLevel' | 'tags' | 'chapter'>>,
+    patch: Partial<
+      Pick<KnowledgePoint, 'statement' | 'cognitiveLevel' | 'tags' | 'chapter' | 'favorite'>
+    >,
   ): Promise<KnowledgePoint | null> {
     const existing = await this.storage.get('knowledgePoints', id);
     if (!existing) return null;
@@ -566,6 +568,24 @@ export class KnowledgeService {
     };
     await this.storage.put('knowledgePoints', next);
     return next;
+  }
+
+  /**
+   * 切换收藏（2026-11-11）。
+   *
+   * 单独一个方法而不是让调用方自己拼 patch：收藏是「取反」语义，
+   * 界面上连点两下要能回到原状，调用方不该自己维护旧值。
+   */
+  async toggleFavorite(id: string): Promise<KnowledgePoint | null> {
+    const existing = await this.storage.get('knowledgePoints', id);
+    if (!existing) return null;
+    return this.update(id, { favorite: !existing.favorite });
+  }
+
+  /** 列出全部收藏的知识点（2026-11-11，供学习笔记页按资料分类汇总） */
+  async listFavorites(): Promise<KnowledgePoint[]> {
+    const all = await this.listAll();
+    return all.filter((p) => p.favorite === true);
   }
 
   /**

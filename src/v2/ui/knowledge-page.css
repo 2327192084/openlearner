@@ -530,3 +530,57 @@
     white-space: normal;
   }
 }
+
+/* ---------- 收藏（2026-11-11） ----------
+ *
+ * 参考 UI Patterns 的 Favorites 模式
+ * （https://ui-patterns.com/patterns/favorites）：
+ * 收藏按钮与被收藏项并列，星形或心形，开/关二态。
+ * Anki 的 marked 也是同一套（星号 + 列表里用不同颜色区分）。
+ *
+ * ⚠️ 全是 button，按硬约束 2 写在**层外**（本文件本来就不套 @layer）。
+ * ⚠️ 已收藏用实心 ★ + 强调色，未收藏用空心 ☆ + 弱色 ——
+ *    形状与颜色双通道，不只靠颜色区分（色盲友好）。
+ */
+
+/* 条目的星标按钮 */
+.kb-fav-star {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  cursor: pointer;
+  /* 点击区域比字形大一点，好点中 */
+  padding: 0 4px;
+  line-height: 1;
+  font-size: 14px;
+  color: var(--text-faint);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  /* 与 foot 里其它元素的基线对齐 */
+  display: inline-flex;
+  align-items: center;
+  transition: color 0.12s ease, transform 0.12s ease;
+}
+
+.kb-fav-star:hover {
+  color: var(--c-warning, #d9a441);
+  transform: scale(1.15);
+}
+
+.kb-fav-star:focus-visible {
+  outline: 2px solid var(--c-primary);
+  outline-offset: 1px;
+}
+
+/* 已收藏：实心 + 暖黄，一眼能从列表里挑出来 */
+.kb-fav-star--on {
+  color: var(--c-warning, #d9a441);
+}
+
+/* 筛选按钮「★ 收藏」：复用 .kb-level 的外观，只多一个左边距与分隔感 */
+.kb-fav {
+  margin-left: auto;
+}
+
+/* 只看收藏时，被筛掉的整个资料组不显示 —— 由 filtered 处理，这里不用管 */

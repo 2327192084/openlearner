@@ -208,6 +208,25 @@ export interface KnowledgePoint {
   sourceId: string | null;
   /** 生成这批知识点用的后端 id，便于 P5「多后端结果并存对比」 */
   backendId: string | null;
+  /**
+   * 是否收藏（2026-11-11）。
+   *
+   * ## 为什么是可选字段而不是新分区
+   *
+   * 它只是知识点上的一个开关，生命周期与知识点完全一致（删知识点就没了）。
+   * 新开分区要动迁移三件套（types.ts 四处 + DB_VERSION + migrations），
+   * 风险和成本都不划算。
+   *
+   * 可选字段对旧数据天然兼容：没有这个字段读出来就是 `undefined`，
+   * 按「未收藏」处理，不触发任何迁移。
+   *
+   * ## 为什么不复用 tags
+   *
+   * 拿一个特殊 tag（如 `⭐`）当收藏会有两个问题：
+   *  - 用户能编辑 tags，一改就把收藏状态改坏了
+   *  - 「全部标签」列表里会混进一个假标签
+   */
+  favorite?: boolean;
   createdAt: string;
   updatedAt: string;
 }

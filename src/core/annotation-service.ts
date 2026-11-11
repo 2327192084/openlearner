@@ -32,6 +32,16 @@ export class AnnotationService {
     return all.filter((a) => a.sourceId === sourceId);
   }
 
+  /**
+   * 取**全部资料**的注释（2026-11-11）。
+   *
+   * 供「学习笔记 · 按资料看」汇总用：那一页要按资料分组列出所有
+   * 标注与备注，逐个资料调 listForSource 会读 N 次全表。
+   */
+  async listAll(): Promise<SourceAnnotation[]> {
+    return this.storage.getAll('sourceAnnotations');
+  }
+
   /** 取某一页的注释。没有则返回 null */
   async get(sourceId: string, page: number): Promise<SourceAnnotation | null> {
     return this.storage.get('sourceAnnotations', annotationId(sourceId, page));

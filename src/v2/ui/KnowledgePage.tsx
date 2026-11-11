@@ -75,6 +75,12 @@ export interface KnowledgePageProps {
    */
   onUpdateTags?: (id: string, tags: string[]) => Promise<void> | void;
   /**
+   * 切换收藏（2026-11-11）。
+   *
+   * 不传则不显示星标按钮 —— 与 onUpdateTags 同一条规矩：不摆假开关。
+   */
+  onToggleFavorite?: (id: string) => Promise<void> | void;
+  /**
    * 删掉一份资料的全部知识点（2026-11-08）。
    *
    * 参数是资料 id；`null` 对应「没有归属资料」那一组。
@@ -135,6 +141,7 @@ export function KnowledgePage({
   onRemovePoint,
   onRemoveSourcePoints,
   onUpdateTags,
+  onToggleFavorite,
   onPickPoints,
   pickTitle,
   onCancelPick,
@@ -253,6 +260,32 @@ export function KnowledgePage({
   }, [load]);
 
   /**
+   * 切换收藏后重载列表（2026-11-11）。
+   *
+   * ⚠️ 为什么需要：`onToggleFavorite` 在 App 层调完
+   * `knowledgeService.toggleFavorite()` 后只调了 `refreshShellState()`，
+   * 而那一个函数**只刷新连接状态与库名**，根本不碰知识点列表。
+   * 于是库里的 `favorite` 已经变了，界面上的星标却还是旧样子 ——
+   * 实测就是这样：DB 里 favs=1，星标仍是 ☆。
+   *
+   * 所以在本地乐观更新（立刻翻转视觉）后再重载一次，保证与库一致。
+   * 乐观更新是为了让点击有即时反馈（重载要几百毫秒）。
+   */
+  const handleToggleFavorite = useCallback(
+    (id: string) => {
+      /* 先本地翻转，点击瞬间就有反馈 */
+      setPoints((prev) =>
+        prev ? prev.map((p) => (p.id === id ? { ...p, favorite: !p.favorite } : p)) : prev,
+      );
+      void Promise.resolve(onToggleFavorite?.(id)).then(() => {
+        /* 再与库对齐一次；失败时 load 会把真实状态带回来 */
+        void load();
+      });
+    },
+    [onToggleFavorite, load],
+  );
+
+  /**
    * 执行删除（2026-11-08）。
    *
    * 删完统一 `load()` 重新取，而不是就地 `setPoints` 过滤：
@@ -345,6 +378,15 @@ export function KnowledgePage({
     new Set(),
   );
 
+  /**
+   * 只看收藏（2026-11-11）。
+   *
+   * 与「按类型」并列的一个筛选维度，用「与」关系叠加 ——
+   * 用户可以同时看「收藏 + 理解类」。
+   * 收藏筛选是布尔，所以用 state 而不是 Set。
+   */
+  const [onlyFavorite, setOnlyFavorite] = useState(false);
+
   const toggleLevel = useCallback((lv: KnowledgePoint['cognitiveLevel']) => {
     setPickedLevels((prev) => {
       const next = new Set(prev);
@@ -361,13 +403,13 @@ export function KnowledgePage({
     return out;
   }, [points]);
 
-  /** 搜索 + 类型筛选（两者是「与」关系） */
+  /** 搜索 + 类型筛选 + 只看收藏（三者是「与」关系） */
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const levels = pickedLevels;
 
-    /* 两个条件都没设：原样返回，不做无谓的复制 */
-    if (!q && levels.size === 0) return groups;
+    /* 三个条件都没设：原样返回，不做无谓的复制 */
+    if (!q && levels.size === 0 && !onlyFavorite) return groups;
 
     return groups
       .map((g) => {
@@ -375,6 +417,8 @@ export function KnowledgePage({
           .map((c) => ({
             ...c,
             points: c.points.filter((p) => {
+              /* 收藏条件（2026-11-11） */
+              if (onlyFavorite && p.favorite !== true) return false;
               /* 类型条件 */
               if (levels.size > 0 && !levels.has(p.cognitiveLevel)) return false;
               /* 搜索条件 */
@@ -391,10 +435,12 @@ export function KnowledgePage({
         return { ...g, chapters, points: points2 };
       })
       .filter((g) => g.points.length > 0 || (q !== '' && g.title.toLowerCase().includes(q)));
-  }, [groups, query, pickedLevels]);
+  }, [groups, query, pickedLevels, onlyFavorite]);
 
   const totalPoints = points?.length ?? 0;
   const totalLocated = (points ?? []).filter((p) => p.anchors.length > 0).length;
+  /** 全库收藏数（按钮上的数字按全部算，不随筛选变） */
+  const totalFavorite = (points ?? []).filter((p) => p.favorite === true).length;
 
   if (points === null && !error) {
     return (
@@ -497,6 +543,22 @@ export function KnowledgePage({
               清空类型
             </button>
           ) : null}
+
+          {/*
+            「只看收藏」（2026-11-11）。
+            与类型筛选并列、用「与」叠加。数字按全库算（同类型按钮的理由：
+            随筛选变化会让用户以为收藏丢了）。
+          */}
+          <button
+            type="button"
+            className={`kb-level kb-fav${onlyFavorite ? ' kb-level--on' : ''}`}
+            aria-pressed={onlyFavorite}
+            title="只看我收藏的知识点"
+            onClick={() => setOnlyFavorite((v) => !v)}
+          >
+            ★ 收藏
+            <span className="kb-level__n">{totalFavorite}</span>
+          </button>
         </div>
       ) : null}
 
@@ -621,6 +683,32 @@ export function KnowledgePage({
                                   </p>
                                 ) : null}
                                 <div className="kb-point__foot">
+                                  {/*
+                                    收藏星标（2026-11-11）。
+
+                                    放在 foot 最左、紧贴类型标签之前：
+                                    UI Patterns 的 Favorites 模式建议「在列表项
+                                    内、与被收藏项并列」—— 用户看一条点一条，
+                                    不该要求先打开详情页。
+
+                                    用 aria-pressed 而不是 aria-checked：
+                                    它是开关型按钮，读屏会读成「已按下/未按下」。
+                                  */}
+                                  {onToggleFavorite ? (
+                                    <button
+                                      type="button"
+                                      className={`kb-fav-star${p.favorite ? ' kb-fav-star--on' : ''}`}
+                                      aria-pressed={p.favorite === true}
+                                      title={p.favorite ? '取消收藏' : '收藏这条知识点'}
+                                      onClick={() => handleToggleFavorite(p.id)}
+                                    >
+                                      {/*
+                                        实心 ★ 表示已收藏、空心 ☆ 表示未收藏 ——
+                                        形状本身就能区分，不依赖颜色（色盲友好）。
+                                      */}
+                                      <span aria-hidden="true">{p.favorite ? '★' : '☆'}</span>
+                                    </button>
+                                  ) : null}
                                   <span className="kb-point__level">
                                     {LEVEL_LABEL[p.cognitiveLevel]}
                                   </span>
