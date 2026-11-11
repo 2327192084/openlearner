@@ -9,7 +9,7 @@ import {
 import { getMinerURunner, type MinerUProgress, type MinerURunner } from '@/core/mineru/runner.ts';
 import type { MinerUResult } from '@/core/mineru/markdown.ts';
 import { countFigures, importFigures } from '@/core/mineru/images.ts';
-import { PageRangePicker, toPagesArg } from './PageRangePicker.tsx';
+import { PageRangePicker, toPagesArg, validatePageRange } from './PageRangePicker.tsx';
 import type { ParseMode } from './PageRangePicker.tsx';
 
 /**
@@ -249,6 +249,32 @@ export function ConvertPanel({
   }, [source.id, source.pageCount]);
 
   const start = useCallback(async () => {
+    /*
+     * 提交前先拦一次（2026-11-11 实测 bug）。
+     *
+     * 页范围超出资料实际页数时，界面原来只显示一行红字提示、
+     * **但仍然允许点解析**。实测后果：一份 2 页的资料被填了 3-4 页，
+     * 解析完成后那份资料变成 36 段 —— 前两页被清空，
+     * 3-4 页塞的是另一个文件的内容。
+     *
+     * 所以这里硬拦：说不通就不发请求，并把原因写进 failed 状态。
+     */
+    const rangeProblem = validatePageRange(parseMode, rangeStart, rangeEnd, source.pageCount);
+    if (rangeProblem) {
+      /*
+       * 用 failed 状态但 trouble='invalid-range'，
+       * 渲染时**保留输入区**（见下面的分支判断）——
+       * 用户要改的就是那两个数字，把输入框藏起来等于让他点「重试」再重来一遍。
+       */
+      setPhase({
+        kind: 'failed',
+        message: rangeProblem,
+        hint: '改一下上面的页范围再解析。整份解析不需要填页码。',
+        trouble: 'invalid-range',
+      });
+      return;
+    }
+
     setPhase({ kind: 'running', progress: null });
     try {
       /*
@@ -403,7 +429,15 @@ export function ConvertPanel({
           <p className="convert-panel__unavail-title">这台机器现在用不了 MinerU</p>
           <p className="convert-panel__hint">{effectiveRunner.unavailableReason}</p>
         </div>
-      ) : phase.kind === 'idle' || phase.kind === 'running' ? (
+      ) : phase.kind === 'idle' ||
+        phase.kind === 'running' ||
+        /*
+         * 页范围被拦下时也要**保留输入区**（2026-11-11）。
+         *
+         * 用户要改的就是那两个数字；如果把输入框藏起来、只留一句红字
+         * 和「重试」，他得先点重试回到 idle 才能改 —— 多一步且反直觉。
+         */
+        (phase.kind === 'failed' && phase.trouble === 'invalid-range') ? (
         <div className="convert-panel__actions">
           {phase.kind === 'running' ? (
             <div className="convert-panel__progress">
@@ -478,6 +512,13 @@ export function ConvertPanel({
                       : '首次运行可能要下载识别模型，会有一段时间没有反应 —— 那是正常的，不是卡死了。整本大书可能要几十分钟。')
                   : '只解析指定的页范围，通常几十秒就好。适合先看某一章，或分批把整本凑齐。'}
               </p>
+
+              {/*
+                页范围被拦时不在这里重复红字（2026-11-11）。
+                `PageRangePicker` 已经在那两个输入框旁边显示了同一句话 ——
+                就在用户要改的地方。这里再写一遍会变成三处重复
+                （选择器内联 + 这里 + 下面的失败块），实测截图里很啰嗦。
+              */}
             </>
           )}
         </div>
@@ -549,7 +590,12 @@ export function ConvertPanel({
         </div>
       ) : null}
 
-      {phase.kind === 'failed' ? (
+      {/*
+        页范围不合法时不渲染失败块（2026-11-11）。
+        输入区还开着，红字就在那两个输入框旁边 —— 那才是用户要改的地方。
+        再给一个「重试」按钮反而误导（他会以为要重试才有用）。
+      */}
+      {phase.kind === 'failed' && phase.trouble !== 'invalid-range' ? (
         <div className="convert-panel__failed">
           {/*
             message 与 hint 的分工（2026-11-11 晚修重叠）。

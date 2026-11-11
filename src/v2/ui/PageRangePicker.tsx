@@ -58,6 +58,45 @@ export function toPagesArg(mode: ParseMode, start: string, end: string): string 
   return s === ee ? String(s) : `${s}-${ee}`;
 }
 
+/**
+ * 校验页范围（2026-11-11）。
+ *
+ * ## 为什么单独导出
+ *
+ * 这个判断原来是 `PageRangePicker` 内部的一个 useMemo，只用来显示红字提示 ——
+ * **但它不阻止提交**。实测后果：用户在一份只有 2 页的资料上填 3-4 页，
+ * 界面只提示一句，仍然点了下去，MinerU 照解析，写回时把 36 段塞进那份资料
+ * （前两页清空、3-4 页是别的文件的内容）。
+ *
+ * 现在 `ConvertPanel` 在提交前也调它 —— 有一处说不通就不发请求。
+ *
+ * @returns 说得通返回 null；否则返回给用户看的一句话
+ */
+export function validatePageRange(
+  mode: ParseMode,
+  start: string,
+  end: string,
+  pageCount?: number | null,
+): string | null {
+  if (mode === 'full') return null;
+  const s = Number.parseInt(start, 10);
+  const e = Number.parseInt(end, 10);
+  if (!Number.isFinite(s) || !Number.isFinite(e)) return '请把起始页和结束页都填上。';
+  if (s < 1) return '起始页从 1 开始。';
+  if (e < s) return '结束页不能小于起始页。';
+  /*
+   * 超出总页数是**硬错误**，不是提醒。
+   *
+   * 为什么敢拦：`pageCount` 来自导入时解析出的真实页数，PDF 与图片都有。
+   * 万一它不准（极少数），MinerU 那边仍会给出它自己的错 ——
+   * 而放过去写坏用户已有正文的代价，比偶尔误拦大得多。
+   */
+  if (pageCount && e > pageCount) {
+    return `这份资料只有 ${pageCount} 页，结束页超出去了。`;
+  }
+  return null;
+}
+
 export function PageRangePicker({
   mode,
   onModeChange,
@@ -69,16 +108,11 @@ export function PageRangePicker({
   disabled,
 }: PageRangePickerProps) {
   /** 即时判断范围是否说得通（只用于提示，不替代主进程校验） */
-  const problem = useMemo(() => {
-    if (mode === 'full') return null;
-    const s = Number.parseInt(start, 10);
-    const e = Number.parseInt(end, 10);
-    if (!Number.isFinite(s) || !Number.isFinite(e)) return '请把起始页和结束页都填上。';
-    if (s < 1) return '起始页从 1 开始。';
-    if (e < s) return '结束页不能小于起始页。';
-    if (pageCount && e > pageCount) return `这份资料只有 ${pageCount} 页，结束页超出去了。`;
-    return null;
-  }, [mode, start, end, pageCount]);
+  /* 与提交前用的是同一个判断 —— 一处写两遍迟早会不一致 */
+  const problem = useMemo(
+    () => validatePageRange(mode, start, end, pageCount),
+    [mode, start, end, pageCount],
+  );
 
   const pages = Math.max(1, (Number.parseInt(end, 10) || 0) - (Number.parseInt(start, 10) || 0) + 1);
 

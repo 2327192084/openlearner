@@ -182,7 +182,31 @@ export async function convertAndWriteBack(options: {
    * 完整解析下 merge 与 replace 结果相同（覆盖了每一页），所以统一用 merge
    * 也不需要分支。
    */
-  const written = await sourceService.writeSegments(source.id, segments, 'ready', 'merge');
+  /*
+   * 写回前按资料的真实页数裁一遍（2026-11-11 实测 bug 的第二道防线）。
+   *
+   * ## 这一步防的是什么
+   *
+   * 实测：用户在一份 **只有 2 页的 docx** 上填了「解析 3-4 页」，
+   * MinerU 照解析（它不知道这份资料本来几页），输出里写的是 `page 3 of 36`
+   * —— 于是 `parseMarkdown` 补出 36 个页对象，写回后那份资料变成 36 段：
+   * 前两页被清空，3-4 页塞进了别的文件的内容。
+   *
+   * 前端现在会拦（`validatePageRange`），但那是界面层，绕过它的路径
+   * （脚本、旧版本、以后的别的入口）不该能把库写坏。
+   * 所以这一层也要挡。
+   *
+   * ## 为什么是「裁剪」而不是「报错」
+   *
+   * 完整解析时页数一致，裁不到东西；分片时超出的部分本来就不该存在。
+   * 直接丢掉超出的页比抛错更合适 —— 正文已经拿到了，没必要因为
+   * 多出来几页空白而整单丢弃。
+   */
+  const maxPage = source.pageCount ?? null;
+  const clamped =
+    maxPage !== null ? segments.filter((s) => s.page >= 1 && s.page <= maxPage) : segments;
+
+  const written = await sourceService.writeSegments(source.id, clamped, 'ready', 'merge');
   if (!written) {
     throw new Error(`「${source.title}」在转换过程中被删掉了，结果没有写回。`);
   }

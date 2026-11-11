@@ -84,22 +84,51 @@ export function ParsePage({
   }, [initialSourceId]);
 
   const sources = state.kind === 'ready' ? state.sources : [];
-  const current = useMemo(
-    () => sources.find((s) => s.id === picked) ?? null,
-    [sources, picked],
-  );
+  /*
+   * 能不能交给 MinerU。
+   *
+   * 只有 PDF 与图片需要它；docx / pptx / markdown / text 的正文
+   * 我们自己的解析器早就取好了 —— 交给 MinerU 没有意义，
+   * 而且会写出一批错页号的内容（实测把一份 2 页的 docx 写成 36 段）。
+   */
+  const eligibleKind = (kind: string) => kind === 'pdf' || kind === 'image';
+
+  const current = useMemo(() => {
+    const s = sources.find((x) => x.id === picked);
+    if (!s) return null;
+    /* 选中了不支持的种类 → 不当作 current，页面上给一句说明 */
+    return eligibleKind(s.kind) ? s : null;
+  }, [sources, picked]);
 
   /**
    * 排序：**还没解析完的排前面**。
    *
    * 这一页的主要用途就是「补正文」，所以待办的应该在最上面。
    * 已经 ready 的排后面（它们只是「想再解析几页」时才会用到）。
+   *
+   * ## ⚠️ 只列 MinerU 能处理的资料（2026-11-11 实测 bug）
+   *
+   * 实测发现用户库里一份 **docx** 也被列了出来，而且被解析了 3-4 页 ——
+   * 结果那份 2 页的 docx 被写成 36 段，前两页清空、3-4 页塞进了 PDF 的内容。
+   *
+   * 根因：这一页原来列**全部**资料。但 MinerU 只处理 PDF 与图片；
+   * docx / pptx / markdown / text 的正文我们自己的解析器早就取好了，
+   * 根本不需要也不应该交给 MinerU。
+   *
+   * 所以按 kind 过滤：只留 pdf 与 image。
    */
   const ordered = useMemo(() => {
-    const pending = sources.filter((s) => needsConversion(s.textStatus, s.kind));
-    const done = sources.filter((s) => !needsConversion(s.textStatus, s.kind));
+    const eligible = sources.filter((s) => eligibleKind(s.kind));
+    const pending = eligible.filter((s) => needsConversion(s.textStatus, s.kind));
+    const done = eligible.filter((s) => !needsConversion(s.textStatus, s.kind));
     return [...pending, ...done];
   }, [sources]);
+
+  /** 当前选中是否在可解析列表里 —— 不在就说明是 docx 之类，给一句说明 */
+  const pickedUnsupported =
+    picked !== null &&
+    sources.some((s) => s.id === picked) &&
+    !ordered.some((s) => s.id === picked);
 
   if (state.kind === 'loading') {
     return (
@@ -167,6 +196,17 @@ export function ParsePage({
           </fieldset>
 
           {/* ---- 解析面板 ---- */}
+          {/*
+            选中了不该用 MinerU 解析的资料（如 docx）时给一句说明（2026-11-11）。
+            不显示空面板 —— 也不静默什么都不显示。
+          */}
+          {pickedUnsupported ? (
+            <p className="pp-note">
+              这份资料的正文不需要 MinerU 解析 —— 它的文字导进来时就已经取出来了。
+              这一页只处理 PDF 和图片；docx / pptx / 纯文本请直接去「整理知识点」。
+            </p>
+          ) : null}
+
           {current ? (
             <div className="pp-panel">
               {/*
