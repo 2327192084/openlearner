@@ -501,6 +501,25 @@ export function ConvertPanel({
             页码与原书一一对应，可以逐页对照检查。识别难免有错字，
             发现哪页不对就点开原文看看。
           </p>
+          {/*
+            「继续解析」按钮（2026-11-11）。
+            
+            之前解析完成后 phase 是 done，面板里只剩一句结果文字 ——
+            想接着解析下一段就得先点「重试」回到 idle，而那个按钮
+            只在失败态出现。用户在这里没有任何可点的东西。
+            
+            分片解析的用法本来就是「一段一段来」，所以这里必须给入口。
+          */}
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => {
+              setPhase({ kind: 'idle' });
+              setFigureNote(null);
+            }}
+          >
+            继续解析其它页
+          </button>
           {phase.report.emptyPages.length > 0 ? (
             <p className="convert-panel__warn">
               这几页没有识别出文字（整页插图或扉页）：

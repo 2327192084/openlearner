@@ -33,6 +33,13 @@ export interface ConvertedSegment {
   page: number;
   chapter: string | null;
   text: string;
+  /**
+   * 这一页是「补位」出来的空页，不是真实解析结果（2026-11-11）。
+   *
+   * 分片解析 3-4 页时会产出整个 36 页的结构，其中 34 页是补位。
+   * 合并写回时**必须跳过**它们，否则会把已有的正文覆盖成空。
+   */
+  placeholder?: boolean;
 }
 
 /** 转换一份资料的完整结果，供界面如实汇报 */
@@ -93,6 +100,8 @@ export function toSegments(result: MinerUResult): ConvertedSegment[] {
     // 不猜 —— 猜错会让目录跳转指错地方。
     chapter: p.chapter ?? null,
     text: p.text,
+    /* 补位空页要标出来，合并时跳过（见 ConvertedSegment.placeholder） */
+    ...(p.placeholder ? { placeholder: true } : {}),
   }));
 }
 
@@ -101,22 +110,33 @@ export function toSegments(result: MinerUResult): ConvertedSegment[] {
  * 这一层直接用，不再二次猜测 —— 猜错会让目录跳转指错地方。
  */
 
-/** 统计报告里那几个如实数字 */
+/**
+ * 统计报告里那几个如实数字。
+ *
+ * ⚠️ 补位空页不算「这次转出来的空页」（2026-11-11）。
+ * 分片解析 3-4 页时会补出 32 个占位页，如果把它们计入 emptyPages，
+ * 界面会显示「已转好 4 / 36 页，空页 32 个」——看着像解析失败。
+ * 那些页不是「解析了但没文字」，而是「这次压根没解析」。
+ */
 export function summarize(
   source: Source,
   result: MinerUResult,
   segments: readonly ConvertedSegment[],
 ): ConversionReport {
-  const emptyPages = segments.filter((s) => s.text.trim() === '').map((s) => s.page);
+  /* 真实产出的页（补位的不算） */
+  const real = segments.filter((s) => !s.placeholder);
+  const emptyPages = real.filter((s) => s.text.trim() === '').map((s) => s.page);
   return {
     sourceId: source.id,
     sourceTitle: source.title,
     pageCount: result.pageCount,
-    pagesWithText: segments.length - emptyPages.length,
+    pagesWithText: real.length - emptyPages.length,
     emptyPages,
     tier: result.tier,
     producer: result.producer,
     segmentCount: segments.length,
+    /* 这次真实处理的页数（分片时小于 segmentCount） */
+    writtenPageCount: real.length,
   };
 }
 
@@ -170,15 +190,21 @@ export async function convertAndWriteBack(options: {
   /*
    * 如实汇报两个数字（2026-11-11）。
    *
-   * 分片解析时它们不同：这次写了 13 页，库里可能总共已有 36 段。
+   * 分片解析时它们不同：这次写了 2 页，库里可能总共已有 2 段。
    * 只报一个数会让用户以为整本都被重写了。
    */
   return {
     ...report,
     /** 库里现在总共有几段（合并后） */
     segmentCount: written.segments.length,
-    /** 这次实际写入/覆盖了几页 */
-    writtenPageCount: segments.length,
+    /**
+     * 这次实际写入/覆盖了几页。
+     *
+     * ⚠️ 必须排除补位页（2026-11-11 实测）：`segments` 里有 48 个补位空页，
+     * 直接用 `segments.length` 会报出「这次写入 36 页」——
+     * 而实际只解析了 2 页，用户看到这个数字会以为整本被重写了。
+     */
+    writtenPageCount: segments.filter((s) => !s.placeholder).length,
   };
 }
 

@@ -51,6 +51,16 @@ export interface WriteSegmentInput {
   chapter?: string | null;
   /** 正文 */
   text: string;
+  /**
+   * 这是「补位」出来的空页，不是真实内容（2026-11-11）。
+   *
+   * `merge` 模式下**跳过**它 —— 分片解析会产出整本的页结构
+   * （解析 3-4 页 → 36 个页，34 个是补位空页），
+   * 让补位覆盖旧内容会把用户之前解析好的页全清空。
+   *
+   * `replace` 模式下照常写入（完整解析就该以这次结果为准）。
+   */
+  placeholder?: boolean;
 }
 
 /**
@@ -579,6 +589,19 @@ export class SourceService {
      * 先按页建索引，新页覆盖旧的同页记录；最后按页号排序，
      * 保证「第 3 页」永远排在第 16 页前面 —— 索引是从 1 连续的，
      * 顺序错了阅读器的「上一页/下一页」会跳来跳去。
+     *
+     * ## ⚠️ 补位空页必须跳过（2026-11-11 实测 bug）
+     *
+     * 分片解析走的是「产出整本页结构」：解析 3-4 页时，
+     * MinerU 的标记是 `page 3 of 36`，`parseMarkdown` 会补出 36 个页，
+     * 其中 34 个是空占位（为了让页码与原文对齐）。
+     *
+     * 如果不跳过它们，合并就会把库里已有的正文**覆盖成空** ——
+     * 用户解析 3-4 页之后，之前解析好的第 1、2 页全没了。
+     * 这正是用户报的「资料库只显示了之前已解析的前两页，
+     * 后面解析的三四页没有合并进去」（其实是两边互相覆盖了）。
+     *
+     * 只让**真实产出的页**覆盖旧内容。
      */
     let merged: { page: number; chapter: string | null; text: string }[];
 
@@ -588,6 +611,8 @@ export class SourceService {
         byPage.set(s.page, { page: s.page, chapter: s.chapter ?? null, text: s.text });
       }
       for (const s of segments) {
+        /* 补位空页不动旧内容 */
+        if (s.placeholder) continue;
         byPage.set(s.page, { page: s.page, chapter: s.chapter ?? null, text: s.text });
       }
       merged = [...byPage.values()].sort((a, b) => a.page - b.page);

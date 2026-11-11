@@ -68,6 +68,24 @@ export interface MinerUPage {
    * 缺省是空数组而不是 undefined —— 调用方不用到处写 `?? []`。
    */
   figures?: SegmentFigure[];
+  /**
+   * 这一页是不是「**补位**出来的空页」（2026-11-11）。
+   *
+   * ## 为什么必须区分
+   *
+   * `parseMarkdown` 会把结果补成整本的页数：分片解析 3-4 页时，
+   * 输出里只有 `page 3` / `page 4` 两个标记，但 `page N of 36` 说明
+   * 整本 36 页 —— 于是这里会补 34 个空页，让页码与原文对齐。
+   *
+   * 这个补位对「完整解析」是对的（页数必须 1:1，缺页留空占位，
+   * 否则后面的页会前移）。但对「分片解析 + 合并」是**灾难**：
+   * 那 34 个空页会把库里已有的正文覆盖成空 ——
+   * 用户解析 3-4 页之后，之前解析好的第 1、2 页全没了。
+   *
+   * 所以补位出来的页标记 `placeholder: true`，
+   * 合并时**跳过它们**，只有真实产出的页才覆盖旧内容。
+   */
+  placeholder?: boolean;
 }
 
 /** 一次转换的完整结果 */
@@ -155,8 +173,13 @@ export function parseMarkdown(
     const marker = markers.find((m) => m.page === pageNo);
 
     if (!marker) {
-      // 缺失页：留空占位
-      pages.push({ page: pageNo, text: '', chapter: null, figures: [] });
+      /*
+       * 缺失页：留空占位。
+       *
+       * ⚠️ 标 placeholder —— 合并时必须跳过它（见 MinerUPage.placeholder
+       * 的注释）。分片解析时这类页有几十个，会把已有正文全清空。
+       */
+      pages.push({ page: pageNo, text: '', chapter: null, figures: [], placeholder: true });
       continue;
     }
 
