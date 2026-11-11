@@ -402,3 +402,11 @@
     background: color-mix(in srgb, var(--info, #86a9c6) 7%, transparent);
   }
 }
+
+/* 备注页「还差什么」的实时说明（2026-11-11） */
+.rside__note-why {
+  margin: var(--space-2) 0 0;
+  font-size: 12px;
+  color: var(--text-faint);
+  line-height: 1.5;
+}

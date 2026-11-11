@@ -186,11 +186,11 @@ export function ReaderPage({
    * `selectionText` 变空、「划选备注」按钮瞬间变灰，
    * 用户没法提交刚选的那句话 —— 实测反馈就是「划线备注按钮不可用」。
    *
-   * 用 ref 而不是 state：它不参与渲染，只在提交时读一次。
-   * 用 state 会多一次无意义重渲染，而且在选区频繁变化的场景下
-   * 容易和 selectionText 不同步。
+   * ⚠️ 必须是 state 而不是 ref：ref 改了不会触发重新渲染，
+   * 界面读到的还是旧值，按钮照样是灰的。第一版用了 ref，
+   * 被 verify-note-button.cjs 的「第2步」抓出来。
    */
-  const recentSelectionRef = useRef<string>('');
+  const [recentSelection, setRecentSelection] = useState('');
 
   /**
    * 原图查看。
@@ -517,19 +517,19 @@ export function ReaderPage({
          *
          * 实测反馈：「划线备注按钮不可用」。
          *
-         * 修法：选区消失时**保留**上一次的记录（recentSelectionRef），
+         * 修法：选区消失时**保留**上一次的记录（recentSelection），
          * 由「点击正文外部」或「提交后」显式清除。
          * 这与批注的语义一致 —— 批注也允许选完再点按钮。
          */
         setSelectionRect(null);
         /* 只有确实没有历史选区时才清文字 */
-        if (!recentSelectionRef.current) setSelectionText('');
+        if (!recentSelection) setSelectionText('');
         return;
       }
       const text = sel.toString().trim();
       if (!text) {
         setSelectionRect(null);
-        if (!recentSelectionRef.current) setSelectionText('');
+        if (!recentSelection) setSelectionText('');
         return;
       }
       const root = sel.getRangeAt(0).commonAncestorContainer;
@@ -537,7 +537,7 @@ export function ReaderPage({
 
       if (inside) {
         /* 有效选区：记住它，供「点完输入框再提交」使用 */
-        recentSelectionRef.current = text;
+        setRecentSelection(text);
         setSelectionText(text);
         setSelectionRect(measureSelectionRect(el));
       } else {
@@ -762,10 +762,10 @@ export function ReaderPage({
          * 优先用当前选区；没有就用「最近一次有效选区」。
          *
          * 后者是关键：用户点进输入框打字时，正文选区已经被浏览器清空，
-         * 但 recentSelectionRef 还记着他刚选的那句 —— 否则按钮永远是灰的
+         * 但 recentSelection 还记着他刚选的那句 —— 否则按钮永远是灰的
          * （实测反馈「划线备注按钮不可用」）。
          */
-        const selText = selectionText || recentSelectionRef.current;
+        const selText = selectionText || recentSelection;
         if (!selText) return;
         exact = selText;
 
@@ -811,7 +811,7 @@ export function ReaderPage({
       setPageMarks(rec?.textMarks ?? []);
       /* 存完清选区与记忆：同一段不该被连标两次 */
       window.getSelection()?.removeAllRanges();
-      recentSelectionRef.current = '';
+      setRecentSelection('');
       setSelectionText('');
       setSelectionRect(null);
     },
@@ -918,7 +918,7 @@ export function ReaderPage({
        * 不清的话，用户在上一页选了一段、翻页后写备注，
        * 备注会挂到新一页里「碰巧位置相同」的字符上。
        */
-      recentSelectionRef.current = '';
+      setRecentSelection('');
       setSelectionText('');
       setSelectionRect(null);
       bodyRef.current?.scrollTo({ top: 0 });
@@ -1227,7 +1227,7 @@ export function ReaderPage({
          * 只判断当前选区会让按钮在「点了输入框之后」变灰 ——
          * 而那时用户其实已经选好了，正准备写字。
          */
-        hasSelection={!!(selectionText || recentSelectionRef.current)}
+        hasSelection={!!(selectionText || recentSelection)}
         knowledgeCount={pageKnowledgeCount}
         figureCount={pageFigures.length}
         onAddSelectionNote={(note) => void handleAddNote(note, false)}

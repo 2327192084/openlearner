@@ -259,7 +259,20 @@ export function ReaderSidePanel({
                 type="button"
                 className="rside__note-btn rside__note-btn--primary"
                 disabled={!hasSelection || !newNote.trim() || !onAddSelectionNote}
-                title={hasSelection ? '挂到选中的那句话上' : '先在正文里选中文字'}
+                /*
+                 * title 要说清**当前缺什么**（2026-11-11 修）。
+                 *
+                 * 原来只区分「有没有选区」，于是用户写了字、也有选区、
+                 * 但按钮仍灰时完全不知道原因（实测他就是这么卡住的）。
+                 * 现在三种状态各给一句话。
+                 */
+                title={
+                  !hasSelection
+                    ? '先在正文里选中要备注的那句话'
+                    : !newNote.trim()
+                      ? '先在上面写下备注内容'
+                      : '挂到选中的那句话上'
+                }
                 onClick={() => {
                   onAddSelectionNote?.(newNote.trim());
                   setNewNote('');
@@ -271,7 +284,7 @@ export function ReaderSidePanel({
                 type="button"
                 className="rside__note-btn"
                 disabled={!newNote.trim() || !onAddPageNote}
-                title="记这一整页的想法，不绑定具体句子"
+                title={!newNote.trim() ? '先在上面写下备注内容' : '记这一整页的想法，不绑定具体句子'}
                 onClick={() => {
                   onAddPageNote?.(newNote.trim());
                   setNewNote('');
@@ -280,6 +293,20 @@ export function ReaderSidePanel({
                 整页备注
               </button>
             </div>
+
+            {/*
+              实时说明「还差什么」（2026-11-11）。
+              用户报「划线备注按钮不可用」，实测按钮确实是禁用的 ——
+              但原因是输入框为空，而界面上没有任何文字提示这件事。
+              加一行状态说明，把「为什么不能点」直接写出来。
+            */}
+            <p className="rside__note-why">
+              {!newNote.trim()
+                ? '① 先在上面写内容'
+                : !hasSelection
+                  ? '② 再在正文里选中要备注的那句话'
+                  : '③ 可以点「划选备注」了'}
+            </p>
           </section>
 
           <section className="rside__sec">
