@@ -105,6 +105,19 @@ const RELEASE_BODY = `## OpenLeaner ${VERSION}
 
 ### 这一版做了什么
 
+**MinerU 一键安装（不需要懂 Python）**
+- 设置 → 文档解析 →「一键安装 MinerU」：选一次盘，点一下就装好
+- 全程不碰系统 Python、不写注册表、不要管理员权限
+  （下载 uv → 由 uv 拉独立 Python → 建 venv → 装包 → 下模型）
+- 磁盘剩余不足 3GB 的直接置灰，不让用户装到一半发现空间不够
+- 安装位置只能选一次：venv 建好后不能搬（运行环境记录绝对路径）
+- **已有 MinerU 就不装第二份** —— 它的服务是全局单例，
+  装第二份会和已有那份抢服务、token 打架
+- 设置里提供「卸载 MinerU」：只删自己，不碰学习库；
+  删了要重下约 3GB，所以有二次确认
+- 国内网络适配：uv 从 PyPI 镜像取、Python 走南大镜像（实测 7 秒）、
+  模型走 ModelScope。下载支持断点续，卡住会自动中止并提示
+
 **文档解析独立成页，支持分片**
 - 侧栏「准备」组新增「文档解析」页；整理知识点页保留入口并提醒
 - **完整解析 / 分片解析**两种方式：整本一次转完，或只转指定页范围（几十秒就能先看一章）
@@ -184,6 +197,30 @@ const RELEASE_BODY = `## OpenLeaner ${VERSION}
   if (existing.status === 200) {
     release = existing.json;
     console.log(`已有 release ${TAG}（id=${release.id}），将复用并补传附件`);
+
+    /*
+     * 复用已有 release 时**必须一并更新说明文字**（2026-11-11 晚加）。
+     *
+     * 原来的脚本只补传附件，不动 body —— 于是同一版本号下重新发布时，
+     * Release 页面还挂着上一次的说明。实测踩到：新加的一键安装功能
+     * 已经打进包里，但页面上的「这一版做了什么」里没有它。
+     * 用户看页面会以为没更新。
+     */
+    if (!DRY && release.body !== RELEASE_BODY) {
+      const patched = await api(`https://api.github.com/repos/${REPO}/releases/${release.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: RELEASE_BODY, name: `OpenLeaner ${VERSION}` }),
+      });
+      if (patched.status >= 300) {
+        console.error(`更新说明失败 ${patched.status}: ${patched.text.slice(0, 300)}`);
+      } else {
+        console.log('Release 说明已同步更新');
+        release = patched.json;
+      }
+    } else if (DRY && release.body !== RELEASE_BODY) {
+      console.log('[dry-run] 将更新 Release 说明');
+    }
   } else if (existing.status === 404) {
     if (DRY) {
       console.log('[dry-run] 将创建 release');
