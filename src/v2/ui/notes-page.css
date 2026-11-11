@@ -323,20 +323,72 @@
   font-size: var(--fs-xs);
 }
 
-/* ---------- 页签（2026-11-11） ----------
+/* ---------- 统一笔记列表（2026-11-11 晚，按用户纠正重做） ----------
  *
- * 两个页签：全部笔记 / 按资料看。
- * ⚠️ button，按硬约束 2 写层外（本文件不套 @layer）。
+ * ## 这一版修的两个问题
+ *
+ * 1. **页面过白**。上一版我误用了 v1 的 token（`--c-surface-2: #fbfcfd`，
+ *    那是浅色主题的值），而这一页是深色背景 → 资料标题栏变成近白底 +
+ *    浅米色字，几乎读不出来。
+ *    ⚠️ 项目有**两套 token**：`src/styles/tokens.css`（v1，早已不用）
+ *       与 `src/v2/ui/tokens.css`（v2，带深浅主题）。这里必须用 v2 的
+ *       `--bg-surface` / `--bg-raised` / `--text*`。
+ *
+ * 2. **分类按钮不能点**。上一版「标注 2 备注 1 收藏 1」是不可点的 <span>。
+ *    现在全部是真按钮（.nl-filter / .nl-chip），点了就筛。
+ *
+ * ⚠️ 硬约束 2：这里的按钮/输入框都是原生控件，样式写**层外**
+ *    （本文件不套 @layer）。
  */
 
-.nt-tabs {
-  display: flex;
-  gap: var(--space-2);
-  margin-bottom: var(--space-3);
-  border-bottom: 1px solid var(--line-soft);
+/* 分组开关 */
+.nt-groupbtn {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  cursor: pointer;
+  padding: 5px 11px;
+  font-size: var(--fs-sm, 13px);
+  color: var(--text-dim);
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 8px);
+  white-space: nowrap;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
 }
 
-.nt-tab {
+.nt-groupbtn:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.nt-groupbtn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.nt-groupbtn--on {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ---------- 类型筛选 ---------- */
+
+.nl {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+}
+
+.nl-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2, 8px);
+  align-items: center;
+}
+
+.nl-filter {
   appearance: none;
   -webkit-appearance: none;
   font: inherit;
@@ -344,66 +396,65 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 7px 12px;
-  font-size: var(--fs-sm, 13px);
-  color: var(--text-muted);
-  background: none;
-  border: none;
-  /* 下划线贴底，与 border-bottom 的分隔线重合 */
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  transition: color 0.12s ease, border-color 0.12s ease;
-}
-
-.nt-tab:hover {
-  color: var(--text);
-}
-
-.nt-tab:focus-visible {
-  outline: 2px solid var(--c-primary);
-  outline-offset: -2px;
-}
-
-.nt-tab--on {
-  color: var(--text);
-  border-bottom-color: var(--c-primary);
-  font-weight: 600;
-}
-
-.nt-tab__n {
-  font-size: 11.5px;
-  color: var(--text-faint);
-  background: var(--c-surface-2);
-  padding: 0 5px;
-  border-radius: 8px;
-  font-variant-numeric: tabular-nums;
-}
-
-/* ---------- 按资料看（2026-11-11） ---------- */
-
-.nbs {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.nbs-group {
+  padding: 4px 10px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  background: var(--bg-surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  overflow: hidden;
+  border-radius: var(--radius-pill, 999px);
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
 }
 
-.nbs-group__head {
+.nl-filter:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.nl-filter:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* 选中的筛选用强调色实心，与未选中区分明显 */
+.nl-filter--on {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* 各类型未选中时的左边点色，与列表里的竖条呼应 */
+.nl-filter--mark:not(.nl-filter--on) { border-left: 3px solid var(--warn); }
+.nl-filter--note:not(.nl-filter--on) { border-left: 3px solid #d33a3a; }
+.nl-filter--favorite:not(.nl-filter--on) { border-left: 3px solid var(--warn); }
+.nl-filter--written:not(.nl-filter--on) { border-left: 3px solid var(--info); }
+
+.nl-filter__n {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+/* ---------- 资料分组 ---------- */
+
+.nl-group {
+  border: 1px solid var(--line);
+  border-radius: var(--radius, 12px);
+  overflow: hidden;
+  /* 深色主题下的底色：比画布稍亮一档，让分组边界看得出来 */
+  background: var(--bg-surface);
+}
+
+.nl-group__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-3);
-  padding: 8px 12px;
-  background: var(--c-surface-2);
+  gap: var(--space-3, 12px);
+  padding: 9px 13px;
+  /* ⚠️ 这里不能用 --c-surface-2（v1 的 #fbfcfd，会把深色页刷白） */
+  background: var(--bg-raised);
   border-bottom: 1px solid var(--line-soft);
 }
 
-.nbs-group__title {
+.nl-group__title {
   font-size: var(--fs-sm, 13px);
   font-weight: 600;
   color: var(--text);
@@ -412,135 +463,197 @@
   white-space: nowrap;
 }
 
-.nbs-group__counts {
-  display: flex;
-  gap: 10px;
+.nl-group__n {
   flex: none;
   font-size: 11.5px;
-  color: var(--text-faint);
+  color: var(--text-muted);
+  background: var(--bg-sunken);
+  padding: 1px 7px;
+  border-radius: var(--radius-pill, 999px);
   font-variant-numeric: tabular-nums;
 }
 
-.nbs-list {
+/* ---------- 列表行 ---------- */
+
+.nl-list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.nbs-item + .nbs-item {
+.nl-item + .nl-item {
   border-top: 1px solid var(--line-soft);
 }
 
-/* 整条可点：回原文那一处 */
-.nbs-item__btn {
+.nl-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.nl-item__btn {
   appearance: none;
   -webkit-appearance: none;
   font: inherit;
   cursor: pointer;
+  flex: 1;
+  min-width: 0;
   display: block;
-  width: 100%;
   text-align: left;
-  padding: 9px 12px;
+  padding: 10px 13px;
   background: none;
   border: none;
   border-left: 2px solid transparent;
   transition: background 0.12s ease;
 }
 
-.nbs-item__btn:hover {
-  background: color-mix(in srgb, var(--c-primary) 8%, transparent);
+.nl-item__btn:hover {
+  /* 用 accent 的极淡叠加，深色下也能看出悬停 */
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
-.nbs-item__btn:focus-visible {
-  outline: 2px solid var(--c-primary);
+.nl-item__btn:focus-visible {
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
-/* 三种来源用左侧竖条区分（与正文里的修饰姿态呼应） */
-.nbs-item--mark .nbs-item__btn {
-  border-left-color: #d9a441;
-}
-
-.nbs-item--note .nbs-item__btn {
-  border-left-color: #d33a3a;
-}
-
-.nbs-item--favorite .nbs-item__btn {
-  border-left-color: var(--c-warning, #d9a441);
+/* 四种来源的左侧竖条：与正文里的修饰姿态呼应 */
+.nl-item--written .nl-item__btn { border-left-color: var(--info); }
+.nl-item--mark .nl-item__btn { border-left-color: var(--warn); }
+.nl-item--note .nl-item__btn { border-left-color: #d33a3a; }
+.nl-item--favorite .nl-item__btn {
+  border-left-color: var(--warn);
   border-left-style: dashed;
 }
 
-.nbs-item__top {
+.nl-item__top {
   display: flex;
   align-items: center;
   gap: 7px;
-  margin-bottom: 3px;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
 }
 
-.nbs-tag {
+.nl-tag {
   font-size: 11px;
   padding: 0 5px;
   border-radius: 3px;
   white-space: nowrap;
 }
 
-.nbs-tag--mark {
-  color: #b8860b;
-  background: rgb(217 164 65 / 16%);
+/* 深色主题下的标签配色：浅字 + 低透明度底，保证对比度 */
+.nl-tag--written {
+  color: var(--info);
+  background: color-mix(in srgb, var(--info) 18%, transparent);
 }
 
-.nbs-tag--note {
-  color: #d33a3a;
-  background: rgb(211 58 58 / 16%);
+.nl-tag--mark {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
 }
 
-.nbs-tag--favorite {
-  color: var(--c-warning, #d9a441);
-  background: rgb(217 164 65 / 16%);
+.nl-tag--note {
+  color: #ec8a8a;
+  background: rgb(211 58 58 / 20%);
 }
 
-.nbs-item__page {
+.nl-tag--favorite {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+}
+
+.nl-item__belong {
   font-size: 11.5px;
-  color: var(--text-faint);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 60%;
+}
+
+.nl-item__page {
+  font-size: 11.5px;
+  color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
 
-.nbs-item__text {
+.nl-item__text {
   display: block;
   font-size: var(--fs-sm, 13px);
   line-height: 1.6;
   color: var(--text);
+  /* 长笔记最多 4 行，避免一条占满整屏 */
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
-.nbs-item__quote {
+.nl-item__quote {
   display: block;
-  margin-top: 3px;
+  margin-top: 4px;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--text-faint);
-  /* 引文最多两行，超出省略 —— 长段落不该把列表撑开 */
+  color: var(--text-muted);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-.nbs-empty {
-  padding: var(--space-6) var(--space-4);
+.nl-item__acts {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 10px 10px 0;
+}
+
+.nl-nohit {
+  padding: var(--space-5, 24px);
   text-align: center;
   color: var(--text-muted);
-}
-
-.nbs-empty__hint {
-  margin-top: var(--space-2);
-  font-size: 12.5px;
-  color: var(--text-faint);
-  line-height: 1.6;
-}
-
-.nbs-nohit {
-  padding: var(--space-4);
-  text-align: center;
-  color: var(--text-faint);
   font-size: 13px;
+}
+
+/* ---------- 编辑区 ---------- */
+
+.nl-edit {
+  padding: 10px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+}
+
+.nl-edit__area {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: var(--fs-sm, 13px);
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 8px);
+  resize: vertical;
+}
+
+.nl-edit__area:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.nl-edit__acts {
+  display: flex;
+  gap: var(--space-2, 8px);
+}
+
+/* 列表行里的时间：最后一行右侧的弱化数字 */
+.nl-item__time {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  flex: none;
 }

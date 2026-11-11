@@ -30,7 +30,8 @@ import type { SourceService } from '@/core/sources.ts';
 import type { AnnotationService } from '@/core/annotation-service.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import { EmptyCard } from './EmptyCard.tsx';
-import { NotesBySource } from './NotesBySource.tsx';
+import { NotesList } from './NotesList.tsx';
+import type { RowCategory, UnifiedRow } from './NotesList.tsx';
 import { IconNotes } from './icons.tsx';
 
 export interface NotesPageProps {
@@ -75,7 +76,6 @@ export function NotesPage({
   sourceService,
   knowledge,
   annotations,
-  onOpenSource,
   onOpenSourceAt,
   onOpenKnowledge,
 }: NotesPageProps) {
@@ -87,12 +87,18 @@ export function NotesPage({
   const [flash, setFlash] = useState<string | null>(null);
 
   /**
-   * 页签（2026-11-11）：全部笔记 / 按资料看。
-   * 默认停在「全部笔记」—— 那是原有行为，不能因为加了新页签就改变默认落点。
+   * 是否按资料分组（2026-11-11 晚按用户纠正改为开关，不再是页签）。
+   *
+   * 用户原话：「那个『按资料分』不用单独做一个栏目，它就是全部笔记里的
+   * 一个分类功能。不分类可以看到全部笔记混杂在一起，分类之后可以看到
+   * 各资料对应的笔记。」
+   *
+   * 默认关（混杂看）—— 与用户描述的默认行为一致。
    */
-  const [tab, setTab] = useState<'notes' | 'bySource'>('notes');
-  /** 「按资料看」自己的关键词与数据 */
-  const [docKeyword, setDocKeyword] = useState('');
+  const [grouped, setGrouped] = useState(false);
+  /** 类型筛选（标注 / 备注 / 收藏 / 手写笔记），null = 全部 */
+  const [category, setCategory] = useState<RowCategory | null>(null);
+  /** 标注 / 备注 / 收藏三种来源的数据 */
   const [docAnnotations, setDocAnnotations] = useState<
     readonly { sourceId: string; page: number; textMarks?: TextMark[] }[]
   >([]);
@@ -104,6 +110,16 @@ export function NotesPage({
    * 与「全部笔记」分开加载：它要读另一个分区（sourceAnnotations）
    * 和收藏筛选，放进主 load() 会让那次 Promise.all 多等几秒，
    * 而大多数人打开这一页只是想看自己写的笔记。
+   */
+  /**
+   * 载入标注 / 备注 / 收藏（2026-11-11）。
+   *
+   * ⚠️ 2026-11-11 晚修：原来只在**切到「按资料看」之后**才调，
+   * 于是页签上的数字一开始是 0，点一下才变成真实数量 ——
+   * 用户报的「未点击时显示 0，点击后才显示真实数量」就是这个。
+   *
+   * 现在进页面就并行取一次（数据量小：几十条标注 + 几十条知识点），
+   * 两个页签的数字都从一开始就是对的。
    */
   const loadDocs = useCallback(async () => {
     if (!annotations || !knowledge) return;
@@ -121,13 +137,15 @@ export function NotesPage({
     }
   }, [annotations, knowledge]);
 
+  /**
+   * 进页面就取，不等用户操作 —— 否则计数先是 0 再跳变。
+   *
+   * 用户报过「未点击时显示 0，点击后才显示真实数量」，
+   * 根因就是这段加载曾经绑在页签切换上。现在进页面即取。
+   */
   useEffect(() => {
-    if (tab === 'bySource') void loadDocs();
-  }, [tab, loadDocs]);
-
-  /** 两条数据的总数（页签上的数字） */
-  const docTotal =
-    docAnnotations.reduce((n, a) => n + (a.textMarks?.length ?? 0), 0) + docFavorites.length;
+    void loadDocs();
+  }, [loadDocs]);
 
   const load = useCallback(async () => {
     try {
@@ -206,15 +224,105 @@ export function NotesPage({
 
   const rows = state.kind === 'ready' ? state.rows : [];
 
-  /** 关键词过滤（笔记正文 + 归属描述） */
-  const visible = useMemo(() => {
-    const kw = keyword.trim().toLowerCase();
-    if (!kw) return rows;
-    return rows.filter(
-      (r) =>
-        r.note.body.toLowerCase().includes(kw) || r.belongsTo.toLowerCase().includes(kw),
+  /**
+   * 把四种来源合并成统一的列表行（2026-11-11 晚，按用户纠正重做）。
+   *
+   * 用户的要求：「不分类可以看到全部笔记混杂在一起，分类之后可以看到
+   * 各资料对应的笔记」。所以只有**一个**列表，四种来源全在里面：
+   *   written（手写笔记）/ mark（标注）/ note（备注）/ favorite（收藏的知识点）
+   *
+   * 第一版把后三种放进单独页签，导致「全部笔记」是空的 ——
+   * 用户库里 Note 记录确实是 0 条，但他理解的「笔记」包含标注与备注。
+   */
+  const unified = useMemo<UnifiedRow[]>(() => {
+    const out: UnifiedRow[] = [];
+
+    /* 1) 手写笔记（Note） */
+    for (const r of rows) {
+      out.push({
+        key: `written-${r.note.id}`,
+        category: 'written',
+        sourceId: r.sourceId,
+        /* 分组标题优先用资料名；没有资料就用归属描述（题目 / 知识点） */
+        groupTitle: r.sourceId
+          ? (state.kind === 'ready'
+              ? (state.sources.find((s) => s.id === r.sourceId)?.title ?? r.belongsTo)
+              : r.belongsTo)
+          : r.belongsTo,
+        page: null,
+        text: r.note.body,
+        quote: null,
+        at: r.note.updatedAt,
+        noteId: r.note.id,
+        alive: r.alive,
+      });
+    }
+
+    const srcById = new Map(
+      (state.kind === 'ready' ? state.sources : []).map((s) => [s.id, s]),
     );
-  }, [rows, keyword]);
+
+    /* 2) 标注与备注（TextMark） */
+    for (const a of docAnnotations) {
+      const src = srcById.get(a.sourceId);
+      const groupTitle = src?.title ?? '（这份资料已删除）';
+      for (const m of a.textMarks ?? []) {
+        const isNote = m.kind === 'note';
+        out.push({
+          key: `${isNote ? 'note' : 'mark'}-${m.id}`,
+          category: isNote ? 'note' : 'mark',
+          sourceId: a.sourceId,
+          groupTitle,
+          page: a.page,
+          text: isNote ? (m.note?.trim() || '（这条备注没有写内容）') : (m.anchor.exact ?? ''),
+          quote: isNote ? (m.anchor.exact ?? null) : null,
+          charStart: m.anchor.start,
+          charEnd: m.anchor.end,
+          markKind: m.kind,
+          at: m.createdAt,
+        });
+      }
+    }
+
+    /* 3) 收藏的知识点 */
+    for (const kp of docFavorites) {
+      const first = kp.anchors[0];
+      const src = kp.sourceId ? srcById.get(kp.sourceId) : undefined;
+      out.push({
+        key: `favorite-${kp.id}`,
+        category: 'favorite',
+        sourceId: kp.sourceId ?? null,
+        groupTitle: src?.title ?? '未归属资料',
+        page: first?.page ?? null,
+        text: kp.statement,
+        quote: kp.quotes[0] ?? null,
+        ...(first?.charStart !== undefined ? { charStart: first.charStart } : {}),
+        ...(first?.charEnd !== undefined ? { charEnd: first.charEnd } : {}),
+        at: kp.updatedAt,
+      });
+    }
+
+    return out;
+  }, [rows, docAnnotations, docFavorites, state]);
+
+  /** 关键词过滤（四种来源一视同仁） */
+  const visibleUnified = useMemo(() => {
+    const kw = keyword.trim().toLowerCase();
+    if (!kw) return unified;
+    return unified.filter(
+      (r) =>
+        r.text.toLowerCase().includes(kw) ||
+        (r.quote ?? '').toLowerCase().includes(kw) ||
+        r.groupTitle.toLowerCase().includes(kw),
+    );
+  }, [unified, keyword]);
+
+  /**
+   * 关键词过滤（四种来源一视同仁）。
+   *
+   * ⚠️ 旧的 `visible`（只过滤手写笔记）已删除：
+   * 现在列表统一走 `visibleUnified`，两边各留一份会让搜索结果不一致。
+   */
 
   async function saveEdit(id: string) {
     const draft = editing[id];
@@ -279,67 +387,41 @@ export function NotesPage({
       {flash ? <div className="nt-flash">{flash}</div> : null}
 
       {/*
-        两个页签（2026-11-11）：
-          - 全部笔记：用户在题 / 知识点上写的自由文字（Note）
-          - 按资料看：原文上的标注与备注 + 收藏的知识点，
-                      每一条都能点回原文
+        「按资料分」是一个**分组开关**，不是第二个栏目（2026-11-11 晚按用户纠正改）。
 
-        为什么不合成一个列表：两者数据源不同、跳转方式也不同。
-        硬混在一起会让「我写的一句话」和「我在原文上画的一道」看起来一样，
-        而它们其实完全不是一回事。
+        用户原话：「那个『按资料分』不用单独做一个栏目，它就是全部笔记里的
+        一个分类功能。不分类可以看到全部笔记混杂在一起，分类之后可以看到
+        各资料对应的笔记。」
+
+        所以只有一个列表，四种来源（手写笔记 / 标注 / 备注 / 收藏）全在里面：
+          - 关：全部混在一起，按时间倒序
+          - 开：同一份资料的聚在它的标题下
       */}
-      <div className="nt-tabs" role="tablist">
+      <div className="nt-toolbar">
+        <input
+          className="nt-search"
+          type="search"
+          placeholder="搜索笔记、标注、备注、收藏…"
+          value={keyword}
+          onChange={(e) => setKeyword(e.target.value)}
+        />
         <button
           type="button"
-          role="tab"
-          aria-selected={tab === 'notes'}
-          className={`nt-tab${tab === 'notes' ? ' nt-tab--on' : ''}`}
-          onClick={() => setTab('notes')}
+          className={`nt-groupbtn${grouped ? ' nt-groupbtn--on' : ''}`}
+          aria-pressed={grouped}
+          title={grouped ? '取消分组，全部混在一起看' : '按资料分组'}
+          onClick={() => setGrouped((v) => !v)}
         >
-          全部笔记
-          <span className="nt-tab__n">{rows.length}</span>
+          {grouped ? '✓ 按资料分组' : '按资料分组'}
         </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'bySource'}
-          className={`nt-tab${tab === 'bySource' ? ' nt-tab--on' : ''}`}
-          onClick={() => setTab('bySource')}
-        >
-          按资料看
-          <span className="nt-tab__n">{docTotal}</span>
-        </button>
+        <span className="nt-count">
+          {visibleUnified.length === unified.length
+            ? `${unified.length} 条`
+            : `${visibleUnified.length} / ${unified.length} 条`}
+        </span>
       </div>
 
-      {tab === 'bySource' ? (
-        <>
-          {/*
-            「按资料看」也有自己的搜索框。
-            共用上面那个 keyword 是错的 —— 用户在「全部笔记」里搜的东西
-            切到这一栏时应该清空，否则会看到一个莫名其妙的空列表。
-          */}
-          <div className="nt-toolbar">
-            <input
-              className="nt-search"
-              type="search"
-              placeholder="搜索标注、备注、收藏…"
-              value={docKeyword}
-              onChange={(e) => setDocKeyword(e.target.value)}
-            />
-          </div>
-          <NotesBySource
-            annotations={docAnnotations}
-            favorites={docFavorites}
-            sources={state.kind === 'ready' ? state.sources : []}
-            keyword={docKeyword}
-            onOpen={(item, sourceId) => {
-              if (sourceId) onOpenSourceAt?.(sourceId, item.page ?? 1, item.quote ?? undefined);
-              else if (item.category === 'favorite') onOpenKnowledge();
-              else onOpenKnowledge();
-            }}
-          />
-        </>
-      ) : rows.length === 0 ? (
+      {unified.length === 0 ? (
         /*
          * 空态用共享的 EmptyCard（2026-11-10 美化）。
          * 原来是一块左对齐的 padding + 三行字，在深色背景上几乎看不出
@@ -348,118 +430,43 @@ export function NotesPage({
         <EmptyCard
           icon={<IconNotes size={22} />}
           title="还没有任何笔记"
-          hint="笔记有两处入口：做题时在题目卡下方，或者在阅读器里给某份资料留一句。记下来的内容会在复习到那一题时再次出现。"
+          hint="笔记有四处入口：做题时在题目卡下方写，阅读器里选中文字加标注或备注，知识库里点 ☆ 收藏知识点。它们都会汇总到这里。"
           action={{ label: '去知识库看看', onClick: onOpenKnowledge }}
         />
       ) : (
-        <>
-          {/* ---- 搜索 ---- */}
-          <div className="nt-toolbar">
-            <input
-              className="nt-search"
-              type="search"
-              placeholder="搜索笔记内容或所属题目…"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-            />
-            <span className="nt-count">
-              {visible.length === rows.length
-                ? `${rows.length} 条笔记`
-                : `${visible.length} / ${rows.length} 条`}
-            </span>
-          </div>
-
-          {/* ---- 列表 ---- */}
-          <ul className="nt-list">
-            {visible.map((r) => {
-              const isEditing = editing[r.note.id] !== undefined;
-              return (
-                <li key={r.note.id} className="nt-item">
-                  <div className="nt-item__head">
-                    <span
-                      className={`nt-item__belong${r.alive ? '' : ' nt-item__belong--gone'}`}
-                    >
-                      {r.belongsTo}
-                    </span>
-                    <span className="nt-item__time">{formatWhen(r.note.updatedAt)}</span>
-                  </div>
-
-                  {isEditing ? (
-                    <>
-                      <textarea
-                        className="nt-textarea"
-                        value={editing[r.note.id]}
-                        rows={Math.min(12, Math.max(3, (editing[r.note.id] ?? '').split('\n').length + 1))}
-                        onChange={(e) =>
-                          setEditing((prev) => ({ ...prev, [r.note.id]: e.target.value }))
-                        }
-                      />
-                      <div className="nt-item__actions">
-                        <button
-                          type="button"
-                          className="btn-fill btn-fill--sm"
-                          onClick={() => void saveEdit(r.note.id)}
-                          disabled={busy}
-                        >
-                          保存
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-text"
-                          onClick={() =>
-                            setEditing((prev) => {
-                              const next = { ...prev };
-                              delete next[r.note.id];
-                              return next;
-                            })
-                          }
-                        >
-                          取消
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <p className="nt-item__body">{r.note.body}</p>
-                      <div className="nt-item__actions">
-                        <button
-                          type="button"
-                          className="btn-text"
-                          onClick={() =>
-                            setEditing((prev) => ({ ...prev, [r.note.id]: r.note.body }))
-                          }
-                        >
-                          编辑
-                        </button>
-                        {r.sourceId ? (
-                          <button
-                            type="button"
-                            className="btn-text"
-                            onClick={() => onOpenSource(r.sourceId!)}
-                          >
-                            看原文
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="nt-item__delete"
-                          onClick={() => void removeNote(r.note.id)}
-                          disabled={busy}
-                        >
-                          删除
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-
-          {visible.length === 0 ? (
-            <p className="nt-hint">没有匹配「{keyword}」的笔记。</p>
-          ) : null}
-        </>
+        <NotesList
+          rows={visibleUnified}
+          grouped={grouped}
+          category={category}
+          onCategoryChange={setCategory}
+          keyword={keyword}
+          editing={editing}
+          busy={busy}
+          onEditStart={(id, body) =>
+            setEditing((prev) => ({ ...prev, [id]: body }))
+          }
+          onEditChange={(id, draft) => setEditing((prev) => ({ ...prev, [id]: draft }))}
+          onEditSave={(id) => void saveEdit(id)}
+          onEditCancel={(id) =>
+            setEditing((prev) => {
+              const next = { ...prev };
+              delete next[id];
+              return next;
+            })
+          }
+          onDelete={(id) => void removeNote(id)}
+          onOpen={(row) => {
+            if (row.sourceId) {
+              onOpenSourceAt?.(row.sourceId, row.page ?? 1, row.quote ?? undefined);
+            } else if (row.page !== null) {
+              /* 有页码但没资料 id：至少能打开知识库看那条知识点 */
+              onOpenKnowledge();
+            } else {
+              /* 挂在题或知识点上的手写笔记 → 去它的归属处看 */
+              onOpenKnowledge();
+            }
+          }}
+        />
       )}
     </div>
   );
@@ -469,12 +476,4 @@ export function NotesPage({
 function firstLine(s: string, max = 40): string {
   const line = s.split('\n')[0]?.trim() ?? '';
   return line.length > max ? `${line.slice(0, max)}…` : line;
-}
-
-/** 「11-07 18:20」 */
-function formatWhen(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }

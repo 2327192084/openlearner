@@ -564,18 +564,18 @@
 }
 
 .kb-fav-star:hover {
-  color: var(--c-warning, #d9a441);
+  color: var(--warn);
   transform: scale(1.15);
 }
 
 .kb-fav-star:focus-visible {
-  outline: 2px solid var(--c-primary);
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 
 /* 已收藏：实心 + 暖黄，一眼能从列表里挑出来 */
 .kb-fav-star--on {
-  color: var(--c-warning, #d9a441);
+  color: var(--warn);
 }
 
 /* 筛选按钮「★ 收藏」：复用 .kb-level 的外观，只多一个左边距与分隔感 */
