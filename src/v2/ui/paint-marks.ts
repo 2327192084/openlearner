@@ -25,10 +25,32 @@
  * 正文里有公式（MathText）、插图切分（renderWithFigures）、Markdown 结构。
  * 字符偏移落在这些结构里时，拼字符串会错位。用 Range 直接在
  * 文本节点上定位，绕开所有结构问题。
+ *
+ * ## 2026-11-11 修正：锚点给的是**原文偏移**，不是 DOM 偏移
+ *
+ * 上一版直接拿 `resolveTextAnchor` 返回的偏移（相对 `seg.text`，原文坐标）
+ * 去 **渲染后 DOM 的文本节点**上累计字符数。两边长度并不相同：
+ *
+ *  - 标题的 `## ` 被吃掉（第 1 页 4 个标题少 12 字）
+ *  - `$v_{s}$` 经 KaTeX 变成 `vs`（第 1 页 7 个公式）
+ *  - 插图把正文切成多段，每段各自有基准偏移
+ *
+ * 实测第 1 页：原文 1048 字，`.reader-md` 的 DOM 文本 606 字，差 442 字。
+ * 于是标注画出来整体后移 —— 「高亮盖在了错的那几个字上」，
+ * 而库里存的锚点其实**完全正确**（只读审计 64/64 条逐字吻合）。
+ *
+ * 现在改用 `dom-text-map.ts` 的 `rawRangeToRanges`：渲染时每个片段
+ * 都带 `data-raw`，换算按片段自带的坐标做，不再假设 DOM 文本长度
+ * 等于原文长度。
+ *
+ * 对照：知识点定位高亮走 `MarkdownBodyMarked` 的 `marks` 属性，
+ * 直接在原始字符串上 slice，所以一直准 —— 用户也说
+ * 「知识库的定位显示的原文高亮部分并没有偏移」，问题只在自己的标注这条路。
  */
 
 import type { SourceSegment, TextMark } from '@/core/model.ts';
 import { resolveTextAnchor } from '@/core/text-anchor.ts';
+import { rawRangeToRanges } from './dom-text-map.ts';
 
 /** CSS Custom Highlight 注册名 → 样式（样式在 CSS 里用 ::highlight() 定义） */
 const HIGHLIGHT_NAMES: Record<string, string> = {
@@ -52,10 +74,14 @@ function registry(): HighlightRegistry | null {
 }
 
 /**
- * 把一段文字在容器里映射成 DOM Range。
+ * 把「原文区间」映射成 DOM Range（2026-11-11 改）。
  *
- * 做法：遍历容器里的文本节点，累计偏移，把「段内字符区间」
- * 换算成「某个文本节点内的局部区间」。
+ * 旧实现（`rangesForSpan`）遍历容器里的文本节点、**累计 DOM 字符数**，
+ * 把原文偏移当成 DOM 偏移用 —— 这就是标注画偏的根因
+ * （第 1 页差 442 字，详见文件头）。
+ *
+ * 现在交给 `dom-text-map.ts`：渲染时每片段都写了 `data-raw`，
+ * 换算按片段自带坐标做，公式整块吸附。
  *
  * 为什么不用 `window.getSelection()` 那套：它依赖用户当前选区，
  * 而这里要还原的是**存下来的历史标记**，两者无关。
@@ -64,32 +90,7 @@ function rangesForSpan(
   container: HTMLElement,
   span: { start: number; end: number },
 ): Range[] {
-  const ranges: Range[] = [];
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-
-  let cursor = 0;
-  let node = walker.nextNode() as Text | null;
-  while (node) {
-    const len = node.nodeValue ? node.nodeValue.length : 0;
-    const nodeStart = cursor;
-    const nodeEnd = cursor + len;
-
-    /* 这一段与目标区间有交集就切出一个 Range */
-    const from = Math.max(span.start, nodeStart);
-    const to = Math.min(span.end, nodeEnd);
-    if (to > from) {
-      const r = document.createRange();
-      r.setStart(node, from - nodeStart);
-      r.setEnd(node, to - nodeStart);
-      ranges.push(r);
-    }
-
-    cursor = nodeEnd;
-    if (cursor >= span.end) break;
-    node = walker.nextNode() as Text | null;
-  }
-
-  return ranges;
+  return rawRangeToRanges(container, span.start, span.end);
 }
 
 /**

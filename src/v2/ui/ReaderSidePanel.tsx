@@ -95,6 +95,60 @@ const MARK_KIND_META: Record<TextMarkKind, { label: string; hint: string }> = {
   note: { label: '备注', hint: '写下你当时的想法' },
 };
 
+/** 引文超过这个长度就折成「开头…结尾」 */
+const QUOTE_CLIP = 40;
+
+/**
+ * 侧栏里显示引文时截断（2026-11-11 用户要求）。
+ *
+ * ## 用户原话
+ *
+ * 「对于划选超出备注显示范围的，可以仅显示开头和结尾的几个字，
+ * 中间可以用省略号替代。」
+ *
+ * ## 为什么只改显示、不改存储
+ *
+ * `anchor.exact` 是锚点还原的**唯一依据**（`resolveTextAnchor` 靠它
+ * 在正文里重新定位）。截断它会让定位失效 —— 表现出「备注点定位跳错地方」。
+ * 所以库里存完整原文，只在侧栏渲染时折成两头。
+ *
+ * 完整的引文放在 `title` 属性里，鼠标悬停仍能看到全文。
+ */
+function clipQuote(exact: string): string {
+  const s = exact.trim();
+  if (s.length <= QUOTE_CLIP) return s;
+  const head = Math.ceil(QUOTE_CLIP / 2);
+  const tail = Math.floor(QUOTE_CLIP / 2);
+  return `${s.slice(0, head)}……${s.slice(-tail)}`;
+}
+
+/**
+ * 区分「用户真的点了整页备注」与「旧版定位失败兜底成整页」。
+ *
+ * ## 为什么要区分
+ *
+ * 2026-11-11 之前的 `handleAddNote` 在定位失败时把锚点写成
+ * `start=0 / end=全文长度`，于是这条**划选备注**会被 `isWholePageNote`
+ * 判成整页备注 —— 用户看到「整页备注」但自己明明只选了一句。
+ *
+ * ## 判据
+ *
+ * 真·整页备注：用户点「整页备注」按钮，exact 存的是**段首 40 字**
+ * （见 handleAddNote 里 `exact = seg.text.slice(0, 40)`），
+ * 所以 exact 很短且等于段首。
+ *
+ * 兜底失败的：exact 是用户选区的原文，通常**长于 40 字**，
+ * 或者不等于段首那 40 字。
+ *
+ * 这是保守判据：宁可把极少数的真整页备注也标上「未定位」，
+ * 也不要把一堆错锚点藏起来 —— 后者会让用户以为标注功能还是坏的。
+ */
+function looksLikeDeliberateWholePage(m: {
+  anchor: { exact: string; start: number; end: number };
+}): boolean {
+  return m.anchor.exact.length <= 40 && m.anchor.start === 0;
+}
+
 export function ReaderSidePanel({
   segment,
   pageNo,
@@ -326,6 +380,22 @@ export function ReaderSidePanel({
                         {isWholePageNote(m, segment?.text.length ?? 0) ? '整页备注' : '划选备注'}
                       </span>
                       {/*
+                        「未定位」标记（2026-11-11 第二轮）。
+                        旧版在定位失败时会把锚点兜底成 start=0/end=全文，
+                        这种记录会被判成「整页备注」，看起来像用户自己选了整页。
+                        实际上它是**定位失败的旧数据**。
+                        这里如实标出来，让用户知道这条并不指向他当时选的那句。
+                      */}
+                      {isWholePageNote(m, segment?.text.length ?? 0) &&
+                      !looksLikeDeliberateWholePage(m) ? (
+                        <span
+                          className="rside__item-warn"
+                          title="这条备注的原文范围覆盖了整页，可能是旧版本定位失败留下的。建议删掉重新划选备注。"
+                        >
+                          未定位
+                        </span>
+                      ) : null}
+                      {/*
                         定位按钮：跳回正文里那条备注（2026-11-11 用户要求）。
                         「和图中一样，会在底下显示在哪一段进行了备注，点击会定位原文」。
                       */}
@@ -354,7 +424,9 @@ export function ReaderSidePanel({
 
                     {/* 被备注的原文；整页备注不显示引文（它不属于某一句） */}
                     {!isWholePageNote(m, segment?.text.length ?? 0) && m.anchor.exact ? (
-                      <p className="rside__quote">「{m.anchor.exact}」</p>
+                      <p className="rside__quote" title={m.anchor.exact}>
+                        「{clipQuote(m.anchor.exact)}」
+                      </p>
                     ) : null}
                   </li>
                 ))}

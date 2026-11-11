@@ -19,6 +19,7 @@ import { ReaderFigure } from './ReaderFigure.tsx';
 import { ReaderSidePanel } from './ReaderSidePanel.tsx';
 import { MarkdownBodyMarked } from './MarkdownBodyMarked.tsx';
 import { paintTextMarks, clearTextMarks } from './paint-marks.ts';
+import { domPointToRaw } from './dom-text-map.ts';
 import { SelectionActionBar, measureSelectionRect } from './SelectionActionBar.tsx';
 import type { RectLike } from './selection-bar-place.ts';
 import { snapFiguresToBlocks } from './snap-figures.ts';
@@ -159,6 +160,14 @@ export function ReaderPage({
   const [searchNote, setSearchNote] = useState<string | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const markRef = useRef<HTMLElement | null>(null);
+  /**
+   * 第一个备注元素（2026-11-11）。
+   *
+   * 用户要求「点击会定位原文」，而备注在正文里是 `<span class="reader-note">`，
+   * 需要拿到它的 DOM 句柄才能滚过去。定位逻辑（locateNote）已按文字内容找，
+   * 这个 ref 作为「精确命中时直接滚」的快速路径。
+   */
+  const noteRef = useRef<HTMLElement | null>(null);
 
   /**
    * 批注状态（2026-11-09）。
@@ -191,6 +200,28 @@ export function ReaderPage({
    * 被 verify-note-button.cjs 的「第2步」抓出来。
    */
   const [recentSelection, setRecentSelection] = useState('');
+
+  /**
+   * 上一次有效选区换算出的**原文偏移**（2026-11-11 第二轮）。
+   *
+   * 为什么单独存一份偏移：用户点进备注输入框后，浏览器会清掉正文选区，
+   * 之后再也算不出来了。所以趁选区还在就换算好存下来，
+   * 提交时直接用它 —— 不再拿引文去原文里搜（那条路会失败并退化成整页备注）。
+   *
+   * `null` 表示没有可用偏移（例如选区落在表格里），此时才退回按引文搜索。
+   */
+  const [recentSelRange, setRecentSelRange] = useState<{ start: number; end: number } | null>(
+    null,
+  );
+
+  /**
+   * 划选备注「定位失败」提示（2026-11-11）。
+   *
+   * 为什么需要：定位失败时不再静默把锚点撑成整页（那会变成错数据），
+   * 而是如实告诉用户「没定位到，请重新选择」。
+   * 静默失败是最坏的一种 —— 用户以为存上了，其实是条覆盖全文的错锚点。
+   */
+  const [noteLocateFailed, setNoteLocateFailed] = useState(false);
 
   /**
    * 原图查看。
@@ -540,6 +571,34 @@ export function ReaderPage({
         setRecentSelection(text);
         setSelectionText(text);
         setSelectionRect(measureSelectionRect(el));
+        /*
+         * ⚠️ 关键（2026-11-11 第二轮）：**趁选区还在，把原文偏移算准存下来**。
+         *
+         * 这是「备注变成整页备注」那个 bug 的正解。
+         *
+         * 旧做法：等到用户写完备注、点提交时才去算偏移。可那时选区已经被
+         * 浏览器清掉了（点输入框就清），只能退回「拿引文去原文里搜」。
+         * 而引文是从**渲染后的 DOM** 取的（不含 `#`、`$v_{s}$` 已变成 `vs`），
+         * 在原始 `seg.text` 里根本搜不到 —— 于是 `locateSelection` 返回 -1，
+         * 上层兜底成 `start=0, end=全文长度`，正好落进 `isWholePageNote`
+         * 的判据，用户看到的就是「我明明只划了一段，怎么成了整页备注」。
+         *
+         * 现在用 `domPointToRaw`（读渲染时写下的 data-raw）在**选区存活时**
+         * 直接换算成原文偏移。这条路径不需要搜索、也不需要引文，
+         * 所以含公式、含标题的段落同样准确。
+         */
+        try {
+          const r = sel.getRangeAt(0);
+          const rawStart = domPointToRaw(el, r.startContainer, r.startOffset);
+          const rawEnd = domPointToRaw(el, r.endContainer, r.endOffset);
+          if (rawStart >= 0 && rawEnd > rawStart) {
+            setRecentSelRange({ start: rawStart, end: rawEnd });
+          } else {
+            setRecentSelRange(null);
+          }
+        } catch {
+          setRecentSelRange(null);
+        }
       } else {
         /*
          * 选区落在正文之外（比如用户在侧栏里选中了备注文字）。
@@ -609,7 +668,35 @@ export function ReaderPage({
           const el = bodyRef.current;
           if (el && el.contains(range.startContainer)) {
             /*
-             * ① 优先用「块上标的原文偏移」精确算（2026-11-11 修标题偏移）。
+             * ⓪ 最准的一条（2026-11-11 第二轮新增）：
+             * 直接用片段上的 data-raw 换算，块内含公式也不会错。
+             *
+             * ① 的 `data-from + 块内 DOM 文本长度` 在**段落里含公式**时仍会偏：
+             * `$v_{s}$` 在原文占 7 字、DOM 里只有 `vs` 2 字，量出来短 5 字。
+             * 而 data-raw 是渲染时按原文逐片段写下的，不存在这个问题。
+             */
+            {
+              const s = domPointToRaw(el, range.startContainer, range.startOffset);
+              const e = domPointToRaw(el, range.endContainer, range.endOffset);
+              if (s >= 0 && e > s) {
+                /*
+                 * 校验：切出来的文字要与选区一致（忽略空白）。
+                 * 公式处会吸附到整块，所以允许「切出的更长但仍以选区开头」。
+                 */
+                const norm = (x: string) => x.replace(/\s+/g, '');
+                const sliced = seg.text.slice(s, e);
+                if (
+                  norm(sliced) === norm(exact) ||
+                  norm(sliced).startsWith(norm(exact)) ||
+                  norm(exact).includes(norm(sliced))
+                ) {
+                  start = s;
+                }
+              }
+            }
+
+            /*
+             * ① 次优：用「块上标的原文偏移」精确算（2026-11-11 修标题偏移）。
              *
              * 为什么要这条路：标题渲染时 `#` 被吃掉，DOM 文本比原文短。
              * 若用下面的 headText.length 量，得到的偏移会比原文小
@@ -631,7 +718,7 @@ export function ReaderPage({
               }
             }
 
-            if (blockEl && blockEl.hasAttribute('data-from')) {
+            if (start < 0 && blockEl && blockEl.hasAttribute('data-from')) {
               const dataFrom = Number(blockEl.getAttribute('data-from'));
               const base = Number(blockEl.getAttribute('data-offset-base') || '0');
 
@@ -814,26 +901,92 @@ export function ReaderPage({
         if (!selText) return;
         exact = selText;
 
-        /* 用与 handleAddMark 相同的办法量出段内偏移 */
-        let hint = -1;
+        /*
+         * ===== 定位：三条路，从准到粗（2026-11-11 第二轮重写）=====
+         *
+         * 用户报「我对 1.1.1 那整段划选备注，结果成了整页备注」。
+         * 根因：引文取自**渲染后的 DOM**（无 `#`、`$v_{s}$` 已变 `vs`），
+         * 在原始 seg.text 里搜不到 → 旧代码兜底成 start=0/end=全文 →
+         * 正好被判成整页备注。
+         *
+         * 所以正确做法不是「搜得更努力」，而是**换坐标系**：
+         *
+         * ① 选区还活着 → 直接用 domPointToRaw 精确换算（不需要搜索）
+         * ② 选区没了但之前记过偏移（recentSelRange）→ 用记下的那份
+         * ③ 都没有 → 用「块起点 + 块内偏移」估一个 hint，再按引文就近搜
+         *
+         * 前两条覆盖用户真实操作顺序（选中 → 点输入框 → 提交），
+         * 第三条只在「页面刷新过 / 换了页」这类边界情况才走到。
+         */
+        let resolved: { start: number; end: number } | null = null;
+
+        /* ① 选区仍在：精确换算 */
         const sel = window.getSelection();
-        if (sel && sel.rangeCount > 0) {
+        const el = bodyRef.current;
+        if (sel && sel.rangeCount > 0 && el) {
           try {
-            const range = sel.getRangeAt(0);
-            const el = bodyRef.current;
-            if (el && el.contains(range.startContainer)) {
-              const head = range.cloneRange();
-              head.selectNodeContents(el);
-              head.setEnd(range.startContainer, range.startOffset);
-              hint = head.toString().length;
+            const r = sel.getRangeAt(0);
+            if (el.contains(r.startContainer) && el.contains(r.endContainer)) {
+              const s = domPointToRaw(el, r.startContainer, r.startOffset);
+              const e = domPointToRaw(el, r.endContainer, r.endOffset);
+              if (s >= 0 && e > s) resolved = { start: s, end: e };
             }
           } catch {
-            /* 退回按引文搜 */
+            /* 落到 ② */
           }
         }
-        const located = locateSelection(seg.text, exact, hint);
-        start = located.start >= 0 ? located.start : 0;
-        end = located.start >= 0 ? located.end : seg.text.length;
+
+        /* ② 选区已消失，但选中时记下过偏移 */
+        if (!resolved && recentSelRange && recentSelRange.end > recentSelRange.start) {
+          const s = recentSelRange.start;
+          const e = recentSelRange.end;
+          /*
+           * 校验一次：存下的偏移切出来应当与引文一致（忽略空白）。
+           * 不一致说明中间换过页或正文被重解析，宁可落到 ③ 重新搜。
+           */
+          const norm = (x: string) => x.replace(/\s+/g, '');
+          if (norm(seg.text.slice(s, e)) === norm(exact)) {
+            resolved = { start: s, end: e };
+          }
+        }
+
+        /* ③ 兜底：给 hint 再按引文就近搜 */
+        if (!resolved) {
+          let hint = -1;
+          if (sel && sel.rangeCount > 0 && el) {
+            try {
+              const r = sel.getRangeAt(0);
+              if (el.contains(r.startContainer)) {
+                const head = r.cloneRange();
+                head.selectNodeContents(el);
+                head.setEnd(r.startContainer, r.startOffset);
+                /* DOM 长度只是粗略提示，真正定位交给 locateSelection 的最近优先 */
+                hint = head.toString().length;
+              }
+            } catch {
+              /* 忽略 */
+            }
+          }
+          const located = locateSelection(seg.text, exact, hint);
+          if (located.start >= 0) resolved = { start: located.start, end: located.end };
+        }
+
+        /*
+         * ⚠️ 定位失败时**不再静默兜底成整页**（2026-11-11 用户要求）。
+         *
+         * 旧行为：start=0 / end=全文 → 存成一条覆盖全文的锚点，
+         * 之后被判成「整页备注」，用户完全不知道自己选的那句没存上。
+         * 这是最坏的一种失败：看起来成功了，实际数据是错的。
+         *
+         * 现在如实告诉用户没定位到，让他重新选 —— 不产生错数据。
+         */
+        if (!resolved) {
+          setNoteLocateFailed(true);
+          return;
+        }
+        setNoteLocateFailed(false);
+        start = resolved.start;
+        end = resolved.end;
       }
 
       const mark: TextMark = {
@@ -857,10 +1010,11 @@ export function ReaderPage({
       /* 存完清选区与记忆：同一段不该被连标两次 */
       window.getSelection()?.removeAllRanges();
       setRecentSelection('');
+      setRecentSelRange(null);
       setSelectionText('');
       setSelectionRect(null);
     },
-    [annotations, sourceId, seg, selectionText],
+    [annotations, sourceId, seg, selectionText, recentSelection, recentSelRange],
   );
 
   /**
@@ -964,6 +1118,7 @@ export function ReaderPage({
        * 备注会挂到新一页里「碰巧位置相同」的字符上。
        */
       setRecentSelection('');
+      setRecentSelRange(null);
       setSelectionText('');
       setSelectionRect(null);
       bodyRef.current?.scrollTo({ top: 0 });
@@ -1166,6 +1321,17 @@ export function ReaderPage({
       </div>
       {searchNote ? <p className="reader-hint">{searchNote}</p> : null}
 
+      {/*
+        划选备注定位失败提示（2026-11-11）。
+        旧行为是静默兜底成整页备注 —— 用户以为存上了，其实是错锚点。
+        现在明确告诉用户没定位到，让他重新选。
+      */}
+      {noteLocateFailed ? (
+        <p className="reader-hint reader-hint--warn">
+          没能定位到你选中的文字（可能在表格里，或刚翻过页）。请重新在正文里选中要备注的那句话，再点「划选备注」。
+        </p>
+      ) : null}
+
       <div className="reader-split">
       <div className="reader-main">
       {/* 正文 */}
@@ -1216,6 +1382,8 @@ export function ReaderPage({
               : [],
             /* 划选备注要高亮到正文上（2026-11-11） */
             pageMarks,
+            /* 备注元素句柄，供「定位」滚动过去 */
+            noteRef,
           )
         ) : null}
 
@@ -1292,6 +1460,8 @@ function renderBody(
   figures: readonly SourceImageRecord[],
   /** 本页的标记：用来画划选备注（2026-11-11） */
   pageMarks: readonly TextMark[] = [],
+  /** 第一个备注元素，供「定位」时滚动过去 */
+  noteRef?: RefObject<HTMLElement | null>,
 ) {
   const chapter = seg.chapter?.trim() ?? '';
   /*
@@ -1319,13 +1489,23 @@ function renderBody(
         「标注的文字与实际显示效果不匹配」就是它。
       */}
       {figures.length > 0 ? (
-        renderWithFigures(seg.text, highlight, markRef, figures)
+        /*
+         * ⚠️ 2026-11-11 修：这里原来只传了 4 个参数，
+         * 第 5 个 pageMarks 用了默认值 `[]` —— 于是 renderWithFigures
+         * 内部虽然写着 notes={noteRanges(pageMarks, …)}，拿到的永远是空数组，
+         * **有插图的页上一个备注都画不出来**。
+         *
+         * 用户库 38 段正文里 25 段带插图（2/3），第 1 页正好带 2 张，
+         * 所以「划选备注看不到定位」有相当一部分是这个原因。
+         */
+        renderWithFigures(seg.text, highlight, markRef, figures, pageMarks, noteRef)
       ) : (
         <MarkdownBodyMarked
           text={seg.text}
           marks={highlightMarks(highlight)}
           markRef={markRef}
           notes={noteRanges(pageMarks, seg.text.length)}
+          noteRef={noteRef}
         />
       )}
       <p className="reader-meta">
@@ -1379,6 +1559,7 @@ function renderWithFigures(
   markRef: RefObject<HTMLElement | null>,
   figures: readonly SourceImageRecord[],
   pageMarks: readonly TextMark[] = [],
+  noteRef?: RefObject<HTMLElement | null>,
 ) {
   /*
    * 吸附：把每个图挪到最近的块边界。
@@ -1430,10 +1611,16 @@ function renderWithFigures(
       <MarkdownBodyMarked
         key={`t-${key++}`}
         text={slice}
+        /*
+         * absFrom：这个切片在**整体正文**里的起点（原文坐标）。
+         * marks / notes 都是原文绝对偏移，由组件内部换算，
+         * 所以这里不再做减法（旧版的 baseOffset 语义已并入 absFrom）。
+         */
+        absFrom={from}
         marks={highlightMarks(highlight)}
-        baseOffset={from}
         markRef={markRef}
         notes={noteRanges(pageMarks, text.length)}
+        noteRef={noteRef}
       />,
     );
   }

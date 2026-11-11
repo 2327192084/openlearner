@@ -236,46 +236,81 @@
   box-shadow: 0 0 0 1px #d9a44159;
 }
 
-/* ---------- 备注（2026-11-11） ----------
+/* ---------- 备注（2026-11-11 第二轮改版） ----------
  *
- * 用户要求：除了小圆点，再加一个下划线好分辨具体位置。
+ * ## 用户反馈（2026-11-11 第二次）
  *
- * 三种修饰必须一眼分得清，所以姿态各不相同：
- *   高亮      → 黄色**底色**（整片）
- *   批注下划线 → 实线（`text-decoration: underline`）
- *   备注      → **虚线**下划线 + 行末小圆点
+ * 原话：「备注的定位功能并不明显，不能让用户及时发现定位的部分，
+ * 下划线和角标也没渲染出来。可以更改原先备注部分的标记，用红色下划线替代。」
  *
- * 为什么用虚线而不是实线：实线已经被「下划线批注」占用了。
- * 两条实线叠在一起，用户没法判断这是批注还是备注。
- * 虚线在中文排版里天然读作「标注 / 提示」，不抢正文。
+ * 第一版是「蓝灰虚线 + 行末 5px 小圆点（vertical-align: super）」。
+ * 实测下来两个问题：
+ *  1. 蓝灰 `--info #86a9c6` 在正文里太淡，密排中文里几乎看不见
+ *  2. 小圆点 5px 太小，`vertical-align: super` 在中文行高下贴得太紧
+ *     —— 用户说的「下划线和角标也没渲染出来」就是这个观感
  *
- * 为什么小圆点用 `position: absolute` 相对备注区间定位：
- * 它要贴在**这段备注的末尾**，而不是整行末尾 ——
- * 一行里有三处备注时，三个点各归各的位置。
+ * ## 现在的姿态（三种修饰仍然一眼分得清，靠**颜色**而不是线型）
+ *
+ *   高亮      → 黄色**底色** + 极淡描边
+ *   批注下划线 → **琥珀色**实线（`--warn` 系，`::highlight` 里定义）
+ *   备注      → **红色**实线 + 极淡红底
+ *
+ * 为什么改成实线：虚线在中文里与「着重号 / 波浪线」乱近，而且
+ * 1px 虚线在一行 20+ 字时断得太碎，反而更难找。既然颜色已经能区分
+ * （红 vs 琥珀），线型不必再承担区分职责。
+ *
+ * 为什么不用 `text-decoration` 而用 `border-bottom`：
+ * `text-decoration` 在**跨多个行内元素**时会被断开（每个 mark/span 各自画），
+ * 备注区间跨公式时会看到断断续续的几段。`border-bottom` 同理，
+ * 但配合 `box-decoration-break: clone` 时表现更可控，且能同时给底色。
+ * 这里两者都保留：`text-decoration` 负责单行时的贴合，
+ * 底色负责跨行时的连续感。
  */
 .reader-note {
-  position: relative;
-  /* 虚线贴着字底，不改变行高（否则整页会跳一下） */
-  text-decoration: underline dashed var(--info, #86a9c6);
-  text-decoration-thickness: 1px;
+  /* 贴着字底的红线，不改变行高（否则整页会跳一下） */
+  text-decoration: underline solid #d33a3a;
+  text-decoration-thickness: 2px;
   text-underline-offset: 3px;
-  /* 极淡的底：让「有备注」这件事在扫读时也能被看到，但不盖住原文 */
-  background: color-mix(in srgb, var(--info, #86a9c6) 7%, transparent);
+  /*
+   * 极淡红底：让「有备注」在扫读时也能被看到，但不盖住原文。
+   * 10% 是实测下来「看得见但不脏」的值（7% 太淡、16% 像选中）。
+   */
+  background: rgba(211, 58, 58, 0.1);
   border-radius: 2px;
 }
 
-/* 行末小圆点：告诉「这里写了东西」，鼠标悬停看摘要 */
+/*
+ * 行末小圆点：2026-11-11 第二轮**加大并改为实心红**。
+ *
+ * 用户说「角标也没渲染出来」——5px + super 在中文行高里确实几乎不可见。
+ * 现在 7px、`vertical-align: baseline` 上抬 2px，颜色跟随红线。
+ * 它仍然只是「这段有备注」的提示，具体位置靠红下划线。
+ */
 .reader-note__dot {
   display: inline-block;
-  width: 5px;
-  height: 5px;
-  margin-left: 2px;
+  width: 7px;
+  height: 7px;
+  margin-left: 3px;
   border-radius: 50%;
-  background: var(--info, #86a9c6);
-  /* 与文字基线对齐，不会把行撑高 */
-  vertical-align: super;
+  background: #d33a3a;
+  /* 相对基线抬高，贴在字的右上角，不撑高行 */
+  vertical-align: 2px;
   /* 纯装饰：读屏用户从备注列表拿信息 */
   pointer-events: none;
+}
+
+/* 「定位」高亮闪烁：点侧栏「定位」时短暂强调，帮用户一眼找到（2026-11-11） */
+.reader-note--flash {
+  animation: reader-note-flash 1.2s ease-out;
+}
+
+@keyframes reader-note-flash {
+  0% {
+    background: rgba(211, 58, 58, 0.42);
+  }
+  100% {
+    background: rgba(211, 58, 58, 0.1);
+  }
 }
 
 /* 整页备注：不落在任何行内，用页面底部的一条独立区块表示（见 .reader-pagenote） */

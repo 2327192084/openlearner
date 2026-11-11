@@ -267,6 +267,22 @@
     flex: 1;
   }
 
+  /*
+   * 「未定位」标记（2026-11-11 第二轮）。
+   *
+   * 标在那些「锚点覆盖整页、其实来自旧版定位失败」的备注上。
+   * 用暖橙色而不是红色：红色已经给「备注下划线」用了，
+   * 这里只是提示，不该比错误更抢眼。
+   */
+  .rside__item-warn {
+    font-size: 11px;
+    padding: 0 5px;
+    border-radius: 3px;
+    color: #d98324;
+    background: rgba(217, 131, 36, 0.14);
+    white-space: nowrap;
+  }
+
   .rside__quote {
     margin: 5px 0 0;
     font-size: 12px;
