@@ -38,7 +38,18 @@ type Phase =
   | { kind: 'idle' }
   | { kind: 'running'; progress: MinerUProgress | null }
   | { kind: 'done'; report: ConversionReport }
-  | { kind: 'failed'; message: string; hint: string };
+  | {
+      kind: 'failed';
+      message: string;
+      hint: string;
+      /**
+       * 失败分类（2026-11-11）。
+       *
+       * 用来避免 message 与 hint 重复说同一件事 ——
+       * `server-not-running` 的原因和建议本来就是一句话，两行都显示会重复。
+       */
+      trouble?: string;
+    };
 
 /**
  * 转换完成后，把正文里的插图取回来存进 sourceImages（2026-11-08）。
@@ -301,7 +312,12 @@ export function ConvertPanel({
       if (!aliveRef.current) return;
       const message = err instanceof Error ? err.message : '转换失败';
       const trouble = (err as Error & { trouble?: string }).trouble;
-      setPhase({ kind: 'failed', message, hint: hintForTrouble(trouble) });
+      setPhase({
+        kind: 'failed',
+        message,
+        hint: hintForTrouble(trouble),
+        ...(trouble ? { trouble } : {}),
+      });
     }
   }, [source, sourceService, effectiveRunner, onConverted, parseMode, rangeStart, rangeEnd]);
 
@@ -456,7 +472,21 @@ export function ConvertPanel({
 
       {phase.kind === 'failed' ? (
         <div className="convert-panel__failed">
-          <p className="convert-panel__failed-msg">{phase.message}</p>
+          {/*
+            message 与 hint 的分工（2026-11-11 晚修重叠）。
+
+            这两行来自两个地方：
+              - message：主进程报上来的**具体情况**（含 MinerU 的原因）
+              - hint：前端按 trouble 给的**下一步做什么**
+
+            对 `server-not-running` 这种「原因和做法是同一件事」的情况，
+            两边会说出几乎一样的两段话 —— 实测界面上出现了重复。
+            所以这一类只显示 hint（它更完整、给了两步操作），
+            其余情况仍然两行都显示（原因 + 做法）。
+          */}
+          {phase.trouble === 'server-not-running' ? null : (
+            <p className="convert-panel__failed-msg">{phase.message}</p>
+          )}
           <p className="convert-panel__hint">{phase.hint}</p>
           <button type="button" className="btn-ghost" onClick={() => setPhase({ kind: 'idle' })}>
             重试
@@ -474,6 +504,13 @@ function hintForTrouble(trouble?: string): string {
       return '没找到 MinerU。装好之后重启应用，或在设置里填 mineru-kit.exe 的路径。';
     case 'broken':
       return 'MinerU 装了但跑不起来 —— 多半是它的 Python 环境坏了。到 MinerU 目录里重新激活一次环境试试。';
+    case 'server-not-running':
+      /*
+       * 2026-11-11 实测最常见的一类。
+       * 服务默认不开机自启，用户第一次用几乎一定撞上。
+       * 提示要给出**能照做的两步**，而不是一句「服务没运行」。
+       */
+      return 'MinerU 的本地服务没在跑。在命令行执行 mineru server start，看到 “Server started” 后回来再点一次 —— 启动后它会一直常驻，下次不用再启。';
     case 'run-failed':
       return 'MinerU 处理这份文件时出错。常见原因：文件损坏、加密 PDF、页数超出限制。换一份文件试试能区分是哪一种。';
     case 'bad-output':

@@ -313,9 +313,64 @@ function validateRequest(raw, options = {}) {
  * OCR-det / OCR-rec / Table / MFR…）。直接用会让人看不懂，所以翻成中文，
  * 并保留原阶段名便于排查。
  */
+/**
+ * 把 MinerU 的原始错误输出压成一句人话（2026-11-11）。
+ *
+ * ## 为什么需要
+ *
+ * 实测用户看到的失败提示是一整段原始 JSON（`{"error":{...,"code":
+ * "server_not_running","message":"本地 mineru 服务未运行…"}}`）。
+ * 信息都在，但用户得自己从花括号里挑。这里剥成一句话。
+ *
+ * ## 为什么主进程里还有一份
+ *
+ * `src/core/mineru/error-text.ts` 里有同一份实现（供渲染层单测）。
+ * 跨进程共享纯函数需要把 core 也编译给主进程，收益不抵成本；
+ * 所以这里保留等价实现，**两边行为由 `error-text.test.ts` 的同一组用例钉死**
+ * （用例直接 import 本文件的函数，因此任何一边改了都会红）。
+ *
+ * ## 边界
+ *
+ * 只做「去掉噪音」，不改写含义。剥不出就原样给最后一行，
+ * 绝不编一个听起来合理的原因。
+ */
+function summarizeMineruError(raw) {
+  const text = String(raw ?? '').trim();
+  if (!text) return '没有更多信息';
+
+  const start = text.indexOf('{');
+  if (start >= 0) {
+    let depth = 0;
+    let end = -1;
+    for (let i = start; i < text.length; i += 1) {
+      if (text[i] === '{') depth += 1;
+      else if (text[i] === '}') {
+        depth -= 1;
+        if (depth === 0) { end = i + 1; break; }
+      }
+    }
+    if (end > start) {
+      try {
+        const obj = JSON.parse(text.slice(start, end));
+        const msg = obj?.error?.message ?? obj?.message ?? obj?.error?.code ?? null;
+        if (typeof msg === 'string' && msg.trim()) return msg.trim().slice(0, 240);
+      } catch {
+        /* 不是合法 JSON，按行取 */
+      }
+    }
+  }
+
+  /* 按换行切行：用 String.prototype.split 的字符串形式，避免正则转义 */
+  const lines = text
+    .split(String.fromCharCode(10))
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const last = lines[lines.length - 1] ?? text;
+  return last.length > 160 ? `${last.slice(0, 160)}…` : last;
+}
+
 function parseServiceLogs(logs) {
   if (!Array.isArray(logs) || logs.length === 0) return null;
-
   // 从后往前找第一条能解析的 —— 最后一条才是「现在进行到哪」
   for (let i = logs.length - 1; i >= 0; i--) {
     const line = stripAnsi(String(logs[i] ?? ''));
@@ -839,10 +894,45 @@ async function runMineru(req, options = {}) {
           });
           return;
         }
+
+        /*
+         * 本地服务没启动（2026-11-11 实测遇到）。
+         *
+         * 这是**最常见**的一类失败：MinerU 装了、也探测到了，
+         * 但它要求一个常驻服务在跑，而那个服务默认不开机自启。
+         *
+         * 原来它落到下面的通用分支，用户看到的是一整段原始 JSON
+         * （`{"error":{"type":"api_error","code":"server_not_running",…}}`）——
+         * 能看懂，但完全不知道该怎么办。现在单独识别，给出**一条能照做**的指令。
+         */
+        if (/server_not_running|本地 mineru 服务未运行|service.*not.*running/i.test(said)) {
+          finish({
+            ok: false,
+            trouble: 'server-not-running',
+            message:
+              'MinerU 的本地服务没有在运行。它平时不开机自启，需要先启动一次：\n' +
+              '  1. 打开命令行，执行 mineru server start\n' +
+              '  2. 看到 “Server started” 后回到这里重新点一次\n' +
+              '服务启动后会在后台常驻，之后就不用每次启动了。',
+          });
+          return;
+        }
+
         finish({
           ok: false,
           trouble: 'run-failed',
-          message: `MinerU 退出码 ${code}。${said ? `最后的日志：${said.slice(-600)}` : ''}`,
+          /*
+           * 通用兜底（2026-11-11 收敛）。
+           *
+           * 原来把最后 600 字符原始日志整段塞给用户。那对
+           * 「已经能看懂 MinerU 输出的人」有用，对普通用户只是噪音。
+           * 现在只给一段**去掉 JSON 包裹**的摘要，完整日志留在
+           * MinerU 的日志文件里（路径见下），需要时能去翻。
+           */
+          message:
+            `MinerU 退出码 ${code}，转换没有成功。` +
+            (said ? `\n大致原因：${summarizeMineruError(said)}` : '') +
+            '\n完整日志在 MinerU 的日志目录里（%USERPROFILE%\\.mineru\\logs）。',
         });
         return;
       }
@@ -867,4 +957,5 @@ module.exports = {
   parseServiceLogs,
   parseTqdm,
   runMineru,
+  summarizeMineruError,
 };
