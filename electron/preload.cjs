@@ -143,6 +143,54 @@ const openleanerApi = Object.freeze({
   chat: (request) => ipcRenderer.invoke('openleaner:chat-completion', request),
 
   /**
+   * 学习库位置（2026-11-11）。
+   *
+   * 目的：让用户**看得见**库存在哪、能改、能在资源管理器里打开。
+   *
+   * 之前位置完全由主进程探测顺序决定，用户既看不到也管不了 ——
+   * 换一次安装方式数据就「搬家」，11-11 真的发生过一次，
+   * 用户以为数据全丢了（实际是读到了另一个空目录）。
+   *
+   * getDir 用 sync 通道：设置页一渲染就要显示路径，
+   * 走异步会让路径先空一帧再跳出来，看着像没读到。
+   */
+  library: Object.freeze({
+    /** 当前库目录与数据目录（绝对路径） */
+    get location() {
+      return ipcRenderer.sendSync('openleaner:library-location-sync');
+    },
+
+    /**
+     * 弹系统目录选择框，让用户挑一个库位置。
+     *
+     * 返回选中的绝对路径；用户取消返回 null（不当作错误）。
+     * 注意：选定后需要重启才生效 —— Chromium 在启动早期就把
+     * IndexedDB 绑到 userData 上，运行中换目录会写出两个半库。
+     */
+    pickDir: () => ipcRenderer.invoke('openleaner:pick-library-dir'),
+
+    /** 在资源管理器里打开库目录（备份时要用） */
+    reveal: () => ipcRenderer.invoke('openleaner:reveal-library-dir'),
+  }),
+
+  /**
+   * MinerU 手工路径（2026-11-11）。
+   *
+   * 补的是一个真实缺口：多处文案让用户「到设置里填 mineru 路径」，
+   * 而设置页从来没有那一项（只能靠环境变量 MINERU_EXE）。
+   */
+  mineruCustom: Object.freeze({
+    /** 当前手工指定的路径；没指定返回 null */
+    get path() {
+      return ipcRenderer.sendSync('openleaner:mineru-custom-path-sync') ?? null;
+    },
+    /** 弹框选 mineru.exe；取消返回 null */
+    pick: () => ipcRenderer.invoke('openleaner:mineru-pick-exe'),
+    /** 存或清除（传 null 清除） */
+    set: (p) => ipcRenderer.invoke('openleaner:mineru-set-custom-path', p),
+  }),
+
+  /**
    * 本机 MinerU 转换（扫描件 / 图片 → 带页码的正文）。
    *
    * ## 为什么必须走主进程

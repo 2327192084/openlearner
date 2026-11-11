@@ -1,0 +1,206 @@
+/*
+ * MinerU 设置面板（2026-11-11）。
+ *
+ * ⚠️ 原生控件（button / code 里的 a）样式写层外 ——
+ * base.css 有不在任何 @layer 内的 button 规则。
+ */
+
+/* ==========================================================================
+   层外：原生控件
+   ========================================================================== */
+
+.mineru-cmd__copy,
+.mineru-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-dim);
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.mineru-cmd__copy {
+  padding: 2px 8px;
+  font-size: var(--fs-xs);
+  flex: none;
+}
+
+.mineru-btn {
+  padding: 5px 12px;
+  font-size: var(--fs-xs);
+}
+
+.mineru-cmd__copy:hover:not(:disabled),
+.mineru-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--line-strong);
+  background: var(--bg-hover);
+}
+
+.mineru-cmd__copy:focus-visible,
+.mineru-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.mineru-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ==========================================================================
+   层内：布局
+   ========================================================================== */
+
+/* 状态条：圆点 + 文字。找到了就用 ok 色，没找到保持中性 —— 不靠颜色喊人 */
+.mineru-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.mineru-status__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.mineru-status--on .mineru-status__dot {
+  background: var(--ok);
+}
+
+.mineru-status--on .mineru-status__text {
+  color: var(--ok);
+}
+
+/* 路径行 */
+.mineru-path {
+  margin-top: var(--space-3);
+}
+
+.mineru-path__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin: var(--space-2) 0;
+}
+
+.mineru-path__value {
+  flex: 1 1 260px;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  padding: 4px 8px;
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  background: var(--bg-sunken);
+  border-radius: var(--radius-xs);
+}
+
+/* 命令块：等宽 + 可复制 */
+.mineru-cmd {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+  padding: 6px 10px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+}
+
+.mineru-cmd code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: var(--fs-xs);
+  color: var(--text);
+}
+
+/* 安装步骤 */
+.mineru-steps {
+  margin: var(--space-3) 0;
+  padding-left: 1.5em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  font-size: var(--fs-sm);
+}
+
+.mineru-steps__title {
+  margin: 0 0 2px;
+  font-weight: 550;
+  color: var(--text);
+}
+
+.mineru-steps__body {
+  margin: var(--space-2) 0 0;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+}
+
+.mineru-steps__body code,
+.mineru-tips code,
+.set-section__lead code {
+  padding: 1px 4px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-sunken);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.94em;
+  color: var(--text-dim);
+}
+
+.mineru-sub {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  color: var(--text);
+}
+
+.mineru-tips {
+  margin: 0;
+  padding-left: 1.4em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+}
+
+.mineru-tips strong {
+  color: var(--text-dim);
+}
+
+.mineru-note {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent);
+  background: color-mix(in srgb, var(--ok) 8%, transparent);
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+
+/* 外部链接：设置页里要能看出可点 */
+.set-section__lead a {
+  color: var(--accent-text);
+  text-decoration: none;
+}
+
+.set-section__lead a:hover {
+  text-decoration: underline;
+}

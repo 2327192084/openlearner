@@ -335,6 +335,49 @@
     font-size: var(--fs-sm);
   }
 
+  /* ---------- 无文字层提醒（2026-11-11） ----------
+   * 导入完才出现，所以放在导入结果下面。
+   * 用赭黄而不是朱砂：它是「需要你处理」的提示，不是错误，
+   * 更不是主操作（项目规矩：朱砂只给主操作与进度）。 */
+  .sources-notice {
+    margin: var(--space-3) 0;
+    padding: var(--space-4);
+    border-radius: var(--radius);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-body);
+  }
+
+  .sources-notice--warn {
+    border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+    background: color-mix(in srgb, var(--warn) 8%, transparent);
+  }
+
+  .sources-notice__title {
+    margin: 0 0 var(--space-2);
+    font-weight: 550;
+    color: var(--warn);
+  }
+
+  .sources-notice__list {
+    margin: 0 0 var(--space-2);
+    padding-left: 1.4em;
+    color: var(--text-dim);
+  }
+
+  .sources-notice__body {
+    margin: 0;
+    color: var(--text-dim);
+  }
+
+  .sources-notice__actions {
+    margin-top: var(--space-3);
+  }
+
+  .sources-notice__hint {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+  }
+
   /* ---------- 资料列表 ----------
    * 一行 = 「资料」主按钮（点开整理页）+ 「删除」次按钮。
    * 两者是兄弟而不是嵌套：button 里不能塞 button。 */

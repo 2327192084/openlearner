@@ -1341,6 +1341,7 @@ export function App({
       counts={overviewCounts}
       connected={conn.connected}
       libraryName={libName}
+      onOpenSettings={() => goPage('settings')}
       reviewProgress={null}
       trashBadge={trashBadge}
       onBack={

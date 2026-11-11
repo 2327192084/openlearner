@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppSettings, LibraryMeta } from '@/core/model.ts';
 import { LIBRARY_SCHEMA_VERSION } from '@/core/model.ts';
 import { LibraryError, backupFileName } from '@/core/library.ts';
+import { LibraryLocationRow } from './LibraryLocationRow.tsx';
+import { MineruSetupPanel } from './MineruSetupPanel.tsx';
 import type { BackendDraft, BackendView } from '@/core/backends.ts';
 import { DEFAULT_BACKEND_DRAFT } from '@/core/backends.ts';
 import type { ConnectionTestResult } from '@/core/ai/deepseek-backend.ts';
@@ -49,13 +51,21 @@ import { ConfirmDialog } from './dialog.tsx';
  * 不做「保存即成功」的假绿灯。
  */
 
-type Category = 'library' | 'home' | 'grading' | 'model' | 'backup';
+type Category = 'library' | 'home' | 'grading' | 'model' | 'parse' | 'backup';
 
 const CATEGORIES: { id: Category; label: string; group: string }[] = [
   { id: 'library', label: '学习库', group: '常用' },
   { id: 'home', label: '首页小组件', group: '常用' },
   { id: 'grading', label: '做题评分', group: '常用' },
   { id: 'model', label: '模型与出题', group: '常用' },
+  /*
+   * 文档解析独立成一类（2026-11-11）。
+   *
+   * 不塞进「模型与出题」：MinerU 不是模型，它是本地解析工具，
+   * 跟 AI 后端是两回事（一个填 API Key，一个装 exe）。
+   * 混在一起会让用户以为"没连模型所以解析不了"。
+   */
+  { id: 'parse', label: '文档解析', group: '常用' },
   { id: 'backup', label: '备份与恢复', group: '数据' },
 ];
 
@@ -253,6 +263,8 @@ export function SettingsPage({ onChanged }: SettingsPageProps) {
               onRefresh={refreshAll}
               onFlash={setFlash}
             />
+          ) : cat === 'parse' ? (
+            <MineruSetupPanel />
           ) : (
             <BackupPane
               meta={meta}
@@ -587,6 +599,14 @@ function LibraryPane({ meta, counts, settings, backends, onRefresh, onFlash }: L
             />
           </label>
         </div>
+
+        {/*
+          创建前就显示会存到哪（2026-11-11 用户要求）。
+          原话：「在设置里创建学习库时没有告诉我学习库的具体路径，
+          到时候用户安装时先让其选择学习库保存路径」。
+        */}
+        <LibraryLocationRow />
+
         <div className="set-actions">
           <button
             type="button"
@@ -635,6 +655,9 @@ function LibraryPane({ meta, counts, settings, backends, onRefresh, onFlash }: L
             {busy ? '保存中…' : '保存名字'}
           </button>
         </div>
+
+        {/* 库存在哪 + 能不能改（2026-11-11 用户要求） */}
+        <LibraryLocationRow />
       </div>
 
       <div className="set-section">

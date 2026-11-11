@@ -331,6 +331,56 @@
     color: var(--text-muted);
   }
 
+  /* 工作库按钮与弹层（2026-11-11 用户要求可点击） */
+
+  /* 相对定位的锚：弹层以它为基准绝对定位 */
+  .topbar__lib-wrap {
+    position: relative;
+    display: inline-flex;
+  }
+
+  .topbar__lib-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 70;
+    width: 380px;
+    max-width: calc(100vw - 32px);
+    padding: var(--space-3) var(--space-4);
+    background: var(--bg-surface);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-md);
+    /* 面板里的文字回到正常字号，不继承顶栏的 12px */
+    font-size: var(--fs-sm);
+  }
+
+  .topbar__lib-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-2);
+    font-size: var(--fs-sm);
+    font-weight: 550;
+    color: var(--text);
+  }
+
+  .topbar__lib-close {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+  }
+
+  .topbar__lib-more {
+    display: block;
+    width: 100%;
+    margin-top: var(--space-2);
+    padding: var(--space-2) 0 0;
+    text-align: left;
+    font-size: var(--fs-xs);
+    color: var(--accent-text);
+    border-top: 1px solid var(--line-soft);
+  }
+
   /* 连接状态：绿点 + 文字 */
   .topbar__status {
     display: inline-flex;
@@ -560,4 +610,63 @@
 .trash-notice__close {
   flex: 0 0 auto;
   margin-left: 4px;
+}
+
+/* ==========================================================================
+   工作库按钮（2026-11-11）
+   ⚠️ 层外：base.css 有不在任何 @layer 内的 button 规则，
+   写进 @layer 会被它盖掉（项目踩过六次以上）。
+   ========================================================================== */
+
+.topbar__lib {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  cursor: pointer;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.topbar__lib:hover,
+.topbar__lib--open {
+  background: var(--bg-hover);
+  border-color: var(--line-soft);
+}
+
+.topbar__lib:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.topbar__lib-close {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  line-height: 1;
+}
+
+.topbar__lib-close:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.topbar__lib-more {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+}
+
+.topbar__lib-more:hover {
+  color: var(--accent);
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { LibraryLocationRow } from './LibraryLocationRow.tsx';
 import {
   GROUPS,
   pagesInGroup,
@@ -37,6 +38,13 @@ export interface AppShellProps {
   /** 当前工作库名 */
   libraryName?: string;
   /**
+   * 去设置页管理学习库（2026-11-11）。
+   *
+   * 顶栏「工作库」面板里的「在设置里管理」用它跳转。
+   * 不传就不显示那个入口（不摆假按钮）。
+   */
+  onOpenSettings?: () => void;
+  /**
    * 回收站里「快被彻底删除」的项数（2026-11-08）。
    *
    * 显示成角标。为什么需要：用户不一定会主动点开回收站，
@@ -67,6 +75,7 @@ export function AppShell({
   reviewProgress,
   connected = false,
   libraryName = 'openleaner',
+  onOpenSettings,
   trashBadge = 0,
   onBack,
   canGoBack = false,
@@ -74,6 +83,8 @@ export function AppShell({
   children,
 }: AppShellProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  /** 顶栏「工作库」面板是否展开（2026-11-11） */
+  const [libOpen, setLibOpen] = useState(false);
   /**
    * 分组折叠状态。
    *
@@ -308,8 +319,56 @@ export function AppShell({
           <span className="topbar__spacer" />
 
           {/* 右侧状态区：工作库 + 连接状态 + 信封 */}
-          <span className="topbar__lib">
-            工作库：<strong>{libraryName}</strong>
+          {/*
+            工作库可点击（2026-11-11 用户要求）。
+            原话：「软件右上角这个工作库按钮应该可以点击，点击后可以
+            自由切换学习库或是更改库的路径」。
+
+            点击展开一个小面板：显示库存在哪、能在资源管理器里打开、
+            以及跳去设置改位置。不做「就地切换库」—— 切换库要重启
+            （IndexedDB 在启动时绑定），在顶栏里假装能切只会误导。
+          */}
+          <span className="topbar__lib-wrap">
+            <button
+              type="button"
+              className={`topbar__lib${libOpen ? ' topbar__lib--open' : ''}`}
+              onClick={() => setLibOpen((v) => !v)}
+              aria-expanded={libOpen}
+              title="查看学习库位置"
+            >
+              工作库：<strong>{libraryName}</strong>
+            </button>
+
+            {libOpen ? (
+              <div className="topbar__lib-panel" role="dialog" aria-label="学习库">
+                <div className="topbar__lib-panel-head">
+                  <span>学习库</span>
+                  <button
+                    type="button"
+                    className="topbar__lib-close"
+                    onClick={() => setLibOpen(false)}
+                    aria-label="关闭"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <LibraryLocationRow compact />
+
+                {onOpenSettings ? (
+                  <button
+                    type="button"
+                    className="topbar__lib-more"
+                    onClick={() => {
+                      setLibOpen(false);
+                      onOpenSettings();
+                    }}
+                  >
+                    在设置里管理学习库 →
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </span>
           <span
             className={`topbar__status${connected ? ' topbar__status--on' : ''}`}

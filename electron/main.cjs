@@ -17,6 +17,61 @@ const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
 
+/**
+ * 「用户指定的学习库位置」记在哪（2026-11-11）。
+ *
+ * ## 为什么不能存在学习库里
+ *
+ * 这个文件决定「去哪个目录找库」。存进库就是循环依赖：
+ * 要读这个文件才知道库在哪，而库又存着这个文件。
+ *
+ * 所以放在系统的 AppData 里 —— 那是个**永远存在、与库位置无关**的地方。
+ */
+const LOCATION_FILE_DIR = path.join(
+  process.env.APPDATA || os.homedir(),
+  'OpenLeaner',
+);
+const LOCATION_FILE = path.join(LOCATION_FILE_DIR, 'library-location.json');
+
+/**
+ * 用户手工指定的 mineru.exe 记在哪（2026-11-11）。
+ *
+ * 与库位置同理：解析工具的位置跟学习库无关，库坏了也该能改它，
+ * 所以放 AppData 而不是存进 IndexedDB。
+ */
+const MINERU_FILE = path.join(LOCATION_FILE_DIR, 'mineru-path.json');
+
+/** 读用户指定的 mineru.exe；没有或无效返回 null */
+function readMineruCustomPath() {
+  try {
+    if (!fs.existsSync(MINERU_FILE)) return null;
+    const parsed = JSON.parse(fs.readFileSync(MINERU_FILE, 'utf8'));
+    const p = parsed && typeof parsed.path === 'string' ? parsed.path : null;
+    if (!p || !path.isAbsolute(p)) return null;
+    return fs.existsSync(p) ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 读用户指定过的库位置；没指定过返回 null。
+ *
+ * 失败一律当「没指定」处理：一个坏掉的配置文件不该让软件起不来。
+ */
+function readRequestedLibraryDir() {
+  try {
+    if (!fs.existsSync(LOCATION_FILE)) return null;
+    const raw = fs.readFileSync(LOCATION_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    const dir = parsed && typeof parsed.dir === 'string' ? parsed.dir : null;
+    if (!dir || !path.isAbsolute(dir)) return null;
+    return dir;
+  } catch {
+    return null;
+  }
+}
+
 // --------------------------------------------------------------------------
 // userData 目录：必须在任何其他操作之前确保它存在
 // --------------------------------------------------------------------------
@@ -34,6 +89,20 @@ const os = require('node:os');
 // 所以：自己建，并且真的验证可写（只读目录同样会让 Chromium 崩）。
 function ensureUserDataDir() {
   const candidates = [];
+
+  /*
+   * 0) 用户明确指定过的位置（2026-11-11）。
+   *
+   * 优先级最高：用户点了「更改位置」就是希望用那里，
+   * 不能被后面的默认探测盖掉。
+   *
+   * 万一那个位置不可写（盘拔了、目录删了），下面的 try/catch
+   * 会自动跳过它、退回默认探测 —— 不会因为一个失效的偏好让软件起不来。
+   */
+  const requested = readRequestedLibraryDir();
+  if (requested) {
+    candidates.push(requested);
+  }
 
   // 1) 默认位置（Electron 自己算出来的）
   try {
@@ -800,6 +869,14 @@ function registerMineru() {
   // 探测一次，缓存在进程内。用户装了 MinerU 之后重启应用即可生效。
   mineruStatus = require('./mineru.cjs').detectMineru({
     userDataDir: app.getPath('userData'),
+    /*
+     * 用户在设置里手工指定的 exe（2026-11-11）。
+     *
+     * 优先级高于环境变量与自动探测 —— 他明确指了就按他的来。
+     * 存在 AppData 下的一个小文件里（不能存进学习库：
+     * 解析工具的位置与库无关，库坏了也要能改它）。
+     */
+    customExe: readMineruCustomPath(),
   });
 
   // preload 用 sendSync 取可用性：它是同步属性访问，
@@ -817,8 +894,144 @@ function registerMineru() {
   // 路径由 preload 的 webUtils.getPathForFile 得到（用户自己选的文件），
   // 页面无法凭空构造一个路径。
 
-  ipcMain.handle('openleaner:remember-source-path', (_event, payload) => {
-    const body = payload && typeof payload === 'object' ? payload : {};
+  /*
+   * 学习库位置（2026-11-11）。
+   *
+   * ## 为什么需要
+   *
+   * 用户反馈：「创建学习库时没有告诉我具体路径」。
+   * 之前数据落在哪完全由 ensureUserDataDir() 的探测顺序决定，
+   * 用户既看不到、也管不了 —— 换一次安装方式数据就「搬家」
+   * （11-11 真的发生过一次，用户以为数据全丢了）。
+   *
+   * 所以把位置**暴露出来**并允许改。改路径要重启才生效：
+   * Chromium 在启动早期就把 IndexedDB 绑到 userData 上了，
+   * 运行中换目录做不到，硬做只会写出两个半库。
+   */
+  /*
+   * ⚠️ 这两个必须用 ipcMain.on + event.returnValue，**不能**用 handle。
+   *
+   * 渲染层用的是 ipcRenderer.sendSync（要同步拿路径，异步会让设置页
+   * 先空一帧再跳出内容）。sendSync 配 handle 会**永久阻塞渲染进程** ——
+   * 表现为页面白屏、CDP 连上但 Runtime.enable 超时。踩过。
+   */
+  ipcMain.on('openleaner:library-location-sync', (event) => {
+    event.returnValue = {
+      dir: app.getPath('userData'),
+      /* 库文件在 userData 下的 IndexedDB 目录里 */
+      dataDir: path.join(app.getPath('userData'), 'IndexedDB'),
+    };
+  });
+
+  ipcMain.handle('openleaner:pick-library-dir', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const result = await dialog.showOpenDialog(win, {
+      title: '选择学习库保存位置',
+      properties: ['openDirectory', 'createDirectory'],
+      buttonLabel: '用这个文件夹',
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+
+    const chosen = result.filePaths[0];
+    /*
+     * 记下来，下次启动生效。
+     *
+     * 存在 userData 之外：这个文件决定「去哪个库读数据」，
+     * 放进库里就成循环依赖了。
+     */
+    try {
+      fs.mkdirSync(LOCATION_FILE_DIR, { recursive: true });
+      fs.writeFileSync(
+        LOCATION_FILE,
+        JSON.stringify({ dir: chosen, requestedAt: new Date().toISOString() }, null, 2),
+        'utf8',
+      );
+    } catch (e) {
+      return { ok: false, message: `记下新位置失败：${e && e.message}`, dir: chosen };
+    }
+
+    return { ok: true, message: null, dir: chosen };
+  });
+
+  /*
+   * 在资源管理器里打开库目录。
+   *
+   * 用户想自己备份时，找不到目录就等于没有备份能力。
+   * 直接用 shell.openPath，失败返回错误字符串（不静默）。
+   */
+  ipcMain.handle('openleaner:reveal-library-dir', async () => {
+    const dir = app.getPath('userData');
+    const err = await shell.openPath(dir);
+    return err ? { ok: false, message: err } : { ok: true, message: null };
+  });
+
+  /*
+   * MinerU 手工路径（2026-11-11）。
+   *
+   * 三个动作：读当前值、弹框选 exe、存/清。
+   * 选完要重启才生效（探测在启动时做一次）—— 如实告诉用户，
+   * 不当场假装已经能用。
+   */
+  /* 同上：sendSync 必须配 ipcMain.on */
+  ipcMain.on('openleaner:mineru-custom-path-sync', (event) => {
+    event.returnValue = readMineruCustomPath();
+  });
+
+  ipcMain.handle('openleaner:mineru-pick-exe', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const result = await dialog.showOpenDialog(win, {
+      title: '选择 mineru.exe',
+      properties: ['openFile'],
+      filters: [
+        { name: '可执行文件', extensions: ['exe'] },
+        { name: '所有文件', extensions: ['*'] },
+      ],
+      buttonLabel: '用这个',
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+
+    const chosen = result.filePaths[0];
+    /* 基本校验：文件名得像 mineru，否则多半是选错了 */
+    const base = path.basename(chosen).toLowerCase();
+    if (!base.startsWith('mineru')) {
+      return {
+        ok: false,
+        message: `这个文件名不像 MinerU（期望以 mineru 开头）：${base}`,
+        path: chosen,
+      };
+    }
+
+    try {
+      fs.mkdirSync(LOCATION_FILE_DIR, { recursive: true });
+      fs.writeFileSync(
+        MINERU_FILE,
+        JSON.stringify({ path: chosen, savedAt: new Date().toISOString() }, null, 2),
+        'utf8',
+      );
+      return { ok: true, message: null, path: chosen };
+    } catch (e) {
+      return { ok: false, message: `保存失败：${e && e.message}`, path: chosen };
+    }
+  });
+
+  ipcMain.handle('openleaner:mineru-set-custom-path', (_event, p) => {
+    try {
+      if (p === null) {
+        if (fs.existsSync(MINERU_FILE)) fs.unlinkSync(MINERU_FILE);
+        return { ok: true, message: null };
+      }
+      if (typeof p !== 'string' || !path.isAbsolute(p)) {
+        return { ok: false, message: '需要一个绝对路径' };
+      }
+      fs.mkdirSync(LOCATION_FILE_DIR, { recursive: true });
+      fs.writeFileSync(MINERU_FILE, JSON.stringify({ path: p }), 'utf8');
+      return { ok: true, message: null };
+    } catch (e) {
+      return { ok: false, message: e && e.message };
+    }
+  });
+
+  ipcMain.handle('openleaner:remember-source-path', (_event, payload) => {    const body = payload && typeof payload === 'object' ? payload : {};
     const sourceId = typeof body.sourceId === 'string' ? body.sourceId : '';
     const filePath = typeof body.filePath === 'string' ? body.filePath : '';
     if (!sourceId || !filePath || !path.isAbsolute(filePath)) return false;

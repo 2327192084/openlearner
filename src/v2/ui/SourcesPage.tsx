@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Source } from '@/core/model.ts';
 import type { SourceService, ImportOutcome } from '@/core/sources.ts';
 import { IconSources, IconUpload } from './icons.tsx';
@@ -54,6 +54,38 @@ export function SourcesPage({
   const [deleting, setDeleting] = useState<Source | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  /**
+   * 本机 MinerU 是否可用（2026-11-11）。
+   *
+   * 从 preload 的同步 getter 读 —— 主进程启动时探测过一次，
+   * 这里只取结果，不再触发探测。
+   *
+   * 为什么要判断它：无文字层的文件只有靠 MinerU 才能转出正文。
+   * 没装的时候不该给一个点了必然失败的按钮（硬约束：不做假开关），
+   * 而应直接说明去哪装。
+   */
+  const mineruReady = Boolean(
+    typeof window !== 'undefined' ? window.openleaner?.mineru?.available : false,
+  );
+
+  /**
+   * 导入后发现的「没有文字层」的资料（2026-11-11）。
+   *
+   * 只在**刚导入**的结果里找，不是全库扫：
+   * 全库扫会把用户几个月前的旧扫描件每次都翻出来提醒一遍，
+   * 那是骚扰而不是帮助。
+   */
+  const noTextSources: Source[] = useMemo(() => {
+    const out: Source[] = [];
+    for (const r of results ?? []) {
+      if (r.ok && r.source && r.source.textStatus === 'no-text-layer') {
+        /* 同一次导入里可能重复出现（拖了两次同名文件），去重 */
+        if (!out.some((s) => s.id === r.source!.id)) out.push(r.source);
+      }
+    }
+    return out;
+  }, [results]);
 
   const load = useCallback(async () => {
     try {
@@ -196,13 +228,19 @@ export function SourcesPage({
         </div>
       ) : null}
 
-      {/* 课程选择（简化版：未分类） */}
-      <div className="sources-course">
-        <span className="sources-course__label">未分类</span>
-        <button type="button" className="btn-text">
-          更改
-        </button>
-      </div>
+      {/*
+        课程选择条已删除（2026-11-11）。
+
+        原来这里是「未分类  更改」—— 但那个「更改」按钮没有任何 onClick，
+        点下去什么都不会发生。用户明确反馈「这两个按钮是假的，删掉」。
+
+        而且整条都是死的：它不显示真实的课程归属（永远写死「未分类」），
+        也不反映资料页的筛选状态。留着比没有更糟 ——
+        它让用户以为能改，试一次就发现是摆设。
+
+        真要做「按课程归类资料」，得先有课程管理（建/改名/删除）与
+        逐份资料的归属编辑，那是独立一件事，不在这一行里硬塞。
+      */}
 
       {/* 三标签 */}
       <div className="sources-tabs" role="tablist">
@@ -324,17 +362,21 @@ export function SourcesPage({
         </div>
       ) : null}
 
-      {/* 格式说明折叠 */}
-      <details className="sources-note">
-        <summary>
-          <span>PDF 解析</span>
-          <span className="sources-note__hint">扫描件、公式多或大文件</span>
-        </summary>
-        <p>
-          讲义和笔记保存为资料，原文件一并保留；JSON 题组存为草稿；
-          字幕和录音在「音频 / 录音」里确认用量后导入。
-        </p>
-      </details>
+      {/*
+        「PDF 解析」折叠块已删除（2026-11-11）。
+
+        用户反馈「图二的按钮是假的，删掉」。核对后确实两边都不成立：
+        - **标题与内容不符**：标题写「PDF 解析」，展开讲的却是
+          「讲义保存为资料 / JSON 存草稿 / 字幕在音频里导入」——
+          跟 PDF 解析没有任何关系。
+        - **点了没有动作**：它只是个 <details>，没有任何解析入口。
+          真正的 PDF 解析（MinerU）在「整理知识点 / 转换」那条流程里，
+          且需要有模型才能用。
+
+        留着会让用户以为「这里能开启 PDF 解析」，点开却看到无关说明。
+        真要给解析入口，应该做成「选中资料 → 开始解析」的按钮，
+        而不是一个假装是开关的折叠块。
+      */}
 
       {/* 导入结果 */}
       {error ? <div className="sources-error">{error}</div> : null}
@@ -351,6 +393,57 @@ export function SourcesPage({
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {/*
+        无文字层提醒（2026-11-11）。
+        用户要求：「导入没有文字层的 PDF 或图片时，先提醒是否需要 PDF 解析」。
+
+        为什么放在导入结果下面而不是导入前弹窗：
+        导入前我们**不知道**这个文件有没有文字层 —— 要解析完才知道。
+        所以只能在导入完成后提示，这时判断是准确的（textStatus 已定）。
+
+        为什么要点名是哪几个文件：
+        一次拖五个文件时，用户需要知道是哪一个没文字，
+        而不是笼统说「有文件解析失败」。
+      */}
+      {noTextSources.length > 0 ? (
+        <div className="sources-notice sources-notice--warn">
+          <p className="sources-notice__title">
+            这些文件没有文字层，暂时读不到正文
+          </p>
+          <ul className="sources-notice__list">
+            {noTextSources.map((s) => (
+              <li key={s.id}>{s.title}</li>
+            ))}
+          </ul>
+          <p className="sources-notice__body">
+            扫描件、拍照或截图类文件里的字是「图片」而不是「文本」，软件读不到。
+            可以用 <strong>MinerU</strong> 做一次解析，把图里的字转成正文，之后就能
+            整理知识点、出题、搜索了。
+          </p>
+          <div className="sources-notice__actions">
+            {mineruReady ? (
+              onOrganizeSource ? (
+                <button
+                  type="button"
+                  className="btn-fill btn-fill--sm"
+                  onClick={() => onOrganizeSource(noTextSources[0]!)}
+                >
+                  去解析这份资料
+                </button>
+              ) : null
+            ) : (
+              /*
+               * 没有 MinerU 时不摆一个点了会失败的按钮，
+               * 直接说明去哪装（硬约束：不做假开关）。
+               */
+              <span className="sources-notice__hint">
+                本机还没有 MinerU。到「设置 → 模型与解析」里可以查看安装方式。
+              </span>
+            )}
+          </div>
+        </div>
       ) : null}
 
       {/* 资料列表 */}

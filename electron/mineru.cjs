@@ -72,6 +72,16 @@ function detectMineru(options = {}) {
 
   const candidates = [];
 
+  /*
+   * 用户在设置里手工指定的 exe（2026-11-11）。
+   *
+   * 排第一：他明确指了就是最可靠的信号，比环境变量还直接 ——
+   * 环境变量要自己配、还容易写错路径，而这个是在软件里点两下选的。
+   */
+  if (typeof options.customExe === 'string' && options.customExe.trim()) {
+    candidates.push({ p: options.customExe.trim(), why: '设置里手工指定' });
+  }
+
   const fromEnv = env.MINERU_EXE;
   if (typeof fromEnv === 'string' && fromEnv.trim()) {
     candidates.push({ p: fromEnv.trim(), why: '环境变量 MINERU_EXE' });
