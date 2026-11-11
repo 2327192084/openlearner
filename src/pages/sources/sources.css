@@ -21,7 +21,7 @@
 /* 拖拽落区：整块可投，不做成一圈虚线给人「要点」的错觉
  *
  * ⚠️ 2026-11-09 删除：这组规则曾与 v2 的 `.dropzone` 同名冲突。
- * 本文件的 `background: var(--c-surface-2)` 用的是 v1 变量，
+ * 本文件的 `background: var(--bg-raised)` 用的是 v1 变量，
  * 在 v2 里**没有定义** —— 于是 background 失效、露出浏览器默认白底。
  * 实测资料页那个大白块就是这么来的（CDP 查到两条 .dropzone 规则同时命中）。
  *
@@ -35,9 +35,9 @@
   flex-direction: column;
   gap: var(--sp-2);
   padding: var(--sp-3) var(--sp-4);
-  border: 1px solid var(--c-border);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--c-surface-2);
+  background: var(--bg-raised);
 }
 
 .import-progress__line {
@@ -45,7 +45,7 @@
   align-items: center;
   gap: var(--sp-2);
   font-size: var(--fs-sm);
-  color: var(--c-text-2);
+  color: var(--text-dim);
 }
 
 .import-progress__file {
@@ -55,20 +55,20 @@
   white-space: nowrap;
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
-  color: var(--c-text-3);
+  color: var(--text-muted);
 }
 
 .import-progress__bar {
   height: 4px;
   border-radius: 999px;
-  background: var(--c-border);
+  background: var(--line);
   overflow: hidden;
 }
 
 .import-progress__fill {
   height: 100%;
   border-radius: 999px;
-  background: var(--c-primary);
+  background: var(--accent);
   transition: width 0.2s ease;
 }
 
@@ -101,18 +101,18 @@
   flex-direction: column;
   gap: var(--sp-1);
   padding: var(--sp-3) var(--sp-4);
-  border: 1px solid var(--c-border);
+  border: 1px solid var(--line);
   border-left-width: 3px;
   border-radius: var(--radius);
-  background: var(--c-surface-2);
+  background: var(--bg-raised);
 }
 
 .outcome--ok {
-  border-left-color: var(--c-success);
+  border-left-color: var(--ok);
 }
 
 .outcome--fail {
-  border-left-color: var(--c-danger);
+  border-left-color: var(--bad);
 }
 
 .outcome__head {
@@ -133,7 +133,7 @@
 
 .outcome__message {
   font-size: var(--fs-sm);
-  color: var(--c-text-2);
+  color: var(--text-dim);
   line-height: 1.6;
 }
 
@@ -141,8 +141,13 @@
 .outcome__hint {
   padding: var(--sp-2) var(--sp-3);
   border-radius: var(--radius-sm);
-  background: var(--c-warning-soft);
-  color: color-mix(in srgb, var(--c-warning) 88%, #000);
+  /*
+   * v1 的 --c-warning-soft 是浅色主题下的淡黄底（#fdf3e3）——
+   * 换成 v2 的 --warn 做低透明度叠加才对得上深色主题。
+   * 2026-11-11：本文件原来整套用 v1 token，在深色页上会刷出近白底。
+   */
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  color: color-mix(in srgb, var(--warn) 88%, #000);
   font-size: var(--fs-sm);
   line-height: 1.6;
 }
@@ -164,8 +169,8 @@
   justify-content: space-between;
   gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-5);
-  border-bottom: 1px solid var(--c-border);
-  background: var(--c-surface-2);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-raised);
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 
@@ -198,7 +203,7 @@
   justify-content: space-between;
   gap: var(--sp-4);
   padding: var(--sp-3) var(--sp-5);
-  border-top: 1px solid var(--c-border);
+  border-top: 1px solid var(--line);
 }
 
 .source-item:first-child {
@@ -206,7 +211,7 @@
 }
 
 .source-item:hover {
-  background: var(--c-surface-2);
+  background: var(--bg-raised);
 }
 
 .source-item__main {
@@ -247,11 +252,11 @@
   gap: var(--sp-2);
   flex-wrap: wrap;
   font-size: var(--fs-xs);
-  color: var(--c-text-3);
+  color: var(--text-muted);
 }
 
 .source-item__sep {
-  color: var(--c-border-strong);
+  color: var(--line-strong);
 }
 
 .source-item__actions {
@@ -272,11 +277,11 @@
 /* 已生成内容计数：P1 恒为 0，位置先占住，避免 P2 上线后列表跳动 */
 .gen-count {
   font-variant-numeric: tabular-nums;
-  color: var(--c-text-3);
+  color: var(--text-muted);
 }
 
 .gen-count--zero {
-  color: var(--c-text-3);
+  color: var(--text-muted);
 }
 
 .course-create {

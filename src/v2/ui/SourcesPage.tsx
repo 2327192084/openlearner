@@ -3,6 +3,7 @@ import type { Source } from '@/core/model.ts';
 import type { SourceService, ImportOutcome } from '@/core/sources.ts';
 import { IconSources, IconUpload } from './icons.tsx';
 import { ConfirmDialog } from './dialog.tsx';
+import { disambiguateTitles } from '@/core/source-title.ts';
 
 /**
  * 资料页。
@@ -41,6 +42,19 @@ export function SourcesPage({
 }: SourcesPageProps) {
   const [tab, setTab] = useState<Tab>('file');
   const [sources, setSources] = useState<Source[] | null>(null);
+  /**
+   * 重名消歧（2026-11-11）。
+   *
+   * 用户库里有**两份同名 PDF**（同一次导入做了两次，内容不同）。
+   * 与「文档解析」「整理知识点」共用同一个纯函数 ——
+   * 三个入口看到的编号必须一致，否则用户会更糊涂。
+   *
+   * ⚠️ 注意改的是**这个**文件（`src/v2/ui/SourcesPage.tsx`），
+   * 不是 `src/pages/sources/SourcesPage.tsx` —— 后者是 v1，
+   * `App.tsx` 引用的是 `./SourcesPage.tsx`（v2 这份）。
+   * 我第一次就改错了文件，改完发现标题没变才查出来。
+   */
+  const titleById = useMemo(() => disambiguateTitles(sources ?? []), [sources]);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; name: string } | null>(
     null,
@@ -457,7 +471,7 @@ export function SourcesPage({
                 onClick={() => onOpenSource(s)}
                 title="打开原文"
               >
-                <span className="source-row__title">{s.title}</span>
+                <span className="source-row__title">{titleById.get(s.id) ?? s.title}</span>
                 <span className="source-row__meta">
                   {s.kind.toUpperCase()} · {s.pageCount ?? '?'} 页 · {s.segmentCount} 段
                 </span>

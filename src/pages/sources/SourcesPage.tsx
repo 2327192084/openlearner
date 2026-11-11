@@ -3,6 +3,7 @@ import { Badge, EmptyState, ErrorState, LoadingState, Notice } from '@/component
 import { useServices } from '@/app/services-context.ts';
 import type { Course, Source } from '@/core/model.ts';
 import type { CourseGroup, ImportOutcome } from '@/core/sources.ts';
+import { disambiguateTitles } from '@/core/source-title.ts';
 import { ImportPanel } from './ImportPanel.tsx';
 import { SourceReader } from './SourceReader.tsx';
 import { SourceDetailDrawer } from './SourceDetailDrawer.tsx';
@@ -87,6 +88,15 @@ export function SourcesPage() {
     if (groups.kind !== 'ready') return [];
     return groups.data.flatMap((g) => g.sources);
   }, [groups]);
+
+  /**
+   * 重名消歧（2026-11-11）。
+   *
+   * 用户库里有**两份同名 PDF**（同一次导入做了两次），内容不同。
+   * 这里给它们加「（1）」「（2）」，与「文档解析」「整理知识点」两处
+   * 用同一个纯函数 —— 三个入口看到的编号必须一致，否则用户会更糊涂。
+   */
+  const titleById = useMemo(() => disambiguateTitles(allSources), [allSources]);
 
   const activeSource =
     view.kind === 'reader' ? allSources.find((s) => s.id === view.sourceId) ?? null : null;
@@ -503,6 +513,7 @@ export function SourcesPage() {
               group={group}
               courses={courses}
               movingId={movingId}
+              titleById={titleById}
               onOpen={(source) => setView({ kind: 'reader', sourceId: source.id })}
               onMove={(source, courseId) => void handleMoveSource(source, courseId)}
             />
@@ -523,12 +534,21 @@ function CourseSection({
   group,
   courses,
   movingId,
+  titleById,
   onOpen,
   onMove,
 }: {
   group: CourseGroup;
   courses: Course[];
   movingId: string | null;
+  /**
+   * id → 显示标题（重名的带（1）（2）后缀，2026-11-11）。
+   *
+   * 由宿主算好传进来，而不是在这里各自算一遍：
+   * 消歧必须**跨课程分组**看全库 —— 两份同名资料可能分在不同课程里，
+   * 只看本组会漏掉重名。
+   */
+  titleById: Map<string, string>;
   onOpen: (source: Source) => void;
   onMove: (source: Source, courseId: string | null) => void;
 }) {
@@ -565,7 +585,7 @@ function CourseSection({
                   title="打开阅读器"
                 >
                   <span className="source-item__title">
-                    <strong>{source.title}</strong>
+                    <strong>{titleById.get(source.id) ?? source.title}</strong>
                     <Badge tone="neutral">{kindLabel(source.kind)}</Badge>
                     {source.textStatus !== 'ready' ? (
                       <Badge tone={source.textStatus === 'decode-failed' ? 'danger' : 'planned'}>
