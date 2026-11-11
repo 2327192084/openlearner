@@ -74,6 +74,8 @@ interface OpenLeanerBridge {
       exePath: string;
       outDir: string;
       tier?: string;
+      /** 页范围（2026-11-11）：「all」或「3-15」。不传 = 整份 */
+      pages?: string;
     }) => Promise<
       { ok: true; result: unknown } | { ok: false; message: string; trouble?: string }
     >;

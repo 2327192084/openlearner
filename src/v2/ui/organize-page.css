@@ -480,3 +480,140 @@
   border-radius: var(--radius-pill);
   transition: width 300ms ease;
 }
+
+/* ---------- 解析方式选择（2026-11-11） ----------
+ *
+ * 「完整解析 / 分片解析」。用户要求分片能指定起止页。
+ *
+ * ⚠️ 硬约束 2：radio 与 number 输入都是原生控件，配色写**层外**
+ *    （本文件不套 @layer）。
+ * ⚠️ token 用 v2 的（--bg-* / --text* / --accent），
+ *    不要用 v1 的 --c-*（浅色主题，会把深色面板刷白）。
+ */
+
+.prp {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+  margin-bottom: var(--space-3, 12px);
+}
+
+.prp__modes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 每个选项 = radio + 名称 + 说明，整块可点 */
+.prp__mode {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--bg-sunken);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.prp__mode:hover {
+  border-color: var(--line-strong);
+}
+
+/* 选中态：边框用强调色，底色极淡叠加 */
+.prp__mode--on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg-sunken));
+}
+
+.prp__mode input[type='radio'] {
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex: none;
+}
+
+.prp__mode-name {
+  font-size: var(--fs-sm, 13px);
+  color: var(--text);
+  font-weight: 600;
+  flex: none;
+}
+
+.prp__mode-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+/* 页范围输入行 */
+.prp__range {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2, 8px);
+  padding-left: 4px;
+}
+
+.prp__field {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.prp__label {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.prp__input {
+  width: 64px;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: var(--fs-sm, 13px);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--text);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 8px);
+}
+
+.prp__input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* 去掉 number 自带的上下箭头 */
+.prp__input::-webkit-outer-spin-button,
+.prp__input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.prp__ok {
+  font-size: 12.5px;
+  color: var(--ok, #5fb58a);
+  font-variant-numeric: tabular-nums;
+}
+
+.prp__bad {
+  font-size: 12.5px;
+  color: var(--warn, #d9a441);
+}
+
+/* 说明文字 */
+.prp__note {
+  margin: 0;
+  padding-left: 4px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+/* 分片解析会替换现有正文 —— 这条必须让人看见，所以用警示色 + 前缀符号 */
+.prp__note--warn {
+  color: var(--warn, #d9a441);
+}

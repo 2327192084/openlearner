@@ -30,6 +30,16 @@ export interface MinerURequest {
   outDir: string;
   /** 解析档位：basic（只用 ONNX 小模型）/ standard（小模型 + VLM） */
   tier?: 'flash' | 'basic' | 'standard' | 'advanced';
+  /**
+   * 解析页范围（2026-11-11）。
+   *
+   * 用户要求两种方式：「完整解析」与「分片解析」。
+   *  - `'all'` 或不传 → 整份（原有行为）
+   *  - `'3-15'`       → 只解析第 3 到 15 页（1 基，两端都含）
+   *
+   * 只对 PDF 有意义；图片类资料的效果由 MinerU 自己决定。
+   */
+  pages?: string;
   /** 取消信号 */
   signal?: AbortSignal;
 }
@@ -75,6 +85,8 @@ export function getMinerURunner(): MinerURunner {
             exePath: request.exePath,
             outDir: request.outDir,
             ...(request.tier ? { tier: request.tier } : {}),
+            /* 页范围（2026-11-11）。不传 = 整份 */
+            ...(request.pages ? { pages: request.pages } : {}),
           });
           if (!res.ok) {
             // 主进程给的 trouble 是分类好的，原样往上传

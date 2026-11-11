@@ -67,7 +67,21 @@ export interface ConversionReport {
  */
 export function toSegments(result: MinerUResult): ConvertedSegment[] {
   return result.pages.map((p: MinerUPage, i) => ({
-    page: i + 1,
+    /*
+     * 页码用 MinerU 自带的 `p.page`，**不是** i+1（2026-11-11 改）。
+     *
+     * 为什么：分片解析（`--pages 3-15`）时，MinerU 输出的 Markdown 里
+     * 分页标记是 `<!-- page 3 of 15 -->`、`<!-- page 4 of 15 -->`……
+     * 即 **真实页号**。若这里用 i+1，第 3 页会被写成第 1 页 ——
+     * 用户点「第 3 页」看到的是第 3 页内容，但库里标着第 1 页，
+     * 而知识点锚点全按页号存，会整批错位。
+     *
+     * 旧实现用 i+1 是**因为在完整解析下两者恰好相等**（页从 1 开始连续），
+     * 所以这个差异一直没暴露出来。分片解析才把它变成真 bug。
+     *
+     * 兜底：`p.page` 缺失或不是正数时退回 i+1，不产生 0 / NaN 页号。
+     */
+    page: typeof p.page === 'number' && p.page >= 1 ? p.page : i + 1,
     // 章节标题：这一页若以标题块开头，用它做 chapter；否则 null。
     // 不猜 —— 猜错会让目录跳转指错地方。
     chapter: p.chapter ?? null,

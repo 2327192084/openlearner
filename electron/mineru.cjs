@@ -219,7 +219,77 @@ function validateRequest(raw, options = {}) {
     return { ok: false, trouble: 'invalid-request', message: `不认识的解析档位：${tier}` };
   }
 
-  return { ok: true, value: { filePath, outDir: finalOut, tier } };
+  /*
+   * 页范围校验（2026-11-11 加）。
+   *
+   * 接受两种形状：
+   *  - 缺省 / `'all'`        → 整份解析（原有行为）
+   *  - `'<start>-<end>'`     → 只解析这一段（1 基，两端都含）
+   *
+   * 为什么在这里校验而不是相信页面：
+   * 这个值会被直接拼进子进程参数。虽然走的是 spawn（不是 shell，
+   * 不存在命令注入），但一个 `'abc'` 会让 MinerU 报一句无关的错，
+   * 用户看不出是自己的范围填错了。这里给出**能直接改**的提示。
+   */
+  let pages = 'all';
+  const rawPages = body.pages;
+  if (rawPages !== undefined && rawPages !== null && rawPages !== '') {
+    if (typeof rawPages !== 'string') {
+      return {
+        ok: false,
+        trouble: 'invalid-request',
+        message: '页范围必须是字符串，例如 "3-15" 或 "all"。',
+      };
+    }
+    const text = rawPages.trim();
+    if (text === 'all') {
+      pages = 'all';
+    } else {
+      /* 只允许 `数字-数字` 或单个数字 */
+      const m = /^(\d+)(?:\s*-\s*(\d+))?$/.exec(text);
+      if (!m) {
+        return {
+          ok: false,
+          trouble: 'invalid-request',
+          message: `页范围「${text}」看不懂。请写成「3-15」这种形式，或选「完整解析」。`,
+        };
+      }
+      const start = Number(m[1]);
+      const end = m[2] === undefined ? start : Number(m[2]);
+      if (start < 1) {
+        return {
+          ok: false,
+          trouble: 'invalid-request',
+          message: '起始页从 1 开始，不能小于 1。',
+        };
+      }
+      if (end < start) {
+        return {
+          ok: false,
+          trouble: 'invalid-request',
+          message: `结束页（${end}）不能小于起始页（${start}）。`,
+        };
+      }
+      /*
+       * 上限交给 MinerU 自己判。
+       *
+       * 我们不知道这份 PDF 到底几页 —— 页面上的 `pageCount` 来自导入时的
+       * 元信息，可能为空、也可能与实际不符（加密 PDF / 扫描件）。
+       * 在这里硬拦会误伤，所以只挡住明显不合理的超大值，
+       * 其余让 MinerU 报它自己的错。
+       */
+      if (end > 10000) {
+        return {
+          ok: false,
+          trouble: 'invalid-request',
+          message: `结束页 ${end} 大得不合理，请检查一下。`,
+        };
+      }
+      pages = start === end ? String(start) : `${start}-${end}`;
+    }
+  }
+
+  return { ok: true, value: { filePath, outDir: finalOut, tier, pages } };
 }
 
 /**
@@ -420,13 +490,37 @@ async function runMineru(req, options = {}) {
    */
   const outFile = path.join(req.outDir, 'converted.md');
   const waitSec = options.waitSec ?? 1800;
+
+  /*
+   * 页范围（2026-11-11 加）。
+   *
+   * ## 用户要求
+   *
+   * 「完整解析就是直接让 MinerU 全部解析完整个导入资料的内容，
+   *   而分片解析可以选择解析页数，解析从哪一页开始到哪一页结束。」
+   *
+   * `--pages` 本来就是这个项目的开关，只是之前被写死成 `'all'`。
+   * 现在由 `req.pages` 传进来：
+   *  - `'all'` 或未给 → 整份
+   *  - `'3-15'`        → 只解析第 3 到 15 页
+   *
+   * ## 为什么在这里拼字符串而不是收 start/end 两个数字
+   *
+   * `--pages` 的语法是 MinerU 定的（`1-10` / `all` / 单个页码）。
+   * 在渲染层拼会在两处各写一遍格式，容易不一致；
+   * 校验（越界、起点大于终点）放在 validateRequest 里做，
+   * 这里只负责把已经校验过的值原样交给 CLI。
+   */
+  const pagesArg =
+    typeof req.pages === 'string' && req.pages.trim() !== '' ? req.pages.trim() : 'all';
+
   const args = [
     'parse',
     req.filePath,
     '--tier',
     req.tier,
     '--pages',
-    'all',
+    pagesArg,
     '--wait',
     String(waitSec),
     '--json',

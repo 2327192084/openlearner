@@ -9,6 +9,8 @@ import {
 import { getMinerURunner, type MinerUProgress, type MinerURunner } from '@/core/mineru/runner.ts';
 import type { MinerUResult } from '@/core/mineru/markdown.ts';
 import { countFigures, importFigures } from '@/core/mineru/images.ts';
+import { PageRangePicker, toPagesArg } from './PageRangePicker.tsx';
+import type { ParseMode } from './PageRangePicker.tsx';
 
 /**
  * 扫描件 / 图片文件的转换面板。
@@ -156,6 +158,27 @@ export function ConvertPanel({
 }: ConvertPanelProps) {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
   /**
+   * 解析方式与页范围（2026-11-11）。
+   *
+   * 用户要求两种：完整解析（整份）/ 分片解析（指定起止页）。
+   * 默认完整解析 —— 那是原有行为，不该因为加了选项而改变默认。
+   */
+  const [parseMode, setParseMode] = useState<ParseMode>('full');
+  const [rangeStart, setRangeStart] = useState('1');
+  /**
+   * 结束页默认值（2026-11-11）。
+   *
+   * ⚠️ 不能只写 `useState(String(source.pageCount ?? ''))`：
+   * 面板首次渲染时 `source.pageCount` 可能还是 null（元信息还没读回来），
+   * 于是结束页被固化成空串，之后 pageCount 到了也不会更新 ——
+   * 实测就出现了「结束页默认 2」这种明显不对的值。
+   *
+   * 所以：用 effect 在 pageCount 首次可用时补上，且**只补一次**
+   * （用户已经手动改过就不覆盖他的输入）。
+   */
+  const [rangeEnd, setRangeEnd] = useState(String(source.pageCount ?? ''));
+  const userTouchedEnd = useRef(false);
+  /**
    * 取图的进度说明（2026-11-08）。
    *
    * 与 phase 分开：转换已经完成（phase=done）之后才轮到取图，
@@ -172,6 +195,36 @@ export function ConvertPanel({
       aliveRef.current = false;
     };
   }, []);
+
+  /**
+   * 页数到齐后补上结束页的默认值（2026-11-11）。
+   *
+   * ## 两个都要处理的时序问题
+   *
+   * 1. `source.pageCount` 是异步读回来的，首次渲染常常是 null。
+   * 2. **用户在整理页切换资料时，本组件不会重新挂载**
+   *    （OrganizePage 没有给 key），于是 `rangeEnd` 会保留上一份资料的值 ——
+   *    实测：先选一份 2 页的资料，再切到 36 页那份，结束页还是 2。
+   *
+   * 所以这里按「上一份资料是谁」判断：换资料就重置结束页。
+   * 同一份资料内，则只在值为空时补一次，不覆盖用户手输的数字。
+   */
+  const lastSourceId = useRef(source.id);
+  useEffect(() => {
+    const switched = lastSourceId.current !== source.id;
+    if (switched) {
+      lastSourceId.current = source.id;
+      /* 换资料：结束页回到「整份」的默认，并清掉「用户动过」标记 */
+      userTouchedEnd.current = false;
+      setRangeStart('1');
+      setRangeEnd(source.pageCount ? String(source.pageCount) : '');
+      return;
+    }
+    if (userTouchedEnd.current) return;
+    const total = source.pageCount;
+    if (!total) return;
+    setRangeEnd((prev) => (prev === '' ? String(total) : prev));
+  }, [source.id, source.pageCount]);
 
   const start = useCallback(async () => {
     setPhase({ kind: 'running', progress: null });
@@ -215,6 +268,8 @@ export function ConvertPanel({
           exePath: '',
           outDir: '',
           tier: 'standard',
+          /* 页范围（2026-11-11）：完整解析传 'all'，分片传 '3-15' */
+          pages: toPagesArg(parseMode, rangeStart, rangeEnd),
         },
         (p) => {
           if (aliveRef.current) setPhase({ kind: 'running', progress: p });
@@ -248,7 +303,7 @@ export function ConvertPanel({
       const trouble = (err as Error & { trouble?: string }).trouble;
       setPhase({ kind: 'failed', message, hint: hintForTrouble(trouble) });
     }
-  }, [source, sourceService, effectiveRunner, onConverted]);
+  }, [source, sourceService, effectiveRunner, onConverted, parseMode, rangeStart, rangeEnd]);
 
   // 不需要转换的资料：不渲染这个面板（ready 的资料已经有正文）
   if (!needsConversion(source.textStatus, source.kind)) return null;
@@ -316,16 +371,36 @@ export function ConvertPanel({
             </div>
           ) : (
             <>
+              {/*
+                解析方式（2026-11-11）。
+                完整解析 = 整份；分片解析 = 指定起止页。
+                只在 idle 状态显示 —— 跑起来之后改它没有意义。
+              */}
+              <PageRangePicker
+                mode={parseMode}
+                onModeChange={setParseMode}
+                start={rangeStart}
+                onStartChange={setRangeStart}
+                end={rangeEnd}
+                onEndChange={(v) => {
+                  /* 记下「用户动过」，避免 pageCount 到位后覆盖他填的数 */
+                  userTouchedEnd.current = true;
+                  setRangeEnd(v);
+                }}
+                pageCount={source.pageCount}
+              />
+
               <button
                 type="button"
                 className="btn-fill btn-fill--sm"
                 onClick={() => void start()}
               >
-                用本机 MinerU 转成正文
+                {parseMode === 'full' ? '用本机 MinerU 转成正文' : '解析这几页'}
               </button>
               <p className="convert-panel__note">
-                首次运行可能要下载识别模型，会有一段时间没有反应 —— 那是正常的，
-                不是卡死了。整本大书可能要几十分钟。
+                {parseMode === 'full'
+                  ? '首次运行可能要下载识别模型，会有一段时间没有反应 —— 那是正常的，不是卡死了。整本大书可能要几十分钟。'
+                  : '只解析指定的页范围，通常几十秒就好。适合先看某一章。'}
               </p>
             </>
           )}
