@@ -14,9 +14,9 @@ import { locateSelection, passageToMaterial } from '@/core/selection-passage.ts'
 import type { OralMaterial } from '@/core/oral-review.ts';
 import { newId } from '@/core/id.ts';
 import { IconSources } from './icons.tsx';
-import { MathText } from './MathText.tsx';
 import { ReaderFigure } from './ReaderFigure.tsx';
 import { ReaderSidePanel } from './ReaderSidePanel.tsx';
+import { MarkdownBodyMarked } from './MarkdownBodyMarked.tsx';
 import { paintTextMarks, clearTextMarks } from './paint-marks.ts';
 import { SelectionActionBar, measureSelectionRect } from './SelectionActionBar.tsx';
 import type { RectLike } from './selection-bar-place.ts';
@@ -1053,9 +1053,23 @@ function renderBody(
   return (
     <>
       {showChapter ? <h2 className="reader-chapter">{chapter}</h2> : null}
-      {figures.length > 0
-        ? renderWithFigures(seg.text, highlight, markRef, figures)
-        : renderText(seg.text, highlight, markRef)}
+      {/*
+        2026-11-11：两条渲染路径合并成一条 MarkdownBodyMarked。
+        原来「有高亮」走切三段（不解析 Markdown → # 原样显示）、
+        「没高亮」走 MarkdownBody（解析了但不知道高亮区间）。
+        一有定位整页就退化成带 # 的纯文本，而且两边字符数不同，
+        高亮偏移与屏幕上看到的字错开 —— 用户报的
+        「标注的文字与实际显示效果不匹配」就是它。
+      */}
+      {figures.length > 0 ? (
+        renderWithFigures(seg.text, highlight, markRef, figures)
+      ) : (
+        <MarkdownBodyMarked
+          text={seg.text}
+          marks={highlightMarks(highlight)}
+          markRef={markRef}
+        />
+      )}
       <p className="reader-meta">
         第 {seg.page} 页 · {seg.charCount} 字
         {figures.length > 0 ? ` · ${figures.length} 张插图` : ''}
@@ -1095,8 +1109,8 @@ function renderWithFigures(
   let cursor = 0;
   let key = 0;
 
-  const hasHighlight =
-    highlight !== null && highlight.via !== 'none' && highlight.end > highlight.start;
+  /* hasHighlight 已不需要：两条路径合并后，MarkdownBodyMarked 自己判断
+     有没有区间与块相交。*/
 
   for (let i = 0; i < pieces.length; i++) {
     const piece = pieces[i]!;
@@ -1136,97 +1150,25 @@ function renderWithFigures(
 
     if (!slice) continue;
 
-    if (!hasHighlight) {
-      out.push(<MarkdownBody key={`t-${key++}`} text={slice} />);
-      continue;
-    }
-
     /*
-     * 把整段的 highlight 区间换算成这一小段里的局部区间。
-     * 三种情况：完全在外面（不高亮）/ 部分重叠（只高亮重叠部分）/ 整段被包住。
+     * 每个文字切片都走 MarkdownBodyMarked（2026-11-11 统一）。
+     *
+     * 传 baseOffset = sliceStart：高亮区间是相对**整段**的，
+     * 组件内部换算成本切片的局部区间。
+     * 切块与偏移都从这一份 slice 原文算，所以按插图切分也不会让标注错位。
      */
-    const hitStart = Math.max(highlight!.start, sliceStart);
-    const hitEnd = Math.min(highlight!.end, sliceStart + slice.length);
-
-    if (hitEnd <= hitStart) {
-      out.push(<MarkdownBody key={`t-${key++}`} text={slice} />);
-      continue;
-    }
-
-    const localStart = hitStart - sliceStart;
-    const localEnd = hitEnd - sliceStart;
-
     out.push(
-      <p className="reader-para reader-para--marked" key={`t-${key++}`}>
-        <MathText text={slice.slice(0, localStart)} />
-        <mark
-          className="reader-mark"
-          ref={(el) => {
-            // 高亮跨多个切片时，markRef 指向第一处（滚动定位用）
-            if (el && !markRef.current) markRef.current = el;
-          }}
-        >
-          <MathText text={slice.slice(localStart, localEnd)} />
-        </mark>
-        <MathText text={slice.slice(localEnd)} />
-      </p>,
+      <MarkdownBodyMarked
+        key={`t-${key++}`}
+        text={slice}
+        marks={highlightMarks(highlight)}
+        baseOffset={sliceStart}
+        markRef={markRef}
+      />,
     );
   }
 
   return <>{out}</>;
-}
-
-/**
- * 把一段正文按高亮区间切成三段渲染。
- *
- * 用 `<mark>` 而不是给字符套 span —— mark 是语义化的，屏幕阅读器会念出来，
- * 而且不改变文本内容本身（复制出来还是原文）。
- */
-function renderText(
-  text: string,
-  highlight: Highlight | null,
-  markRef: RefObject<HTMLElement | null>,
-) {
-  /*
-   * 有高亮时走「切三段」的老路 —— 这条路径必须精确到字符偏移，
-   * 不能掺 Markdown 解析，否则偏移会错位。
-   *
-   * 没有高亮时才做 Markdown 渲染：标题、列表、表格各自成元素，
-   * 阅读器里才能看出原文档的层次（用户反馈过「格式乱」）。
-   */
-  if (!highlight || highlight.via === 'none' || highlight.end <= highlight.start) {
-    return <MarkdownBody text={text} />;
-  }
-
-  const start = Math.max(0, Math.min(text.length, highlight.start));
-  const end = Math.max(start, Math.min(text.length, highlight.end));
-
-  const before = text.slice(0, start);
-  const hit = text.slice(start, end);
-  const after = text.slice(end);
-
-  /*
-   * 三段都要过 MathText。
-   *
-   * 为什么不能只渲染高亮那一段：一句「电压 $v_{s}$ 和电容器」里，
-   * 公式可能在高亮范围之前或之后 —— 只渲染中间那段，两边还是源码。
-   * 而高亮本身是按**字符偏移**算的，MathText 不改变字符数
-   * （它只换展示方式），所以偏移仍然准确。
-   */
-  return (
-    <p className="reader-para reader-para--marked">
-      <MathText text={before} />
-      <mark
-        className="reader-mark"
-        ref={(el) => {
-          markRef.current = el;
-        }}
-      >
-        <MathText text={hit} />
-      </mark>
-      <MathText text={after} />
-    </p>
-  );
 }
 
 /**
@@ -1247,122 +1189,6 @@ function renderText(
  * 上面三样。手写这 60 行换来的体积与可控性更划算 —— 尤其是我们必须
  * 保证渲染出来的文字与原文**完全一致**（锚点按字符偏移算）。
  */
-function MarkdownBody({ text }: { text: string }) {
-  const lines = text.split('\n');
-  const out: React.ReactNode[] = [];
-  let buffer: string[] = [];
-  let key = 0;
-
-  const flushPara = () => {
-    if (buffer.length === 0) return;
-    const joined = buffer.join('\n').trim();
-    if (joined) out.push(<p className="reader-para" key={key++}><MathText text={joined} /></p>);
-    buffer = [];
-  };
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    const trimmed = line.trim();
-
-    // 空行 → 结束当前段落
-    if (trimmed === '') {
-      flushPara();
-      continue;
-    }
-
-    // 标题
-    const heading = /^(#{1,6})\s+(.*)$/.exec(trimmed);
-    if (heading) {
-      flushPara();
-      const level = heading[1]!.length;
-      const title = heading[2];
-      const cls = `reader-md-h reader-md-h--${level}`;
-      const titleNode = <MathText text={title} />;
-      if (level === 1) out.push(<h1 className={cls} key={key++}>{titleNode}</h1>);
-      else if (level === 2) out.push(<h2 className={cls} key={key++}>{titleNode}</h2>);
-      else if (level === 3) out.push(<h3 className={cls} key={key++}>{titleNode}</h3>);
-      else out.push(<h4 className={cls} key={key++}>{titleNode}</h4>);
-      continue;
-    }
-
-    // Markdown 表格：连续的 | 开头行
-    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
-      flushPara();
-      const rows: string[][] = [];
-      let j = i;
-      while (j < lines.length) {
-        const l = lines[j]!.trim();
-        if (!l.startsWith('|') || !l.endsWith('|')) break;
-        // 分隔行 |---|---| 跳过
-        if (!/^\|[\s:-]+\|/.test(l)) {
-          rows.push(
-            l
-              .slice(1, -1)
-              .split('|')
-              .map((c) => c.trim().replace(/\\\|/g, '|')),
-          );
-        }
-        j++;
-      }
-      i = j - 1;
-      if (rows.length > 0) {
-        const [head, ...body] = rows;
-        out.push(
-          <table className="reader-md-table" key={key++}>
-            <thead>
-              <tr>{head!.map((c, ci) => <th key={ci}><MathText text={c} /></th>)}</tr>
-            </thead>
-            <tbody>
-              {body.map((r, ri) => (
-                <tr key={ri}>{r.map((c, ci) => <td key={ci}><MathText text={c} /></td>)}</tr>
-              ))}
-            </tbody>
-          </table>,
-        );
-      }
-      continue;
-    }
-
-    // 列表
-    const bullet = /^([-*+])\s+(.*)$/.exec(trimmed);
-    const numbered = /^(\d+)[.)]\s+(.*)$/.exec(trimmed);
-    if (bullet || numbered) {
-      flushPara();
-      const items: string[] = [];
-      let j = i;
-      while (j < lines.length) {
-        const l = lines[j]!.trim();
-        const b = /^([-*+])\s+(.*)$/.exec(l);
-        const n = /^(\d+)[.)]\s+(.*)$/.exec(l);
-        if (b) items.push(b[2]!);
-        else if (n) items.push(n[2]!);
-        else break;
-        j++;
-      }
-      i = j - 1;
-      if (numbered) {
-        out.push(
-          <ol className="reader-md-list" key={key++}>
-            {items.map((it, ii) => <li key={ii}><MathText text={it} /></li>)}
-          </ol>,
-        );
-      } else {
-        out.push(
-          <ul className="reader-md-list" key={key++}>
-            {items.map((it, ii) => <li key={ii}><MathText text={it} /></li>)}
-          </ul>,
-        );
-      }
-      continue;
-    }
-
-    buffer.push(line);
-  }
-
-  flushPara();
-  return <div className="reader-md">{out}</div>;
-}
-
 /**
  * 比较引文与切出来的文本时，忽略空白差异。
  *
@@ -1372,4 +1198,18 @@ function MarkdownBody({ text }: { text: string }) {
  */
 function normalizeForCompare(s: string): string {
   return s.replace(/\s+/g, '').trim();
+}
+
+/**
+ * 把内部 Highlight 转成渲染层要的区间数组（2026-11-11）。
+ *
+ * 为什么还要这一层：`Highlight` 带 `via` 字段（anchor / quote / none），
+ * 那是「定位可不可信」的信息，只给界面提示用；渲染只关心区间。
+ * 分开后渲染组件不必知道定位细节。
+ */
+function highlightMarks(highlight: Highlight | null): { start: number; end: number }[] {
+  if (!highlight) return [];
+  if (highlight.via === 'none') return [];
+  if (highlight.end <= highlight.start) return [];
+  return [{ start: highlight.start, end: highlight.end }];
 }
