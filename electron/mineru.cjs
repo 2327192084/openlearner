@@ -213,7 +213,21 @@ function validateRequest(raw, options = {}) {
     };
   }
 
-  const tier = typeof body.tier === 'string' ? body.tier : 'standard';
+  /*
+   * 档位默认值（2026-11-12 改）。
+   *
+   * 原来写死 'standard'，于是用户的本地服务只支持 flash/basic 时直接失败：
+   *   Tier 'standard' not supported by parse-server. Available: ['flash', 'basic']
+   *
+   * 默认改成 'basic'：
+   *  - 实测服务端普遍支持 basic（basic 只需要 MinerU-4_models_onnx 一个 repo）
+   *  - standard 额外依赖 GGUF 的 VLM 模型，装不全或服务未加载时就不可用
+   *
+   * 更彻底的做法是**先问服务支持什么再决定**，但 `server status` 不返回
+   * tier 能力（实测）。所以这里用「合理默认 + 失败自动降级」两层兜底：
+   * 真遇到不支持时，runMineru 会从错误信息里读出可用列表并自动重试。
+   */
+  const tier = typeof body.tier === 'string' ? body.tier : 'basic';
   const TIERS = new Set(['flash', 'basic', 'standard', 'advanced']);
   if (!TIERS.has(tier)) {
     return { ok: false, trouble: 'invalid-request', message: `不认识的解析档位：${tier}` };
@@ -844,6 +858,28 @@ async function runMineru(req, options = {}) {
   const waitSec = options.waitSec ?? 1800;
 
   /*
+   * 开跑前先删掉上次的输出（2026-11-12 修）。
+   *
+   * ## 为什么必须删
+   *
+   * 下面的判定是「输出文件里有内容就算成功」—— 这是有意的
+   * （实测 mineru 有时报错但退出码 0，不能只看退出码）。
+   *
+   * 但如果 outDir 里留着**上一次**的 converted.md，
+   * 这次哪怕完全失败，我们也会读到旧内容、误判成成功 ——
+   * 用户会看到「转好了」，实际拿到的却是上一次的结果。
+   *
+   * 实测暴露路径：测试里预先写了一个 converted.md，
+   * 于是第一次 spawn 就判成功，连错误分支都进不去。
+   * 真实场景同样会发生（同一个 outDir 复用）。
+   */
+  try {
+    if (fs.existsSync(outFile)) fs.unlinkSync(outFile);
+  } catch {
+    /* 删不掉不影响主流程；下面若读到旧内容，至少有这一步兜过底 */
+  }
+
+  /*
    * 页范围（2026-11-11 加）。
    *
    * ## 用户要求
@@ -1158,6 +1194,53 @@ async function runMineru(req, options = {}) {
          * 把三种最常见的失败翻译成用户能照着做的下一步。
          * 原来只会把原始日志拍给用户，他看不出该点哪里。
          */
+
+        /*
+         * 档位不被服务支持 → 自动降级重试（2026-11-12）。
+         *
+         * ## 用户实际报的错
+         *
+         *   Tier 'standard' not supported by parse-server.
+         *   Available: ['flash', 'basic']
+         *
+         * ## 为什么会出现
+         *
+         * 程序里 tier 默认写死成 'standard'（validateRequest 的兜底），
+         * 但本地 parse-server **实际支持哪些档位取决于它加载了哪些模型** ——
+         * 这跟用户装了什么、MinerU 什么版本、服务怎么配都有关系。
+         * 我们不能假设它一定支持 standard。
+         *
+         * ## 为什么自动降级而不是报错让用户改
+         *
+         * 用户根本不知道「档位」是什么，更不知道去哪改。
+         * 而错误信息里**已经告诉我们有哪些档位可用** ——
+         * 直接挑一个能跑的用，比让他去理解这个概念合理得多。
+         */
+        const tierMismatch = /Tier\s+'([^']+)'\s+not supported by parse-server\.\s*Available:\s*\[([^\]]*)\]/i.exec(said);
+        if (tierMismatch && !options.__tierFallback) {
+          const current = tierMismatch[1] ?? '';
+          const avail = (tierMismatch[2] ?? '')
+            .split(',')
+            .map((s) => s.trim().replace(/^['"]|['"]$/g, ''))
+            .filter(Boolean);
+
+          /*
+           * 挑哪个：优先 basic（速度/准确度的平衡点），
+           * 没有 basic 就取列表里第一个。不要选 flash ——
+           * 那是"极快但最糙"的一档，用户没要求时不该默认给他最低质量。
+           */
+          const prefer = ['basic', 'standard', 'advanced', 'flash'];
+          const pick = prefer.find((t) => avail.includes(t)) ?? avail[0];
+
+          if (pick && pick !== current) {
+            onLine?.(`当前解析服务不支持 ${current} 档，自动改用 ${pick} 档重试…`);
+            runMineru(
+              { ...req, tier: pick },
+              { ...options, __tierFallback: true },
+            ).then(finish);
+            return;
+          }
+        }
         if (/Local parse-server is disabled|parse_server\.local\.mode/i.test(said)) {
           /*
            * 本地解析服务被禁用（2026-11-12）。

@@ -326,7 +326,19 @@ export function ConvertPanel({
            */
           exePath: '',
           outDir: '',
-          tier: 'standard',
+          /*
+           * 不传 tier（2026-11-12 改）。
+           *
+           * 原来写死 'standard'，而本地 parse-server 支持哪些档位取决于
+           * 它加载了哪些模型。用户的服务只支持 flash/basic 时直接失败：
+           *   Tier 'standard' not supported by parse-server.
+           *   Available: ['flash', 'basic']
+           *
+           * 现在交给主进程决定：它默认用 basic，遇到不支持会从错误信息里
+           * 读出可用档位并自动降级重试（见 electron/mineru.cjs）。
+           * 页面不该假设本机装到了哪一档。
+           */
+          /* tier 留空 */
           /* 页范围（2026-11-11）：完整解析传 'all'，分片传 '3-15' */
           pages: toPagesArg(parseMode, rangeStart, rangeEnd),
         },
