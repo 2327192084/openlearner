@@ -65,6 +65,27 @@ describe('ExamService', () => {
       expect(paper.some((q) => q.kind === 'essay')).toBe(false);
     });
 
+    /*
+     * 2026-11-12 加计算题时漏掉的那种情况。
+     *
+     * 原来按 `q.kind !== 'essay'` 排除，计算题（graded 也是 'self'）
+     * 就混进了考场，交卷时被当成简答走字符串相似度判分。
+     * 这条测试钉住「按 graded 排除」，不是按题型名排除。
+     */
+    it('计算题也不进模拟考（同样需要人工自评）', () => {
+      const withCalc = [...pool, mkQ({ id: 'q_calc', kind: 'calc', answer: '0.5' })];
+      const paper = svc.buildPaper({ pool: withCalc, count: 100, title: 't' });
+      expect(paper.some((q) => q.kind === 'calc')).toBe(false);
+    });
+
+    it('自评类题型一道都不剩时给空卷', () => {
+      const onlySelf = [
+        mkQ({ id: 'e1', kind: 'essay' }),
+        mkQ({ id: 'c1', kind: 'calc', answer: '1' }),
+      ];
+      expect(svc.buildPaper({ pool: onlySelf, count: 10, title: 't' })).toHaveLength(0);
+    });
+
     it('抽题不重复', () => {
       const paper = svc.buildPaper({ pool, count: 3, title: 't' });
       expect(new Set(paper.map((q) => q.id)).size).toBe(paper.length);

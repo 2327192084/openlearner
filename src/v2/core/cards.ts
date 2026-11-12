@@ -236,6 +236,27 @@ export function isAnswerable(card: Card): boolean {
   return card.kind !== 'point';
 }
 
+/**
+ * 这张卡片是否需要**用户自己判对错**（2026-11-12）。
+ *
+ * 目前只有 `short` —— 它同时承接问答题与计算题（见 cards-loader 的映射），
+ * 这两类都没有可靠的程序判定：
+ *
+ *  - 问答题：意思对了、用词不同，`looseMatch` 会判错；
+ *  - 计算题：数值对但过程错 / 过程对但末步错，只看最终结果两头都不准。
+ *
+ * ## 为什么抽成函数而不是各处写 `kind === 'short'`
+ *
+ * 做题页有三个地方要问同一件事（提交时、揭晓区、底部按钮区），
+ * 漏改一处的表现是「揭晓区说答错了，但底部让用户自评」这种自相矛盾的界面。
+ * 这类「同一判断散落多处」的坑，项目在题型强转上踩过（见 cards-loader.ts）。
+ *
+ * 以后再加需要自评的题型（比如画图题），改这里一个地方就够。
+ */
+export function needsSelfGrade(card: Card): boolean {
+  return card.kind === 'short';
+}
+
 /** 卡片类型的显示名 */
 export const CARD_KIND_LABEL: Record<CardKind, string> = {
   single: '单选',

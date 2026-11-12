@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Source, KnowledgePoint, QuestionKind } from '@/core/model.ts';
+import type { Source, KnowledgePoint, QuestionKind, SourceSegment } from '@/core/model.ts';
 import type { SourceService } from '@/core/sources.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import {
@@ -167,6 +167,7 @@ export function GeneratePage({
    *  - knowledge：知识库知识点（可整库随机 / 指定一份）
    */
   const [origin, setOrigin] = useState<MaterialOrigin>('source-text');
+  const [segments, setSegments] = useState<SourceSegment[] | null>(null);
   const [acrossAll, setAcrossAll] = useState(true);
   const [sources, setSources] = useState<Source[] | null>(null);
   const [selected, setSelected] = useState<string>('');
@@ -266,6 +267,10 @@ export function GeneratePage({
         const all = await knowledge.listBySource(selected);
         if (cancelled) return;
         setPoints(all);
+        if (origin === 'source-text') {
+          const segs = await sourceService.getSegments(selected);
+          if (!cancelled) setSegments(segs);
+        }
       } catch {
         if (!cancelled) setPoints(null);
       }
@@ -273,7 +278,7 @@ export function GeneratePage({
     return () => {
       cancelled = true;
     };
-  }, [knowledge, selected]);
+  }, [knowledge, selected, origin]);
 
   /**
    * 已定位的知识点才能出题（未定位的没有出处，题目也就点不回原文）
@@ -317,16 +322,38 @@ export function GeneratePage({
     return locatablePoints.filter((p) => pickedChapters.has((p.chapter ?? '').trim()));
   }, [locatablePoints, pickedChapters]);
 
-  /** 粗略的 token 预估：按知识点的 statement 字数 × 出题倍率 */
+  /**
+   * 资料原文出题（origin === 'source-text'）这条路径不依赖知识点，
+   * 它直接读 selected 资料的段落（sourceSegments）。所以「有没有段落」
+   * 才是这道按钮该有的前置条件，而不是「有没有知识点」。
+   *
+   * 2026-11-12 修：原先守卫与 estimatedTokens 都用 usablePoints（知识点），
+   * 导致「从资料出题」在没有知识点的资料上一律禁用 —— 这是假按钮的根因。
+   * 这里只统计「能出题意的段落」（>=30 字，与 segmentsToMaterials 口径一致），
+   * 所以预估 token 和按钮可用性都跟着「段落」走，而不是「知识点」。
+   */
+  const usableSegments = useMemo(() => {
+    if (origin !== 'source-text') return [];
+    return (segments ?? []).filter((s) => s.text.trim().length >= 30);
+  }, [origin, segments]);
+
+  /** 粗略的 token 预估：按素材字数 × 出题倍率 */
   const estimatedTokens = (() => {
-    if (usablePoints.length === 0) return 0;
-    const chars = usablePoints.reduce((n, p) => n + p.statement.length, 0);
-    // 输入约 chars 字，输出约每题 150 token；按项目里实测的经验倍率估
-    return Math.round(chars * 0.6 + count * 150);
+    const srcChars = (() => {
+      if (origin === 'source-text') {
+        return usableSegments.reduce((n, s) => n + s.text.length, 0);
+      }
+      return usablePoints.reduce((n, p) => n + p.statement.length, 0);
+    })();
+    if (srcChars === 0) return 0;
+    // 输入约 srcChars 字，输出约每题 150 token；按项目里实测的经验倍率估
+    return Math.round(srcChars * 0.6 + count * 150);
   })();
 
   const generate = useCallback(async () => {
-    if (busy || usablePoints.length === 0) return;
+    const hasInput =
+      origin === 'source-text' ? usableSegments.length > 0 : usablePoints.length > 0;
+    if (busy || !hasInput) return;
     setBusy(true);
     setError(null);
     setErrorHint(null);
@@ -432,6 +459,8 @@ export function GeneratePage({
     }
   }, [
     busy,
+    usableSegments,
+    origin,
     usablePoints,
     backends,
     decks,
@@ -697,6 +726,7 @@ export function GeneratePage({
             selected={selected}
             onSelectedChange={setSelected}
             locatedPointCount={origin === 'knowledge' ? usablePoints.length : null}
+            usableSegmentCount={origin === 'source-text' ? usableSegments.length : null}
             disabled={busy}
             onOpenOrganize={onOpenOrganize}
           />
@@ -861,14 +891,22 @@ export function GeneratePage({
               type="button"
               className="btn-fill"
               onClick={() => void generate()}
-              disabled={busy || usablePoints.length === 0}
+              disabled={busy || (origin === 'source-text' ? usableSegments.length === 0 : usablePoints.length === 0)}
             >
               <IconGenerate size={16} />
               {busy ? '正在生成…' : '生成并检查题组'}
             </button>
-            {usablePoints.length === 0 ? (
-              <span className="gen-hint">先有已定位的知识点才能出题</span>
-            ) : null}
+            {origin === 'source-text'
+              ? usableSegments.length === 0
+                ? (
+                  <span className="gen-hint">这份资料还没有可出题的正文，先解析成文字（扫描件要先转成正文）</span>
+                )
+                : null
+              : usablePoints.length === 0
+                ? (
+                  <span className="gen-hint">先有已定位的知识点才能出题</span>
+                )
+                : null}
           </div>
         </div>
       ) : null}

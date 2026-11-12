@@ -30,6 +30,8 @@ export interface OriginPickerProps {
   onSelectedChange: (next: string) => void;
   /** 选中资料里已定位的知识点条数（用于提示） */
   locatedPointCount: number | null;
+  /** 资料原文出题时：当前资料里可出题的正文段数（>=30 字），用于提示 */
+  usableSegmentCount?: number | null;
   disabled?: boolean;
   /** 去整理这份资料的知识点 */
   onOpenOrganize: (sourceId: string) => void;
@@ -44,6 +46,7 @@ export function OriginPicker({
   selected,
   onSelectedChange,
   locatedPointCount,
+  usableSegmentCount,
   disabled,
   onOpenOrganize,
 }: OriginPickerProps) {
@@ -130,6 +133,12 @@ export function OriginPicker({
                 </button>
               ) : null}
             </>
+          ) : origin === 'source-text' && usableSegmentCount !== null && usableSegmentCount !== undefined ? (
+            <p className="gen-hint">
+              {usableSegmentCount > 0
+                ? `这份资料有 ${usableSegmentCount} 段可出题的正文`
+                : '这份资料还没有可出题的正文，先在「整理知识点」把它解析成文字（扫描件要先转成正文）。'}
+            </p>
           ) : null}
         </fieldset>
       ) : (

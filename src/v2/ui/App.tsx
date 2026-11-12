@@ -29,6 +29,12 @@ import {
   materialsForScope,
   type OralScopeOption,
 } from '@/core/oral-scope-service.ts';
+import {
+  buildShortGradePrompt,
+  parseShortGrade,
+  type ShortGradeInput,
+  type ShortGradeResult,
+} from '@/core/ai/grade-short.ts';
 import { todayLocal, type ReviewGrade } from '@/v2/core/srs.ts';
 import { NotesPage } from './NotesPage.tsx';
 import { ExamPage } from './ExamPage.tsx';
@@ -1181,6 +1187,41 @@ export function App({
   );
 
   /**
+   * 让 AI 逐要点比对一道问答 / 计算题（2026-11-12）。
+   *
+   * 这**不是**判分入口。用户明确要求「主要判分还是用户自评」，
+   * 做题页那边点「我答对了 / 我答错了」才是唯一的判分动作；
+   * 这里返回的只是一份要点覆盖参考，用来帮用户判断自己漏了什么。
+   *
+   * 所以：
+   *  - 解析失败不静默返回空结果（那会显示成「一条要点都没答到」，误导），
+   *    而是抛一句人话，让界面在按钮下面显示成「比对没成功」；
+   *  - 不写任何复习记录，也不影响间隔。
+   */
+  const handleShortGrade = useCallback(
+    async (input: ShortGradeInput): Promise<ShortGradeResult> => {
+      const b = await resolveBackend();
+      const { chatCompletion } = await import('@/core/ai/deepseek-client.ts');
+      const prompt = buildShortGradePrompt(input);
+      const res = await chatCompletion({
+        apiKey: b.apiKey,
+        model: b.model,
+        ...(b.baseUrl ? { baseUrl: b.baseUrl } : {}),
+        provider: b.provider,
+        systemPrompt: prompt.system,
+        userPrompt: prompt.user,
+        /* 比对要稳，不要发挥 */
+        temperature: 0.1,
+        maxTokens: 900,
+      });
+      const parsed = parseShortGrade(res.content);
+      if (!parsed) throw new Error('模型这次没有给出可读的比对结果，再试一次。');
+      return parsed;
+    },
+    [resolveBackend],
+  );
+
+  /**
    * 阅读器里划选了一段 → 拿它提问（2026-11-10）。
    *
    * ## 为什么池子里只放这一条
@@ -1772,6 +1813,7 @@ export function App({
             mode={practiceMode}
             modeLabel={practiceLabel}
             notes={notesService}
+            onGradeShort={handleShortGrade}
             onFinish={() => void navigate('review')}
             onExit={() => void navigate('review')}
           />

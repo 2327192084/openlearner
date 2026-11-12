@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Card } from '@/v2/core/cards.ts';
-import { isCorrect, CARD_KIND_LABEL } from '@/v2/core/cards.ts';
+import { isCorrect, needsSelfGrade, CARD_KIND_LABEL } from '@/v2/core/cards.ts';
 import type { ReviewGrade } from '@/v2/core/srs.ts';
 import { mastery, todayLocal } from '@/v2/core/srs.ts';
 import { previewDays } from '@/v2/core/ebbinghaus.ts';
@@ -14,6 +14,8 @@ import type { NoteService } from '@/core/notes.ts';
 import { NoteBox } from './NoteBox.tsx';
 import { pickOption } from './option-pick.ts';
 import { MathText } from './MathText.tsx';
+import { SelfGradePanel } from './SelfGradePanel.tsx';
+import type { ShortGradeResult, ShortGradeInput } from '@/core/ai/grade-short.ts';
 
 /**
  * 复习页：题卡 + 选项行 + 0-5 评分档。
@@ -203,6 +205,16 @@ export interface ReviewPageProps {
    * 传了才在做题页出现「记一笔」—— 那是笔记的主要写作入口之一。
    */
   notes?: NoteService;
+  /**
+   * 让 AI 逐要点比对一道开放题的作答（2026-11-12）。
+   *
+   * 可选：不传就不显示那个「让 AI 逐要点比对」按钮，
+   * 自评照旧可用 —— 组件单独跑测试时不需要接后端。
+   *
+   * 注意它**只返回参考**，不返回对错（见 grade-short.ts 头注释）：
+   * 最终判分仍然由用户点「我答对了 / 我答错了」。
+   */
+  onGradeShort?: (material: ShortGradeInput) => Promise<ShortGradeResult>;
   onFinish: () => void;
   onExit: () => void;
 }
@@ -216,6 +228,7 @@ export function ReviewPage({
   mode = 'due',
   modeLabel,
   notes,
+  onGradeShort,
   onFinish,
   onExit,
 }: ReviewPageProps) {
@@ -252,6 +265,22 @@ export function ReviewPage({
    */
   const [frozenElapsedMs, setFrozenElapsedMs] = useState<number | null>(null);
 
+  /**
+   * AI 逐要点比对的状态（2026-11-12）。
+   *
+   * 只对问答 / 计算题（卡片层的 `short`）有意义：这两类题没法程序判分，
+   * 对错由用户点「我答对了 / 我答错了」。AI 那块只是把参考答案拆成要点，
+   * 让用户核对「我这个说法算不算答到了」—— **它不改对错、不翻页**。
+   *
+   * 三份状态分开存，是因为它们给用户的信号完全不同：
+   *  - busy  ：还在跑，按钮要变成「正在逐条比对…」并禁用（防连点）
+   *  - result：成功了，显示要点清单
+   *  - error ：失败了，说清楚失败原因（但不能把人卡住）
+   */
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiResult, setAiResult] = useState<ShortGradeResult | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+
   const card = queue[index];
   const total = queue.length;
 
@@ -272,6 +301,10 @@ export function ReviewPage({
     setRevealed(false);
     setGraded(null);
     setFrozenElapsedMs(null);
+    /* AI 结果只属于上一道题，换卡必须清 —— 否则下一题会显示上一题的要点 */
+    setAiBusy(false);
+    setAiResult(null);
+    setAiError(null);
   }, [index]);
 
   // 读当前卡片的进度（用于显示掌握度胶囊）
@@ -297,7 +330,25 @@ export function ReviewPage({
     else if (card.kind === 'truefalse') given = picked[0] ?? '';
     else if (card.kind === 'multiple') given = picked.join(',');
     else if (card.kind === 'blank') given = textInput;
-    else if (card.kind === 'short') given = textInput;
+
+    /*
+     * ---- 问答 / 计算题：不判分，等用户自评（2026-11-12 定稿）----
+     *
+     * 这两类题原来也走 isCorrect，而 short 落到 looseMatch（字符串相似度），
+     * 结果是：写了一大段意思完全对的答案，只要和参考答案用词不同就被判错，
+     * 直接记 again 进错题集，连评分档都不给看 —— 用户没法纠正它。
+     *
+     * 现在只揭晓答案与解析，对错留白（graded.correct = null），
+     * 由界面上的「我答对了 / 我答错了」来定（见 selfGrade）。
+     * 计数也不在这里加 —— 那时还不知道对错，加了正确率就不准。
+     */
+    if (needsSelfGrade(card)) {
+      setFrozenElapsedMs(timer.elapsedMs());
+      setGraded({ correct: null });
+      setRevealed(true);
+      setAnswered((n) => n + 1);
+      return;
+    }
 
     const ok = isCorrect(card, given);
     /*
@@ -369,6 +420,68 @@ export function ReviewPage({
     },
     [card, service, index, total, onFinish],
   );
+
+  /**
+   * 问答 / 计算题的自评（2026-11-12）。
+   *
+   * 用户点「我答对了 / 我答错了」之后走这里 —— 这是这两类题**唯一**的判分入口。
+   *
+   * 为什么对错由用户定：见 submitChoice 里那段注释。用户看完参考答案
+   * 之后做这个判断，比字符串相似度准得多，也不会出现「意思全对但用词不同被判错」。
+   *
+   * 评级档怎么给：
+   *  - 答对 → 用计时判定（一眼就会 / 正常速度 / 想了一会儿），
+   *    与客观题答对时一致，用户不用学两套规则；
+   *  - 答错 → 固定 again。again 正是错题集的来源，记了才进错题。
+   *
+   * `selfLockRef` 防连点：两个按钮点得快会在第一次 await 结束前再进一次，
+   * 那会写两条复习记录（间隔被推两次）。用 ref 而不是 state，
+   * 因为 setState 在同一个事件循环里来不及生效。
+   */
+  const selfLockRef = useRef(false);
+  const selfGrade = useCallback(
+    async (correct: boolean) => {
+      if (!card || selfLockRef.current) return;
+      selfLockRef.current = true;
+      setGraded({ correct });
+      if (correct) setCorrectCount((n) => n + 1);
+      const grade: ReviewGrade = correct
+        ? judgeByTiming(card, true, frozenElapsedMs ?? timer.elapsedMs(), rules).grade
+        : 'again';
+      try {
+        await submitGrade(grade);
+      } finally {
+        selfLockRef.current = false;
+      }
+    },
+    [card, frozenElapsedMs, timer, rules, submitGrade],
+  );
+
+  /**
+   * 让 AI 逐要点比对（可选，取决于外层有没有传 onGradeShort）。
+   *
+   * 失败不抛到界面上炸掉：AI 只是辅助，后端没配 / 网络不通 /
+   * 返回的 JSON 解析不出来，都只该让用户看到一句提示，
+   * 然后照常点「我答对了 / 我答错了」。
+   */
+  const askAi = useCallback(async () => {
+    if (!card || !onGradeShort) return;
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      const r = await onGradeShort({
+        prompt: card.prompt,
+        answer: card.answer,
+        explanation: card.explanation,
+        response: textInput,
+      });
+      setAiResult(r);
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : '比对没成功，稍后再试。');
+    } finally {
+      setAiBusy(false);
+    }
+  }, [card, onGradeShort, textInput]);
 
   /**
    * 计时评分结论。
@@ -732,14 +845,31 @@ export function ReviewPage({
           {revealed ? (
             <div className="reveal">
               {card.kind !== 'point' ? (
-                <div className={`reveal__verdict reveal__verdict--${graded?.correct ? 'ok' : 'bad'}`}>
-                  {graded?.correct ? '✓ 答对了' : '✕ 答错了'}
-                  {card.kind !== 'single' && card.kind !== 'multiple' ? (
+                needsSelfGrade(card) && graded?.correct === null ? (
+                  /*
+                   * 问答 / 计算题刚揭晓、用户还没自评。
+                   *
+                   * 这里**不能**显示「✓ 答对了」或「✕ 答错了」——
+                   * 系统根本没判过（见 submitChoice 里的说明）。
+                   * 写一句中性的引导，然后直接把参考答案摆出来，
+                   * 让用户自己对照（自评按钮在底部）。
+                   */
+                  <div className="reveal__verdict reveal__verdict--self">
+                    先看参考答案，然后在下面自己判。
                     <span className="reveal__answer">
                       参考答案：<MathText text={card.answer} />
                     </span>
-                  ) : null}
-                </div>
+                  </div>
+                ) : (
+                  <div className={`reveal__verdict reveal__verdict--${graded?.correct ? 'ok' : 'bad'}`}>
+                    {graded?.correct ? '✓ 答对了' : '✕ 答错了'}
+                    {card.kind !== 'single' && card.kind !== 'multiple' ? (
+                      <span className="reveal__answer">
+                        参考答案：<MathText text={card.answer} />
+                      </span>
+                    ) : null}
+                  </div>
+                )
               ) : null}
 
               {/*
@@ -822,6 +952,24 @@ export function ReviewPage({
               →
             </span>
           </button>
+        ) : needsSelfGrade(card) && graded?.correct === null ? (
+          /*
+           * ---- 问答 / 计算题：用户自评（2026-11-12）----
+           *
+           * 这两类题没有程序判定，所以底部不是评分档，而是
+           * 「我答对了 / 我答错了」两个按钮。用户点完当场写记录并翻页。
+           *
+           * AI 那个按钮只在接了后端时出现（onGradeShort 有值），
+           * 它给的是要点覆盖情况，不改变对错、也不翻页 ——
+           * 「主要判分还是用户自评」（用户原话）。
+           */
+          <SelfGradePanel
+            onPick={(correct) => void selfGrade(correct)}
+            {...(onGradeShort ? { onAskAi: () => void askAi() } : {})}
+            busy={aiBusy}
+            result={aiResult}
+            error={aiError}
+          />
         ) : answeredWrong ? (
           /*
            * ---- 答错：不展示评分面板，只给一个「下一题」 ----

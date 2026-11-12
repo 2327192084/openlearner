@@ -25,6 +25,7 @@ import type { ExamService } from '@/core/exam.ts';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { SourceService } from '@/core/sources.ts';
 import { isCorrect } from '@/v2/core/cards.ts';
+import { isAutoGraded } from '@/core/questions/kinds.ts';
 import { MathText } from './MathText.tsx';
 
 export interface ExamPageProps {
@@ -89,7 +90,14 @@ export function ExamPage({ exam, decks, sourceService, onOpenDecks }: ExamPagePr
           ? (srcTitle.get(d.sourceId) ?? '（资料已删除）')
           : `题组：${d.title}`;
         const cur = bySource.get(key) ?? { label, questions: [] };
-        cur.questions.push(...qs.filter((q) => q.kind !== 'essay'));
+        /*
+         * 只放能自动判分的题（2026-11-12 修）。
+         *
+         * 原来写的是 `q.kind !== 'essay'`，于是计算题漏了进来 ——
+         * 交卷时它被当成简答走字符串相似度判分（见下方 isCorrect 调用）。
+         * 现在统一问题型注册表的 `graded` 字段，与 ExamService.buildPaper 一致。
+         */
+        cur.questions.push(...qs.filter((q) => isAutoGraded(q.kind)));
         bySource.set(key, cur);
       }
 
@@ -141,8 +149,8 @@ export function ExamPage({ exam, decks, sourceService, onOpenDecks }: ExamPagePr
         <div className="ex-empty">
           <p>还没有可以考的题。</p>
           <p className="ex-hint">
-            模拟考试只从<strong>已发布</strong>题组里抽题，而且不含问答类
-            （它需要人工自评，算不出分数）。
+            模拟考试只从<strong>已发布</strong>题组里抽题，而且不含问答、计算这类
+            需要你自己判断对错的题（算不出客观分数）。
           </p>
           <button type="button" className="btn-ghost" onClick={onOpenDecks}>
             去我的题组

@@ -3,6 +3,7 @@ import {
   isCorrect,
   looseMatch,
   isAnswerable,
+  needsSelfGrade,
   CARD_KIND_LABEL,
   type Card,
 } from './cards.ts';
@@ -157,5 +158,23 @@ describe('辅助函数', () => {
     for (const k of ['single', 'multiple', 'blank', 'short', 'point'] as const) {
       expect(CARD_KIND_LABEL[k].length).toBeGreaterThan(0);
     }
+  });
+
+  /*
+   * 自评题型（2026-11-12）。
+   *
+   * 这条测试钉的是「做题页怎么知道该不该显示自评按钮」。
+   * 关键在 `blank` 不能算进去 —— 填空题虽然也是文本，但它的答案
+   * 是确定的，`isCorrect` 归一化后严格相等就够了，不该让用户自己判。
+   * 一旦有人图省事把判定改成「kind 是文本就算自评」，
+   * 填空的自动判分就悄悄失效了，而界面上看不出区别。
+   */
+  it('只有 short（问答/计算）需要用户自评，填空不需要', () => {
+    expect(needsSelfGrade(mk({ kind: 'short' }))).toBe(true);
+    expect(needsSelfGrade(mk({ kind: 'blank' }))).toBe(false);
+    expect(needsSelfGrade(mk({ kind: 'single' }))).toBe(false);
+    expect(needsSelfGrade(mk({ kind: 'multiple' }))).toBe(false);
+    expect(needsSelfGrade(mk({ kind: 'truefalse' }))).toBe(false);
+    expect(needsSelfGrade(mk({ kind: 'point' }))).toBe(false);
   });
 });

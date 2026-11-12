@@ -527,6 +527,17 @@
     color: var(--bad);
   }
 
+  /*
+   * 问答 / 计算题刚揭晓、用户还没自评时的中性提示（2026-11-12）。
+   *
+   * 这两种题型系统没判过 —— 用 ok/bad 的绿色或红色都会在骗人
+   * （用户会以为系统已经给了结论），所以走普通墨色。
+   */
+  .reveal__verdict--self {
+    color: var(--text-dim);
+    font-weight: 450;
+  }
+
   .reveal__answer {
     font-size: var(--fs-sm);
     font-weight: 400;
@@ -700,6 +711,140 @@
   .wrong-next .btn-fill {
     min-width: 200px;
     justify-content: center;
+  }
+
+  /*
+   * ---------- 自评面板（问答 / 计算题，2026-11-12） ----------
+   *
+   * 这两类题没法程序判分，对错由用户自己点（见 SelfGradePanel.tsx 头注释）。
+   * 视觉上要传达「这是让你判断的，不是系统结论」：
+   *  - 两个按钮做主角，一实一虚（「我答对了」用填充块）
+   *  - AI 那句是纯文字按钮，明显低一级 —— 它是可选的辅助
+   *  - AI 结果整块用虚线框住，和「系统判定」那种实心面板区分开
+   */
+  .self-grade {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .self-grade__ask {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    text-align: center;
+  }
+
+  .self-grade__btns {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+
+  .self-grade__btns .btn-fill,
+  .self-grade__btns .btn-ghost {
+    min-width: 132px;
+    justify-content: center;
+  }
+
+  .self-grade__ai {
+    align-self: center;
+    font-size: var(--fs-sm);
+  }
+
+  .self-grade__ai:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+
+  .self-grade__error {
+    font-size: var(--fs-xs);
+    color: var(--bad);
+    text-align: center;
+  }
+
+  /*
+   * AI 结果：虚线框 + 无底色。
+   *
+   * 用实线卡片或底色会让人读成「系统判定」，
+   * 而它只是把参考答案拆开给用户核对（用户明确要求主要判分仍是自评）。
+   */
+  .self-grade__result {
+    border: 1px dashed color-mix(in srgb, var(--paper-ink) 24%, transparent);
+    border-radius: var(--radius-sm);
+    padding: var(--space-3) var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .self-grade__summary {
+    font-size: var(--fs-sm);
+    font-weight: 550;
+    color: var(--text);
+  }
+
+  .self-grade__result--correct .self-grade__summary {
+    color: var(--ok);
+  }
+
+  .self-grade__result--wrong .self-grade__summary {
+    color: var(--bad);
+  }
+
+  .self-grade__points {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .self-grade__point {
+    display: flex;
+    gap: var(--space-2);
+    font-size: var(--fs-sm);
+    line-height: 1.5;
+  }
+
+  /* 答到的用正常墨色，没答到的压淡 —— 一眼看出缺什么 */
+  .self-grade__point--ok .self-grade__mark {
+    color: var(--ok);
+  }
+
+  .self-grade__point--gap {
+    color: var(--text-dim);
+  }
+
+  .self-grade__point--gap .self-grade__mark {
+    color: var(--text-faint);
+  }
+
+  .self-grade__mark {
+    flex: 0 0 auto;
+    width: 1.1em;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .self-grade__text {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .self-grade__comment {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    border-top: 1px solid color-mix(in srgb, var(--paper-ink) 12%, transparent);
+    padding-top: var(--space-2);
+  }
+
+  /* 「这只是参考」那句要显眼到能压住上面的要点列表 */
+  .self-grade__note {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
   }
 
   /* ---------- 本轮小结 ---------- */

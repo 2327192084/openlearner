@@ -23,6 +23,7 @@
 import type { ExamAnswer, ExamAttempt, Question } from '@/core/model.ts';
 import type { StorageAdapter } from '@/core/storage/types.ts';
 import { newId, nowIso } from '@/core/id.ts';
+import { isAutoGraded } from '@/core/questions/kinds.ts';
 
 /** 出卷参数 */
 export interface BuildExamInput {
@@ -40,11 +41,21 @@ export class ExamService {
   /**
    * 出卷：从池子里随机抽若干道。
    *
-   * 只抽客观题（单选/多选/填空）：问答类判分需要人工自评，
-   * 放进模拟考会让「分数」这个数字失去意义。
+   * 只抽**能自动判分**的题（单选/多选/判断/填空）。
+   *
+   * ## 为什么按 `isAutoGraded` 而不是写死「不等于 essay」
+   *
+   * 原来这里写的是 `q.kind !== 'essay'`。2026-11-12 加计算题时，
+   * 计算题的 `graded` 也是 `'self'`（用户要求：显示完整解答，自己判对错），
+   * 但计算题不叫 essay —— 写死题型的后果就是**计算题混进了考场**，
+   * 交卷时被 `isCorrect` 当成简答走字符串相似度判分，
+   * 分数凭空多了一档没意义的判定。
+   *
+   * 题型注册表里 `graded` 字段本来就是干这个用的，问它就对了。
+   * 以后再加「需要人工判分」的题型，这里不用再改。
    */
   buildPaper(input: BuildExamInput): Question[] {
-    const answerable = input.pool.filter((q) => q.kind !== 'essay');
+    const answerable = input.pool.filter((q) => isAutoGraded(q.kind));
     const pool = [...answerable];
 
     /* Fisher–Yates：不用 sort(() => Math.random() - 0.5)，那个分布不均匀 */
