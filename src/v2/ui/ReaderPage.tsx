@@ -24,6 +24,7 @@ import { domPointToRaw } from './dom-text-map.ts';
 import { SelectionActionBar, measureSelectionRect } from './SelectionActionBar.tsx';
 import { SearchResults } from './SearchResults.tsx';
 import { PageSlider } from './PageSlider.tsx';
+import { ReaderBottomNav } from './ReaderBottomNav.tsx';
 import type { RectLike } from './selection-bar-place.ts';
 import { snapFiguresToBlocks } from './snap-figures.ts';
 import './reader-figure.css';
@@ -1555,6 +1556,36 @@ export function ReaderPage({
             ))}
           </ul>
         ) : null}
+
+        {/*
+          底部翻页栏（2026-11-12）。
+
+          用户反馈：「资料过长需要下滑滚轮，翻页时还需上滑滚轮点击下一页
+          按钮，应该在界面下端也做上按钮。」
+
+          放在 reader-body 的**末尾**而不是固定悬浮：
+          正文满屏时再压一条固定栏会挡住最后几行字；
+          而滚到底自然看到它，正好接上「读完该翻页」的时机。
+        */}
+        <ReaderBottomNav
+          page={pageNo}
+          total={totalSegments}
+          unitLabel="段"
+          onPrev={() => goPage(pageNo - 1)}
+          onNext={() => goPage(pageNo + 1)}
+          atStart={pageNo <= 1}
+          atEnd={pageNo >= totalSegments}
+          extra={
+            <button
+              type="button"
+              className="reader-bottom-nav__top"
+              onClick={() => bodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+              title="回到这一段的顶部"
+            >
+              回到顶部 ↑
+            </button>
+          }
+        />
       </div>
       </div>
 

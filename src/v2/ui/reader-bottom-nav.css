@@ -1,0 +1,65 @@
+/**
+ * 阅读器底部翻页栏样式（2026-11-12）。
+ *
+ * ## 用户反馈的背景
+ *
+ * 「资料过长需要下滑滚轮，翻页时还需上滑滚轮点击下一页按钮」
+ * —— 所以这栏出现在正文末尾，正好是「读完该翻页」的位置。
+ *
+ * ## 两条硬约束
+ *
+ * 1. token 只用 v2 的（--bg-* / --text* / --accent* / --line* / --space-*）
+ * 2. 原生控件（button）写在 @layer 外 —— base.css 有层外规则，
+ *    级联「层级先于特异性」，放进 layer 会被压掉
+ */
+
+@layer components {
+  /*
+   * 不做固定悬浮：正文满屏时再压一条固定栏会挡住最后几行字。
+   * 放在文档流末尾，滚到底自然看到。
+   */
+  .reader-bottom-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin: var(--space-5) 0 var(--space-3);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--line-soft);
+  }
+
+  /* 位置指示：等宽数字，翻页时不跳动 */
+  .reader-bottom-nav__pos {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    min-width: 8em;
+    text-align: center;
+  }
+
+  /* 「回到顶部」—— 长资料读到底想回去改设置时的捷径 */
+  .reader-bottom-nav__top {
+    margin-left: var(--space-2);
+  }
+}
+
+/* ==========================================================================
+ * 层外：原生控件
+ * ========================================================================== */
+
+.reader-bottom-nav__top {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  appearance: none;
+}
+
+.reader-bottom-nav__top:hover {
+  color: var(--accent);
+  border-color: var(--line);
+}

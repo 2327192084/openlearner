@@ -525,22 +525,6 @@ export function WrongBookPage({
                 <span className="wbk-stat__label">道错过不止一次</span>
               </span>
             ) : null}
-
-            {/*
-              批量变式入口（2026-11-12）。
-              放在概览行右侧：用户看完「有几道错题、几道反复错」之后，
-              下一步最可能想做的就是「出几道同类题再练练」。
-            */}
-            {onOpenVariant ? (
-              <button
-                type="button"
-                className="btn-ghost wbk-variant-all"
-                onClick={onOpenVariant}
-                title="挑几道错题，让 AI 出同类但不同的新题"
-              >
-                错题变式强化 →
-              </button>
-            ) : null}
           </div>
 
           {/* ---- 归类维度 + 排序 ---- */}
@@ -605,6 +589,28 @@ export function WrongBookPage({
               <button type="button" className="wbk-seg__btn wbk-seg__btn--outline" onClick={toggleAll}>
                 {open.size > 0 ? '全部收起' : '全部展开'}
               </button>
+              {/*
+                错题变式（2026-11-12 挪到这里）。
+
+                ## 原来在哪、为什么挪
+
+                原来单独一行浮在统计卡与工具栏之间，两侧大片留白，
+                看起来像「忘了归位的按钮」。用户原话：「太过突兀」。
+
+                现在放进工具栏右侧的动作组，与「导出到 Obsidian」同级 ——
+                它本来就是「对这一批错题做点什么」的同类动作，
+                而不是整个页面的主操作（那是「去练错题」）。
+              */}
+              {onOpenVariant ? (
+                <button
+                  type="button"
+                  className="wbk-seg__btn wbk-seg__btn--outline"
+                  onClick={onOpenVariant}
+                  title="挑几道错题，让 AI 出同类但不同的新题"
+                >
+                  错题变式
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="wbk-seg__btn wbk-seg__btn--outline"
