@@ -69,6 +69,18 @@ export interface WrongBookPageProps {
   /** 去「开始做题」 */
   onOpenPractice: () => void;
   /**
+   * 用错题出变式题（2026-11-12）。
+   *
+   * 用户反馈：「我需要一个入口，你做了功能可是没有使用入口」。
+   * 变式出题功能已实现，但只能从「我的题组 → 新建题组 → 变式出题」进入，
+   * 用户根本找不到。错题页是最自然的位置 —— 这里每题都是真实做错的题。
+   *
+   * 不传时按钮不渲染（不摆假按钮）。
+   */
+  onOpenVariant?: () => void;
+  /** 用**某一道**错题出变式（单题入口） */
+  onVariantSingle?: (questionId: string) => void;
+  /**
    * 导出为 Obsidian 闪卡。
    *
    * 为什么放在这一页：这里的题就是「错题」，正是最该做成闪卡的材料。
@@ -152,6 +164,8 @@ export function WrongBookPage({
   sourceService,
   onOpenSource,
   onOpenPractice,
+  onOpenVariant,
+  onVariantSingle,
   onExportObsidian,
   view,
   onViewChange,
@@ -472,9 +486,20 @@ export function WrongBookPage({
         <div className="wbk-empty">
           <p>现在没有错题。</p>
           <p className="wbk-hint">做错的题会自动进来；如果你还没做过题，先去练一轮。</p>
-          <button type="button" className="btn-ghost" onClick={onOpenPractice}>
-            去开始做题
-          </button>
+          <div className="wbk-empty__actions">
+            <button type="button" className="btn-ghost" onClick={onOpenPractice}>
+              去开始做题
+            </button>
+            {/*
+              空状态下也给变式入口 —— 用户可能想「直接针对某个知识点练」
+              而不是先做错几道再来。这是他真实会走的一条路。
+            */}
+            {onOpenVariant ? (
+              <button type="button" className="btn-text" onClick={onOpenVariant}>
+                或直接对知识点出变式题 →
+              </button>
+            ) : null}
+          </div>
         </div>
       ) : (
         <>
@@ -499,6 +524,22 @@ export function WrongBookPage({
                 <span className="wbk-stat__n">{repeatWrong}</span>
                 <span className="wbk-stat__label">道错过不止一次</span>
               </span>
+            ) : null}
+
+            {/*
+              批量变式入口（2026-11-12）。
+              放在概览行右侧：用户看完「有几道错题、几道反复错」之后，
+              下一步最可能想做的就是「出几道同类题再练练」。
+            */}
+            {onOpenVariant ? (
+              <button
+                type="button"
+                className="btn-ghost wbk-variant-all"
+                onClick={onOpenVariant}
+                title="挑几道错题，让 AI 出同类但不同的新题"
+              >
+                错题变式强化 →
+              </button>
             ) : null}
           </div>
 
@@ -657,6 +698,22 @@ export function WrongBookPage({
                           <div className="wbk-item__foot">
                             {r.deckTitle ? (
                               <span className="wbk-item__deck">{r.deckTitle}</span>
+                            ) : null}
+                            {/*
+                              单题变式（2026-11-12）。
+                              用户反馈「我需要一个入口，你做了功能可是没有使用入口」——
+                              变式原本只能从「我的题组 → 新建题组」三步进去，
+                              而错题页才是最该有它的地方：这里每一题都是做错的题。
+                            */}
+                            {onVariantSingle ? (
+                              <button
+                                type="button"
+                                className="btn-text wbk-item__variant"
+                                onClick={() => onVariantSingle(r.card.id)}
+                                title="用这道错题出一道同类但不同的新题"
+                              >
+                                出变式题
+                              </button>
                             ) : null}
                             {r.card.sourceId || anchorOf(r.card) ? (
                               <button

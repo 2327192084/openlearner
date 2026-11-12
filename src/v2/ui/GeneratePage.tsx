@@ -60,6 +60,13 @@ export interface GeneratePageProps {
    */
   reviewService?: ReviewService;
   /**
+   * 从错题页跳来时的预选目标（2026-11-12）。
+   *
+   * 有值时直接进「变式出题」模式，并把这几道题勾上 ——
+   * 用户点了某道错题的「出变式题」，不该再要他翻列表找一遍。
+   */
+  initialVariant?: { questionIds: string[] } | null;
+  /**
    * 返回题组列表。
    *
    * 这个组件现在**嵌在「我的题组」页里**（用户要求把「创建题组」
@@ -138,9 +145,21 @@ export function GeneratePage({
   onOpenOrganize,
   onOpenDecks,
   reviewService,
+  initialVariant,
   onBack,
 }: GeneratePageProps) {
   const [mode, setMode] = useState<Mode>('from-source');
+
+  /*
+   * 从错题页带着预选目标进来时，直接切到变式模式（2026-11-12）。
+   *
+   * 只在挂载时判一次：用户在页面里自己切模式后不该被强行拉回来。
+   */
+  useEffect(() => {
+    if (initialVariant && initialVariant.questionIds.length > 0) {
+      setMode('variant');
+    }
+  }, [initialVariant]);
 
   /**
    * 出题素材来源（2026-11-07 用户要求）。
@@ -641,6 +660,7 @@ export function GeneratePage({
               }
             }
             busy={busy}
+            {...(initialVariant ? { preselect: initialVariant } : {})}
             onStart={(sel) => void startVariant(sel)}
           />
         </div>

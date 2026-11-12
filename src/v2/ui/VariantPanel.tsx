@@ -69,6 +69,14 @@ export interface VariantPanelProps {
   review: ReviewServiceLike;
   /** 点「开始变式」时回调宿主去生成 */
   onStart: (sel: VariantSelection) => void;
+  /**
+   * 进入时预选（2026-11-12）。
+   *
+   * 用户从错题页点某题的「出变式题」跳来时带上那一题，
+   * 面板直接切到「从错题变式」并勾上它 ——
+   * 不这样的话用户还得自己在列表里找一遍，等于入口只做了一半。
+   */
+  preselect?: { questionIds: string[] } | null;
   /** 生成中禁用 */
   busy?: boolean;
 }
@@ -85,7 +93,7 @@ type Load =
   | { kind: 'error'; message: string }
   | { kind: 'ready' };
 
-export function VariantPanel({ decks, knowledge, sources, review, onStart, busy }: VariantPanelProps) {
+export function VariantPanel({ decks, knowledge, sources, review, onStart, preselect, busy }: VariantPanelProps) {
   const [source, setSource] = useState<VariantSource>('wrong');
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
 
@@ -144,6 +152,20 @@ export function VariantPanel({ decks, knowledge, sources, review, onStart, busy 
         setWrongs(rows);
         setPointsBySource(groups);
         setLoad({ kind: 'ready' });
+
+        /*
+         * 应用预选（2026-11-12）。
+         *
+         * 放在载入之后：预选的题必须真在列表里才勾得上。
+         * 找不到就不勾（那道题可能已经被删了），并让用户看到空勾选 + 提示，
+         * 而不是勾上一个不存在的 id。
+         */
+        if (preselect && preselect.questionIds.length > 0) {
+          const avail = new Set(rows.map((r) => r.question.id));
+          const hit = preselect.questionIds.filter((id) => avail.has(id));
+          setSource('wrong');
+          if (hit.length > 0) setPickedQ(new Set(hit));
+        }
       } catch (e) {
         if (alive) setLoad({ kind: 'error', message: e instanceof Error ? e.message : '读不出数据' });
       }
@@ -151,7 +173,7 @@ export function VariantPanel({ decks, knowledge, sources, review, onStart, busy 
     return () => {
       alive = false;
     };
-  }, [decks, knowledge, sources, review]);
+  }, [decks, knowledge, sources, review, preselect]);
 
   /* 资料重名消歧（两处入口共用同一套编号规则） */
   const titles = useMemo(

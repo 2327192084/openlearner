@@ -393,6 +393,17 @@ export function App({
    * 还得自己再找一遍「我刚才点的是哪个」。
    */
   const [openedDeckId, setOpenedDeckId] = useState<string | null>(null);
+  /**
+   * 从错题页跳来时要预选的变式目标（2026-11-12）。
+   *
+   * 用户点了某道错题底部的「出变式题」，应当**直接进入变式模式并勾上那一题**，
+   * 而不是把他丢到出题页让他自己再找一遍 —— 那正是「做了功能没有入口」的翻版。
+   *
+   * null 表示没有预选（走批量入口时就是这样）。
+   */
+  const [variantPreselect, setVariantPreselect] = useState<{
+    questionIds: string[];
+  } | null>(null);
   const [readerSourceId, setReaderSourceId] = useState<string | null>(null);
   const [readerTarget, setReaderTarget] = useState<ReaderTarget | null>(null);
 
@@ -1576,6 +1587,26 @@ export function App({
             );
           }}
           onOpenPractice={() => void navigate('review')}
+          /*
+           * 错题变式入口（2026-11-12）。
+           *
+           * 用户反馈：「我需要一个入口，你做了功能可是没有使用入口」。
+           * 变式做好后只能从「我的题组 → 新建题组」三步进去，等于没做。
+           * 这里把错题页两个入口接上：
+           *  - 概览行的「错题变式强化」→ 批量挑错题
+           *  - 每题底部的「出变式题」→ 直接用那一题
+           *
+           * 都跳到「我的题组」并展开新建表单（出题表单就在那里，
+           * 没有独立的 generate 页），差别只在有没有预选那道题。
+           */
+          onOpenVariant={() => {
+            setVariantPreselect(null);
+            void navigate('generate');
+          }}
+          onVariantSingle={(questionId) => {
+            setVariantPreselect({ questionIds: [questionId] });
+            void navigate('generate');
+          }}
           view={wrongbookView}
           onViewChange={setWrongbookView}
           onExportObsidian={async (deckId) => {
@@ -1915,6 +1946,11 @@ export function App({
           backends={backends}
           reviewService={reviewService}
           initialCreate
+          /*
+           * 从错题页「出变式题」跳来时的预选目标（2026-11-12）。
+           * 传下去后出题页会直接切到变式模式并勾上那一题。
+           */
+          initialVariant={variantPreselect}
           onGenerated={() => void refreshData()}
           onOpenSources={() => setPage('sources')}
           onOpenOrganize={(sourceId) => {

@@ -557,3 +557,45 @@
     }
   }
 }
+
+/* ==========================================================================
+ * 变式入口（2026-11-12）
+ *
+ * 用户反馈「我需要一个入口」—— 功能已实现但要三步才找到，
+ * 等于没做。这里把入口放到错题页的概览行与每题底部。
+ * ========================================================================== */
+
+@layer components {
+  /* 概览行右侧的批量入口：推到最右，与统计数字分开 */
+  .wbk-variant-all {
+    margin-left: auto;
+    align-self: center;
+  }
+
+  .wbk-empty__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin-top: var(--space-2);
+  }
+
+  /* 单题底部的「出变式题」：与「看原文」并排，靠右 */
+  .wbk-item__variant {
+    margin-left: auto;
+  }
+}
+
+/* 层外：原生控件（硬约束 2 —— base.css 有层外的 button 规则） */
+
+.wbk-item__variant {
+  color: var(--accent);
+}
+
+.wbk-item__variant:hover {
+  text-decoration: underline;
+}
+
+.wbk-variant-all {
+  white-space: nowrap;
+}

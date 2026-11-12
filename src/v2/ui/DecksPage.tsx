@@ -67,6 +67,11 @@ export interface DecksPageProps {
    * 为可选：没传时「从错题变式」显示引导语而不是报错。
    */
   reviewService?: ReviewService;
+  /**
+   * 从错题页跳来时要预选的变式目标（2026-11-12）。
+   * 传下去后出题页会直接切到变式模式并勾上那一题。
+   */
+  initialVariant?: { questionIds: string[] } | null;
   onChanged: () => void;
 }
 
@@ -82,6 +87,7 @@ export function DecksPage({
   initialCreate,
   onOpenSource,
   reviewService,
+  initialVariant,
   onChanged,
 }: DecksPageProps) {
   const [list, setList] = useState<Deck[] | null>(null);
@@ -271,6 +277,7 @@ export function DecksPage({
           decks={decks}
           backends={backends}
           {...(reviewService ? { reviewService } : {})}
+          {...(initialVariant ? { initialVariant } : {})}
           onGenerated={onGenerated}
           onOpenSources={onOpenSources}
           onOpenOrganize={onOpenOrganize}
