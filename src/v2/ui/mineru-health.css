@@ -1,0 +1,114 @@
+/**
+ * MinerU 体检区样式（2026-11-12）。
+ *
+ * ## 为什么单独一个文件
+ *
+ * `mineru-install.css` 已有 300+ 行，体检是后来补的一块独立职责
+ * （已装时的健康检查），分开更清楚。
+ *
+ * ## 两条硬约束
+ *
+ * 1. token 只用 v2 的；危险色是 `--bad`，成功色是 `--ok`
+ * 2. 原生控件（button）写在 @layer 外 —— base.css 有层外规则
+ */
+
+@layer components {
+  .mineru-health {
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line-soft);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .mineru-health__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  /* 裁定结果：一眼看出能不能用 */
+  .mineru-health__verdict {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--bg-sunken);
+    font-size: var(--fs-sm);
+    color: var(--text);
+  }
+
+  .mineru-health__verdict--ok {
+    border-color: var(--ok);
+    background: color-mix(in oklab, var(--ok) 10%, var(--bg-raised));
+  }
+
+  .mineru-health__verdict--bad {
+    border-color: var(--bad);
+    background: color-mix(in oklab, var(--bad) 10%, var(--bg-raised));
+  }
+
+  .mineru-health__mark {
+    flex: none;
+    width: 18px;
+    text-align: center;
+    font-weight: 700;
+  }
+
+  .mineru-health__verdict--ok .mineru-health__mark {
+    color: var(--ok);
+  }
+
+  .mineru-health__verdict--bad .mineru-health__mark {
+    color: var(--bad);
+  }
+
+  /* 修复指引 */
+  .mineru-health__fix {
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--bad);
+    border-radius: var(--radius-sm);
+    background: color-mix(in oklab, var(--bad) 6%, var(--bg-raised));
+  }
+
+  .mineru-health__fix-title {
+    margin: 0 0 var(--space-2);
+    font-size: var(--fs-sm);
+    color: var(--text);
+  }
+
+  .mineru-health__cmds {
+    margin: 0 0 var(--space-2);
+    padding-left: 1.2em;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  /* 命令块：等宽、可横向滚动、可整段选中复制 */
+  .mineru-health__cmd {
+    display: block;
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+    background: var(--bg-sunken);
+    color: var(--text);
+    font-family: ui-monospace, monospace;
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+    user-select: all;
+  }
+}
+
+/* 层外：小号按钮（体检区用，比 mineru-btn 更紧凑） */
+
+.mineru-btn--sm {
+  padding: 2px var(--space-2);
+  font-size: var(--fs-xs);
+}

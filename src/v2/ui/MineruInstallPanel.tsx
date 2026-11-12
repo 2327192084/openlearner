@@ -31,6 +31,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import './mineru-install.css';
+import './mineru-health.css';
 import {
   INSTALL_STEPS,
   panelView,
@@ -83,9 +84,30 @@ interface InstallResult {
   failedStep?: string;
 }
 
+/** 体检结果（与 electron/mineru-health.cjs 的返回对应） */
+interface HealthResult {
+  ok: boolean;
+  summary: string;
+  error?: string;
+  mode?: string;
+  tier?: string;
+  repos?: Array<{ name: string; ready: boolean }>;
+  missingForTier?: string[];
+  /** 可照做的修复命令（已带绝对路径与引号） */
+  fixCommands?: string[];
+}
+
 interface InstallerBridge {
   drives: () => Promise<{ ok: boolean; drives: Drive[]; error?: string }>;
   detect: () => Promise<DetectResult>;
+  /**
+   * 体检（2026-11-12）。
+   *
+   * 已装 ≠ 能用。A 方案把「已装好」与「安装入口」设计成互斥是对的
+   * （MinerU 的 server 是全局单例），但它漏了一种情况：
+   * 装好了、模型不全 —— 那时用户没有任何补救途径。
+   */
+  health: () => Promise<HealthResult>;
   pickDir: (defaultPath?: string) => Promise<
     | null
     | { ok: boolean; dir: string; target: string; freeBytes: number | null; enough: boolean }
@@ -109,6 +131,15 @@ export function MineruInstallPanel() {
   const bridge = installer();
 
   const [detect, setDetect] = useState<DetectResult | null>(null);
+  /**
+   * 体检结果（2026-11-12）。
+   *
+   * null = 还没查；查过就一定有值（失败时是 {ok:false, summary:'...'}）。
+   * 单独一个状态而不是塞进 detect：detect 只回答「装没装」，
+   * health 回答「能不能用」—— 两件事，混在一起会让判断变糊。
+   */
+  const [health, setHealth] = useState<HealthResult | null>(null);
+  const [healthBusy, setHealthBusy] = useState(false);
   const [drives, setDrives] = useState<Drive[]>([]);
   const [chosen, setChosen] = useState<{ dir: string; target: string } | null>(null);
 
@@ -138,6 +169,27 @@ export function MineruInstallPanel() {
     setDetect(d);
     setDrives(dr.ok ? dr.drives : []);
     if (!dr.ok) setNote(dr.error ?? null);
+  }, [bridge]);
+
+  /**
+   * 跑一次体检（2026-11-12）。
+   *
+   * 只在「已装好」时才值得跑 —— 没装的时候 detect 已经说清楚了，
+   * 再跑一遍只是白等一下（models show 要起 Python 进程）。
+   */
+  const runHealth = useCallback(async () => {
+    if (!bridge) return;
+    setHealthBusy(true);
+    try {
+      const r = await bridge.health();
+      if (!aliveRef.current) return;
+      setHealth(r);
+    } catch (e) {
+      if (!aliveRef.current) return;
+      setHealth({ ok: false, summary: e instanceof Error ? e.message : '体检失败' });
+    } finally {
+      if (aliveRef.current) setHealthBusy(false);
+    }
   }, [bridge]);
 
   useEffect(() => {
@@ -272,13 +324,92 @@ export function MineruInstallPanel() {
         {view.showDetected ? (
           <div className="mineru-inst-detect mineru-inst-detect--found">
             <p className="mineru-inst-detect__title">
-              这台机器上已经装好 MinerU 了，直接用就行
+              这台机器上已经装好 MinerU 了
             </p>
             <code className="mineru-inst-detect__path">{detect?.exePath}</code>
             <p className="set-hint">
               来源：{detect?.source}。不需要再装一份 ——
               MinerU 的服务同时只能有一个实例，装第二份反而会和它抢。
             </p>
+
+            {/*
+              体检区（2026-11-12）。
+
+              ## 为什么要它
+
+              A 方案原本只写「已经装好，直接用就行」，把安装入口整个藏起来。
+              但「已装」不等于「能用」—— 用户实际踩到的是
+              「装好了、模型不全」，那时界面只说已装好，他无从下手，
+              只好来问「一键安装按钮到底做了没有」。
+
+              所以已装时也给一条路：体检 + 缺什么 + 怎么补。
+            */}
+            <div className="mineru-health">
+              {health === null ? (
+                <div className="mineru-health__row">
+                  <span className="set-hint">
+                    装好不等于能用（模型可能没下全、服务可能被关掉）。可以查一下。
+                  </span>
+                  <button
+                    type="button"
+                    className="mineru-btn"
+                    onClick={() => void runHealth()}
+                    disabled={healthBusy}
+                  >
+                    {healthBusy ? '正在检查…' : '检查是否可用'}
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div
+                    className={`mineru-health__verdict${
+                      health.ok ? ' mineru-health__verdict--ok' : ' mineru-health__verdict--bad'
+                    }`}
+                  >
+                    <span className="mineru-health__mark" aria-hidden="true">
+                      {health.ok ? '✓' : '!'}
+                    </span>
+                    <span>{health.summary}</span>
+                    <button
+                      type="button"
+                      className="mineru-btn mineru-btn--sm"
+                      onClick={() => void runHealth()}
+                      disabled={healthBusy}
+                    >
+                      {healthBusy ? '检查中…' : '重新检查'}
+                    </button>
+                  </div>
+
+                  {health.mode || health.tier ? (
+                    <p className="set-hint">
+                      服务：{health.mode ?? '?'} · 档位：{health.tier ?? '?'}
+                    </p>
+                  ) : null}
+
+                  {/* 修复指引：只在真有问题时出现 */}
+                  {!health.ok && health.fixCommands && health.fixCommands.length > 0 ? (
+                    <div className="mineru-health__fix">
+                      <p className="mineru-health__fix-title">
+                        这样修（按 Win+R 输入 cmd 回车，然后逐条粘贴执行）：
+                      </p>
+                      <ol className="mineru-health__cmds">
+                        {health.fixCommands.map((c) => (
+                          <li key={c}>
+                            <code className="mineru-health__cmd">{c}</code>
+                          </li>
+                        ))}
+                      </ol>
+                      <p className="set-hint">
+                        执行完关掉本软件、重新打开，再点「重新检查」。
+                        {health.missingForTier && health.missingForTier.length > 0
+                          ? `（缺的是：${health.missingForTier.join('、')}）`
+                          : ''}
+                      </p>
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </div>
           </div>
         ) : (
           <>

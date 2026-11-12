@@ -210,6 +210,14 @@ const openleanerApi = Object.freeze({
     drives: () => ipcRenderer.invoke('openleaner:mineru-install-drives'),
     /** 探测已有 MinerU（A 方案：已有就不装第二份） */
     detect: () => ipcRenderer.invoke('openleaner:mineru-install-detect'),
+    /**
+     * 体检（2026-11-12）。
+     *
+     * 已装时也要能查「能不能用」—— 模型不全、服务被关掉这些
+     * 都不是「没装」，光看 detect 的 found=true 会漏掉。
+     * 只读，不写任何东西。
+     */
+    health: () => ipcRenderer.invoke('openleaner:mineru-health'),
     /** 弹框选安装目录；取消返回 null */
     pickDir: (defaultPath) =>
       ipcRenderer.invoke('openleaner:mineru-install-pick-dir', { defaultPath }),

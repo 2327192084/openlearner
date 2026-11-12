@@ -1080,6 +1080,33 @@ function registerMineru() {
     }
   });
 
+  /**
+   * 健康检查（2026-11-12）。
+   *
+   * A 方案把「已装好」与「安装入口」设计成互斥，理由是 MinerU 的 server
+   * 是全局单例。但用户实际遇到的是「装好了、模型不全」—— 那时界面只说
+   * 「已装好，直接用就行」，他没有任何补救途径。
+   *
+   * 这个 handler 补的就是那个盲区：已装时也能体检，缺什么、怎么补说清楚。
+   * 只读（跑 models show / config get），不写任何东西。
+   */
+  ipcMain.handle('openleaner:mineru-health', async () => {
+    try {
+      const health = require('./mineru-health.cjs');
+      const detected = mineruInstall.detectExisting({ customExe: readMineruCustomPath() });
+      if (!detected.found || !detected.exePath) {
+        return { ok: false, summary: '还没装 MinerU', error: 'not-installed' };
+      }
+      const r = await health.checkMineruHealth({
+        exePath: detected.exePath,
+        home: detected.home ?? null,
+      });
+      return { ...r, exePath: detected.exePath, home: detected.home ?? null };
+    } catch (e) {
+      return { ok: false, summary: '体检失败', error: String(e && e.message) };
+    }
+  });
+
   /** 弹框让用户选安装目录（只选一次 —— venv 建好不能搬） */
   ipcMain.handle('openleaner:mineru-install-pick-dir', async (event, payload) => {
     const win = BrowserWindow.fromWebContents(event.sender);
