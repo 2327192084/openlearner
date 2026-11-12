@@ -1,3 +1,4 @@
+import type { QuestionKind } from '../model.ts';
 import type {
   GenerateQuestionsOptions,
   GenerateQuestionsResult,
@@ -148,7 +149,15 @@ function pickPoints(
  * 3. **多选/问答**：用原文引用当题干线索
  */
 function buildDraft(
-  kind: 'single' | 'multiple' | 'truefalse' | 'blank' | 'essay',
+  /*
+   * 用 QuestionKind 而不是写死的联合类型（2026-11-12）。
+   *
+   * 原来这里逐个列出 'single' | 'multiple' | ... —— 加「计算题」时
+   * tsc 会报错。报错本身是好事，但正确做法是让**函数体**决定
+   * 「不认识的题型返回 null」，而不是让签名把新题型挡在门外。
+   * 写死联合类型的代价是每次加题型都要改签名，容易漏。
+   */
+  kind: QuestionKind,
   point: QuestionSourcePoint,
   allPoints: QuestionSourcePoint[],
   index: number,

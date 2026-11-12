@@ -11,6 +11,7 @@ import type {
 } from '../model.ts';
 import type { StorageAdapter } from '../storage/types.ts';
 import { pointsToMaterials, toSourcePoint, type QuestionMaterial } from './materials.ts';
+import { gradeCalcAnswer } from './calc-answer.ts';
 import type { UsageService } from '../usage.ts';
 import type { TrashService } from '../trash.ts';
 import {
@@ -789,6 +790,21 @@ export class DeckService {
         // 填空：忽略大小写、全半角空格、首尾标点。
         // 学生手打的答案常带多余空格或句号，不该因此判错。
         return normalizeBlank(normalized) === normalizeBlank(question.answer);
+      }
+      case 'calc': {
+        /*
+         * 计算题（2026-11-12）。
+         *
+         * ## 为什么不能用填空那套
+         *
+         * 填空是「文本归一化后严格相等」。对计算题会把
+         * 0.5 / 1/2 / 50%、9.8m/s² / 9.8 m/s^2 这些**同一个答案**
+         * 判成错 —— 那比不出题更伤，学生会以为自己算错了。
+         *
+         * 所以走 `gradeCalcAnswer`：先按数值 + 单位比对，
+         * 解析不出数值（答案是公式）时再退回文本比对。
+         */
+        return gradeCalcAnswer(normalized, question.answer, normalizeBlank);
       }
       case 'essay':
         // 问答没法自动判分，交给用户自评

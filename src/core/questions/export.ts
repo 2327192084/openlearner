@@ -18,6 +18,7 @@ const KIND_LABEL: Record<Question['kind'], string> = {
   blank: '填空题',
   truefalse: '判断题',
   essay: '问答题',
+  calc: '计算题',
 };
 
 const LEVEL_LABEL: Record<Question['cognitiveLevel'], string> = {

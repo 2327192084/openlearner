@@ -80,6 +80,7 @@ const KIND_LABEL: Record<QuestionKind, string> = {
   truefalse: '判断',
   blank: '填空',
   essay: '问答',
+  calc: '计算',
 };
 
 export function kindLabel(kind: QuestionKind): string {

@@ -9,6 +9,7 @@ import type {
   QuestionSourcePoint,
 } from './backend-types.ts';
 import { planKinds } from './backend-types.ts';
+import { GENERATE_KINDS } from './kinds.ts';
 import type { QuestionKind } from '@/core/model.ts';
 
 /**
@@ -48,7 +49,20 @@ export interface ModelQuestionBackendOptions {
 /** 旧名保留，避免一次性改掉所有引用。新代码用 ModelQuestionBackendOptions。 */
 export type DeepSeekQuestionBackendOptions = ModelQuestionBackendOptions;
 
-const VALID_KINDS = new Set(['single', 'multiple', 'truefalse', 'blank', 'essay']);
+/**
+ * 后端认识的题型。
+ *
+ * ## 为什么从 KIND_SPECS 派生，而不是手写清单（2026-11-12 改）
+ *
+ * 原来这里是手写的 `new Set(['single', 'multiple', ...])`。
+ * 加「计算题」时踩到了后果：前端能勾选、提示词也说了，
+ * 但模型出的计算题全被这个集合静默过滤 —— 用户看到的是
+ * 「出题失败」或题数对不上，而根本原因在一个常量里。
+ *
+ * 现在从 `kinds.ts` 的 `KIND_SPECS` 派生：加题型只需改那一处，
+ * 这里自动跟上，不会再漏。
+ */
+const VALID_KINDS = new Set<string>(GENERATE_KINDS);
 
 export class ModelQuestionBackend implements QuestionBackend {
   readonly id: string;
@@ -223,7 +237,7 @@ export function buildQuestionSystemPrompt(language: 'zh' | 'en' = 'zh'): string 
       '  "questions": [',
       '    {',
       '      "knowledgePointId": "the id you were given",',
-      '      "kind": "single | multiple | truefalse | blank | essay",',
+      '      "kind": "single | multiple | truefalse | blank | essay | calc",',
       '      "prompt": "the question",',
       '      "options": [{"key": "A", "text": "..."}],',
       '      "answer": "A",',
@@ -265,6 +279,10 @@ export function buildQuestionSystemPrompt(language: 'zh' | 'en' = 'zh'): string 
     '- multiple 多选：4-5 个选项，2 个或以上正确',
     '- blank 填空：不给选项，答案是原文里的一个术语或短语',
     '- essay 问答：不给选项，回答需要一段话，考查理解而非记忆',
+    '- calc 计算：不给选项，答案必须是一个**具体数值（可带单位）**。',
+    '  题干要给出足够的数据，让学生真能算出结果；不要问「公式是什么」。',
+    '  答案写法：数值在前、单位在后，例如 `9.8 m/s^2`；纯数学题可省略单位。',
+    '  解析里写清计算步骤（用了哪条公式、代入什么值），不算出数值的空泛答案不合格。',
     '',
     '## 输出格式',
     '',
@@ -273,7 +291,7 @@ export function buildQuestionSystemPrompt(language: 'zh' | 'en' = 'zh'): string 
     '  "questions": [',
     '    {',
     '      "knowledgePointId": "给你的那个 id",',
-    '      "kind": "single | multiple | truefalse | blank | essay",',
+    '      "kind": "single | multiple | truefalse | blank | essay | calc",',
     '      "prompt": "题干",',
     '      "options": [{"key": "A", "text": "选项内容", "why": "为什么这个选项对/错"}],',
     '      "answer": "A",',
@@ -542,7 +560,17 @@ function normalizeQuestion(raw: unknown): QuestionDraft | null {
     };
   }
 
-  // blank / essay：不要选项
+  // blank / essay / calc：不要选项
+  /*
+   * 计算题多一道校验（2026-11-12）：
+   * 答案必须能解析出数值，否则这道题判分只能退回文本比对，
+   * 那等于把计算题做成了填空题 —— 不是用户要的东西。
+   *
+   * 但要宽容：答案是公式（R1+R2）时也接受，只是记下它不可数值判分。
+   * 直接丢弃会让「出了 5 道只给 3 道」这种困惑出现。
+   */
+  if (kind === 'calc' && answer.trim().length === 0) return null;
+
   return {
     kind,
     prompt,
