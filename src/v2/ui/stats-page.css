@@ -250,11 +250,56 @@
   /* ---------- 今天 ---------- */
   .stats-today {
     display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding-top: var(--space-4);
+    font-size: var(--fs-sm);
+  }
+
+  /*
+   * 「今天」整条是一个按钮（2026-11-13）。
+   *
+   * 用户原话：「今日总结做成按钮，点击能看到具体题目。」
+   * 所以原来那排静态文字改成了一条可点的横条 —— 但视觉上要仍然
+   * 像一行摘要，不能变成一个抢眼的大按钮（那会分走页面上
+   * 「连续天数」这个唯一重心的注意力）。做法：无底色无边框，
+   * hover 才浮出一层极浅的底，尾部加「看明细 ›」当可点性的暗示。
+   *
+   * 原生 button 的 appearance / font 重置写在文件末尾的层外那块，
+   * 这里只放布局与颜色（硬约束：原生控件样式一律层外）。
+   */
+  .stats-today__toggle {
+    display: flex;
     align-items: center;
     gap: var(--space-4);
-    padding-top: var(--space-4);
     flex-wrap: wrap;
-    font-size: var(--fs-sm);
+    width: 100%;
+    padding: 6px 10px;
+    margin: -6px -10px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    text-align: left;
+  }
+
+  .stats-today__toggle:hover {
+    background: var(--bg-hover);
+  }
+
+  .stats-today__toggle--on {
+    background: var(--bg-hover);
+  }
+
+  .stats-today__more {
+    margin-left: auto;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    white-space: nowrap;
+  }
+
+  .stats-today__toggle:hover .stats-today__more,
+  .stats-today__toggle--on .stats-today__more {
+    color: var(--accent);
   }
 
   .stats-today__label {
@@ -265,6 +310,233 @@
   .stats-today__item {
     color: var(--text-dim);
     font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- 今日明细 ---------- */
+  .stats-today__panel {
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+  }
+
+  .today-detail {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .today-detail__tabs {
+    display: flex;
+    gap: var(--space-2);
+  }
+
+  /*
+   * 页签用描边胶囊，选中态只换描边颜色不填实底 ——
+   * 与 `knowledge-page.css` 的 `.kb-level` 保持同一套语言
+   * （朱砂只给主操作，选中不该是整块红）。
+   */
+  .today-detail__tab {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    font-size: var(--fs-xs);
+    color: var(--text-dim);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    transition: color 120ms ease, border-color 120ms ease;
+  }
+
+  .today-detail__tab:hover {
+    color: var(--text);
+    border-color: var(--line-strong);
+  }
+
+  .today-detail__tab--on {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .today-detail__n {
+    margin-left: 4px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-faint);
+  }
+
+  .today-detail__tab--on .today-detail__n {
+    color: var(--accent);
+  }
+
+  .today-detail__empty {
+    margin: 0;
+    padding: var(--space-3) 0;
+    font-size: var(--fs-sm);
+    color: var(--text-faint);
+    line-height: var(--lh-body);
+  }
+
+  .today-detail__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    /*
+     * 上限 + 滚动：一次复习 30 张（BATCH）时列表会长到十几屏。
+     * 不设上限会把下面的内容推得很远，用户想收起还得往回滚。
+     */
+    max-height: 340px;
+    overflow-y: auto;
+  }
+
+  .today-detail__item {
+    border-top: 1px solid var(--line);
+  }
+
+  .today-detail__item:first-child {
+    border-top: none;
+  }
+
+  .today-detail__row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    width: 100%;
+    padding: 7px 6px;
+    margin: 0 -6px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .today-detail__row:hover:not(:disabled) {
+    background: var(--bg-hover);
+  }
+
+  .today-detail__row:disabled {
+    cursor: default;
+    opacity: 0.55;
+  }
+
+  .today-detail__chev {
+    display: inline-block;
+    width: 1em;
+    margin-right: 3px;
+    color: var(--text-faint);
+    font-size: var(--fs-xs);
+  }
+
+  .today-detail__prompt {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: var(--fs-sm);
+    color: var(--text);
+    line-height: 1.5;
+  }
+
+  .today-detail__meta {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .today-detail__kind {
+    color: var(--text-dim);
+  }
+
+  .today-detail__grade--again {
+    color: var(--bad);
+  }
+
+  .today-detail__grade--hard {
+    color: var(--warn);
+  }
+
+  .today-detail__overdue {
+    color: var(--warn);
+  }
+
+  .today-detail__gone {
+    color: var(--bad);
+  }
+
+  .today-detail__detail {
+    padding: var(--space-2) var(--space-3) var(--space-4) calc(1em + 6px);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .today-detail__full-prompt {
+    font-size: var(--fs-sm);
+    color: var(--text);
+    line-height: var(--lh-body);
+  }
+
+  .today-detail__options {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .today-detail__option {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+
+  .today-detail__option--right {
+    background: color-mix(in srgb, var(--ok) 10%, transparent);
+    color: var(--text);
+  }
+
+  .today-detail__option-key {
+    flex: 0 0 auto;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-faint);
+  }
+
+  .today-detail__option--right .today-detail__option-key {
+    color: var(--ok);
+  }
+
+  .today-detail__option-text {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .today-detail__option-tag {
+    flex: 0 0 auto;
+    font-size: var(--fs-xs);
+    color: var(--ok);
+  }
+
+  .today-detail__answer {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: var(--lh-body);
+  }
+
+  .today-detail__explain {
+    margin: 0;
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--line);
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+    line-height: var(--lh-body);
   }
 
   /*
@@ -283,3 +555,33 @@
     line-height: var(--lh-body);
   }
 }
+
+/* ==========================================================================
+   层外：原生控件
+
+   ⚠️ 硬约束：`base.css` 里有**不在任何 @layer 内**的 button 规则，
+   级联顺序是「层级先于特异性」—— 套进 @layer 的规则永远赢不了它。
+   所以所有按钮的 appearance / font / cursor 重置必须在层外。
+   ========================================================================== */
+
+.stats-today__toggle,
+.today-detail__tab,
+.today-detail__row {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.stats-today__toggle:focus-visible,
+.today-detail__tab:focus-visible,
+.today-detail__row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.today-detail__row:disabled {
+  cursor: default;
+}
+

@@ -1,6 +1,15 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReviewService } from '@/v2/core/review-service.ts';
-import { masteryLabel } from '@/v2/core/srs.ts';
+import { masteryLabel, todayLocal } from '@/v2/core/srs.ts';
+import type { Card } from '@/v2/core/cards.ts';
+import type { CardLoader } from './cards-loader.ts';
+import {
+  dueRows,
+  reviewedRows,
+  todayDetailEmpty,
+  type TodayRow,
+} from '@/v2/core/stats-today.ts';
+import { TodayDetail } from './TodayDetail.tsx';
 
 /**
  * 统计页。
@@ -19,6 +28,14 @@ import { masteryLabel } from '@/v2/core/srs.ts';
 export interface StatsPageProps {
   service: ReviewService;
   cardPool: readonly string[];
+  /**
+   * 读全部卡片。今日明细要显示题干，必须拿到 Card 本体。
+   *
+   * 为什么不在页面加载时就读：这一页的主体是概览（连续天数、热力图、
+   * 分布），明细是用户点开才看的东西。为了一个可能不点开的面板去读
+   * 一遍全库题目，会让打开统计页明显变慢。所以按需读，见 `openDetail`。
+   */
+  loadCards: CardLoader;
 }
 
 interface Dist {
@@ -37,12 +54,26 @@ const DIST_META: { key: keyof Dist; label: string; cls: string }[] = [
   { key: 'mastered', label: '已掌握', cls: 'mastered' },
 ];
 
-export function StatsPage({ service, cardPool }: StatsPageProps) {
+export function StatsPage({ service, cardPool, loadCards }: StatsPageProps) {
   const [streak, setStreak] = useState<number | null>(null);
   const [cells, setCells] = useState<{ day: string; count: number }[] | null>(null);
   const [dist, setDist] = useState<Dist | null>(null);
   const [overview, setOverview] = useState<{ dueCount: number; doneToday: number; avgMastery: number; totalCards: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * 今日明细的口数据。
+   *
+   * `open` 用一个状态而不是两个（比如 open + loading）来控制面板显示 ——
+   * 面板要先出来，再在里面显示「正在读…」，否则用户点一下没反应，
+   * 会以为按钮又是假的（这个项目刚因为假按钮被投诉过一次）。
+   */
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [doneRows, setDoneRows] = useState<TodayRow[] | null>(null);
+  const [dueRowsList, setDueRowsList] = useState<TodayRow[] | null>(null);
+  const [cardMap, setCardMap] = useState<ReadonlyMap<string, Card>>(new Map());
 
   const load = useCallback(async () => {
     try {
@@ -70,6 +101,73 @@ export function StatsPage({ service, cardPool }: StatsPageProps) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * 读今日明细。
+   *
+   * 三份数据一次读完（题目 / 日志 / 待复习 id），全部来自同一时刻 ——
+   * 分三次读的话，中途用户可能刚好复习完一张，明细里的行会和上面
+   * 概览的数字对不上（项目里「同一屏的数字必须来自同一个池子」
+   * 那条教训）。
+   */
+  const loadDetail = useCallback(async () => {
+    setDetailLoading(true);
+    setDetailError(null);
+    try {
+      const day = todayLocal();
+      const [cards, logs, dueIds] = await Promise.all([
+        loadCards(),
+        service.listLogs(),
+        service.dueCards(cardPool),
+      ]);
+      const byId = new Map(cards.map((c) => [c.id, c]));
+      const records = await service.getRecords(dueIds);
+      setCardMap(byId);
+      setDoneRows(reviewedRows(logs, day, byId));
+      setDueRowsList(dueRows(dueIds, records, byId, day));
+    } catch (err) {
+      setDetailError(err instanceof Error ? err.message : '读不出今日明细');
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [service, cardPool, loadCards]);
+
+  const toggleDetail = useCallback(() => {
+    setDetailOpen((prev) => {
+      const next = !prev;
+      // 第一次打开（或上次读失败）时去读；已读成功过就直接复用，
+      // 免得反复点开关都打一次全库
+      if (next && doneRows === null) void loadDetail();
+      return next;
+    });
+  }, [doneRows, loadDetail]);
+
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  /*
+   * 展开之后把面板滚进视口（2026-11-13）。
+   *
+   * 为什么需要：今日栏在整页最底部（截图量过：1440×900 下
+   * 面板展开后整块落在视口外）。用户点一下，只看到「看明细」
+   * 变成「收起」，内容一个字也没看见 —— 那和之前那个假按钮
+   * 给他的感受是一样的。
+   *
+   * 用 `block: 'nearest'`：已经完整可见时什么都不做，
+   * 不做那种「点一下页面就跳」的多余动作。
+   */
+  useEffect(() => {
+    if (!detailOpen) return;
+    panelRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [detailOpen]);
+
+  /*
+   * 概览数字变了（比如刚复习完回来）就把明细作废，下次打开重读。
+   * 不这样做的话，明细会停在旧数据上，和上面的数字打架。
+   */
+  const doneToday = overview?.doneToday ?? 0;
+  useEffect(() => {
+    setDoneRows(null);
+    setDueRowsList(null);
+  }, [doneToday]);
 
   if (error) {
     return (
@@ -203,14 +301,46 @@ export function StatsPage({ service, cardPool }: StatsPageProps) {
         )}
       </div>
 
-      {/* ---- 今日情况 ---- */}
+      {/* ---- 今日情况：整条可点开看明细 ---- */}
       <div className="stats-today">
-        <span className="stats-today__label">今天</span>
-        <span className="stats-today__item">已复习 {overview.doneToday} 张</span>
-        <span className="stats-today__item">
-          待复习 {overview.dueCount} 张
-        </span>
-        <span className="stats-today__item">总卡片 {overview.totalCards} 张</span>
+        <button
+          type="button"
+          className={`stats-today__toggle${detailOpen ? ' stats-today__toggle--on' : ''}`}
+          onClick={toggleDetail}
+          aria-expanded={detailOpen}
+          title="点开看今天具体做了哪几张、还差哪几张"
+        >
+          <span className="stats-today__label">今天</span>
+          <span className="stats-today__item">已复习 {overview.doneToday} 张</span>
+          <span className="stats-today__item">待复习 {overview.dueCount} 张</span>
+          <span className="stats-today__item">总卡片 {overview.totalCards} 张</span>
+          <span className="stats-today__more">{detailOpen ? '收起' : '看明细'} ›</span>
+        </button>
+
+        {detailOpen ? (
+          <div className="stats-today__panel" ref={panelRef}>
+            {detailLoading ? (
+              <p className="stats-lead">正在读今天的记录…</p>
+            ) : detailError ? (
+              <div className="stats-error">
+                {detailError}
+                <button type="button" className="btn-ghost" onClick={() => void loadDetail()}>
+                  重试
+                </button>
+              </div>
+            ) : doneRows && dueRowsList ? (
+              <TodayDetail
+                done={doneRows}
+                due={dueRowsList}
+                cards={cardMap}
+                emptyDone={todayDetailEmpty('done')}
+                emptyDue={todayDetailEmpty('due')}
+              />
+            ) : (
+              <p className="stats-lead">正在读今天的记录…</p>
+            )}
+          </div>
+        ) : null}
       </div>
     </div>
   );

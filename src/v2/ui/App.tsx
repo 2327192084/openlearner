@@ -1640,8 +1640,20 @@ export function App({
            * 都跳到「我的题组」并展开新建表单（出题表单就在那里，
            * 没有独立的 generate 页），差别只在有没有预选那道题。
            */
+          /*
+           * 批量入口传**空数组**而不是 null（2026-11-13 修）。
+           *
+           * 原来这里写 `setVariantPreselect(null)`，而 GeneratePage 里
+           * 切模式的判据是「initialVariant 存在且 questionIds 非空」——
+           * null 让那个判据永远不成立，于是点「错题变式」跳进的是
+           * 「用资料出题」，变式面板根本没渲染。
+           *
+           * 用户原话：「错题变式的出题功能是假按钮，点击之后没有反馈」。
+           * 空数组表示「要进变式模式，但还没勾选任何题」——
+           * 用户进来自己挑，而不是被丢在另一个模式里。
+           */
           onOpenVariant={() => {
-            setVariantPreselect(null);
+            setVariantPreselect({ questionIds: [] });
             void navigate('generate');
           }}
           onVariantSingle={(questionId) => {
@@ -1906,7 +1918,7 @@ export function App({
           }}
         />
       ) : page === 'stats' ? (
-        <StatsPage service={reviewService} cardPool={pool} />
+        <StatsPage service={reviewService} cardPool={pool} loadCards={loadCards} />
       ) : page === 'settings' ? (
         <SettingsPage onChanged={() => void refreshShellState()} />
       ) : page === 'trash' ? (

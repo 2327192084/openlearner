@@ -154,9 +154,14 @@ export function GeneratePage({
    * 从错题页带着预选目标进来时，直接切到变式模式（2026-11-12）。
    *
    * 只在挂载时判一次：用户在页面里自己切模式后不该被强行拉回来。
+   *
+   * 判据是「有没有 initialVariant」，**不要求 questionIds 非空**（2026-11-13 修）：
+   * 错题页的批量入口「错题变式」进来时是空数组（让用户自己挑），
+   * 原先写 `questionIds.length > 0` 会让那个入口跳到「用资料出题」——
+   * 用户的原话是「错题变式的出题功能是假按钮，点击之后没有反馈」。
    */
   useEffect(() => {
-    if (initialVariant && initialVariant.questionIds.length > 0) {
+    if (initialVariant) {
       setMode('variant');
     }
   }, [initialVariant]);
