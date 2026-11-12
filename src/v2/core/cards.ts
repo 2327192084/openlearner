@@ -32,6 +32,16 @@ export type CardKind =
   | 'truefalse'
   /** 填空题 */
   | 'blank'
+  /**
+   * 计算题在卡片层**不进这里**（2026-11-12 定稿）。
+   *
+   * 用户要求：「让用户自主判断，我们显示详细解答过程和答案，
+   * 用户自主判断对错。」
+   *
+   * 所以计算题映射成 `short`（长文本输入 + 自评），和问答题同一条路径。
+   * 原本我加过独立的 `calc` 类型 + 数值判分，但那条路已按用户要求撤掉：
+   * 计算过程复杂，只看最终数值会放过「数值对、过程错」的情况。
+   */
   /** 简答题（自评） */
   | 'short'
   /** 纯知识点（只阅读，不需要作答，但仍按间隔复习推送） */
@@ -139,7 +149,16 @@ export function isCorrect(card: Card, given: string): boolean {
     return norm(a) === norm(g);
   }
 
-  // 填空 / 简答：宽松匹配
+  // 填空 / 简答 / 计算题：宽松匹配
+  /*
+   * 计算题也走这里（2026-11-12 定稿）。
+   *
+   * 用户要求「让用户自主判断」—— 所以计算题在卡片层映射成 `short`，
+   * 判分交给自评，不走数值比对。
+   *
+   * 之前我给它做过数值判分；撤掉的理由写在 cards-loader.ts 的
+   * `toCardKind` 注释里：只看最终数值会放过「数值对、过程错」。
+   */
   return looseMatch(a, g);
 }
 
@@ -156,14 +175,27 @@ export function isCorrect(card: Card, given: string): boolean {
  * 严格比对会让用户明明答对了却判错，那比不判还糟。
  * 但也不能太松 —— 给关键词命中设一个下限。
  */
+/**
+ * 文本归一化（全角转半角、去空白与常见标点、小写）。
+ *
+ * 抽出来是因为两处要用（2026-11-12）：
+ *  - `looseMatch` 的宽松匹配
+ *  - 计算题在「答案解析不出数值」时退回文本比对
+ *
+ * 之前这个 norm 是 looseMatch 内部的一个闭包。
+ * 计算题要复用它时不能复制一遍 —— 两套归一化迟早会走偏。
+ */
+export function looseNorm(s: string): string {
+  return s
+    .toLowerCase()
+    // 全角转半角（常见的中文输入法问题）
+    .replace(/[\uff01-\uff5e]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+    // 去掉所有空白与常见标点
+    .replace(/[\s,，。、;；:：!！?？"'"'()（）\[\]【】]/g, '');
+}
+
 export function looseMatch(expected: string, given: string): boolean {
-  const norm = (s: string) =>
-    s
-      .toLowerCase()
-      // 全角转半角（常见的中文输入法问题）
-      .replace(/[\uff01-\uff5e]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
-      // 去掉所有空白与常见标点
-      .replace(/[\s,，。、;；:：!！?？"'"'()（）\[\]【】]/g, '');
+  const norm = looseNorm;
 
   const e = norm(expected);
   const g = norm(given);

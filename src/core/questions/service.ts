@@ -11,7 +11,6 @@ import type {
 } from '../model.ts';
 import type { StorageAdapter } from '../storage/types.ts';
 import { pointsToMaterials, toSourcePoint, type QuestionMaterial } from './materials.ts';
-import { gradeCalcAnswer } from './calc-answer.ts';
 import type { UsageService } from '../usage.ts';
 import type { TrashService } from '../trash.ts';
 import {
@@ -793,18 +792,28 @@ export class DeckService {
       }
       case 'calc': {
         /*
-         * 计算题（2026-11-12）。
+         * 计算题：交给用户自评（2026-11-12 定稿）。
          *
-         * ## 为什么不能用填空那套
+         * ## 用户的要求
          *
-         * 填空是「文本归一化后严格相等」。对计算题会把
-         * 0.5 / 1/2 / 50%、9.8m/s² / 9.8 m/s^2 这些**同一个答案**
-         * 判成错 —— 那比不出题更伤，学生会以为自己算错了。
+         * 「让用户自主判断，我们显示详细解答过程和答案，用户自主判断对错。」
          *
-         * 所以走 `gradeCalcAnswer`：先按数值 + 单位比对，
-         * 解析不出数值（答案是公式）时再退回文本比对。
+         * ## 为什么这个判断是对的
+         *
+         * 我最初实现了数值判分（0.5 与 1/2 等价、单位归一化，22 条单测）。
+         * 但数值比对只看**最终结果**：
+         *  - 数值恰好对、过程全错 → 判对（放过了真实错误）
+         *  - 思路全对、末步算错一位 → 判错（打击了正确理解）
+         *
+         * 计算题的价值本来就在**过程**。让人对着完整解答自评，
+         * 比机器猜最终数字准得多。
+         *
+         * ## 与 essay 的区别
+         *
+         * 交互一样（长文本 + 自评），但 `kind` 保持 'calc' ——
+         * 统计里「计算题」与「问答题」不是一回事，导出时也要分开写。
          */
-        return gradeCalcAnswer(normalized, question.answer, normalizeBlank);
+        return null;
       }
       case 'essay':
         // 问答没法自动判分，交给用户自评

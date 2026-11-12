@@ -20,6 +20,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Question } from '@/core/model.ts';
+import { kindSpec } from '@/core/questions/kinds.ts';
 import { MathText } from './MathText.tsx';
 import {
   answerQuestion,
@@ -232,7 +233,21 @@ export function BookSelfTest({ questions, title, onExit, onOpenAnchor }: BookSel
             ) : answered?.correct === false ? (
               <p className="bst__verdict bst__verdict--bad">答错了</p>
             ) : (
-              <p className="bst__verdict">问答没有标准判分，你自己说了算：</p>
+              /*
+               * 自评类的提示文案（2026-11-12 改）。
+               *
+               * 原来写死「问答没有标准判分」。但计算题现在也走自评
+               * （用户要求：「显示详细解答过程和答案，用户自主判断对错」）——
+               * 它**有**确定答案，只是过程比结果更重要，所以仍让人自评。
+               *
+               * 对计算题说「没有标准判分」是错的：会让人以为答案不唯一。
+               * 所以按题型给不同的话。
+               */
+              <p className="bst__verdict">
+                {current.kind === 'calc'
+                  ? '对照下面的完整解答，自己判断算得对不对：'
+                  : '问答没有标准判分，你自己说了算：'}
+              </p>
             )}
 
             {/* 问答：用户自评 */}
@@ -294,20 +309,27 @@ export function BookSelfTest({ questions, title, onExit, onOpenAnchor }: BookSel
   );
 }
 
+/**
+ * 题型中文名。
+ *
+ * ## 为什么不再手写 switch（2026-11-12 实测发现）
+ *
+ * 这里原来手写了 5 个 case，缺 `truefalse` 与 `calc`：
+ * 判断题显示成 `truefalse`、计算题显示成 `calc`，
+ * 用户看到的是英文标识符。
+ *
+ * 这已经是**第三处**同样的手写映射（另两处：BookPage、cards.ts）。
+ * 每加一个题型就要改三遍，漏一次就露出英文。
+ *
+ * 改成从 `kinds.ts` 的单一数据源取。
+ */
 function kindLabel(k: string): string {
-  switch (k) {
-    case 'single':
-      return '单选';
-    case 'multiple':
-      return '多选';
-    case 'blank':
-      return '填空';
-    case 'essay':
-    case 'short':
-      return '问答';
-    default:
-      return k;
-  }
+  const fromSpec = kindSpec(k);
+  if (fromSpec) return fromSpec.short;
+  /* 卡片层特有的：short（essay 映射来）、point（只读知识点） */
+  if (k === 'short') return '简答';
+  if (k === 'point') return '知识点';
+  return k;
 }
 
 function isAnswerKey(q: Question, key: string): boolean {

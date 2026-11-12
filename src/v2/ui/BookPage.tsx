@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Deck, KnowledgePoint, Question, Source } from '@/core/model.ts';
 import type { DeckService } from '@/core/questions/service.ts';
+import { kindSpec } from '@/core/questions/kinds.ts';
 import type { SourceService } from '@/core/sources.ts';
 import { downloadBlob } from '@/pages/slides/download.ts';
 import { MathText } from './MathText.tsx';
@@ -821,21 +822,31 @@ export function BookPage({
   );
 }
 
-/** 题型中文名 */
+/**
+ * 题型中文名。
+ *
+ * ## 修掉的两处（2026-11-12 实测发现）
+ *
+ * 1. **缺 `truefalse`** —— 判断题在题册页显示成原始的 `truefalse`。
+ *    这是个早就存在的 bug：用户看到的是一串英文标识符。
+ * 2. **缺 `calc`** —— 新加的计算题会落进 default，同样显示英文。
+ *
+ * ## 为什么不复用 core 的映射表
+ *
+ * `cards.ts` 有 `CARD_KIND_LABEL`，但它按 `CardKind` 索引，
+ * 而这里拿到的是 `Question['kind']`（有 essay 与 calc，没有 short）。
+ * 两套类型不同，硬套会漏。
+ * 改成从 `kinds.ts` 的单一数据源取 —— 以后加题型不用再改这个函数。
+ */
 function kindLabel(k: string): string {
-  switch (k) {
-    case 'single':
-      return '单选';
-    case 'multiple':
-      return '多选';
-    case 'blank':
-      return '填空';
-    case 'essay':
-    case 'short':
-      return '问答';
-    default:
-      return k;
-  }
+  /* 题型注册表是单一数据源（kinds.ts） */
+  const fromSpec = kindSpec(k);
+  if (fromSpec) return fromSpec.short;
+  /* 卡片层特有的两种：short（essay 映射来）、point（只读知识点） */
+  if (k === 'short') return '简答';
+  if (k === 'point') return '知识点';
+  /* 真的不认识：原样返回，至少能看出是哪个值 */
+  return k;
 }
 
 /** 某个选项是不是正确答案 */
