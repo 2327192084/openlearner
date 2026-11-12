@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Source, KnowledgePoint, QuestionKind, SourceSegment } from '@/core/model.ts';
+import type {
+  Source,
+  KnowledgePoint,
+  Question,
+  QuestionKind,
+  SourceSegment,
+} from '@/core/model.ts';
 import type { SourceService } from '@/core/sources.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import {
@@ -13,13 +19,13 @@ import { KindPicker } from './KindPicker.tsx';
 import { QuotaPicker, totalOfCounts, type CognitiveLevel } from './QuotaPicker.tsx';
 import { ImportPanel } from './ImportPanel.tsx';
 import { VariantPanel, type VariantSelection } from './VariantPanel.tsx';
+import { GenFeedback, type GenDone, type GenProgress } from './GenFeedback.tsx';
 import type { ReviewService } from '@/v2/core/review-service.ts';
 import {
   knowledgePointsToVariantMaterials,
   wrongQuestionsToVariantMaterials,
 } from '@/core/questions/variants.ts';
 import './import-panel.css';
-import { kindLabel } from '@/core/questions/kinds.ts';
 import './kind-picker.css';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { BackendService } from '@/core/backends.ts';
@@ -212,18 +218,35 @@ export function GeneratePage({
    * 这些建议在 chat-client 里已经按错误码写好了，不能在这一层丢掉。
    */
   const [errorHint, setErrorHint] = useState<string | null>(null);
-  const [done, setDone] = useState<{
-    deck: string;
-    deckId: string;
-    questions: number;
-    /** 实际出了哪些题型（用于如实告知「你勾的里有几种没出成」） */
-    kinds: Record<string, number>;
-  } | null>(null);
+  const [done, setDone] = useState<GenDone | null>(null);
+  /**
+   * 进行中的进度（2026-11-13 加）。
+   *
+   * 一次出题要十几秒到一分钟，原来只有一个「正在生成…」的按钮文字，
+   * 用户看不出是还在跑还是卡死了 —— 这是「点了没反馈」的一半原因。
+   * 另一半是 error/done 当时只挂在「用资料出题」那块表单里，变式模式下不渲染
+   * （见 GenFeedback.tsx 的说明）。
+   */
+  const [progress, setProgress] = useState<GenProgress | null>(null);
 
   /** 统一的报错入口：带上 hint 就一起显示，没带就清掉上一条的 */
   const reportError = useCallback((err: unknown, fallback: string) => {
-    const e = err as { message?: string; hint?: string } | null;
-    setError(e?.message ?? fallback);
+    const e = err as {
+      message?: string;
+      hint?: string;
+      /** 出题中途失败时，DeckService 会把已产出的题挂在草稿题组上带出来 */
+      partialDeck?: { id: string; title: string };
+      producedCount?: number;
+    } | null;
+    let msg = e?.message ?? fallback;
+    /*
+     * 出题中途失败时草稿是保留的（DeckService 有意不丢用户的成果）。
+     * 不把这句话说出来，用户会以为白跑了 —— 他其实可以进去接着看。
+     */
+    if (e?.partialDeck && (e.producedCount ?? 0) > 0) {
+      msg += `（已经出的 ${e.producedCount} 道留在《${e.partialDeck.title}》里，可以先去看）`;
+    }
+    setError(msg);
     setErrorHint(typeof e?.hint === 'string' ? e.hint : null);
   }, []);
 
@@ -363,6 +386,7 @@ export function GeneratePage({
     setError(null);
     setErrorHint(null);
     setDone(null);
+    setProgress(null);
     try {
       const list = await backends.list();
       const ready = list.filter((b) => b.status === 'ready');
@@ -445,6 +469,9 @@ export function GeneratePage({
           language: 'zh',
         },
         signal: controller.signal,
+        onProgress: (p) => {
+          setProgress({ produced: p.produced, total: p.estimatedTotal });
+        },
       });
 
       /* 统计实际出成的题型分布 —— 用户勾了 N 种，模型可能只给了一两种 */
@@ -460,7 +487,9 @@ export function GeneratePage({
     } catch (err) {
       reportError(err, '出题失败');
     } finally {
+      /* 结束（成功或失败）就不再显示「已经出来 N 道」——结果由下面的 done/error 说 */
       setBusy(false);
+      setProgress(null);
     }
   }, [
     busy,
@@ -507,6 +536,7 @@ export function GeneratePage({
       setError(null);
       setErrorHint(null);
       setDone(null);
+      setProgress(null);
       try {
         const list = await backends.list();
         const ready = list.filter((b) => b.status === 'ready');
@@ -534,8 +564,28 @@ export function GeneratePage({
         let titleBase = '变式';
 
         if (sel.source === 'wrong') {
-          const all = await decks.getWrongQuestions({ onlyUnmastered: true });
-          const picked = all.filter((w) => sel.questionIds.includes(w.question.id));
+          /*
+           * 错题来源必须和面板**同一个**（2026-11-13 修）。
+           *
+           * 面板列的是 reviewService.wrongCardsDetailed()（读 reviewLogs，
+           * 也就是用户实际做题的地方）；这里原来调 decks.getWrongQuestions()
+           * （读 answerRecords）。用户库里 answerRecords 是空的、
+           * reviewLogs 才有时，面板能勾、点开始必然报「选中的错题已经不在
+           * 错题本里了」，一道题都出不来 —— 用户看到的就是「点了没反应」。
+           *
+           * 两边都读同一份数据，这个错位才不会复发。
+           */
+          const detail = reviewService ? await reviewService.wrongCardsDetailed() : [];
+          const wrongCountOf = new Map(detail.map((d) => [d.cardId, d.wrongCount]));
+          const picked: Array<{ question: Question; wrongCount: number }> = [];
+          for (const id of sel.questionIds) {
+            try {
+              const q = await decks.getQuestion(id);
+              if (q) picked.push({ question: q, wrongCount: wrongCountOf.get(id) ?? 1 });
+            } catch {
+              /* 单条读不出来不影响其它 */
+            }
+          }
           if (picked.length === 0) {
             setError('选中的错题已经不在错题本里了，刷新一下再试。');
             return;
@@ -585,6 +635,9 @@ export function GeneratePage({
             language: 'zh',
           },
           signal: controller.signal,
+          onProgress: (p) => {
+            setProgress({ produced: p.produced, total: p.estimatedTotal });
+          },
         });
 
         const kindCount: Record<string, number> = {};
@@ -600,11 +653,12 @@ export function GeneratePage({
         reportError(err, '变式出题失败');
       } finally {
         setBusy(false);
+        setProgress(null);
       }
     },
     [
       busy, backends, decks, sources, knowledge, sourceService,
-      kinds, levels, onGenerated,
+      kinds, levels, onGenerated, reviewService,
     ],
   );
 
@@ -675,6 +729,27 @@ export function GeneratePage({
           </button>
         ))}
       </div>
+
+      {/*
+        ---- 出题反馈：所有模式共用 ----
+
+        2026-11-13 修：这段原来只写在「用资料出题」那块表单里面，
+        于是变式模式下点「开始变式」——无论成功、失败还是正在跑，
+        界面上一个字都不会变。用户的原话是「点击出题按钮后没有题出现，
+        无论有没有产出都没有任何反馈」。
+
+        放在这里（模式卡片下方、各模式表单上方）而不是每个模式里各写一遍：
+        三处各写一遍必然会漏一处，这是本项目反复踩过的坑。
+      */}
+      <GenFeedback
+        busy={busy}
+        progress={progress}
+        error={error}
+        errorHint={errorHint}
+        done={done}
+        kinds={kinds}
+        onOpenDecks={onOpenDecks}
+      />
 
       {/* ---- 变式出题 ---- */}
       {mode === 'variant' ? (
@@ -839,57 +914,6 @@ export function GeneratePage({
             <span className="gen-estimate__value">约 {estimatedTokens} token</span>
             <span className="gen-estimate__note">按资料字数与题数估算，实际以服务端返回为准</span>
           </div>
-
-          {error ? (
-            <div className="gen-error">
-              <span>{error}</span>
-              {errorHint ? <span className="gen-error__hint">{errorHint}</span> : null}
-            </div>
-          ) : null}
-          {done ? (
-            <div className="gen-done">
-              <p className="gen-done__text">
-                ✓ 已生成「{done.deck}」，共 {done.questions} 道题。
-              </p>
-              {/*
-                如实列出「实际出了哪些题型」。
-                为什么必须有这段：勾了三种题型，模型可能只给出两种 ——
-                不说的话用户以为都生效了，去列表里才发现少了。
-                这是本项目反复强调的「不撒谎」在生成结果上的体现。
-              */}
-              <p className="gen-done__kinds">
-                实际题型：
-                {Object.entries(done.kinds)
-                  .map(([k, n]) => `${kindLabel(k)} ${n} 道`)
-                  .join(' · ')}
-                {(() => {
-                  const missing = kinds.filter((k) => !done.kinds[k]);
-                  if (missing.length === 0) return null;
-                  return (
-                    <span className="gen-done__missing">
-                      （{missing.map(kindLabel).join('、')} 这次没出成 ——
-                      模型不一定每次都按要求分配题型，可以再生成一次）
-                    </span>
-                  );
-                })()}
-              </p>
-              {/*
-               * 说清「待审核 vs 已发布」——生成出来是待审核，要先检查再发布才进复习。
-               * 原来只写「可以去复习里做了」，而当时题组是待审核、界面又没有题组列表，
-               * 用户照着做只会扑空。
-               */}
-              <p className="gen-done__hint">
-                它现在是<strong>待审核</strong>，先检查一遍题，发布之后才会进入复习。
-              </p>
-              <button
-                type="button"
-                className="btn-fill btn-fill--sm"
-                onClick={() => onOpenDecks(done.deckId)}
-              >
-                去看这 {done.questions} 道题
-              </button>
-            </div>
-          ) : null}
 
           <div className="gen-actions">
             <button

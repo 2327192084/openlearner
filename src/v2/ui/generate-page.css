@@ -209,6 +209,33 @@
     font-size: var(--fs-sm);
   }
 
+  /*
+   * 反馈条容器（2026-11-13 加）。
+   * 三个子块（进行中 / 失败 / 成功）竖向排列，和下面表单隔开一段。
+   */
+  .gen-feedback {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin-bottom: var(--space-5);
+  }
+
+  /*
+   * 进行中（2026-11-13 加）。
+   *
+   * 用中性色而不是 accent：它不是结果，只是「还在跑」。
+   * 出题一次十几秒到一分钟，没有这条用户只能盯着没变化的按钮猜，
+   * 这就是「点了没反馈」的另一半。
+   */
+  .gen-progress {
+    padding: var(--space-3);
+    border-left: 2px solid var(--text-faint);
+    background: color-mix(in srgb, var(--paper-ink) 6%, transparent);
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+  }
+
   /* 下一步该做什么，比「出了什么事」更重要 —— 但要让位给错误本身 */
   .gen-error__hint {
     color: var(--text-muted);
