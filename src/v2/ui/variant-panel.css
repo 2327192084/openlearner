@@ -1,0 +1,208 @@
+/**
+ * 变式出题面板样式（2026-11-12）。
+ *
+ * ## 两条硬约束
+ *
+ * 1. token 只用 v2 的（--bg-* / --text* / --accent* / --line* / --space-* / --fs-*）。
+ *    危险色是 `--bad`，不是 `--danger`。
+ * 2. 原生控件（input / button）样式写在 @layer 外 ——
+ *    base.css 里有层外的同名规则，级联「层级先于特异性」。
+ */
+
+@layer components {
+  .vp {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .vp-block {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .vp-label {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+  }
+
+  .vp-hint {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+  }
+
+  .vp-hint--bad {
+    color: var(--bad);
+  }
+
+  /* ---- 来源切换 ---- */
+  .vp-tabs {
+    display: flex;
+    gap: var(--space-2);
+  }
+
+  .vp-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    justify-content: center;
+  }
+
+  .vp-tab--on {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: color-mix(in oklab, var(--accent) 12%, transparent);
+  }
+
+  .vp-tab__n {
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--bg-sunken);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- 条目列表 ---- */
+  .vp-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 260px;
+    overflow: auto;
+  }
+
+  .vp-item__row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: 6px var(--space-2);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+
+  .vp-item__row:hover {
+    background: var(--bg-hover);
+  }
+
+  .vp-item__text {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--fs-sm);
+    color: var(--text);
+    line-height: 1.5;
+  }
+
+  .vp-item__badge {
+    flex: none;
+    font-size: var(--fs-xs);
+    color: var(--bad);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .vp-group + .vp-group {
+    margin-top: var(--space-2);
+  }
+
+  .vp-group__title {
+    margin: 0 0 4px;
+    font-size: var(--fs-xs);
+    color: var(--text-dim);
+  }
+
+  /* ---- 变式维度 ---- */
+  .vp-axes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--space-2);
+  }
+
+  .vp-axis {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    text-align: left;
+  }
+
+  .vp-axis--on {
+    border-color: var(--accent);
+  }
+
+  .vp-axis__label {
+    font-size: var(--fs-sm);
+    color: var(--text);
+  }
+
+  .vp-axis--on .vp-axis__label {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .vp-axis__desc {
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+
+  /* ---- 底部 ---- */
+  .vp-foot {
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+
+  .vp-count {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .vp-count__input {
+    width: 80px;
+  }
+}
+
+/* ==========================================================================
+ * 层外：原生控件
+ * ========================================================================== */
+
+.vp-tab,
+.vp-axis {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  appearance: none;
+}
+
+.vp-tab:hover,
+.vp-axis:hover {
+  border-color: var(--accent);
+}
+
+.vp-count__input {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  appearance: none;
+}
+
+.vp-count__input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

@@ -1817,6 +1817,7 @@ export function App({
           sourceService={sourceService}
           knowledge={knowledge}
           backends={backends}
+          reviewService={reviewService}
           initialDeckId={openedDeckId}
           onGenerated={() => void refreshData()}
           onOpenSources={() => setPage('sources')}
@@ -1912,6 +1913,7 @@ export function App({
           sourceService={sourceService}
           knowledge={knowledge}
           backends={backends}
+          reviewService={reviewService}
           initialCreate
           onGenerated={() => void refreshData()}
           onOpenSources={() => setPage('sources')}

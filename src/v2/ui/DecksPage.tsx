@@ -4,6 +4,7 @@ import type { DeckService } from '@/core/questions/service.ts';
 import type { SourceService } from '@/core/sources.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { BackendService } from '@/core/backends.ts';
+import type { ReviewService } from '@/v2/core/review-service.ts';
 import { GeneratePage } from './GeneratePage.tsx';
 import { ConfirmDialog } from './dialog.tsx';
 import { IconGenerate } from './icons.tsx';
@@ -58,6 +59,14 @@ export interface DecksPageProps {
   initialCreate?: boolean;
   /** 去这一份资料的阅读器（看原文对照） */
   onOpenSource?: (sourceId: string) => void;
+  /**
+   * 复习服务（2026-11-12）。
+   *
+   * 变式出题要拿「用户真实做错过的题」，那些记录在 `reviewLogs` 里，
+   * 只有 reviewService 能读到（见 VariantPanel 的 review prop 说明）。
+   * 为可选：没传时「从错题变式」显示引导语而不是报错。
+   */
+  reviewService?: ReviewService;
   onChanged: () => void;
 }
 
@@ -72,6 +81,7 @@ export function DecksPage({
   initialDeckId,
   initialCreate,
   onOpenSource,
+  reviewService,
   onChanged,
 }: DecksPageProps) {
   const [list, setList] = useState<Deck[] | null>(null);
@@ -260,6 +270,7 @@ export function DecksPage({
           knowledge={knowledge}
           decks={decks}
           backends={backends}
+          {...(reviewService ? { reviewService } : {})}
           onGenerated={onGenerated}
           onOpenSources={onOpenSources}
           onOpenOrganize={onOpenOrganize}

@@ -12,6 +12,12 @@ import { OriginPicker, type MaterialOrigin } from './OriginPicker.tsx';
 import { KindPicker } from './KindPicker.tsx';
 import { QuotaPicker, totalOfCounts, type CognitiveLevel } from './QuotaPicker.tsx';
 import { ImportPanel } from './ImportPanel.tsx';
+import { VariantPanel, type VariantSelection } from './VariantPanel.tsx';
+import type { ReviewService } from '@/v2/core/review-service.ts';
+import {
+  knowledgePointsToVariantMaterials,
+  wrongQuestionsToVariantMaterials,
+} from '@/core/questions/variants.ts';
 import './import-panel.css';
 import { kindLabel } from '@/core/questions/kinds.ts';
 import './kind-picker.css';
@@ -49,6 +55,11 @@ export interface GeneratePageProps {
   /** 出完题跳到「我的题组」并展开这一组 —— 否则用户找不到刚生成的题 */
   onOpenDecks: (deckId?: string | null) => void;
   /**
+   * 复习服务（2026-11-12）。变式出题要用它取真实做错过的题。
+   * 可选：不传时「从错题变式」显示引导语。
+   */
+  reviewService?: ReviewService;
+  /**
    * 返回题组列表。
    *
    * 这个组件现在**嵌在「我的题组」页里**（用户要求把「创建题组」
@@ -57,7 +68,7 @@ export interface GeneratePageProps {
   onBack?: () => void;
 }
 
-type Mode = 'from-source' | 'import-json' | 'case' | 'capture';
+type Mode = 'from-source' | 'variant' | 'import-json' | 'case' | 'capture';
 
 /**
  * 四个出题入口。
@@ -80,6 +91,21 @@ const MODES: { id: Mode; title: string; desc: string; ready: boolean }[] = [
     id: 'from-source',
     title: '用资料出题',
     desc: 'AI 按你的资料出题，并逐题检查',
+    ready: true,
+  },
+  {
+    /*
+     * 变式出题（2026-11-12）。
+     *
+     * 用户要求：「出题方式太单一了……让 AI 对特定的知识点，
+     * 或是错题进行变式。」
+     *
+     * 放在第二位而不是最后：它和「用资料出题」是并列的两种主要出题方式，
+     * 不是从导入类功能里延伸出来的补充。
+     */
+    id: 'variant',
+    title: '变式出题',
+    desc: '拿做错的题或某个知识点，出同类但不同的新题',
     ready: true,
   },
   {
@@ -111,6 +137,7 @@ export function GeneratePage({
   onOpenSources,
   onOpenOrganize,
   onOpenDecks,
+  reviewService,
   onBack,
 }: GeneratePageProps) {
   const [mode, setMode] = useState<Mode>('from-source');
@@ -402,6 +429,132 @@ export function GeneratePage({
     sourceService,
   ]);
 
+  /**
+   * 变式出题（2026-11-12）。
+   *
+   * ## 为什么单独一个函数而不是改 generate
+   *
+   * `generate` 的素材来自「资料原文 / 知识点库」，且读法是基于
+   * `origin` + `selected` 的固定组合。变式的素材来自**另一处**
+   * （用户勾选的错题或知识点），形状不同。
+   *
+   * 硬塞进 generate 会让那个函数多出三四个条件分支，
+   * 而它已经 100 行了 —— 拆开更清楚。
+   *
+   * ## 复用的是什么
+   *
+   * 后端选择、只校验、进度、落库、`onGenerated()` 全都一样，
+   * 只有「materials 从哪来」不同。所以这里复制的是**取素材**那段，
+   * 其余照旧 —— 注意不要复制出第二套落库逻辑。
+   */
+  const startVariant = useCallback(
+    async (sel: VariantSelection) => {
+      if (busy) return;
+      setBusy(true);
+      setError(null);
+      setErrorHint(null);
+      setDone(null);
+      try {
+        const list = await backends.list();
+        const ready = list.filter((b) => b.status === 'ready');
+        if (ready.length === 0) {
+          setError('还没有可用的模型。先到「设置」里添加一个后端。');
+          return;
+        }
+        const backendId = ready[0]!.id;
+        const apiKey = await backends.readCredential(backendId);
+        if (!apiKey) {
+          setError('读不到这个后端的 API Key，请到设置页重新填一次。');
+          return;
+        }
+
+        const { DeepSeekQuestionBackend } = await import('@/core/questions/deepseek-backend.ts');
+        const backend = new DeepSeekQuestionBackend({
+          apiKey,
+          provider: ready[0]!.provider,
+          model: ready[0]!.model,
+          ...(ready[0]!.baseUrl ? { baseUrl: ready[0]!.baseUrl } : {}),
+        });
+
+        /* ---- 取变式素材（与 generate 唯一的不同点） ---- */
+        let materials: QuestionMaterial[] = [];
+        let titleBase = '变式';
+
+        if (sel.source === 'wrong') {
+          const all = await decks.getWrongQuestions({ onlyUnmastered: true });
+          const picked = all.filter((w) => sel.questionIds.includes(w.question.id));
+          if (picked.length === 0) {
+            setError('选中的错题已经不在错题本里了，刷新一下再试。');
+            return;
+          }
+          /* 知识点用来给变式题提供出处；取不到也能变，只是没有出处 */
+          const pointsById = new Map<string, KnowledgePoint>();
+          for (const src of (await sourceService.list()) ?? []) {
+            for (const p of await knowledge.listBySource(src.id)) pointsById.set(p.id, p);
+          }
+          materials = wrongQuestionsToVariantMaterials(picked, pointsById, sel.axes);
+          titleBase = '错题变式';
+        } else {
+          const pointsById = new Map<string, KnowledgePoint>();
+          for (const src of (await sourceService.list()) ?? []) {
+            for (const p of await knowledge.listBySource(src.id)) pointsById.set(p.id, p);
+          }
+          const picked = sel.pointIds
+            .map((id) => pointsById.get(id))
+            .filter((p): p is KnowledgePoint => Boolean(p));
+          if (picked.length === 0) {
+            setError('选中的知识点找不到了，刷新一下再试。');
+            return;
+          }
+          materials = knowledgePointsToVariantMaterials(picked, sel.axes);
+          titleBase = '知识点变式';
+        }
+
+        if (materials.length === 0) {
+          setError('没有可用来变式的内容。');
+          return;
+        }
+
+        const controller = new AbortController();
+
+        const out = await decks.generate({
+          /* 素材优先；points 留空 —— generate 会用 materials */
+          points: [],
+          materials,
+          title: `${titleBase} · ${new Date().toLocaleDateString('zh-CN')}`,
+          sourceId: null,
+          backend,
+          options: {
+            kinds,
+            count: sel.count,
+            /* 变式不强制题型分布 —— 同一个考点换考法比换题型更有意义 */
+            levels: levels.length > 0 ? levels : null,
+            language: 'zh',
+          },
+          signal: controller.signal,
+        });
+
+        const kindCount: Record<string, number> = {};
+        for (const q of out.questions) kindCount[q.kind] = (kindCount[q.kind] ?? 0) + 1;
+        setDone({
+          deck: out.deck.title,
+          deckId: out.deck.id,
+          questions: out.questions.length,
+          kinds: kindCount,
+        });
+        onGenerated();
+      } catch (err) {
+        reportError(err, '变式出题失败');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [
+      busy, backends, decks, sources, knowledge, sourceService,
+      kinds, levels, onGenerated,
+    ],
+  );
+
   // ---- 没有资料：先引导导入 ----
   if (sources !== null && sources.length === 0) {
     return (
@@ -469,6 +622,29 @@ export function GeneratePage({
           </button>
         ))}
       </div>
+
+      {/* ---- 变式出题 ---- */}
+      {mode === 'variant' ? (
+        <div className="gen-form">
+          <VariantPanel
+            decks={decks}
+            knowledge={knowledge}
+            sources={sourceService}
+            /*
+             * 没有复习服务时给一个「永远返回空」的替身：
+             * 面板会显示「还没有错题记录」的引导语，而不是崩掉。
+             * 这是刻意的 —— 比在界面里塞一个「功能不可用」的假按钮好。
+             */
+            review={
+              reviewService ?? {
+                wrongCardsDetailed: async () => [],
+              }
+            }
+            busy={busy}
+            onStart={(sel) => void startVariant(sel)}
+          />
+        </div>
+      ) : null}
 
       {/* ---- 导入 JSON 题组 ---- */}
       {mode === 'import-json' ? (
