@@ -700,6 +700,104 @@ async function ensureServerRunning(exePath, options = {}) {
   };
 }
 
+/**
+ * 尝试打开 MinerU 的本地解析服务（2026-11-12）。
+ *
+ * ## 为什么要有这个
+ *
+ * MinerU 的 `parse_server.local.mode` 默认是 `disabled`（实测：
+ * `mineru config get parse_server.local.mode` → `disabled [default]`）。
+ * 不打开它，`mineru parse` 会直接拒绝并说
+ * "Local parse-server is disabled"。
+ *
+ * 原实现只把这个错翻译成「去敲两条命令」，等于把配置问题推给用户 ——
+ * 而我们**本来就知道** `mineru.exe` 在哪、也**本来就能**执行它。
+ *
+ * ## 为什么不直接改 config.yaml
+ *
+ * 可以，但不该：那个文件还有 `doclib.auth.token` 等 MinerU 自己管的字段，
+ * 我们手写 YAML 容易写坏结构。用官方 `config set` 子命令是安全的方式
+ * （它自己知道怎么写、怎么合并）。
+ *
+ * ## 幂等吗
+ *
+ * 幂等。重复设置同一个值不会出错，所以失败重试是安全的。
+ *
+ * @returns {Promise<{ok:boolean, error?:string}>} 不抛异常
+ */
+async function tryEnableLocalParseServer(exePath, spawnImpl) {
+  const runOne = (args) =>
+    new Promise((resolve) => {
+      let child;
+      try {
+        child = spawnImpl(exePath, args, {
+          windowsHide: true,
+          cwd: path.dirname(exePath),
+        });
+      } catch (e) {
+        resolve({ code: -1, out: `启动失败: ${e && e.message}` });
+        return;
+      }
+      let out = '';
+      const onData = (c) => {
+        out += c.toString('utf8');
+        if (out.length > 20000) out = out.slice(-20000);
+      };
+      child.stdout?.on('data', onData);
+      child.stderr?.on('data', onData);
+      /* 这两条命令很快；15 秒还不返回就当作失败，不要卡住整个转换 */
+      const t = setTimeout(() => {
+        try {
+          child.kill();
+        } catch { /* ignore */ }
+        resolve({ code: -2, out: '超时' });
+      }, 15000);
+      child.on('error', (e) => {
+        clearTimeout(t);
+        resolve({ code: -1, out: `启动失败: ${e && e.message}` });
+      });
+      child.on('close', (code) => {
+        clearTimeout(t);
+        resolve({ code: code ?? -1, out });
+      });
+    });
+
+  try {
+    const a = await runOne(['config', 'set', 'parse_server.local.mode', 'managed']);
+    if (a.code !== 0) {
+      /*
+       * ⚠️ 实测发现（2026-11-12）：`config set` 可能因为**模型不齐**而失败。
+       *
+       * 在用户的机器上跑这一条，报的是：
+       *   MinerU-4_models_onnx missing: OCR/..., Table/unet.onnx ... 
+       *   Run: mineru-kit models download --tier standard
+       *
+       * 也就是说：MinerU 在写配置前会先校验该 tier 的模型是否完整。
+       * 所以「配置问题」和「模型问题」在界面上是同一句话引出来的，
+       * 必须把这层原因透出去，否则用户照着敲命令永远修不好。
+       */
+      const out = (a.out || '').trim();
+      const modelsMissing = /missing:|models download|not downloaded/i.test(out);
+      return {
+        ok: false,
+        needsModels: modelsMissing,
+        error: out ? out.slice(-400) : `退出码 ${a.code}`,
+      };
+    }
+    const b = await runOne(['config', 'set', 'parse_server.local.managed_tier', 'basic']);
+    if (b.code !== 0) {
+      /*
+       * 第二条失败不算致命：mode 已经是 managed，tier 用默认值也能跑。
+       * 但如实记下，让调用方知道发生了半成功。
+       */
+      return { ok: true, error: `tier 未设置成功：${(b.out || '').trim().slice(-120)}` };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e && e.message ? e.message : '未知错误' };
+  }
+}
+
 async function runMineru(req, options = {}) {
   const exePath = options.exePath;
   const spawnImpl = options.spawnImpl ?? spawn;
@@ -1061,15 +1159,105 @@ async function runMineru(req, options = {}) {
          * 原来只会把原始日志拍给用户，他看不出该点哪里。
          */
         if (/Local parse-server is disabled|parse_server\.local\.mode/i.test(said)) {
-          finish({
-            ok: false,
-            trouble: 'server-disabled',
-            message:
-              'MinerU 的本地解析服务没启用，所以它拒绝转换。' +
-              '到 MinerU 的安装目录执行两条命令即可：\n' +
-              '  mineru config set parse_server.local.mode managed\n' +
-              '  mineru config set parse_server.local.managed_tier basic\n' +
-              '然后重启应用。',
+          /*
+           * 本地解析服务被禁用（2026-11-12）。
+           *
+           * ## 用户反馈
+           *
+           * 「没事，我可以手动敲命令，但是你要告诉用户怎么做，
+           *   你这个命令给的不完整。」
+           *
+           * 原提示只写「到 MinerU 的安装目录执行两条命令」——
+           * 但普通用户不知道：
+           *  - 「MinerU 的安装目录」是哪个（他可能是绿色版 / 装在 D 盘）
+           *  - 敲完还报「mineru 不是内部或外部命令」（PATH 里没有）
+           *  - 配置文件写到哪、要不要管理员权限
+           *
+           * ## 现在的做法
+           *
+           * 1. **先试着自己修**：我们拿得到 exePath，就不该让用户动手。
+           *    两条 `config set` 都是幂等的，成功就直接重试转换一次。
+           * 2. 自修失败时给**完整可直接复制**的命令（带绝对路径与引号），
+           *    并说清「在哪敲、敲完做什么」。
+           *
+           * ⚠️ 这里在 Promise 的执行体里，不是 async 函数 ——
+           * 所以用 .then() 而不是 await。
+           */
+          tryEnableLocalParseServer(exePath, spawnImpl).then((selfFix) => {
+            if (selfFix.ok && !options.__retriedAfterFix) {
+              /*
+               * 修好了就再跑一次 —— 只重试一次。
+               *
+               * 用标记而不是无限重试：如果 config set 报成功、实际却没生效
+               * （比如配置被别处覆盖），无标记重试会打成死循环，
+               * 用户看到界面一直在转。
+               */
+              runMineru(req, { ...options, __retriedAfterFix: true }).then(finish);
+              return;
+            }
+
+            const quoted = `"${exePath}"`;
+
+            /*
+             * 根据**真实失败原因**给不同的下一步（2026-11-12）。
+             *
+             * 实测：`config set parse_server.local.mode managed` 在某些机器上
+             * 会因模型不齐而失败，报「... missing: ... Run: mineru-kit models
+             * download --tier standard」。
+             *
+             * 那种情况下让用户去敲 config set 永远修不好 —— 必须先去下模型。
+             * 只给一条笼统的「敲这两条命令」是我原提示的错。
+             */
+            if (selfFix.needsModels) {
+              /*
+               * ⚠️ 下模型必须用 `mineru-kit`，不是 `mineru`（2026-11-12 实测）。
+               *
+               * 实测：
+               *   mineru models download --tier basic
+               *   → No such command 'models'.
+               *   mineru-kit models download --tier basic  ← 这个才对
+               *
+               * 而且 mineru-kit.exe 与 mineru.exe 在同一个 Scripts 目录，
+               * 所以把 exePath 的文件名换掉即可，不用让用户自己拼路径。
+               */
+              const kitExe = exePath.replace(/mineru\.exe$/i, 'mineru-kit.exe');
+              const quotedKit = `"${kitExe}"`;
+
+              finish({
+                ok: false,
+                trouble: 'models-missing',
+                message:
+                  'MinerU 的**模型文件不全**，所以它拒绝转换。\n\n' +
+                  '这不是配置问题 —— 只敲 config 命令修不好。先补模型：\n\n' +
+                  '1) 按 Win+R，输入 cmd，回车\n' +
+                  '2) 执行这一条（basic 档，体积最小，先能跑起来）：\n\n' +
+                  `   ${quotedKit} models download --tier basic\n\n` +
+                  '3) 下载完成后，再执行这两条：\n\n' +
+                  `   ${quoted} config set parse_server.local.mode managed\n` +
+                  `   ${quoted} config set parse_server.local.managed_tier basic\n\n` +
+                  '4) 关掉本软件再重新打开，然后重试转换。\n\n' +
+                  '（MinerU 的原始错误：' +
+                  String(selfFix.error ?? '').replace(/\s+/g, ' ').slice(0, 200) +
+                  '）',
+              });
+              return;
+            }
+
+            finish({
+              ok: false,
+              trouble: 'server-disabled',
+              message:
+                'MinerU 的本地解析服务是关闭状态，所以它拒绝转换。\n\n' +
+                (selfFix.error ? `我试着自动打开它，但没成功（${selfFix.error}）。\n\n` : '') +
+                '你可以手动执行下面两条命令（已带上你这台机器的完整路径，直接复制即可）：\n\n' +
+                '1) 按 Win+R，输入 cmd，回车，打开黑色命令窗口\n' +
+                '2) 把这两行一起复制进去，回车：\n\n' +
+                `   ${quoted} config set parse_server.local.mode managed\n` +
+                `   ${quoted} config set parse_server.local.managed_tier basic\n\n` +
+                '3) 关掉本软件再重新打开，然后重试转换。\n\n' +
+                '（managed_tier 决定速度与准确度：basic 最快；' +
+                '想要更准可以换成 standard 或 advanced。）',
+            });
           });
           return;
         }
@@ -1158,4 +1346,6 @@ module.exports = {
   runMineru,
   summarizeMineruError,
   ensureServerRunning,
+  /* 2026-11-12：本地解析服务被禁用时自动打开（导出便于单测） */
+  tryEnableLocalParseServer,
 };
