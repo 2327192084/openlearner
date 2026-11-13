@@ -10,6 +10,7 @@ import type { ReviewService, ReviewRecord } from '@/v2/core/review-service.ts';
 import type { GradingRules } from '@/v2/core/grading.ts';
 import { judgeByTiming, DEFAULT_GRADING_RULES } from '@/v2/core/grading.ts';
 import { useCardTimer, formatElapsed } from './use-card-timer.ts';
+import { useLayerActive } from './page-layer-context.ts';
 import type { NoteService } from '@/core/notes.ts';
 import { NoteBox } from './NoteBox.tsx';
 import { pickOption } from './option-pick.ts';
@@ -289,8 +290,14 @@ export function ReviewPage({
    *
    * 用 card.id 作重置键：换卡就重新起表。
    * 起表本身会等两帧（见 use-card-timer），确保用户真的看到题了。
+   *
+   * 第二个参数是「被压到下层」（2026-11-13 下午）：页面保活之后，
+   * 切去看原文不会让 `document.hidden` 变 true，计时会一直走 ——
+   * 用户只是看了一眼原文，回来就被判成「想了好久」。
+   * 隐藏层必须显式暂停，见 use-card-timer 的 suspended 参数。
    */
-  const timer = useCardTimer(card?.id);
+  const layerActive = useLayerActive();
+  const timer = useCardTimer(card?.id, !layerActive);
 
   const rules = gradingRules ?? DEFAULT_GRADING_RULES;
 

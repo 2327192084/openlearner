@@ -65,6 +65,18 @@ export interface AppShellProps {
   canGoBack?: boolean;
   /** 返回目标页名，用于 title（如「返回错题与待巩固」） */
   backToLabel?: string | null;
+  /**
+   * 有一个**进行中的任务**还留在下面（2026-11-13 下午）。
+   *
+   * 页面保活之后，用户跳去看原文/首页时那一轮并没有丢，但他**看不见**它 ——
+   * 如果没有任何入口，他就只能靠侧栏猜「刚才是在做题还是考试」。
+   * 这个 prop 让侧栏顶部直接给一行「继续：做题（第 3 题）」。
+   *
+   * 不传 = 没有进行中的任务 = 不渲染（项目一贯：不摆点了没反应的按钮）。
+   */
+  resumeTask?: { page: PageId; label: string } | null;
+  /** 点「继续」回到那个任务 */
+  onResumeTask?: () => void;
   children: ReactNode;
 }
 
@@ -80,6 +92,8 @@ export function AppShell({
   onBack,
   canGoBack = false,
   backToLabel,
+  resumeTask,
+  onResumeTask,
   children,
 }: AppShellProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -157,6 +171,27 @@ export function AppShell({
             </span>
           ) : null}
         </button>
+
+        {/*
+          「继续：做题」（2026-11-13 下午）。
+          页面保活之后，用户跳走时那一轮还在下面活着，但他看不见 ——
+          没有这个入口，他只能自己记住「刚才是在做题还是考试」。
+          只在真有进行中的任务时渲染（不摆假按钮）。
+        */}
+        {resumeTask && onResumeTask ? (
+          <button
+            type="button"
+            className="nav-item nav-item--resume"
+            onClick={onResumeTask}
+            title={`回到没做完的${resumeTask.label}，进度还在`}
+          >
+            <span className="nav-item__icon" aria-hidden="true">
+              <BackGlyph />
+            </span>
+            <span className="nav-item__label">继续：{resumeTask.label}</span>
+            <span className="nav-item__chip">未完成</span>
+          </button>
+        ) : null}
 
         <nav className="side-nav">
           {GROUPS.map((g) => {

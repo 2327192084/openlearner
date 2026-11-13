@@ -22,6 +22,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Question } from '@/core/model.ts';
 import { kindSpec } from '@/core/questions/kinds.ts';
 import { MathText } from './MathText.tsx';
+import { useLayerKeydown } from './use-layer-keydown.ts';
 import {
   answerQuestion,
   currentQuestionId,
@@ -94,17 +95,21 @@ export function BookSelfTest({ questions, title, onExit, onOpenAnchor }: BookSel
     setState((prev) => prevQuestion(prev) ?? prev);
   }, []);
 
-  /* 键盘：← → 翻题，Enter 提交（做题页已有这套习惯，保持一致） */
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
+  /*
+   * 键盘：← → 翻题，Enter 提交（做题页已有这套习惯，保持一致）。
+   *
+   * 走 useLayerKeydown（2026-11-13 下午）：页面保活后这层可能被压在下层
+   * 但依然挂着，直接监听 window 会和当前页一起响应方向键。
+   */
+  useLayerKeydown(
+    (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName ?? '';
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       if (e.key === 'ArrowRight') goNext();
       else if (e.key === 'ArrowLeft') goPrev();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [goNext, goPrev]);
+    },
+    [goNext, goPrev],
+  );
 
   const answered = currentId ? state.answers[currentId] : undefined;
   const atEnd = state.index >= state.queue.length - 1;

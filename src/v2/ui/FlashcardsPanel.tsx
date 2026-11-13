@@ -23,6 +23,7 @@ import type { FlashcardView } from '@/core/flashcards.ts';
 import type { KnowledgePoint } from '@/core/model.ts';
 import type { FlashcardCandidate } from '@/core/ai/pick-flashcards.ts';
 import { MathText } from './MathText.tsx';
+import { useLayerKeydown } from './use-layer-keydown.ts';
 import './flashcards.css';
 
 export interface FlashcardsPanelProps {
@@ -134,9 +135,14 @@ function ReviewView({
     setIndex((i) => (i - 1 + cards.length) % cards.length);
   }, [cards.length]);
 
-  /* 键盘：空格翻面、← → 换卡（与 Anki 一致的习惯） */
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
+  /*
+   * 键盘：空格翻面、← → 换卡（与 Anki 一致的习惯）。
+   *
+   * 走 useLayerKeydown（2026-11-13 下午）：页面保活后这层可能被压在下层
+   * 但依然挂着，直接监听 window 会和当前页一起响应空格/方向键。
+   */
+  useLayerKeydown(
+    (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName ?? '';
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       if (e.key === ' ' || e.key === 'Enter') {
@@ -144,10 +150,9 @@ function ReviewView({
         setFlipped((f) => !f);
       } else if (e.key === 'ArrowRight') next();
       else if (e.key === 'ArrowLeft') prev();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [next, prev]);
+    },
+    [next, prev],
+  );
 
   if (!card) {
     return (

@@ -53,8 +53,22 @@ export interface CardTimer {
 
 /**
  * @param resetKey 变化时重新起表。传入当前卡片的 id 即可。
+ * @param suspended 外部要求暂停（默认 false）。
+ *
+ *   ## 为什么需要它（2026-11-13 下午）
+ *
+ *   页面保活之后，「切到别的页」**不等于** `document.hidden` ——
+ *   被压在下面的做题页仍然挂着，`document.hidden` 是 false，
+ *   于是 visibilitychange 那条路不会触发，计时会一直走。
+ *
+ *   用户只是去看了一眼原文，回来这道题就被判成「想了好久」，
+ *   直接拖垮复习间隔 —— 这是保活引入的真实回归，必须挡住。
+ *
+ *   语义与「切走」一致：暂停并把这一段结算掉，回来继续累计。
+ *   但它**不设置** `pausedByUserRef`：用户没有主动暂停，
+ *   所以不需要他点「继续」，切回来应当自动恢复计时。
  */
-export function useCardTimer(resetKey: string | undefined): CardTimer {
+export function useCardTimer(resetKey: string | undefined, suspended = false): CardTimer {
   /** 已累计的有效毫秒（不含当前这一段） */
   const accumulatedRef = useRef<number>(0);
   const runningSinceRef = useRef<number | null>(null);
@@ -191,6 +205,39 @@ export function useCardTimer(resetKey: string | undefined): CardTimer {
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, []);
+
+  /**
+   * 被压到下层时暂停（2026-11-13 下午）。
+   *
+   * 与切走那条路的区别：这**不是**用户主动暂停，所以不碰
+   * `pausedByUserRef`；回到这一层时自动继续。
+   *
+   * 为什么单独一个 effect 而不是并进 visibilitychange：
+   * 两者的触发源完全不同（一个是 `document.hidden`，一个是覆盖层栈顶变了），
+   * 写在一起会让「谁把它暂停了」变难查 —— 这个项目在计时上已经踩过坑。
+   */
+  useEffect(() => {
+    if (suspended) {
+      /* 结算当前这一段，然后停表 */
+      if (runningSinceRef.current !== null) {
+        accumulatedRef.current += Date.now() - runningSinceRef.current;
+        runningSinceRef.current = null;
+      }
+      setPaused(true);
+      return;
+    }
+    /*
+     * 重新变成活动层。
+     *
+     * 只有「本来在走」才恢复：还没起表（startedRef=false）或用户手动
+     * 暂停过的，都不该被这里悄悄打开。
+     */
+    if (pausedByUserRef.current) return;
+    if (startedRef.current) {
+      runningSinceRef.current = Date.now();
+    }
+    setPaused(false);
+  }, [suspended]);
 
   /**
    * `started` 的 ref 副本已在上面声明。

@@ -2,6 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReviewService } from '@/v2/core/review-service.ts';
 import type { CardLoader } from './cards-loader.ts';
 import { AppShell } from './AppShell.tsx';
+import { PageLayerContext } from './page-layer-context.ts';
+import {
+  EMPTY_LAYERS,
+  dropLayer,
+  isKeepAlive,
+  layersToRender,
+  resumeTarget,
+  retainLayer,
+  type LayerState,
+} from './page-layers.ts';
 import { TodayPage } from './TodayPage.tsx';
 import { ReviewPage } from './ReviewPage.tsx';
 import { PracticePage } from './PracticePage.tsx';
@@ -60,7 +70,7 @@ import type { AnnotationService } from '@/core/annotation-service.ts';
 import type { BackendService } from '@/core/backends.ts';
 import type { SourceService } from '@/core/sources.ts';
 import type { Card } from '@/v2/core/cards.ts';
-import type { PageId } from './pages.ts';
+import { pageById, type PageId } from './pages.ts';
 import { SettingsPage } from './SettingsPage.tsx';
 import { OrganizePage } from './OrganizePage.tsx';
 import { ParsePage } from './ParsePage.tsx';
@@ -218,6 +228,38 @@ export function App({
    */
   const navStackRef = useRef<PageId[]>([]);
   const [canGoBack, setCanGoBack] = useState(false);
+
+  /**
+   * 页面覆盖层状态（2026-11-13 下午）。
+   *
+   * `retained` = 留在 DOM 里不卸载的页（白名单里有进行中状态的那些）；
+   * `page` 是当前可见页，它自己不一定在 retained 里（阅读器就不在）。
+   * 两者分开的理由见 page-layers.ts 头注释「两个概念必须分开」。
+   */
+  const [layers, setLayers] = useState<LayerState>(EMPTY_LAYERS);
+
+  /**
+   * 强制重挂某一层的 key 后缀。
+   *
+   * 保活的反面：用户**故意开始新一轮**时，必须把上一轮那份组件丢掉，
+   * 否则新队列会喂给一个还停在上一轮末尾的旧组件（题号越界、结果页残留）。
+   * 只改 key 就能让 React 卸载旧的、挂一个全新的，比手写重置逻辑可靠。
+   */
+  const [layerEpoch, setLayerEpoch] = useState<Partial<Record<PageId, number>>>({});
+  const bumpLayer = useCallback((id: PageId) => {
+    setLayerEpoch((s) => ({ ...s, [id]: (s[id] ?? 0) + 1 }));
+  }, []);
+
+  /*
+   * 任何一次 page 变化都要更新 retained —— 45 处 setPage 里有大量
+   * 绕过 goPage 的直调，所以挂在 page 上而不是逐个改调用点。
+   * 晚一帧无害：layersToRender 永远把当前页补在最前面渲染，
+   * 首帧不会因为 retained 还没更新而空白。
+   */
+  useEffect(() => {
+    setLayers((prev) => retainLayer(prev, page));
+  }, [page]);
+
 
   /**
    * 统一跳转。
@@ -830,16 +872,26 @@ export function App({
 
       setReviewQueue(queue);
       setAutoReview(true);
+      /*
+       * 重挂复习巩固层（2026-11-13 下午）。
+       *
+       * 那一页的「自动开始复习」用的是 `autostartedRef.current` 一次性守卫：
+       * 组件只要还活着，这个 ref 就一直是 true，第二次「开始复习」会被它挡住，
+       * 表现为「点了开始复习，界面没反应（还停在上一轮的回顾页）」。
+       * 保活之后组件确实一直活着 —— 所以开始新一轮时必须换一个组件。
+       */
+      bumpLayer('book');
       goPage('book', true);
       return queue.total > 0;
     } catch {
       /* 算不出来也要进页面 —— 那里会显示「今天没有到期的卡」并给下一步 */
       setReviewQueue({ due: [], fresh: [], total: 0, availableBeforeLimit: 0 });
       setAutoReview(true);
+      bumpLayer('book');
       goPage('book', true);
       return false;
     }
-  }, [loadCards, reviewService, goPage]);
+  }, [loadCards, reviewService, goPage, bumpLayer]);
 
   /**
    * 自评一档 → 写复习记录（2026-11-09）。
@@ -1394,77 +1446,56 @@ export function App({
       setQueueTotal(start.dueTotal ?? start.cards.length);
       setPracticeMode(start.mode);
       setPracticeLabel(start.label);
+      /*
+       * 强制重挂做题层（2026-11-13 下午）。
+       *
+       * 保活的反面：这一轮是**新的一轮**，上一轮那份组件必须换掉。
+       * 不换的话新队列会喂给一个还停在上一轮末尾的旧组件 ——
+       * 它的 index 停在上一轮的第 N 题，新队列只有 M 题时表现为
+       * 「一进来就是空白 / 上一轮的结果页」。只改 key 最省事也最可靠。
+       */
+      bumpLayer('practice');
       setPage('practice');
     },
-    [],
+    [bumpLayer],
   );
 
   // 卡片池是数组，每次渲染都可能是新引用 —— 用内容做 key 避免无谓重算
   const poolKey = useMemo(() => pool.join(','), [pool]);
 
-  return (
-    <AppShell
-      current={page}
-      /*
-       * 侧栏点击传 keepHistory=false（2026-11-09）。
-       * 用户点侧栏是「我要去那儿」，不是「从这儿钻进去」——
-       * 压栈会让左上角的返回跳到一个他没想去的页面。
-       */
-      onNavigate={(id) => {
-        goPage(id, false);
-        void navigate(id);
-      }}
-      counts={overviewCounts}
-      connected={conn.connected}
-      libraryName={libName}
-      onOpenSettings={() => goPage('settings')}
-      reviewProgress={null}
-      trashBadge={trashBadge}
-      onBack={
-        page === 'reader'
-          ? () => {
-              /* 阅读器有自己的返回语义（回到来路），与通用栈一致 */
-              closeReader();
-            }
-          : goBack
-      }
-      canGoBack={page === 'reader' ? readerFrom !== null : canGoBack}
-      backToLabel={
-        page === 'reader'
-          ? (readerFrom ? PAGE_LABEL_FOR_BACK[readerFrom] : null)
-          : null
-      }
-    >
-      {/*
-        回收站提醒条（2026-11-08）。
-        用户要求「距过期 24 小时时弹出提醒」。做成顶部横幅而不是模态框：
-        模态框会打断正在做的事，而这件事没那么紧急 —— 还有一天。
-        横幅随时可关，点「去回收站」直接跳过去。
-      */}
-      {trashNotice ? (
-        <div className="trash-notice" role="status">
-          <span className="trash-notice__text">{trashNotice}</span>
-          <button
-            type="button"
-            className="trash-notice__go"
-            onClick={() => {
-              setTrashNotice(null);
-              void navigate('trash');
-            }}
-          >
-            去回收站
-          </button>
-          <button
-            type="button"
-            className="trash-notice__close"
-            aria-label="关掉这条提醒"
-            onClick={() => setTrashNotice(null)}
-          >
-            ×
-          </button>
-        </div>
-      ) : null}
-      {page === 'board' ? (
+  /**
+   * 侧栏「继续：xxx」（2026-11-13 下午）。
+   *
+   * 页面保活之后用户跳走时那一轮还活着，但没有入口他就找不到它 ——
+   * 保活就成了「东西没丢，但你拿不回来」。
+   *
+   * ## 什么时候**不**显示
+   *
+   * 1. 当前页本身就是任务页（已经在做题/考试里了）——
+   *    否则截图里出现过「人在做题页，侧栏还写『继续：做题』」这种噪音。
+   *    此时用户不需要被提醒，他正在做。
+   * 2. 下面没有保活的任务。
+   *
+   * 判据用 `isKeepAlive(page)` 而不是逐个写 id：
+   * 白名单以后加页面时，这里自动跟着对。
+   */
+  const resumeTask = useMemo(() => {
+    if (isKeepAlive(page)) return null;
+    const target = resumeTarget(layers, page);
+    if (!target) return null;
+    return { page: target, label: pageById(target).label };
+  }, [layers, page]);
+
+  /**
+   * 渲染某一页 —— 原来那条 33 分支三元链原样搬在这里。
+   *
+   * 参数叫 `page` 是刻意的：链里 33 处 `page === 'xxx'` 因此不用改一个字，
+   * 参数遮蔽了外层同名 state。改这个函数体时请保持「一条链」的形状，
+   * 不要顺手改成分散的表 —— 那会让这次搬家的可核对性消失。
+   */
+  // eslint-disable-next-line complexity
+  const renderPage = (page: PageId) => (
+      page === 'board' ? (
         <BoardPage
           todos={todoService}
           suggestionInput={suggestionInput}
@@ -1827,8 +1858,21 @@ export function App({
             modeLabel={practiceLabel}
             notes={notesService}
             onGradeShort={handleShortGrade}
-            onFinish={() => void navigate('review')}
-            onExit={() => void navigate('review')}
+            /*
+             * 这一轮做完了（2026-11-13 下午）。
+             *
+             * 必须把做题层从保活列表里丢掉：否则它会一直留在下面，
+             * 侧栏永远挂着「继续：做题中」，点进去看到的是上一轮的结果页 ——
+             * 一个永远无法结束的任务。dropLayer 之后它下次进来会重新挂载。
+             */
+            onFinish={() => {
+              setLayers((s) => dropLayer(s, 'practice'));
+              void navigate('review');
+            }}
+            onExit={() => {
+              setLayers((s) => dropLayer(s, 'practice'));
+              void navigate('review');
+            }}
           />
         )
       ) : page === 'sources' ? (
@@ -2045,7 +2089,98 @@ export function App({
         />
       ) : (
         <Placeholder page={page} onBack={() => setPage('today')} />
-      )}
+      )
+  );
+
+  return (
+    <AppShell
+      current={page}
+      /*
+       * 侧栏点击传 keepHistory=false（2026-11-09）。
+       * 用户点侧栏是「我要去那儿」，不是「从这儿钻进去」——
+       * 压栈会让左上角的返回跳到一个他没想去的页面。
+       */
+      onNavigate={(id) => {
+        goPage(id, false);
+        void navigate(id);
+      }}
+      counts={overviewCounts}
+      connected={conn.connected}
+      libraryName={libName}
+      onOpenSettings={() => goPage('settings')}
+      reviewProgress={null}
+      trashBadge={trashBadge}
+      resumeTask={resumeTask}
+      onResumeTask={resumeTask ? () => goPage(resumeTask.page) : undefined}
+      onBack={
+        page === 'reader'
+          ? () => {
+              /* 阅读器有自己的返回语义（回到来路），与通用栈一致 */
+              closeReader();
+            }
+          : goBack
+      }
+      canGoBack={page === 'reader' ? readerFrom !== null : canGoBack}
+      backToLabel={
+        page === 'reader'
+          ? (readerFrom ? PAGE_LABEL_FOR_BACK[readerFrom] : null)
+          : null
+      }
+    >
+      {/*
+        回收站提醒条（2026-11-08）。
+        用户要求「距过期 24 小时时弹出提醒」。做成顶部横幅而不是模态框：
+        模态框会打断正在做的事，而这件事没那么紧急 —— 还有一天。
+        横幅随时可关，点「去回收站」直接跳过去。
+      */}
+      {trashNotice ? (
+        <div className="trash-notice" role="status">
+          <span className="trash-notice__text">{trashNotice}</span>
+          <button
+            type="button"
+            className="trash-notice__go"
+            onClick={() => {
+              setTrashNotice(null);
+              void navigate('trash');
+            }}
+          >
+            去回收站
+          </button>
+          <button
+            type="button"
+            className="trash-notice__close"
+            aria-label="关掉这条提醒"
+            onClick={() => setTrashNotice(null)}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
+      {/*
+        页面覆盖层（2026-11-13 下午）。
+
+        用户报的「跳页后回不到原任务」：原来这是一条三元链，切页即卸载，
+        做题做到一半去看一眼原文，回来题号、选项、作答、考试倒计时全没了。
+        现在把「有进行中状态」的页留在 DOM 里，只把非栈顶的藏起来。
+
+        隐藏层同时加 inert：它不能拿焦点、不能点、读屏也不念 ——
+        否则隐藏的做题页会和当前页一起响应键盘（ReviewToday 等
+        在 window 上抢 1-4 和方向键，两层同挂会双响应）。
+        见 page-layers.ts 与 page-layer-context.ts。
+      */}
+      {layersToRender(layers, page).map((pid) => {
+        const active = pid === page;
+        return (
+          <PageLayerContext key={`${pid}:${layerEpoch[pid] ?? 0}`} value={active}>
+            <div
+              className={active ? `page-layer page-layer--on` : `page-layer`}
+              inert={active ? undefined : true}
+            >
+              {renderPage(pid)}
+            </div>
+          </PageLayerContext>
+        );
+      })}
     </AppShell>
   );
 }

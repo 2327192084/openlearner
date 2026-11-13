@@ -25,6 +25,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Question } from '@/core/model.ts';
 import type { ReviewGrade } from '@/v2/core/srs.ts';
 import { MathText } from './MathText.tsx';
+import { useLayerKeydown } from './use-layer-keydown.ts';
 import {
   GRADE_META,
   currentItem,
@@ -85,9 +86,16 @@ export function ReviewToday({
     [item, busy, onGrade],
   );
 
-  /* 键盘：空格/回车翻面；1-4 自评（Anki 习惯） */
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
+  /*
+   * 键盘：空格/回车翻面；1-4 自评（Anki 习惯）。
+   *
+   * 用 useLayerKeydown 而不是直接 addEventListener（2026-11-13 下午）：
+   * 页面保活之后，被压在下面的这一页仍然挂着。若两层都直接监听 window，
+   * 按一次「4」会给**两个**页面同时判档 —— 隐藏那一页也写一条复习记录，
+   * 用户看不见，但间隔被改了。见 use-layer-keydown.ts 头注释。
+   */
+  useLayerKeydown(
+    (e: KeyboardEvent) => {
       if (finished) return;
       if (session.phase === 'prompt' && (e.key === ' ' || e.key === 'Enter')) {
         e.preventDefault();
@@ -101,10 +109,9 @@ export function ReviewToday({
           void handleGrade(GRADE_META[idx]!.grade);
         }
       }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [session.phase, finished, handleGrade]);
+    },
+    [session.phase, finished, handleGrade],
+  );
 
   /* ---------------- 结束：今日回顾 ---------------- */
   if (finished) {

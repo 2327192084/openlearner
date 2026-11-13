@@ -132,6 +132,23 @@
     margin-bottom: 10px;
   }
 
+  /*
+   * 「继续：做题」（2026-11-13 下午）。见 AppShell 的 resumeTask。
+   *
+   * 用 accent 描边而不是填色：它是**提示有一条没做完的活儿**，
+   * 不是当前页（当前页的样式是 nav-item--on 的左侧竖条）。
+   * 两者同时出现时不能混淆 —— 用户得看出「我在这页，但那边还有一摊没完」。
+   */
+  .nav-item--resume {
+    margin: -2px 0 10px;
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+
+  .nav-item--resume:hover {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+
   .nav-item__icon {
     width: 18px;
     flex: none;
@@ -424,6 +441,30 @@
     max-width: var(--page-max);
     margin: 0 auto;
     padding: 32px 36px 56px;
+  }
+
+  /*
+   * 页面覆盖层（2026-11-13 下午）。见 page-layers.ts 头注释。
+   *
+   * 被压在下面的页留在 DOM 里不卸载，但**不能占位、不能响应输入**：
+   *   - `display: none` 让它彻底退出布局与无障碍树
+   *   - 隐藏层的 `inert` 由 JSX 加（这里管布局，那里管交互）
+   *
+   * 可见层用 `display: contents` 而不是 `display: block`：
+   * 这样这一层**不生成盒子**，页面根节点仍然像原来一样直接参与
+   * `.page` 的布局 —— 包一层 div 之后布局要与包之前一模一样，
+   * 否则每一页的宽度/内边距都会悄悄变一次（那正是本项目被投诉过的问题）。
+   *
+   * ⚠️ 别把这两条改成 `visibility: hidden` 或 `opacity: 0`：
+   * 那样元素仍在布局里，隐藏的页面会和当前页**一起撑高文档**，
+   * 滚动条、页脚位置全乱；而且隐藏页的按钮仍然可以被 Tab 到。
+   */
+  .page-layer {
+    display: none;
+  }
+
+  .page-layer--on {
+    display: contents;
   }
 
   /* ---------- 窄屏：侧栏变抽屉 ---------- */
