@@ -30,6 +30,7 @@ import {
   rememberScroll,
   worthRemembering,
 } from './reader-scroll.ts';
+import { resumeSegmentIndex } from '@/v2/core/read-progress.ts';
 import type { RectLike } from './selection-bar-place.ts';
 import { snapFiguresToBlocks } from './snap-figures.ts';
 import './reader-figure.css';
@@ -366,8 +367,44 @@ export function ReaderPage({
       return;
     }
 
-    // 没有目标 → 纯阅读，从第一页开始
+    /*
+     * 没有目标 → 纯阅读。
+     *
+     * 但要**先看这份资料有没有阅读记录**（2026-11-13）：用户要求
+     * 「记住上一次打开资料的状态」，并且明确「不提示，直接自动回到上次位置」。
+     *
+     * 恢复的是「上次停留的那一段」，不是「读过的最远那一段」——
+     * 他上次可能正往回翻看第 3 页，把他丢到第 20 页反而更困惑。
+     */
     if (!target) {
+      const resumeIdx = resumeSegmentIndex(phase.source.readProgress, segments.length);
+      if (resumeIdx !== null) {
+        const seg = segments[resumeIdx];
+        if (seg) {
+          setPageNo(seg.index);
+          setPageInput(String(seg.index));
+          setHighlight(null);
+          setJumpNote(null);
+          /*
+           * 回到上次那一段内的滚动位置。
+           *
+           * 放进 rAF：这一帧 `.reader-main` 还是旧内容，量出来的
+           * 可滚上限不对，直接 scrollTo 会被夹到 0。
+           * 与 goPage 里的恢复是同一套做法。
+           */
+          const savedTop = phase.source.readProgress?.lastScrollTop ?? 0;
+          restoringScrollRef.current = true;
+          requestAnimationFrame(() => {
+            const maxTop = Math.max(
+              0,
+              document.documentElement.scrollHeight - document.documentElement.clientHeight,
+            );
+            window.scrollTo({ top: Math.min(Math.max(0, savedTop), maxTop) });
+            restoringScrollRef.current = false;
+          });
+          return;
+        }
+      }
       setPageNo(1);
       /* 同步页码输入框（2026-11-13）：不同步的话它会停在上一次的数字上 */
       setPageInput('1');
@@ -1184,6 +1221,70 @@ export function ReaderPage({
     return pageMarks.filter((m) => isWholePageNote(m, seg.text.length));
   }, [pageMarks, seg]);
 
+  /**
+   * 上报一次阅读位置（2026-11-13）。
+   *
+   * 用户要求「记住上一次打开资料的状态」，并且「不提示、直接自动回到上次位置」。
+   * 所以这件事必须**无感**：不能打断阅读、不能因为写库失败弹错。
+   *
+   * ## 为什么防抖
+   *
+   * 滚动事件每秒几十次，每次都写 IndexedDB 会让阅读卡顿。
+   * 攒 600ms 再写 —— 比「每帧都写」省几个数量级，而用户感知不到延迟
+   * （他停下来的那一刻就已经写完）。
+   *
+   * ## 为什么失败只吞不报
+   *
+   * 记位置是**辅助功能**。库写不进去（配额满、被其他窗口占用）时，
+   * 用户至少还能读。弹一个「阅读位置保存失败」的错误框，
+   * 换来的是打断阅读 —— 代价远大于收益。
+   */
+  const readReportTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingReadRef = useRef<{ page: number; segmentIndex: number; scrollTop: number } | null>(null);
+
+  const flushRead = useCallback(() => {
+    const pending = pendingReadRef.current;
+    pendingReadRef.current = null;
+    if (!pending) return;
+    if (phase.kind !== 'ready') return;
+    void sourceService
+      .recordReadPosition(phase.source.id, { ...pending, at: new Date().toISOString() })
+      .catch(() => {
+        /* 见本函数注释：辅助功能，失败不打断阅读 */
+      });
+  }, [phase, sourceService]);
+
+  const reportRead = useCallback(
+    (page: number, segmentIndex: number) => {
+      const scrollTop =
+        typeof window !== 'undefined' ? Math.max(0, window.scrollY || 0) : 0;
+      pendingReadRef.current = { page, segmentIndex, scrollTop };
+      if (readReportTimer.current) clearTimeout(readReportTimer.current);
+      readReportTimer.current = setTimeout(flushRead, 600);
+    },
+    [flushRead],
+  );
+
+  /* 离开阅读器时把还没写出去的那一次补上（否则最后翻的那一页会丢） */
+  useEffect(() => {
+    return () => {
+      if (readReportTimer.current) clearTimeout(readReportTimer.current);
+      flushRead();
+    };
+  }, [flushRead]);
+
+  /* 滚动时补正「段内位置」—— 只在同一个段里滚，不改变页码 */
+  useEffect(() => {
+    if (phase.kind !== 'ready') return;
+    const onScroll = () => {
+      /* 恢复位置的那一刻不算用户滚动，否则会把刚写进去的值又写一遍 */
+      if (restoringScrollRef.current) return;
+      reportRead(pageNo, pageNo - 1);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [phase, pageNo, reportRead]);
+
   const goPage = useCallback(
     (next: number) => {
       if (phase.kind !== 'ready') return;
@@ -1245,8 +1346,10 @@ export function ReaderPage({
        * 输入框还停在上一个数字 —— 用户会以为跳转没生效。
        */
       setPageInput(String(clamped));
+      /* 翻页即记一次阅读位置（2026-11-13）。滚动位置稍后由滚动监听补正 */
+      reportRead(clamped, clamped - 1);
     },
-    [phase, pageNo],
+    [phase, pageNo, reportRead],
   );
 
   /**

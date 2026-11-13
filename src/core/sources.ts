@@ -6,6 +6,12 @@ import { ImportError, importError } from './parsers/types.ts';
 import type { ImportFailureCode } from './parsers/types.ts';
 import type { StorageAdapter } from './storage/types.ts';
 import type { FigureStorage } from './mineru/images.ts';
+/*
+ * 阅读进度的合并规则放在 v2/core（那里有它的单测）。
+ * 反向依赖看着别扭，但规则本身是纯函数、与 v1/v2 的界面无关；
+ * 放到 v1 的 core 里也行，只是它已经在 v2/core 与其它纯逻辑放一起了。
+ */
+import { mergeReadProgress } from '@/v2/core/read-progress.ts';
 
 /**
  * 资料服务：导入、列表、阅读、搜索、删除。
@@ -535,6 +541,41 @@ export class SourceService {
     };
     await this.storage.put('sources', next);
     return next;
+  }
+
+  /**
+   * 记一次阅读位置（2026-11-13）。
+   *
+   * ## 为什么不复用 update()
+   *
+   * `update()` 的语义是「用户改资料属性」，它会把 `updatedAt` 刷新。
+   * 阅读位置是**高频、无感**的写入（每次翻页都可能触发），
+   * 若也刷 `updatedAt`，资料列表里那些「最近修改」的判断会全部失真 ——
+   * 用户只是翻了两页，资料却看起来像刚被编辑过。
+   *
+   * ## 合并规则在纯逻辑里
+   *
+   * `mergeReadProgress`（src/v2/core/read-progress.ts）负责
+   * 「furthestPage 只增不减」「lastPage 取最新」「时间戳不倒退」，
+   * 并有单测。这里只负责**读旧值 → 合并 → 写回**。
+   *
+   * ## 资料不存在时静默返回 null
+   *
+   * 阅读器可能正停留在一份刚被删掉的资料上（另一个窗口删的）。
+   * 那种情况不该抛错打断阅读。
+   */
+  async recordReadPosition(
+    id: string,
+    next: { page: number; segmentIndex: number; scrollTop: number; at: string },
+  ): Promise<Source | null> {
+    const existing = await this.storage.get('sources', id);
+    if (!existing) return null;
+
+    const merged = mergeReadProgress(existing.readProgress, next, existing.pageCount);
+    const updated: Source = { ...existing, readProgress: merged };
+    /* 刻意不碰 updatedAt —— 见本方法注释 */
+    await this.storage.put('sources', updated);
+    return updated;
   }
 
   /**

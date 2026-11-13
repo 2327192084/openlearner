@@ -15,12 +15,18 @@
  * | 区块 | 数据来源 |
  * | --- | --- |
  * | 今天的安排 | `todayOverview`：到期 / 可学 / 今天已做 / 正确率 |
- * | 各门课的进度 | `buildStudyMap`：按**资料 → 章节**汇总掌握度（`courses` 目前是空的） |
+ * | 题组进度 | `buildStudyMap`：按资料 → 章节汇总**题目**掌握度 |
+ * | 资料阅读 | `Source.readProgress`：读过 = 翻到过的最远页码（2026-11-13） |
  * | 最近在练的题 | `reviewLogs` 里最近几天做过、或答错的题 |
  *
- * 「各门课的进度」在数据里叫 course，但当前库一门课都没有，
- * 真正的归属维度是**资料**（`anchors[].sourceId`）与**章节**。
- * 所以标题写「资料进度」——不写一个界面上根本不存在的概念。
+ * ## 「题组进度」原来叫「资料进度」（2026-11-13 改名）
+ *
+ * 用户指出：「资料进度不符合实际情况，应更名为题组进度。
+ * 资料进度应该根据资料阅读情况实现，需要做一个记忆系统。」
+ *
+ * 他说得对：那块每一行都是「10 道 · 已学 5 · 2 道到期」，
+ * 全部来自**题目**。名字叫「资料进度」会让人以为在说读到第几页。
+ * 改名之后新增了真正的「资料阅读」块，数据来自 `Source.readProgress`。
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -32,6 +38,13 @@ import { recentDecksOf, type RecentDeck } from './recent-decks.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { SourceService } from '@/core/sources.ts';
+import type { Source } from '@/core/model.ts';
+import {
+  hasReadProgress,
+  readLabel,
+  readRatio,
+  sortByRecentRead,
+} from '@/v2/core/read-progress.ts';
 import type { CardLoader } from './cards-loader.ts';
 import { buildSnapshot, type StudySnapshot } from './study-snapshot.ts';
 import { IconCheck, IconUpload } from './icons.tsx';
@@ -126,6 +139,17 @@ export function TodayPage(props: TodayPageProps) {
 
   const [overview, setOverview] = useState<TodayOverview | null>(null);
   const [snapshot, setSnapshot] = useState<StudySnapshot | null>(null);
+  /**
+   * 读过的那几份资料（2026-11-13）。
+   *
+   * 与 `snapshot.map` 完全不同：那个是按**题目**汇总的掌握度
+   * （`10 道 · 已学 5`），挂在资料名下叫「资料进度」名不副实 ——
+   * 用户指出「应更名为题组进度」。
+   *
+   * 这一份是真正的阅读进度，来自 `Source.readProgress`
+   * （读过 = 翻到过的最远页码，口径由用户 2026-11-13 定）。
+   */
+  const [readRows, setReadRows] = useState<Source[]>([]);
   const [recentDecks, setRecentDecks] = useState<RecentDeck[]>([]);
   const [wrongPreview, setWrongPreview] = useState<WrongPreview[]>([]);
   /** 今日学习卡汇总（到期/薄弱分开）。null 表示还没算出来 */
@@ -156,6 +180,8 @@ export function TodayPage(props: TodayPageProps) {
       ]);
 
       setSnapshot(snap);
+      /* 阅读进度（2026-11-13）：直接来自资料本身，不需要额外查询 */
+      setReadRows(sources.filter((s) => hasReadProgress(s.readProgress)));
 
       /*
        * 今日学习卡（2026-11-08）。
@@ -360,11 +386,17 @@ export function TodayPage(props: TodayPageProps) {
           </div>
         </section>
 
-        {/* ==================== 二、资料进度 ==================== */}
+        {/* ==================== 二、题组进度 ==================== */}
+        {/*
+          原来的标题是「资料进度」，但里面每一行都是
+          「10 道 · 已学 5 · 2 道到期」——**全部来自题目**。
+          用户 2026-11-13 指出：「不符合实际情况，应更名为题组进度。」
+          改名之后，「资料进度」这个名字留给下面那块真正的阅读进度。
+        */}
         {snapshot ? (
           <section className="dash-section">
             <h2 className="dash-h2">
-              资料进度
+              题组进度
               <button type="button" className="dash-more" onClick={onOpenMap}>
                 学习地图 →
               </button>
@@ -372,6 +404,41 @@ export function TodayPage(props: TodayPageProps) {
             <SourceProgress map={snapshot.map} onOpenMap={onOpenMap} />
           </section>
         ) : null}
+
+        {/* ==================== 二·B、阅读进度（真正的那个） ==================== */}
+        <section className="dash-section">
+          <h2 className="dash-h2">
+            资料阅读
+            <button type="button" className="dash-more" onClick={onOpenSources}>
+              资料库 →
+            </button>
+          </h2>
+          {readRows.length === 0 ? (
+            <p className="dash-empty">
+              还没有读过资料。打开一份原文看过，这里就会记住你读到哪。
+            </p>
+          ) : (
+            <ul className="dash-sources">
+              {sortByRecentRead(readRows)
+                .slice(0, 4)
+                .map((s) => (
+                  <li key={s.id} className="dash-source">
+                    <div className="dash-source__line">
+                      <span className="dash-source__title">{s.title}</span>
+                      <span className="dash-source__pct">
+                        {readLabel(s.readProgress, s.pageCount)}
+                      </span>
+                    </div>
+                    <div className="dash-source__bar" aria-hidden="true">
+                      <span
+                        style={{ width: `${Math.round(readRatio(s.readProgress, s.pageCount) * 100)}%` }}
+                      />
+                    </div>
+                  </li>
+                ))}
+            </ul>
+          )}
+        </section>
 
         {/* ==================== 三、最近在练的题组（未完成） ==================== */}
         <section className="dash-section">
