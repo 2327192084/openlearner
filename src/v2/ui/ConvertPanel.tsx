@@ -11,6 +11,7 @@ import type { MinerUResult } from '@/core/mineru/markdown.ts';
 import { countFigures, importFigures } from '@/core/mineru/images.ts';
 import { PageRangePicker, pagesArgToCoveredPages, toPagesArg, validatePageRange } from './PageRangePicker.tsx';
 import type { ParseMode } from './PageRangePicker.tsx';
+import { usePageTask } from './page-task-context.ts';
 
 /**
  * 扫描件 / 图片文件的转换面板。
@@ -198,6 +199,7 @@ export function ConvertPanel({
    */
   const [parseMode, setParseMode] = useState<ParseMode>('full');
   const [rangeStart, setRangeStart] = useState('1');
+
   /**
    * 结束页默认值（2026-11-11）。
    *
@@ -221,6 +223,28 @@ export function ConvertPanel({
   const [figureNote, setFigureNote] = useState<string | null>(null);
   const effectiveRunner = runner ?? getMinerURunner();
   const aliveRef = useRef(true);
+
+  /**
+   * 上报「正在解析」（2026-11-13 傍晚）。
+   *
+   * 用户原话：「做这个跳页功能是为了知道某些任务的进度，例如文档解析，
+   * 出题功能。但没有正在进行文档解析的任务时，这个提示也一直存在。」
+   *
+   * 所以**必须由这里上报**：真正的解析跑在 ConvertPanel 里，
+   * 外层 ParsePage 只知道「读到资料列表了」，看不出有没有在转正文。
+   * 只有 phase.kind === 'running' 才算进行中 —— 空闲/完成/失败都不算，
+   * 用户选完资料在那看着的时候不该出现「继续」。
+   */
+  usePageTask(
+    phase.kind === 'running'
+      ? {
+          label: '文档解析',
+          detail:
+            phase.progress?.detail ??
+            (phase.progress?.phase ? phase.progress.phase : null),
+        }
+      : null,
+  );
 
   useEffect(() => {
     aliveRef.current = true;

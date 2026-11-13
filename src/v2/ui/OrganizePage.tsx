@@ -9,6 +9,7 @@ import { needsConversion } from '@/core/mineru/convert.ts';
 import { disambiguateTitles } from '@/core/source-title.ts';
 import { IconSources } from './icons.tsx';
 import { MathText } from './MathText.tsx';
+import { usePageTask } from './page-task-context.ts';
 
 /**
  * 整理知识点页。
@@ -103,6 +104,18 @@ export function OrganizePage({
   const backendChoice = useOrganizeBackend(backends);
   const backend = backendChoice.backend;
   const running = phase.kind === 'running';
+
+  /**
+   * 上报「正在出题」（2026-11-13 傍晚）。
+   *
+   * 用户点名的两个例子之一：「知道某些任务的进度，例如文档解析，出题功能」。
+   * 只有 running 才算 —— idle（还没开始）和 done（已出完）都不该在侧栏
+   * 挂一个「继续」。进度用已产出的条数，不用那个估算总数
+   * （估算值不适合当「到哪一步了」摆在侧栏，那会变成一个会跳的数字）。
+   */
+  usePageTask(
+    running ? { label: '整理知识点', detail: progress ? `已出 ${progress.produced} 条` : null } : null,
+  );
 
   useEffect(() => {
     aliveRef.current = true;

@@ -3,14 +3,14 @@ import type { ReviewService } from '@/v2/core/review-service.ts';
 import type { CardLoader } from './cards-loader.ts';
 import { AppShell } from './AppShell.tsx';
 import { PageLayerContext } from './page-layer-context.ts';
+import { PageTaskContext, type PageTaskReporter } from './page-task-context.ts';
 import {
-  EMPTY_LAYERS,
-  dropLayer,
-  isKeepAlive,
+  EMPTY_TASKS,
+  dropPage,
   layersToRender,
+  reportTask,
   resumeTarget,
-  retainLayer,
-  type LayerState,
+  type LayerTask,
 } from './page-layers.ts';
 import { TodayPage } from './TodayPage.tsx';
 import { ReviewPage } from './ReviewPage.tsx';
@@ -70,7 +70,7 @@ import type { AnnotationService } from '@/core/annotation-service.ts';
 import type { BackendService } from '@/core/backends.ts';
 import type { SourceService } from '@/core/sources.ts';
 import type { Card } from '@/v2/core/cards.ts';
-import { pageById, type PageId } from './pages.ts';
+import type { PageId } from './pages.ts';
 import { SettingsPage } from './SettingsPage.tsx';
 import { OrganizePage } from './OrganizePage.tsx';
 import { ParsePage } from './ParsePage.tsx';
@@ -230,13 +230,40 @@ export function App({
   const [canGoBack, setCanGoBack] = useState(false);
 
   /**
-   * 页面覆盖层状态（2026-11-13 下午）。
+   * 页面覆盖层状态（2026-11-13 下午；傍晚按用户反馈重做判据）。
    *
-   * `retained` = 留在 DOM 里不卸载的页（白名单里有进行中状态的那些）；
-   * `page` 是当前可见页，它自己不一定在 retained 里（阅读器就不在）。
-   * 两者分开的理由见 page-layers.ts 头注释「两个概念必须分开」。
+   * `tasks` = **页面自己上报的「我在干什么、到哪一步了」**，不是白名单。
+   *
+   * 为什么不靠白名单：第一版把「页面在保活栈里」当成「有任务在进行」，
+   * 用户随即报「没有正在进行文档解析的任务时，这个提示也一直存在」——
+   * 打开过一次解析页就永久留一层，提示永远在。详见 page-layers.ts 头注释。
+   *
+   * 现在：上报了任务才保活、才有「继续」入口；任务结束（上报 null）
+   * 立刻消失。页面比 App 更清楚自己有没有在干活。
    */
-  const [layers, setLayers] = useState<LayerState>(EMPTY_LAYERS);
+  const [tasks, setTasks] = useState<readonly LayerTask[]>(EMPTY_TASKS);
+
+  /**
+   * 给某一层绑定的上报器。
+   *
+   * 每一层一个稳定的 report 函数（按页面 id 缓存），页面里用
+   * `usePageTask()` 调用它 —— 页面不需要知道自己在哪一层。
+   *
+   * 用 ref 缓存：每次渲染都新建 report 会让 context value 变化，
+   * 进而让所有页面重新上报，形成重渲染循环。
+   */
+  const taskReporters = useRef(new Map<PageId, PageTaskReporter>());
+  const reporterFor = useCallback((pid: PageId): PageTaskReporter => {
+    const cached = taskReporters.current.get(pid);
+    if (cached) return cached;
+    const reporter: PageTaskReporter = {
+      report: (task) => {
+        setTasks((prev) => reportTask(prev, task === null ? null : { page: pid, ...task }, pid));
+      },
+    };
+    taskReporters.current.set(pid, reporter);
+    return reporter;
+  }, []);
 
   /**
    * 强制重挂某一层的 key 后缀。
@@ -249,16 +276,6 @@ export function App({
   const bumpLayer = useCallback((id: PageId) => {
     setLayerEpoch((s) => ({ ...s, [id]: (s[id] ?? 0) + 1 }));
   }, []);
-
-  /*
-   * 任何一次 page 变化都要更新 retained —— 45 处 setPage 里有大量
-   * 绕过 goPage 的直调，所以挂在 page 上而不是逐个改调用点。
-   * 晚一帧无害：layersToRender 永远把当前页补在最前面渲染，
-   * 首帧不会因为 retained 还没更新而空白。
-   */
-  useEffect(() => {
-    setLayers((prev) => retainLayer(prev, page));
-  }, [page]);
 
 
   /**
@@ -1464,27 +1481,24 @@ export function App({
   const poolKey = useMemo(() => pool.join(','), [pool]);
 
   /**
-   * 侧栏「继续：xxx」（2026-11-13 下午）。
+   * 侧栏「继续：xxx」—— 只在**页面自己上报了进行中的任务**时才出现。
    *
-   * 页面保活之后用户跳走时那一轮还活着，但没有入口他就找不到它 ——
-   * 保活就成了「东西没丢，但你拿不回来」。
+   * ## 用户报的问题（2026-11-13 傍晚）
    *
-   * ## 什么时候**不**显示
+   * 「做这个跳页功能是为了知道某些任务的进度，例如文档解析，出题功能。
+   *  但没有正在进行文档解析的任务时，这个提示也一直存在。」
    *
-   * 1. 当前页本身就是任务页（已经在做题/考试里了）——
-   *    否则截图里出现过「人在做题页，侧栏还写『继续：做题』」这种噪音。
-   *    此时用户不需要被提醒，他正在做。
-   * 2. 下面没有保活的任务。
+   * 根因：第一版判据是「这一页在保活列表里」。保活只说明页面留在内存，
+   * 不说明用户在做任何事 —— 打开过一次解析页就永久占一层。
+   * 现在判据是 `tasks`（页面自己上报），没上报就没有入口。
    *
-   * 判据用 `isKeepAlive(page)` 而不是逐个写 id：
-   * 白名单以后加页面时，这里自动跟着对。
+   * `resumeTarget` 已经跳过当前页：人就在那一页上时不需要被提醒「继续」。
    */
   const resumeTask = useMemo(() => {
-    if (isKeepAlive(page)) return null;
-    const target = resumeTarget(layers, page);
+    const target = resumeTarget(tasks, page);
     if (!target) return null;
-    return { page: target, label: pageById(target).label };
-  }, [layers, page]);
+    return { page: target.page, label: target.label, detail: target.detail ?? null };
+  }, [tasks, page]);
 
   /**
    * 渲染某一页 —— 原来那条 33 分支三元链原样搬在这里。
@@ -1859,18 +1873,21 @@ export function App({
             notes={notesService}
             onGradeShort={handleShortGrade}
             /*
-             * 这一轮做完了（2026-11-13 下午）。
+             * 这一轮做完了（2026-11-13 下午；傍晚改成 dropPage）。
              *
-             * 必须把做题层从保活列表里丢掉：否则它会一直留在下面，
-             * 侧栏永远挂着「继续：做题中」，点进去看到的是上一轮的结果页 ——
-             * 一个永远无法结束的任务。dropLayer 之后它下次进来会重新挂载。
+             * 必须把做题页从保活里丢掉：否则它会一直留在下面，
+             * 侧栏挂着「继续」，点进去看到的是上一轮的结果页 ——
+             * 一个永远无法结束的任务。
+             *
+             * 现在这一页自己也会在结束时把上报改成 null（见 ReviewPage），
+             * 这里是第二道保险：即使它忘了，也不会留下残留入口。
              */
             onFinish={() => {
-              setLayers((s) => dropLayer(s, 'practice'));
+              setTasks((s) => dropPage(s, 'practice'));
               void navigate('review');
             }}
             onExit={() => {
-              setLayers((s) => dropLayer(s, 'practice'));
+              setTasks((s) => dropPage(s, 'practice'));
               void navigate('review');
             }}
           />
@@ -2157,27 +2174,34 @@ export function App({
         </div>
       ) : null}
       {/*
-        页面覆盖层（2026-11-13 下午）。
+        页面覆盖层（2026-11-13 下午；傍晚按用户反馈重做判据）。
 
-        用户报的「跳页后回不到原任务」：原来这是一条三元链，切页即卸载，
-        做题做到一半去看一眼原文，回来题号、选项、作答、考试倒计时全没了。
-        现在把「有进行中状态」的页留在 DOM 里，只把非栈顶的藏起来。
+        上半部分：用户报的「跳页后回不到原任务」—— 原来是一条三元链，
+        切页即卸载，做题做到一半去看原文，回来题号/选项/倒计时全没了。
+        现在把「有活儿在进行」的页留在 DOM 里，只把非当前页藏起来。
 
-        隐藏层同时加 inert：它不能拿焦点、不能点、读屏也不念 ——
+        下半部分（2026-11-13 傍晚，用户反馈）：「有活儿在进行」**不能靠白名单猜**。
+        他说「没有正在进行文档解析的任务时，这个提示也一直存在」。
+        所以现在由页面自己通过 usePageTask() 上报，App 只渲染上报过的页 ——
+        没上报的页既不保活、也没有「继续」入口。
+
+        隐藏层加 inert：不能拿焦点、不能点、读屏不念 ——
         否则隐藏的做题页会和当前页一起响应键盘（ReviewToday 等
         在 window 上抢 1-4 和方向键，两层同挂会双响应）。
-        见 page-layers.ts 与 page-layer-context.ts。
+        见 page-layers.ts、page-task-context.ts。
       */}
-      {layersToRender(layers, page).map((pid) => {
+      {layersToRender(tasks, page).map((pid) => {
         const active = pid === page;
         return (
           <PageLayerContext key={`${pid}:${layerEpoch[pid] ?? 0}`} value={active}>
-            <div
-              className={active ? `page-layer page-layer--on` : `page-layer`}
-              inert={active ? undefined : true}
-            >
-              {renderPage(pid)}
-            </div>
+            <PageTaskContext.Provider value={reporterFor(pid)}>
+              <div
+                className={active ? `page-layer page-layer--on` : `page-layer`}
+                inert={active ? undefined : true}
+              >
+                {renderPage(pid)}
+              </div>
+            </PageTaskContext.Provider>
           </PageLayerContext>
         );
       })}

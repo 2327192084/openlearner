@@ -26,6 +26,7 @@ import type { Question } from '@/core/model.ts';
 import type { ReviewGrade } from '@/v2/core/srs.ts';
 import { MathText } from './MathText.tsx';
 import { useLayerKeydown } from './use-layer-keydown.ts';
+import { usePageTask } from './page-task-context.ts';
 import {
   GRADE_META,
   currentItem,
@@ -71,6 +72,20 @@ export function ReviewToday({
   const progress = progressOf(session);
   const finished = isFinished(session);
   const question = item ? (item.question as Question) : null;
+
+  /**
+   * 上报「复习进行到第几张」（2026-11-13 傍晚）。
+   *
+   * 这个组件只在「今日复习会话进行中」挂载，做完会显示回顾页
+   * （finished）—— 那时不该再挂一个「继续」，所以上报 null。
+   * 进度取已评完的张数，比「第几张」更贴合用户对进度的理解
+   * （他关心还剩多少，而不是当前索引）。
+   */
+  usePageTask(
+    finished
+      ? null
+      : { label: '复习巩固', detail: `已评 ${progress.done}/${progress.total} 张` },
+  );
 
   const handleGrade = useCallback(
     async (g: ReviewGrade) => {

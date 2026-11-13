@@ -1,129 +1,124 @@
 /**
- * 页面覆盖层（page layers）—— 「跳走再回来，原来的活儿还在」（2026-11-13 下午）。
+ * 页面覆盖层（page layers）—— 「跳走再回来，原来的活儿还在」（2026-11-13 下午起）。
  *
  * ## 解决什么（用户报的原话）
  *
  * 「跳页后回不到原任务」。
  *
- * 具体场景：正在做题 / 正在模拟考 / 正在整理知识点（出题跑到一半），
- * 想看一眼原文 —— 点进去阅读器，看完想回来接着做，
- * 发现**整轮进度没了**：题号回到第 1 题，已选的选项、写了一半的作答、
- * 考试倒计时、出题的进度条，全部消失。
- * 因为 `App.tsx` 是一条 33 个 `page === '...'` 的三元链：切页 = 卸载 = state 全丢。
+ * 正在做题 / 正在模拟考 / 正在整理知识点（出题跑到一半），想看一眼原文 ——
+ * 点进去阅读器，看完想回来接着做，发现**整轮进度没了**：题号回到第 1 题、
+ * 倒计时重新开始、出题进度条消失。因为 `App.tsx` 原来是一条 33 个
+ * `page === '...'` 的三元链：切页 = 卸载 = 组件内 state 全丢。
  *
- * ## 为什么不给每个页面写序列化
+ * 所以改成：**把有活儿在进行的页面留在 DOM 里**，只把非当前页藏起来。
+ * 这是 React 里唯一不需要给每个页面写序列化/反序列化的保活办法
+ * （`nav-history.ts` 头注释论证过为什么不做状态快照）。
  *
- * `nav-history.ts` 的头注释已经论证过这条路：几十个页面各写一套状态快照，
- * 成本远超收益；且任何一页忘了实现，恢复出来就是半截界面（比没有更糟）。
- * 库里也确实没地方存「做到第几题、选了哪个」。
+ * ## ⚠️ 「保活哪些页」绝不能靠白名单（2026-11-13 傍晚修正）
  *
- * 所以走另一条：**让页面别卸载**。当前页照常渲染，
- * 之前那几页留在 DOM 里、只是藏起来（`display: none`）。
- * 这是 React 里唯一不需要任何序列化的「保活」办法。
+ * 第一版用的是**固定白名单**（practice/review/exam/book/organize/parse），
+ * 侧栏「继续：xxx」的判据是「这一页在保活列表里」。用户随即报了问题：
  *
- * ## 两个概念必须分开：`retained`（留下了谁）与 `current`（现在给谁看）
+ * > 「做这个跳页功能是为了知道某些任务的进度，例如文档解析，出题功能。
+ * >  但没有正在进行文档解析的任务时，这个提示也一直存在。」
  *
- * 这是本模块最容易写错的地方，也是第一版设计错的地方：
+ * 他说得对，而且这是设计错误不是实现 bug：
+ * **「页面留在内存里」不等于「有任务在进行」。**
+ * 只要打开过一次文档解析页，它就永久占一层，提示永远在 —— 一个假提示，
+ * 比没有提示更糟（用户会以为有活儿没干完）。
  *
- * - `retained` 是**留下不卸载**的那几页（白名单里、有进行中状态的）。
- * - `current` 是**现在这一页**，它自己不一定在白名单里
- *   （比如「做题 → 看原文」，current 是 reader，它不保活）。
+ * 而且白名单还错在另一半：`review`（做题选题页）根本没有进行中的状态，
+ * 却被保活，同样会挂着一个假的「继续」。
  *
- * 如果只有一个数组、并且把 current 也塞进去，那么进 reader 时
- * 要么 reader 被塞进保活栈（它很重，不该保活），
- * 要么 reader 根本不渲染（黑屏）。两种情况都是错的。
- * 正确做法：**渲染 = retained ∪ {current}，且 current 永远在最后**。
+ * ## 现在的判据：**由页面自己上报「我在干什么」**
  *
- * ## 为什么只保活少数几页（白名单）
+ * 见 `page-task-context.ts`。于是本模块不再需要白名单，
+ * 保活集合**直接由「谁上报了任务」推导**：
  *
- * 保活不是免费的，隐藏的页面仍然挂着，副作用仍然跑：
+ * ```
+ * 渲染  =  上报了任务的页  ∪  {当前页}      当前页永远最后渲染、且可见
+ * ```
  *
- * - `ExamPage` 有自己的倒计时 `setInterval`（`ExamPage.tsx:439`）。
- *   隐藏期间照跑是**对的**（考试时间真的在走），
- *   但页面若卸载重建，倒计时会从 `limitSec` 重新开始 —— 那才是错的。
+ * 三个好处：
+ * 1. 打开过但什么都没做的页面**不会**上报 → 不会保活 → 不会有假提示。
+ * 2. 任务做完了（页面把上报改成 null）→ 它**自动**从保活里消失、连同提示。
+ * 3. 不需要维护「白名单 + 保活栈」两份状态互相同步 —— 那正是会不同步的东西。
+ *
+ * ## 为什么当前页要单独补进来
+ *
+ * 当前页不一定有任务：首页、资料页、设置页都不上报任务，
+ * 但它们当然要显示。所以 `渲染 = 有任务的 ∪ {当前页}`，
+ * 当前页永远在最后（= 可见、可交互的那一层）。
+ *
+ * ## 保活不是免费的：页面仍然活着
+ *
+ * 留在 DOM 里意味着副作用继续跑，这三条都必须处理（已在代码里）：
+ *
+ * - `ExamPage` 的倒计时 `setInterval`（`ExamPage.tsx:439`）——
+ *   隐藏期间照跑是**对的**（考试时间真的在走）；保活正好让它不会重置。
  * - `useCardTimer`（读题计时）只在 `document.hidden` 时暂停，
- *   而 `display: none` 的隐藏层 `document.hidden === false`。
- *   也就是说「切到别的页」不会被当成「离开」，读题计时会继续走 ——
- *   必须由页面显式暂停（用 `useLayerActive()`，见 `page-layer-context.ts`）。
+ *   而 `display: none` 的隐藏层 `document.hidden === false` ——
+ *   「切到别的页」不会被当成「离开」。必须显式暂停：
+ *   见 `use-card-timer` 的 `suspended` 参数与 `useLayerActive()`。
  * - `ReviewToday` / `FlashcardsPanel` / `BookSelfTest` 都在 `window` 上抢
- *   `1-4` / 方向键 / 空格。两层同时挂载会**双响应**：
- *   按一次「4」可能给隐藏的那一页也判了档。
- *
- * ## 白名单怎么定
- *
- * 一条标准：**这一页是不是「一轮进行中的过程」**。
- * 刻意不含 today / sources / stats / settings / trash：
- * 它们没有进行中的状态，重建只要几毫秒，保活反而会显示**过期数据**
- * （在别处删了资料，回到还活着的首页看到它还在）。
- *
- * 也刻意不含 `reader`：它读的是磁盘上的正文，位置另有 `Source.readProgress`
- * 落库恢复（见 `read-progress.ts`），本来就不需要靠内存保活。
+ *   `1-4` / 方向键 / 空格，两层同挂会**双响应**。见 `use-layer-keydown.ts`。
  *
  * ## 上限
  *
- * 3 层。为什么不是 20（与 nav-history 一致）：保活的是**重型页面**，
- * 每层都有自己的队列、卡片、计时器。3 层足够覆盖实际路径
+ * 3 层。保活的是重型页面（每层有自己的队列、卡片、计时器），
+ * 叠太多是真实的内存与副作用风险。3 层覆盖实际路径
  * （「做题 → 看原文 → 再点一个知识点」已是用户能走出最长的一条），
  * 超出的从**最久没访问**的开始丢（丢 = 卸载 = 回到项目原来的行为）。
  */
 
 import type { PageId } from './pages.ts';
 
-/** 会被保活的页面。加一项之前先回答：这一页有没有「跳走再回来就没了」的东西？ */
-export const KEEP_ALIVE_PAGES: readonly PageId[] = [
-  'practice',
-  'review',
-  'exam',
-  'book',
-  'organize',
-  'parse',
-];
-
-/** 同时保留几层（不含临时的非白名单当前页）。理由见头注释「上限」 */
+/** 同时保留几层（含当前页）。理由见头注释「上限」 */
 export const MAX_RETAINED = 3;
 
-export function isKeepAlive(id: PageId): boolean {
-  return KEEP_ALIVE_PAGES.indexOf(id) !== -1;
-}
-
-export interface LayerState {
-  /**
-   * 留下不卸载的页面，**从旧到新**。
-   *
-   * 顺序有意义：最久没访问的在前面，超上限时先丢它。
-   * 用数组而不是 Set，因为 React 渲染要按稳定顺序输出。
-   */
-  retained: readonly PageId[];
+/** 一条任务：哪一页、在干什么、进度细节 */
+export interface LayerTask {
+  page: PageId;
+  /** 显示成「继续：<label>」，如「文档解析」 */
+  label: string;
+  /** 进度细节，显示在右侧徽标，如「3/12 页」。没有就不显示 */
+  detail?: string | null;
 }
 
 /**
- * 访问了 `next` 之后，应该保留哪些页。
+ * 上报一条任务（或把某一页的任务清掉）。
  *
  * 语义（全部用单测钉住）：
- * 1. 白名单外的页不进来，但**也不会挤掉**别人 ——
- *    去首页看一眼不该把做题的进度扔掉。
- * 2. 已经在里面的页挪到末尾（= 最近访问），不重复。
- * 3. 超上限从最久没访问的（数组头）丢。
+ * 1. 同一页重复上报 = **更新**，不重复添加（并把该页挪到最新）。
+ * 2. `task = null` = 这一页没有进行中的事 → 从集合里移除。
+ * 3. 超上限从最久没访问的丢。
  */
-export function retainLayer(state: LayerState, next: PageId): LayerState {
-  if (!isKeepAlive(next)) return state;
+export function reportTask(state: readonly LayerTask[], task: LayerTask | null, page?: PageId): readonly LayerTask[] {
+  /*
+   * 清空：需要知道是哪一页。调用方每次 report 都会带上 page
+   * （由覆盖层组件绑定），所以这里用 page 参数而不是从 task 里取。
+   */
+  if (task === null) {
+    if (page === undefined) return state;
+    const next = state.filter((t) => t.page !== page);
+    return next.length === state.length ? state : next;
+  }
 
-  const without = state.retained.filter((id) => id !== next);
-  const retained = [...without, next];
-
-  while (retained.length > MAX_RETAINED) retained.shift();
-
-  return { retained };
+  const without = state.filter((t) => t.page !== task.page);
+  const next = [...without, task];
+  /* 超上限：最旧的在前面，先丢它 */
+  while (next.length > MAX_RETAINED) next.shift();
+  return next;
 }
 
 /**
- * 这一刻要渲染哪些层，从旧到新；**最后一项是可见的那一层**。
+ * 这一刻要渲染哪些层，从旧到新；**最后一项是当前页**（可见、可交互）。
  *
- * `current` 永远在最后：它可能不在 `retained` 里（reader 就是这样）。
- * 如果 `current` 本身是保活页，它已经在 retained 末尾，不会重复。
+ * 当前页永远补在最后：它可能没有任务（首页/资料/设置），但在显示。
+ * 若它本身有任务，已在任务列表里，这里不会重复。
  */
-export function layersToRender(state: LayerState, current: PageId): readonly PageId[] {
-  return [...state.retained.filter((id) => id !== current), current];
+export function layersToRender(tasks: readonly LayerTask[], current: PageId): readonly PageId[] {
+  return [...tasks.map((t) => t.page).filter((p) => p !== current), current];
 }
 
 /**
@@ -138,23 +133,25 @@ export function isLayerActive(current: PageId, id: PageId): boolean {
 }
 
 /**
- * 丢掉某一层（这一轮结束了，不该再留着它的结果页）。
+ * 侧栏「继续：xxx」该指向哪里。
  *
- * 典型场景：做完一轮点「完成」、或用户重新点「开始复习」要开新一轮 ——
- * 留着旧的那层，再进去会看到上一轮的结果页。
+ * 只在**当前页不是它自己**时给；`current` 有任务时也返回 null
+ * （人就在这一页做着，不需要被提醒「继续」）。
+ *
+ * 取**最近上报**的那个（数组末尾）—— 用户刚跳走的那件事最可能是他要回去的。
  */
-export function dropLayer(state: LayerState, id: PageId): LayerState {
-  if (state.retained.indexOf(id) === -1) return state;
-  return { retained: state.retained.filter((x) => x !== id) };
-}
-
-/** 「返回进行中的任务」该回到哪一页：取 retained 里**最近访问**的那个保活页 */
-export function resumeTarget(state: LayerState, current: PageId): PageId | null {
-  for (let i = state.retained.length - 1; i >= 0; i--) {
-    const id = state.retained[i];
-    if (id !== undefined && id !== current) return id;
+export function resumeTarget(tasks: readonly LayerTask[], current: PageId): LayerTask | null {
+  for (let i = tasks.length - 1; i >= 0; i--) {
+    const t = tasks[i];
+    if (t !== undefined && t.page !== current) return t;
   }
   return null;
 }
 
-export const EMPTY_LAYERS: LayerState = { retained: [] };
+/** 明确丢掉某一页（这一轮结束了，不该再留着它的结果页） */
+export function dropPage(state: readonly LayerTask[], page: PageId): readonly LayerTask[] {
+  const next = state.filter((t) => t.page !== page);
+  return next.length === state.length ? state : next;
+}
+
+export const EMPTY_TASKS: readonly LayerTask[] = [];

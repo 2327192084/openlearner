@@ -74,7 +74,7 @@ export interface AppShellProps {
    *
    * 不传 = 没有进行中的任务 = 不渲染（项目一贯：不摆点了没反应的按钮）。
    */
-  resumeTask?: { page: PageId; label: string } | null;
+  resumeTask?: { page: PageId; label: string; detail?: string | null } | null;
   /** 点「继续」回到那个任务 */
   onResumeTask?: () => void;
   children: ReactNode;
@@ -189,7 +189,15 @@ export function AppShell({
               <BackGlyph />
             </span>
             <span className="nav-item__label">继续：{resumeTask.label}</span>
-            <span className="nav-item__chip">未完成</span>
+            {/*
+              进度细节（2026-11-13 傍晚）。用户原话是这个功能的意义所在：
+              「做这个跳页功能是为了知道某些任务的进度，例如文档解析，出题功能」。
+              所以有进度就摆出来（「3/12 页」），没有就不编 —— 用一个静态的
+              「未完成」反而什么都不说。
+            */}
+            <span className="nav-item__chip">
+              {resumeTask.detail ?? '未完成'}
+            </span>
           </button>
         ) : null}
 

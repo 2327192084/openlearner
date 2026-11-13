@@ -27,6 +27,7 @@ import type { SourceService } from '@/core/sources.ts';
 import { isCorrect } from '@/v2/core/cards.ts';
 import { isAutoGraded } from '@/core/questions/kinds.ts';
 import { MathText } from './MathText.tsx';
+import { usePageTask } from './page-task-context.ts';
 
 export interface ExamPageProps {
   exam: ExamService;
@@ -391,6 +392,18 @@ function TakingView({
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [remain, setRemain] = useState(limitSec);
   const [busy, setBusy] = useState(false);
+
+  /**
+   * 上报「正在考试」（2026-11-13 傍晚）。
+   *
+   * 由 `TakingView` 上报是刻意的：这个组件**只在考试进行中挂载** ——
+   * setup（选卷子）和 result（成绩页）都不会渲染它。
+   * 所以「上报存在」天然就等于「正在考试」，比在 ExamPage 里
+   * 判 `phase.kind === 'taking'` 少一处可能不同步的判断。
+   *
+   * 进度用已答题数：考试中途跳去看原文时，用户最想知道的就是答了多少。
+   */
+  usePageTask({ label: '模拟考试', detail: `${index + 1}/${paper.length} 题` });
   const startedAtRef = useRef(new Date().toISOString());
   const startedMsRef = useRef(Date.now());
   /** 防止超时自动交卷触发两次（setInterval 与用户点击可能撞上） */

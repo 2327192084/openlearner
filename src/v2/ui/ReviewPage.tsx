@@ -11,6 +11,7 @@ import type { GradingRules } from '@/v2/core/grading.ts';
 import { judgeByTiming, DEFAULT_GRADING_RULES } from '@/v2/core/grading.ts';
 import { useCardTimer, formatElapsed } from './use-card-timer.ts';
 import { useLayerActive } from './page-layer-context.ts';
+import { usePageTask } from './page-task-context.ts';
 import type { NoteService } from '@/core/notes.ts';
 import { NoteBox } from './NoteBox.tsx';
 import { pickOption } from './option-pick.ts';
@@ -284,6 +285,16 @@ export function ReviewPage({
 
   const card = queue[index];
   const total = queue.length;
+
+  /**
+   * 上报「做题进行到第几题」（2026-11-13 傍晚）。
+   *
+   * 这一页只要还挂着就确实在一轮练习里（做完会走 onFinish/onExit，
+   * App 那边会同时 dropPage），所以无条件上报，不需要判断「结束没有」。
+   *
+   * 进度用「第几题 / 共几题」：中途跳去看原文时用户想知道自己做到哪了。
+   */
+  usePageTask({ label: '做题', detail: `${Math.min(index + 1, total)}/${total} 题` });
 
   /**
    * 计时器。
