@@ -148,7 +148,18 @@ function record(name, ok, detail = '') {
       });
       const qs = await getAll('questions');
       const decks = await getAll('decks');
-      if (qs.length < 2 || !decks[0]) return { ok: false, reason: '库里题目不够，没法造今日记录' };
+      /*
+       * 必须挑「已发布」的题组来塞造出来的题。
+       *
+       * 卡片池（cards-loader）只取 status === 'published' 的题组，而这里造的题
+       * 要能在明细里展开出题干，就等于要求它进了卡片池。以前写的是 decks[0]，
+       * 在干净库上恰好是已发布的那个；但验证脚本连跑几轮后库里会堆出十几个
+       * draft 的「错题变式」题组，decks[0] 变成草稿 → 造出的题进不了池 →
+       * 明细里那几行显示「（这道题已不在题库里）」，7 项断言假失败。
+       * 这跟产品行为无关，是脚本自己挑错了题组。
+       */
+      const deck = decks.filter((d) => d.status === 'published')[0] || null;
+      if (qs.length < 2 || !deck) return { ok: false, reason: '库里题目不够，没法造今日记录' };
 
       const now = new Date();
       const pad = (n) => String(n).padStart(2, '0');
@@ -165,7 +176,7 @@ function record(name, ok, detail = '') {
        */
       const mkQ = (qid, prompt) => ({
         id: qid,
-        deckId: decks[0].id,
+        deckId: deck.id,
         kind: 'single',
         prompt,
         options: [
