@@ -107,6 +107,19 @@ export interface ReaderPageProps {
   onAskAboutSelection?: (material: OralMaterial) => void;
   /** 不能提问的原因；有值就把按钮禁用并显示原因 */
   askDisabledReason?: string | null;
+  /**
+   * 划选一段 → 让 AI 做成闪卡（2026-11-14，用户要求）。
+   *
+   * 用户原话：「让 ai 写闪卡这个功能可以再接入资料库，和让 ai 提问一样，
+   * 用户可以划选资料内容制作闪卡」。
+   *
+   * 与 `onAskAboutSelection` 拿的是**同一种素材**（OralMaterial）——
+   * 拼素材的逻辑（短选区扩上下文、带上资料名与页码）已经在那里写好了，
+   * 这里直接复用，不另写一套（否则两处对"上下文留多长"的口径会漂）。
+   */
+  onMakeCardFromSelection?: (material: OralMaterial) => void;
+  /** 不能做闪卡的原因（没接 AI 时） */
+  cardDisabledReason?: string | null;
   onBack: () => void;
 }
 
@@ -158,6 +171,8 @@ export function ReaderPage({
   target,
   backLabel,
   onAskAboutSelection,
+  onMakeCardFromSelection,
+  cardDisabledReason,
   askDisabledReason,
   onBack,
 }: ReaderPageProps) {
@@ -915,9 +930,21 @@ export function ReaderPage({
    * 这比「不提问」好：用户看到的是它拿自己选的那句话去问了，
    * 只是短选区时少了点上下文 —— 而且界面会如实说明。
    */
-  const handleAskAboutSelection = useCallback(
-    (text: string) => {
-      if (!onAskAboutSelection || !sourceId || !seg) return;
+  /**
+   * 把「选中的文字」拼成素材（2026-11-14 抽出来共用）。
+   *
+   * ## 为什么抽出来
+   *
+   * 「用这段提问」与「做成闪卡」拿的是**同一种素材**：短选区要扩上下文、
+   * 要带上资料名与页码。这段逻辑原来写在 handleAskAboutSelection 里，
+   * 现在两个动作都要用 —— 复制一份必然漂移（比如以后调了上下文长度，
+   * 只改一处就会让提问和闪卡的素材不一样长）。
+   *
+   * @returns 素材；没有资料/段落时返回 null（调用方据此不动）
+   */
+  const buildSelectionMaterial = useCallback(
+    (text: string): OralMaterial | null => {
+      if (!sourceId || !seg) return null;
 
       /* 量「选区起点之前有多少文字」—— 与 handleAddMark 同一套做法 */
       let hintStart = -1;
@@ -960,20 +987,50 @@ export function ReaderPage({
        * 交给宿主的话它得为了一段文字再查一次库 ——
        * 628 页的资料读全部段落，只为取一段，明显不值。
        */
-      const material = passageToMaterial(
+      return passageToMaterial(
         selection,
         seg.text,
         phase.kind === 'ready' ? phase.source.title : '',
       );
+    },
+    [sourceId, seg, phase],
+  );
 
-      /* 清掉选区与浮层，避免同一段被连点两次 */
-      window.getSelection()?.removeAllRanges();
-      setSelectionText('');
-      setSelectionRect(null);
+  /** 清掉选区与浮层（两个动作共用，避免同一段被连点两次） */
+  const clearSelectionUI = useCallback(() => {
+    window.getSelection()?.removeAllRanges();
+    setSelectionText('');
+    setSelectionRect(null);
+  }, []);
 
+  const handleAskAboutSelection = useCallback(
+    (text: string) => {
+      if (!onAskAboutSelection) return;
+      const material = buildSelectionMaterial(text);
+      if (!material) return;
+      clearSelectionUI();
       onAskAboutSelection(material);
     },
-    [onAskAboutSelection, sourceId, seg, phase],
+    [onAskAboutSelection, buildSelectionMaterial, clearSelectionUI],
+  );
+
+  /**
+   * 划选一段 → 让 AI 做成闪卡（2026-11-14，用户要求）。
+   *
+   * 用户原话：「让 ai 写闪卡这个功能可以再接入资料库，和让 ai 提问一样，
+   * 用户可以划选资料内容制作闪卡」。
+   *
+   * 与提问共用 `buildSelectionMaterial` —— 同一段文字，两个去处。
+   */
+  const handleMakeCardFromSelection = useCallback(
+    (text: string) => {
+      if (!onMakeCardFromSelection) return;
+      const material = buildSelectionMaterial(text);
+      if (!material) return;
+      clearSelectionUI();
+      onMakeCardFromSelection(material);
+    },
+    [onMakeCardFromSelection, buildSelectionMaterial, clearSelectionUI],
   );
 
   /**
@@ -1786,7 +1843,7 @@ export function ReaderPage({
         所以只要**任一动作可用**就该出现 —— 否则没接 AI 的用户
         永远拿不到「先选再写」这条顺手路径。
       */}
-      {onAskAboutSelection || notesEnabled ? (
+      {onAskAboutSelection || notesEnabled || onMakeCardFromSelection ? (
         <SelectionActionBar
           selection={selectionRect && selectionText ? { rect: selectionRect, text: selectionText } : null}
           /*
@@ -1796,6 +1853,16 @@ export function ReaderPage({
            */
           onAsk={handleAskAboutSelection}
           disabledReason={onAskAboutSelection ? (askDisabledReason ?? null) : '这个版本没接 AI'}
+          /*
+           * 「做成闪卡」（2026-11-14）。与提问同一套转义：
+           * 浮层给 string，这里转成 OralMaterial 再交给宿主。
+           */
+          {...(onMakeCardFromSelection
+            ? {
+                onMakeCard: handleMakeCardFromSelection,
+                cardDisabledReason: cardDisabledReason ?? null,
+              }
+            : {})}
           onNote={
             notesEnabled
               ? () => {

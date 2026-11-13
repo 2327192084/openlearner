@@ -303,6 +303,25 @@ export function App({
    * 只改 key 就能让 React 卸载旧的、挂一个全新的，比手写重置逻辑可靠。
    */
   const [layerEpoch, setLayerEpoch] = useState<Partial<Record<PageId, number>>>({});
+
+  /**
+   * 待确认的 AI 闪卡草稿（2026-11-14）。
+   *
+   * 两处会往里塞：
+   *  - 闪卡管理页自己的「AI 写一张」
+   *  - 阅读器里划选正文 → 浮层「做成闪卡」
+   *
+   * 第二个必须经过这里，因为**它要跨页**：阅读器算完卡，跳去闪卡页，
+   * 那一页需要知道「有草稿等着确认」。用一个 token 递增让页面能
+   * 重新接收（同一段文字再点一次也要生效）。
+   */
+  const [pendingAiCards, setPendingAiCards] = useState<{
+    cards: { front: string; back: string }[];
+    source: { kind: 'point' | 'wrong' | 'text'; sourceId2?: string | null; sourceId?: string | null };
+    error?: string;
+    token: number;
+  } | null>(null);
+
   const bumpLayer = useCallback((id: PageId) => {
     setLayerEpoch((s) => ({ ...s, [id]: (s[id] ?? 0) + 1 }));
   }, []);
@@ -1408,6 +1427,53 @@ export function App({
     [goPage],
   );
 
+  /**
+   * 划选正文 → 让 AI 做成闪卡（2026-11-14，用户要求）。
+   *
+   * 用户原话：「让 ai 写闪卡这个功能可以再接入资料库，和让 ai 提问一样，
+   * 用户可以划选资料内容制作闪卡」。
+   *
+   * ## 流程
+   *
+   * 划选 → 浮层「做成闪卡」→ 这里调 AI 写卡 → 跳到闪卡管理页，
+   * 把写好的卡**放在待确认区**（与页面里自带的 AI 草稿是同一块 UI）。
+   *
+   * ## 为什么不直接入库
+   *
+   * 与页面内的 AI 写卡同一条原则：模型偶尔会写出偏离素材的卡，
+   * 用户要先看一眼。所以只把草稿塞过去，收不收由他决定。
+   */
+  const handleMakeCardFromSelection = useCallback(
+    async (material: OralMaterial) => {
+      try {
+        const cards = await handleMakeFlashcards(
+          { kind: 'text', text: material.text, hint: material.label },
+          1,
+        );
+        /*
+         * 把素材来源一起带过去：这样收下时卡片能记住「我是从哪段正文来的」。
+         * sourceId 用 material 的资料 id（划选一定来自某份资料）。
+         */
+        setPendingAiCards((prev) => ({
+          cards,
+          source: { kind: 'text', sourceId: material.sourceId ?? null },
+          token: (prev?.token ?? 0) + 1,
+        }));
+        setPage('flashcards');
+      } catch (e) {
+        /* 失败也要让用户知道，而不是点了没反应 */
+        setPendingAiCards((prev) => ({
+          cards: [],
+          source: { kind: 'text', sourceId: material.sourceId ?? null },
+          error: e instanceof Error ? e.message : 'AI 没能写出卡',
+          token: (prev?.token ?? 0) + 1,
+        }));
+        setPage('flashcards');
+      }
+    },
+    [handleMakeFlashcards],
+  );
+
   // ---------------------------------------------------------------------------
   // 从资料中提问（2026-11-10）
   // ---------------------------------------------------------------------------
@@ -2023,6 +2089,16 @@ export function App({
            */
           onAskAboutSelection={conn.connected ? handleAskAboutSelection : undefined}
           askDisabledReason={conn.connected ? null : '还没接入模型，先到设置里加一个后端'}
+          /*
+           * 划选正文 → 做成闪卡（2026-11-14，用户要求）。
+           *
+           * 用户原话：「让 ai 写闪卡这个功能可以再接入资料库，
+           * 和让 ai 提问一样，用户可以划选资料内容制作闪卡」。
+           *
+           * 没接模型时不传（不摆点了没反应的按钮）。
+           */
+          onMakeCardFromSelection={conn.connected ? handleMakeCardFromSelection : undefined}
+          cardDisabledReason={conn.connected ? null : '还没接入模型，先到设置里加一个后端'}
         />
       ) : page === 'parse' ? (
         <ParsePage
@@ -2096,6 +2172,14 @@ export function App({
           loadCards={loadCards}
           onGoReview={() => goPage('book')}
           onMakeCards={handleMakeFlashcards}
+          /*
+           * 从阅读器划选带过来的 AI 草稿（2026-11-14）。
+           *
+           * 带着 token：同一段文字再点一次「做成闪卡」也要能重新塞进来，
+           * 否则第二次点没反应。
+           */
+          incomingAiCards={pendingAiCards}
+          onIncomingConsumed={() => setPendingAiCards(null)}
         />
       ) : page === 'oral' ? (
         /*

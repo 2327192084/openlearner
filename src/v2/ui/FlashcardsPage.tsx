@@ -65,6 +65,21 @@ export interface FlashcardsPageProps {
     material: { kind: 'point' | 'wrong' | 'text'; text: string; hint?: string | null },
     count?: number,
   ) => Promise<{ front: string; back: string }[]>;
+  /**
+   * 从阅读器划选带过来的 AI 草稿（2026-11-14）。
+   *
+   * 用户要求「和让 ai 提问一样，用户可以划选资料内容制作闪卡」——
+   * 阅读器算完卡会跳到这一页，草稿要能在这里落进「待确认」区。
+   * token 存在是为了同一段文字再点一次也能重新塞进来。
+   */
+  incomingAiCards?: {
+    cards: { front: string; back: string }[];
+    source: { kind: 'point' | 'wrong' | 'text'; sourceId2?: string | null; sourceId?: string | null };
+    error?: string;
+    token: number;
+  } | null;
+  /** 草稿已被这一页接住，请宿主清掉 */
+  onIncomingConsumed?: () => void;
 }
 
 /** 三种新建来源 */
@@ -77,6 +92,8 @@ export function FlashcardsPage({
   loadCards,
   onGoReview,
   onMakeCards,
+  incomingAiCards,
+  onIncomingConsumed,
 }: FlashcardsPageProps) {
   const [views, setViews] = useState<FlashcardView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -128,6 +145,38 @@ export function FlashcardsPage({
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * 接住从阅读器带过来的 AI 草稿（2026-11-14）。
+   *
+   * 用 token 做依赖：同一段文字再点一次「做成闪卡」token 会变，
+   * 这里就能重新接住 —— 否则第二次点没反应（页面已经挂着旧草稿）。
+   */
+  useEffect(() => {
+    if (!incomingAiCards) return;
+    if (incomingAiCards.error) {
+      setError(incomingAiCards.error);
+      setAiDrafts(null);
+    } else {
+      setAiDrafts(incomingAiCards.cards);
+      setAiSource({
+        kind: incomingAiCards.source.kind,
+        ...(incomingAiCards.source.sourceId2 !== undefined
+          ? { sourceId2: incomingAiCards.source.sourceId2 }
+          : {}),
+        ...(incomingAiCards.source.sourceId !== undefined
+          ? { sourceId: incomingAiCards.source.sourceId }
+          : {}),
+      });
+      setNotice('AI 从你划选的那段写了一张卡，看一眼再决定收不收。');
+    }
+    onIncomingConsumed?.();
+    /*
+     * 只依赖 token：incomingAiCards 每次都是新对象，
+     * 按引用比会重复消费。
+     */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incomingAiCards?.token]);
 
   const cards = useMemo(() => (views ? toUnifiedCards(views) : null), [views]);
   const counts = useMemo(() => (cards ? countByGroup(cards) : null), [cards]);

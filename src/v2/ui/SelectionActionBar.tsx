@@ -75,6 +75,18 @@ export interface SelectionActionBarProps {
   onNote?: (text: string) => void;
   /** 用「写备注」时的禁用原因（例如没有资料 id） */
   noteDisabledReason?: string | null;
+  /**
+   * 点「做成闪卡」（2026-11-14）。
+   *
+   * 用户要求：「让 ai 写闪卡这个功能可以再接入资料库，和让 ai 提问一样，
+   * 用户可以划选资料内容制作闪卡」。
+   *
+   * 不传就不渲染那个按钮（宿主没接闪卡时不受影响）——
+   * 与 onNote 同样的处理，不做点了没反应的按钮。
+   */
+  onMakeCard?: (text: string) => void;
+  /** 「做成闪卡」的禁用原因（例如没接 AI、或没有资料 id） */
+  cardDisabledReason?: string | null;
   /** 是否禁用（比如没接 AI）—— 禁用时给出原因，不做点了没反应的按钮 */
   disabledReason?: string | null;
 }
@@ -84,6 +96,8 @@ export function SelectionActionBar({
   onAsk,
   onNote,
   noteDisabledReason,
+  onMakeCard,
+  cardDisabledReason,
   disabledReason,
 }: SelectionActionBarProps) {
   const barRef = useRef<HTMLDivElement | null>(null);
@@ -157,6 +171,19 @@ export function SelectionActionBar({
     onNote(text);
   }, [selection, onNote]);
 
+  /**
+   * 点「做成闪卡」。
+   *
+   * 与 handleAsk 完全同一套：先记住选区文字再清掉选区 ——
+   * 宿主拿到的是纯文本，它自己决定怎么拼素材。
+   */
+  const handleMakeCard = useCallback(() => {
+    if (!selection || !onMakeCard) return;
+    const text = selection.text;
+    window.getSelection()?.removeAllRanges();
+    onMakeCard(text);
+  }, [selection, onMakeCard]);
+
   if (!usable || !selection) return null;
 
   /*
@@ -202,6 +229,26 @@ export function SelectionActionBar({
           title={noteDisabledReason ?? '先选中再写备注，挂在选中的这句话上'}
         >
           写备注
+        </button>
+      ) : null}
+      {/*
+        「做成闪卡」（2026-11-14）。
+        用户要求：「让 ai 写闪卡这个功能可以再接入资料库，和让 ai 提问一样，
+        用户可以划选资料内容制作闪卡」。
+
+        与「用这段提问」并列：两者都拿选中的这段当素材，区别只在于
+        一个去出问答题、一个去做记忆闪卡。放在同一处是因为用户的心智
+        很简单 —— 选中一段，然后决定拿它干什么。
+      */}
+      {onMakeCard ? (
+        <button
+          type="button"
+          className="selbar__btn"
+          onClick={handleMakeCard}
+          disabled={Boolean(cardDisabledReason)}
+          title={cardDisabledReason ?? '就选中的这段让 AI 做一张闪卡'}
+        >
+          做成闪卡
         </button>
       ) : null}
       {disabledReason || noteDisabledReason ? (
