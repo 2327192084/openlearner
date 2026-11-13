@@ -25,7 +25,12 @@ import { GuidePage } from './GuidePage.tsx';
 import { BookPage } from './BookPage.tsx';
 import { buildReviewQueue, type ReviewQueue } from './review-session.ts';
 import { buildPickPrompt, parsePicks, type FlashcardCandidate } from '@/core/ai/pick-flashcards.ts';
-import type { FlashcardView } from '@/core/flashcards.ts';
+import {
+  buildCardPrompt,
+  parseCards,
+  type CardMaterial,
+} from '@/core/ai/make-flashcards.ts';
+import { draftFromPoint, type FlashcardView } from '@/core/flashcards.ts';
 import {
   buildAskPrompt,
   buildJudgePrompt,
@@ -1134,10 +1139,24 @@ export function App({
 
   const handleAddFlashcards = useCallback(
     async (ids: string[]) => {
-      await flashcardsService.addMany(
-        ids.map((id) => ({ knowledgePointId: id, origin: 'user' as const })),
-        flashcardPoints,
-      );
+      /*
+       * 把选中的知识点做成**独立的卡**（2026-11-14 按用户反馈重做）。
+       *
+       * 用户原话：「应该由用户自己选择知识点或是错题做成闪卡，
+       * 而且闪卡是独立的，不会因错题或是知识点的消失而消失」。
+       *
+       * 所以这里必须**把正面文本抄进草稿**（`draftFromPoint` 做这件事），
+       * 之后再改/删知识点，卡片内容一个字都不会变。
+       *
+       * 找不到的知识点直接跳过 —— 用户可能刚在另一个窗口删了它。
+       */
+      const drafts = ids
+        .map((id) => flashcardPoints.find((p) => p.id === id))
+        .filter((p): p is NonNullable<typeof p> => !!p)
+        .map((p) => draftFromPoint(p, 'user'));
+
+      if (drafts.length === 0) return;
+      await flashcardsService.addMany(drafts);
       await reloadFlashcards();
     },
     [flashcardPoints],
@@ -1201,6 +1220,48 @@ export function App({
 
     return parsePicks(res.content, pool);
   }, [flashcardPoints]);
+
+  /**
+   * 让 AI 帮忙**写**闪卡（2026-11-14，用户要求）。
+   *
+   * 与上面 handlePickFlashcards 的区别：
+   *  - pickFlashcards：从知识点里**挑**适合做卡的（返回知识点 id）
+   *  - makeFlashcards：给出素材，让模型**写**出正反面文本
+   *
+   * 用户原话：「闪卡的制作可以用到后端 ai 协助制作」。
+   */
+  const handleMakeFlashcards = useCallback(
+    async (material: CardMaterial, count = 1): Promise<{ front: string; back: string }[]> => {
+      const list = await backends.list();
+      const ready = list.filter((b) => b.status === 'ready');
+      if (ready.length === 0) {
+        throw new Error('还没有可用的模型。先到「设置」里添加一个后端。');
+      }
+      const b = ready[0]!;
+      const apiKey = await backends.readCredential(b.id);
+      if (!apiKey) throw new Error('读不到这个后端的 API Key，请到设置页重新填一次。');
+
+      const { system, user } = buildCardPrompt(material, count);
+
+      const { chatCompletion } = await import('@/core/ai/deepseek-client.ts');
+      const res = await chatCompletion({
+        apiKey,
+        model: b.model,
+        ...(b.baseUrl ? { baseUrl: b.baseUrl } : {}),
+        provider: b.provider,
+        systemPrompt: system,
+        userPrompt: user,
+        temperature: 0.2,
+        /* 几张卡而已；给上限防止它写小作文 */
+        maxTokens: 1500,
+      });
+
+      const parsed = parseCards(res.content);
+      if (!parsed.ok) throw new Error(parsed.reason);
+      return parsed.cards;
+    },
+    [],
+  );
 
   // ---------------------------------------------------------------------------
   // 提问式复习（2026-11-10）
@@ -1837,7 +1898,16 @@ export function App({
           }
           pickTitle="挑要加进闪卡的知识点"
           onCancelPick={() => setPickingForFlashcards(false)}
-          alreadyPickedIds={flashcards.map((v) => v.card.knowledgePointId)}
+          /*
+           * 「已经做成闪卡的」知识点 id（界面据此显示「已加入」）。
+           *
+           * 2026-11-14 起优先取 `sourceId2`：闪卡独立之后，
+           * `knowledgePointId` 只是旧字段（新卡也写，但手写的卡没有）。
+           * 两者都看一遍并滤掉空值，否则 Set 里会混进 undefined。
+           */
+          alreadyPickedIds={flashcards
+            .map((v) => v.card.sourceId2 ?? v.card.knowledgePointId)
+            .filter((id): id is string => !!id)}
         />
       ) : page === 'study' ? (
         <StudyPage
@@ -2022,21 +2092,10 @@ export function App({
         <FlashcardsPage
           flashcards={flashcardsService}
           reviewService={reviewService}
+          knowledge={knowledgeService}
           loadCards={loadCards}
-          /*
-           * 错题卡唯一的「消失」办法：去做这题、答对。
-           *
-           * 为什么不跳去某道题的单题视图：项目里没有那个东西。
-           * 现有链路是「选题页 → 挑模式开一轮」。这里送到选题页的
-           * 错题巩固那一档，用户能自己挑到这几道 —— 与错题页的
-           * 「去练错题」走同一条路，不新造一条。
-           */
-          onPracticeCard={() => {
-            setPracticeMode('wrong');
-            setPracticeLabel('错题巩固');
-            void navigate('review');
-          }}
           onGoReview={() => goPage('book')}
+          onMakeCards={handleMakeFlashcards}
         />
       ) : page === 'oral' ? (
         /*

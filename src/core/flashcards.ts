@@ -1,5 +1,5 @@
 /**
- * 记忆闪卡（2026-11-10）。
+ * 记忆闪卡服务（2026-11-10；2026-11-14 按用户反馈重做）。
  *
  * ## 它解决什么
  *
@@ -11,13 +11,21 @@
  *  - **今日复习**：按遗忘曲线排期，只做到期的，会写复习间隔（SRS）
  *  - **记忆闪卡**：用户自己挑出来的重点，随时翻，**不参与排期**
  *
- * 两者都在「复习巩固」页里，但性质不同。混在一起会让用户以为
- * 翻闪卡等于完成今天的复习任务。
+ * ## ⚠️ 2026-11-14 的核心修正
  *
- * ## 为什么引用知识点而不是复制内容
+ * 用户反馈原话：
+ * > 「错题闪卡和知识闪卡不能直接调用知识库里的知识点或是错题库的错题。
+ * >  应该由用户自己选择知识点或是错题做成闪卡，而且闪卡是独立的，
+ * >  不会因错题或是知识点的消失而消失。」
  *
- * 见 model.ts 的 Flashcard 注释：知识点自带 anchors 与 quotes，
- * 那是「可点回原文」的凭据。复制一份就丢了这层关系。
+ * 上一版的模型是「引用知识点」：正面抄一份 statement，背面靠知识点的
+ * quotes 动态取，读取时校验「知识点还在不在」，删了就标「来源已删」。
+ *
+ * 那是错的 —— 会随来源消失而残缺的东西不是闪卡，是个视图。
+ *
+ * 现在：**内容在建卡时抄进来**（正面 + 背面都是完整独立文本），
+ * 建完就与来源无关。`sourceKind` / `sourceId2` 只用于追溯
+ * （界面上显示「来自：信号与系统 · 第 2 章」），删掉来源不影响卡片。
  *
  * ## 为什么不写 reviewRecords
  *
@@ -25,6 +33,13 @@
  * 不该改变他真实的间隔安排。想排期就去「今日复习」。
  * 这个边界如果不划清，两套东西会互相污染 —— 翻了几张闪卡，
  * 到期队列就变了，用户完全无法理解为什么。
+ *
+ * ## 删卡不进回收站
+ *
+ * 闪卡现在是**独立内容**，删了就真没了（与「引用」时代不同，
+ * 那时删了还能从知识点重建）。它仍不进回收站：
+ * 回收站躺 30 天会让用户以为还能还原，而闪卡往往是「临时记一下就删」
+ * 的便签式内容。代价是误删不可恢复 —— 所以界面删除必须二次确认。
  */
 
 import type { Flashcard, KnowledgePoint } from './model.ts';
@@ -33,106 +48,148 @@ import { newId, nowIso } from './id.ts';
 
 /** 建卡时的输入 */
 export interface FlashcardDraft {
-  knowledgePointId: string;
-  /** 正面文本；不传则从知识点自动取 statement */
-  frontText?: string;
-  backNote?: string | null;
+  /** 正面（问题/提示）。必填，空白会被拒绝 */
+  frontText: string;
+  /** 背面（答案/解释）。可为空 —— 有的卡只想记一个提示 */
+  backText?: string | null;
+  /**
+   * 来源类型（仅追溯用）。
+   *
+   * 不传时按 `knowledgePointId` 推断：有就是 'point'，没有就是 'manual'。
+   */
+  sourceKind?: 'point' | 'wrong' | 'manual' | 'ai';
+  /** 来源对象 id（知识点 id / 题目 id），仅追溯用 */
+  sourceId2?: string | null;
+  /** 旧字段：知识点 id。保留兼容，新代码用 sourceId2 + sourceKind */
+  knowledgePointId?: string;
+  /** 归属资料 id（仅追溯用） */
+  sourceId?: string | null;
   origin: 'ai' | 'user';
 }
 
 /**
- * 带「是否过期」的闪卡视图。
+ * 闪卡视图。
  *
- * 界面需要知道这张卡引用的知识点还在不在 —— 不在了就要提示
- * 「原知识点已删除」，而不是假装正常（那时的背面引文也取不到）。
+ * ⚠️ 2026-11-14 起**不再有 `stale`**（不再校验来源是否还在）。
+ * 闪卡是独立的，来源删了它一个字都不变 —— 这正是用户要的。
+ *
+ * 只保留一个「来源追溯」用的标签，供界面上写「来自 XXX」。
+ * 拿不到来源就什么都不写，不是错误状态。
  */
 export interface FlashcardView {
   card: Flashcard;
-  /** 引用的知识点；null = 已被删除 */
-  point: KnowledgePoint | null;
-  /**
-   * 是否已「过期」：知识点被删，或正面文本与知识点当前表述不一致。
-   *
-   * 不一致也要标出来：用户在闪卡上背的是旧表述，而知识点已经改了 ——
-   * 不说的话他会拿着过时的说法去考试。
-   */
-  stale: boolean;
+  /** 正面（统一取值） */
+  front: string;
+  /** 背面（统一取值：backText → backNote → null） */
+  back: string | null;
+  /** 来源标签，如「信号与系统 · 第2章」；null = 没有可显示的信息 */
+  sourceLabel: string | null;
+}
+
+/** 旧卡没有 backText 时回落到 backNote（2026-11-14 的兼容规则） */
+export function backOf(card: Flashcard): string | null {
+  const t = (card.backText ?? '').trim();
+  if (t) return t;
+  const n = (card.backNote ?? '').trim();
+  return n || null;
+}
+
+/**
+ * 来源类型推断（旧卡没有 sourceKind 字段）。
+ *
+ * 规则：有 knowledgePointId → 'point'，否则 'manual'。
+ * 旧数据里不存在「从错题来的卡」（那是 2026-11-14 才加的）。
+ */
+export function sourceKindOf(card: Flashcard): 'point' | 'wrong' | 'manual' | 'ai' {
+  if (card.sourceKind) return card.sourceKind;
+  return card.knowledgePointId ? 'point' : 'manual';
 }
 
 export class FlashcardService {
   constructor(private readonly storage: StorageAdapter) {}
 
-  /** 全部闪卡（按创建时间倒序：新加的在前） */
+  /**
+   * 全部闪卡。
+   *
+   * 排序：新建的在前 —— 用户刚加完一张会想立刻看到它。
+   */
   async list(): Promise<Flashcard[]> {
     const all = await this.storage.getAll('flashcards');
     return [...all].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   }
 
   /**
-   * 拼出带知识点与过期标记的视图。
+   * 带展示字段的列表。
    *
-   * 一次把知识点全读出来做 Map，而不是逐卡查询 ——
-   * 闪卡通常几十上百张，逐卡 await 会让界面明显卡一下。
+   * 来源标签通过 `labelOfSource` 注入（它要读知识点/题目表，
+   * 让调用方决定要不要付这个成本 —— 有的界面不需要来源）。
+   *
+   * ⚠️ 这里**不再判断来源是否还在**：闪卡独立，来源没了不影响它。
+   * `labelOfSource` 返回 null 就是「没有可显示的信息」，不是错误。
    */
-  async listWithPoints(): Promise<FlashcardView[]> {
-    const [cards, points] = await Promise.all([
-      this.list(),
-      this.storage.getAll('knowledgePoints'),
-    ]);
-    const byId = new Map(points.map((p) => [p.id, p]));
-
-    return cards.map((card) => {
-      const point = byId.get(card.knowledgePointId) ?? null;
-      /*
-       * 过期的两种情形：
-       *  1. 知识点被删（point 为 null）
-       *  2. 知识点的表述变了 —— 闪卡上那句已经不是当前的说法
-       *
-       * 第二种容易被忽略：用户看到闪卡「正常显示」，却不知道自己
-       * 背的是旧表述。所以这里也标出来。
-       */
-      const stale = point === null || point.statement.trim() !== card.frontText.trim();
-      return { card, point, stale };
-    });
+  async listWithLabels(
+    labelOfSource?: (card: Flashcard) => string | null,
+  ): Promise<FlashcardView[]> {
+    const cards = await this.list();
+    return cards.map((card) => ({
+      card,
+      front: card.frontText,
+      back: backOf(card),
+      sourceLabel: labelOfSource ? labelOfSource(card) : null,
+    }));
   }
 
   /**
-   * 批量建卡（AI 挑完后用户勾选确认，一次写入）。
+   * 兼容旧调用方（上一版叫 listWithPoints）。
    *
-   * 为什么批量而不是逐张：用户勾了 20 条，逐张 await 会让按钮卡住
-   * 一段时间且没有进度。这里一次写完，只在开始/结束各给一次反馈。
-   *
-   * **已有的不会重复建**：按 knowledgePointId 去重。用户可能先手动加过
-   * 某条，又让 AI 挑了一遍 —— 不该出现两张一模一样的卡。
+   * 内部已经不再依赖知识点表 —— 闪卡独立之后，
+   * 「知识点还在不在」与卡片显示无关了。
    */
-  async addMany(drafts: readonly FlashcardDraft[], points: readonly KnowledgePoint[]): Promise<Flashcard[]> {
-    const pointById = new Map(points.map((p) => [p.id, p]));
+  async listWithPoints(): Promise<FlashcardView[]> {
+    return this.listWithLabels();
+  }
+
+  /**
+   * 批量建卡。
+   *
+   * ## 去重规则变了（2026-11-14）
+   *
+   * 上一版按 `knowledgePointId` 去重（一个知识点只能有一张卡）。
+   * 现在闪卡是**独立内容**，同一个知识点用户可能想做成两张角度不同的卡
+   * （一张背定义、一张背公式）。所以只有**正面完全相同**时才跳过。
+   *
+   * ## 为什么空白正面被拒绝
+   *
+   * 空白正面的卡翻开来是白的，用户会以为坏了。宁可建卡时就拒绝。
+   */
+  async addMany(drafts: readonly FlashcardDraft[]): Promise<Flashcard[]> {
     const existing = await this.storage.getAll('flashcards');
-    const taken = new Set(existing.map((c) => c.knowledgePointId));
+    /** 按「正面全文」判重（trim 后比较） */
+    const takenFront = new Set(existing.map((c) => c.frontText.trim()));
 
     const ts = nowIso();
     const created: Flashcard[] = [];
 
     for (const d of drafts) {
-      if (taken.has(d.knowledgePointId)) continue;
-      const point = pointById.get(d.knowledgePointId);
-      if (!point) continue;
-
-      const front = (d.frontText ?? point.statement).trim();
+      const front = d.frontText.trim();
       if (!front) continue;
+      if (takenFront.has(front)) continue;
 
       const card: Flashcard = {
         id: newId('fc'),
-        knowledgePointId: d.knowledgePointId,
         frontText: front,
-        backNote: d.backNote ?? null,
+        backText: d.backText?.trim() || null,
+        backNote: null,
+        sourceKind: d.sourceKind ?? (d.knowledgePointId ? 'point' : 'manual'),
+        sourceId2: d.sourceId2 ?? d.knowledgePointId ?? null,
+        ...(d.knowledgePointId ? { knowledgePointId: d.knowledgePointId } : {}),
         origin: d.origin,
-        sourceId: point.sourceId,
+        sourceId: d.sourceId ?? null,
         createdAt: ts,
         updatedAt: ts,
       };
       await this.storage.put('flashcards', card);
-      taken.add(d.knowledgePointId);
+      takenFront.add(front);
       created.push(card);
     }
 
@@ -140,12 +197,33 @@ export class FlashcardService {
   }
 
   /** 建一张 */
-  async add(draft: FlashcardDraft, points: readonly KnowledgePoint[]): Promise<Flashcard | null> {
-    const out = await this.addMany([draft], points);
+  async add(draft: FlashcardDraft): Promise<Flashcard | null> {
+    const out = await this.addMany([draft]);
     return out[0] ?? null;
   }
 
-  /** 改背面备注 */
+  /** 改内容（正面/背面都能改 —— 它们现在是这张卡自己的内容） */
+  async update(
+    id: string,
+    patch: { frontText?: string; backText?: string | null },
+  ): Promise<Flashcard | null> {
+    const card = await this.storage.get('flashcards', id);
+    if (!card) return null;
+
+    const front = patch.frontText !== undefined ? patch.frontText.trim() : card.frontText;
+    if (!front) return null; // 正面不能改成空
+
+    const next: Flashcard = {
+      ...card,
+      frontText: front,
+      ...(patch.backText !== undefined ? { backText: patch.backText?.trim() || null } : {}),
+      updatedAt: nowIso(),
+    };
+    await this.storage.put('flashcards', next);
+    return next;
+  }
+
+  /** 改背面补充（旧接口，保留兼容） */
   async setBackNote(id: string, note: string | null): Promise<Flashcard | null> {
     const card = await this.storage.get('flashcards', id);
     if (!card) return null;
@@ -158,13 +236,7 @@ export class FlashcardService {
     return next;
   }
 
-  /**
-   * 删一张。
-   *
-   * **不进回收站**：闪卡是「从知识点里挑出来的引用」，本身不含
-   * 独有的内容 —— 原知识点还在，重新挑一次就有了。
-   * 把引用塞进回收站会让用户以为丢了什么，还原出来也只是张卡。
-   */
+  /** 删一张（不进回收站，见头注释） */
   async remove(id: string): Promise<boolean> {
     const card = await this.storage.get('flashcards', id);
     if (!card) return false;
@@ -172,31 +244,53 @@ export class FlashcardService {
     return true;
   }
 
-  /** 某个知识点是否已经是闪卡（界面用它显示「已加入」而不是重复按钮） */
+  /** 某个知识点是否已经建过卡（界面用它显示「已加入」而不是重复按钮） */
   async hasForPoint(knowledgePointId: string): Promise<boolean> {
     const all = await this.storage.getAll('flashcards');
-    return all.some((c) => c.knowledgePointId === knowledgePointId);
+    return all.some(
+      (c) => c.knowledgePointId === knowledgePointId || c.sourceId2 === knowledgePointId,
+    );
   }
 
-  /**
-   * 知识点被删时，把引用它的闪卡一起删掉。
-   *
-   * 与「删知识点」联动的理由：留着这些卡只会变成一堆「原知识点已删除」的
-   * 空壳，用户还得手动清理。但**必须告诉调用方删了几张**，
-   * 否则删知识点时静默带走几张闪卡，用户会觉得东西莫名少了。
-   *
-   * @returns 被删掉的闪卡张数
-   */
+  /** 删掉某个知识点建的所有卡 */
   async removeForPoint(knowledgePointId: string): Promise<number> {
     const all = await this.storage.getAll('flashcards');
-    const hit = all.filter((c) => c.knowledgePointId === knowledgePointId);
+    const hit = all.filter(
+      (c) => c.knowledgePointId === knowledgePointId || c.sourceId2 === knowledgePointId,
+    );
     for (const c of hit) await this.storage.remove('flashcards', c.id);
     return hit.length;
   }
 
-  /** 某份资料的闪卡（按资料翻阅时用） */
+  /** 某份资料下的闪卡（按冗余的 sourceId 筛，不反查知识点表） */
   async listBySource(sourceId: string): Promise<Flashcard[]> {
     const all = await this.list();
     return all.filter((c) => c.sourceId === sourceId);
   }
+}
+
+/**
+ * 从知识点生成一张卡的草稿（界面「加入闪卡」时用）。
+ *
+ * 注意：**内容在这里就被抄进草稿了**，之后与知识点无关 ——
+ * 这正是用户要的「独立」。
+ */
+export function draftFromPoint(
+  point: KnowledgePoint,
+  origin: 'ai' | 'user' = 'user',
+): FlashcardDraft {
+  return {
+    frontText: point.statement,
+    /*
+     * 背面留空：知识点的 quotes 是为了「点回原文」的引证，
+     * 不是「这张卡的答案」—— 两者语义不同，不能直接顶替。
+     * 用户/AI 想给背面就显式给。
+     */
+    backText: null,
+    sourceKind: 'point',
+    sourceId2: point.id,
+    knowledgePointId: point.id,
+    sourceId: point.sourceId ?? null,
+    origin,
+  };
 }

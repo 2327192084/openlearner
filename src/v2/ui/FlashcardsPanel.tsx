@@ -71,7 +71,7 @@ export function FlashcardsPanel({
     return (
       <PickView
         points={points}
-        existingIds={new Set(cards.map((c) => c.card.knowledgePointId))}
+        existingIds={new Set(cards.map((c) => c.card.sourceId2 ?? c.card.knowledgePointId).filter((id): id is string => !!id))}
         onAdd={onAdd}
         onPickWithAi={onPickWithAi}
         onGoKnowledge={onGoKnowledge}
@@ -100,12 +100,19 @@ export function FlashcardsPanel({
 function ReviewView({
   cards,
   onRemove,
-  onOpenAnchor,
   onAddMore,
   onExit,
 }: {
   cards: readonly FlashcardView[];
   onRemove: (id: string) => Promise<void> | void;
+  /*
+   * 这里原本有 onOpenAnchor（跳到原文锚点）。
+   *
+   * 2026-11-14 起闪卡是独立内容，不再持有知识点的 anchors/quotes，
+   * 所以面板里用不上了。**类型上仍然保留**（可选）：上层调用方还在传，
+   * 直接删会牵连 FlashcardsPanel 的整条 props 链，不属于这次改动范围。
+   * 需要时再用（比如以后做「从卡片跳到来源」）。
+   */
   onOpenAnchor?: (sourceId: string, page?: number, quote?: string) => void;
   onAddMore: () => void;
   onExit: () => void;
@@ -170,7 +177,16 @@ function ReviewView({
     );
   }
 
-  const { card: c, point, stale } = card;
+  /*
+   * 2026-11-14：闪卡改成**独立内容**后，这里不再有 point / stale。
+   *
+   * 上一版背面靠知识点的 quotes 动态取，知识点删了就标「原知识点已删除」。
+   * 现在背面就是这张卡自己的 back（建卡时抄进来 / 用户后改的），
+   * 与知识点无关 —— 这正是用户要的「不会因知识点的消失而消失」。
+   */
+  const c = card.card;
+  const front = card.front;
+  const back = card.back;
 
   return (
     <div className="fcp">
@@ -187,56 +203,25 @@ function ReviewView({
         </button>
       </div>
 
-      {/*
-        过期提示：知识点被删或表述改了。
-        不提示的话，用户背的是旧说法却以为一切正常。
-      */}
-      {stale ? (
-        <p className="fcp__stale">
-          {point
-            ? '这条知识点的表述已经改过，卡上是建卡时的旧说法。'
-            : '原知识点已删除，这张卡只剩这句话。'}
-        </p>
-      ) : null}
-
       {/* 卡面 */}
       <div className={`fcp__card${flipped ? ' fcp__card--back' : ''}`}>
         <div className="fcp__face">
           <p className="fcp__front">
-            <MathText text={c.frontText} />
+            <MathText text={front} />
           </p>
         </div>
 
         {flipped ? (
           <div className="fcp__back">
-            {c.backNote ? (
-              <p className="fcp__note">{c.backNote}</p>
-            ) : null}
-
-            {point && point.quotes.length > 0 ? (
-              <div className="fcp__quote-block">
-                <span className="fcp__quote-label">原文</span>
-                <p className="fcp__quote">
-                  「<MathText text={point.quotes[0] ?? ''} />」
-                </p>
-              </div>
+            {/*
+              背面就是这张卡自己的内容（2026-11-14 起不再从知识点取）。
+              没有背面时明说，不留一片空白 —— 那会被当成坏了。
+            */}
+            {back ? (
+              <p className="fcp__note">{back}</p>
             ) : (
-              <p className="fcp__hint">
-                {point ? '这条知识点没有引用原文。' : '原知识点已删除，取不到原文。'}
-              </p>
+              <p className="fcp__hint">这张卡还没有写背面。</p>
             )}
-
-            {point?.anchors[0] && onOpenAnchor && c.sourceId ? (
-              <button
-                type="button"
-                className="fcp__link"
-                onClick={() =>
-                  onOpenAnchor(c.sourceId!, point.anchors[0]!.page, point.quotes[0])
-                }
-              >
-                看原文第 {point.anchors[0].page ?? '?'} 页
-              </button>
-            ) : null}
           </div>
         ) : null}
       </div>

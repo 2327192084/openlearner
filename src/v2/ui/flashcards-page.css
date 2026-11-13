@@ -290,3 +290,195 @@
   display: flex;
   gap: var(--space-2);
 }
+
+/* ==========================================================================
+ * 2026-11-14：新建面板 / 编辑 / AI 草稿 / 导出
+ *
+ * 仍然全部在 @layer 外（原生 button/input/textarea 的硬约束）。
+ * ========================================================================== */
+
+.btn-ghost--sm {
+  padding: 4px 10px;
+  font-size: var(--fs-sm);
+}
+
+.fcx__head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  flex: none;
+}
+
+/* 提示条（成功/中性）。危险色只用于 .fcx__err */
+.fcx__notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+
+.fcx__notice-x {
+  margin-left: auto;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* ---------- 新建面板 ---------- */
+
+.fcx__new,
+.fcx__ai {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+}
+
+.fcx__new-title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-md);
+}
+
+.fcx__new-hint {
+  margin: 0 0 var(--space-3);
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+
+.fcx__field {
+  display: block;
+  margin-bottom: var(--space-3);
+}
+
+.fcx__field-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.fcx__textarea {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--bg-canvas);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  resize: vertical;
+}
+
+.fcx__textarea:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+.fcx__new-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* ---------- 挑素材的列表 ---------- */
+
+.fcx__pick {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.fcx__pick-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.fcx__pick-text {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+
+.fcx__pick-ch {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* ---------- 筛选条里的导出按钮 ---------- */
+
+.fcx__export {
+  flex: none;
+  padding: 6px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.fcx__export:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.fcx__export:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ---------- 来源追溯标签（不是错误状态） ---------- */
+
+.fcx__src {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* ---------- AI 草稿 ---------- */
+
+.fcx__ai-list {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.fcx__ai-item {
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+}
+
+.fcx__foot {
+  margin-top: var(--space-5);
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}

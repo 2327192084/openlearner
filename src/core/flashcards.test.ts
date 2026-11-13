@@ -1,235 +1,235 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryStorage } from './storage/memory-storage.ts';
-import { FlashcardService } from './flashcards.ts';
-import type { KnowledgePoint } from './model.ts';
+import { FlashcardService, backOf, draftFromPoint, sourceKindOf } from './flashcards.ts';
+import type { Flashcard, KnowledgePoint } from './model.ts';
 
 /**
- * 记忆闪卡（2026-11-10）。
+ * 记忆闪卡服务（2026-11-14 按用户反馈重写）。
  *
- * 这组测试守三件事：
- *  1. 引用知识点、不复制内容（知识点改名后闪卡能标出「过期」）
- *  2. 同一知识点不重复建卡
- *  3. 删知识点时闪卡跟着删，并如实报告删了几张
+ * ## 用户反馈原话
+ *
+ * > 「错题闪卡和知识闪卡不能直接调用知识库里的知识点或是错题库的错题。
+ * >  应该由用户自己选择知识点或是错题做成闪卡，而且闪卡是独立的，
+ * >  不会因错题或是知识点的消失而消失。」
+ *
+ * 所以这组测试的重点从「引用的知识点还在不在」变成了
+ * **「来源删了，卡片一个字都不许变」**。
  */
 
-function point(over: Partial<KnowledgePoint> = {}): KnowledgePoint {
-  return {
+const point = (over: Partial<KnowledgePoint> = {}): KnowledgePoint =>
+  ({
     id: 'kp1',
-    statement: '线性时不变系统的定义',
-    chapter: '第1章',
-    cognitiveLevel: 'remember',
-    tags: ['1.1 系统'],
-    anchors: [],
-    quotes: ['同时满足叠加性与时不变性的系统'],
-    anchorStatus: 'located',
-    origin: 'material',
-    sourceId: 'src1',
-    backendId: null,
-    createdAt: '2026-11-10T00:00:00.000Z',
-    updatedAt: '2026-11-10T00:00:00.000Z',
+    sourceId: 's1',
+    statement: '导数的定义',
+    chapter: '第2章',
     ...over,
-  } as KnowledgePoint;
-}
+  }) as unknown as KnowledgePoint;
 
-async function setup(): Promise<{ storage: MemoryStorage; svc: FlashcardService }> {
-  const storage = new MemoryStorage();
-  await storage.init();
-  return { storage, svc: new FlashcardService(storage) };
-}
+let storage: MemoryStorage;
+let svc: FlashcardService;
 
-describe('建卡', () => {
-  it('从知识点建卡，frontText 取 statement', async () => {
-    const { svc } = await setup();
-    const p = point();
-    const card = await svc.add({ knowledgePointId: p.id, origin: 'user' }, [p]);
+beforeEach(() => {
+  storage = new MemoryStorage();
+  svc = new FlashcardService(storage);
+});
 
-    expect(card).not.toBeNull();
-    expect(card!.frontText).toBe('线性时不变系统的定义');
-    expect(card!.sourceId).toBe('src1');
-    expect(card!.origin).toBe('user');
+describe('建卡：内容被抄进来，不是引用', () => {
+  it('从知识点建卡时，正面就是那一刻的表述', async () => {
+    const card = await svc.add(draftFromPoint(point()));
+    expect(card?.frontText).toBe('导数的定义');
+    expect(card?.sourceKind).toBe('point');
+    expect(card?.sourceId2).toBe('kp1');
   });
 
-  it('可以指定 frontText 覆盖默认值', async () => {
-    const { svc } = await setup();
-    const p = point();
-    const card = await svc.add(
-      { knowledgePointId: p.id, frontText: '自己写的正面', origin: 'user' },
-      [p],
-    );
-    expect(card!.frontText).toBe('自己写的正面');
+  it('★ 知识点被删之后，卡片内容一个字都不变', async () => {
+    await svc.add(draftFromPoint(point()));
+    /* 模拟知识点被删（存储里没了） */
+    await storage.remove('knowledgePoints', 'kp1');
+
+    const views = await svc.listWithLabels();
+    expect(views).toHaveLength(1);
+    /* 正面照旧 —— 这是「独立」的核心 */
+    expect(views[0]?.front).toBe('导数的定义');
+    /* 而且**没有**任何「来源已删」的状态字段了 */
+    expect(views[0]).not.toHaveProperty('stale');
   });
 
-  it('同一知识点不重复建卡', async () => {
-    /*
-     * 用户可能先手动加过某条，又让 AI 挑了一遍 ——
-     * 不该出现两张一模一样的卡。
-     */
-    const { svc } = await setup();
-    const p = point();
-    await svc.add({ knowledgePointId: p.id, origin: 'user' }, [p]);
-    const second = await svc.add({ knowledgePointId: p.id, origin: 'ai' }, [p]);
+  it('用户自己写的卡（没有来源）也是合法的', async () => {
+    const card = await svc.add({
+      frontText: '自己记的一句话',
+      backText: '自己的答案',
+      origin: 'user',
+    });
+    expect(card?.frontText).toBe('自己记的一句话');
+    expect(card?.backText).toBe('自己的答案');
+    expect(card?.sourceKind).toBe('manual');
+    expect(card?.sourceId2).toBeNull();
+  });
+
+  it('正面空白的卡被拒绝（翻开来是白的，用户会以为坏了）', async () => {
+    expect(await svc.add({ frontText: '   ', origin: 'user' })).toBeNull();
+  });
+
+  it('正面相同的卡不重复建（那是真的重复）', async () => {
+    await svc.add({ frontText: '同一句话', origin: 'user' });
+    const second = await svc.add({ frontText: '同一句话', origin: 'user' });
     expect(second).toBeNull();
     expect(await svc.list()).toHaveLength(1);
   });
 
-  it('批量建卡时自动跳过已存在的', async () => {
-    const { svc } = await setup();
-    const a = point({ id: 'a', statement: 'A 点' });
-    const b = point({ id: 'b', statement: 'B 点' });
-    const c = point({ id: 'c', statement: 'C 点' });
-
-    await svc.add({ knowledgePointId: 'a', origin: 'user' }, [a, b, c]);
-    const created = await svc.addMany(
-      [
-        { knowledgePointId: 'a', origin: 'ai' },
-        { knowledgePointId: 'b', origin: 'ai' },
-        { knowledgePointId: 'c', origin: 'ai' },
-      ],
-      [a, b, c],
-    );
-    expect(created).toHaveLength(2);
-    expect(created.map((x) => x.knowledgePointId).sort()).toEqual(['b', 'c']);
+  it('★ 同一个知识点可以做成两张角度不同的卡（不再按知识点去重）', async () => {
+    await svc.add(draftFromPoint(point()));
+    const second = await svc.add({
+      frontText: '导数的几何意义是什么？',
+      backText: '切线斜率',
+      sourceKind: 'point',
+      sourceId2: 'kp1',
+      origin: 'user',
+    });
+    expect(second).not.toBeNull();
+    expect(await svc.list()).toHaveLength(2);
   });
 
-  it('知识点不存在时不建卡（不造悬空引用）', async () => {
-    const { svc } = await setup();
-    const card = await svc.add({ knowledgePointId: '不存在', origin: 'ai' }, []);
-    expect(card).toBeNull();
-  });
-
-  it('statement 为空时不建卡（没有正面的卡没意义）', async () => {
-    const { svc } = await setup();
-    const p = point({ statement: '   ' });
-    const card = await svc.add({ knowledgePointId: p.id, origin: 'user' }, [p]);
-    expect(card).toBeNull();
+  it('批量建卡时各自判重', async () => {
+    const out = await svc.addMany([
+      { frontText: 'A', origin: 'user' },
+      { frontText: 'A', origin: 'user' },
+      { frontText: 'B', origin: 'user' },
+    ]);
+    expect(out).toHaveLength(2);
   });
 });
 
-describe('过期标记', () => {
-  it('知识点还在且表述未变 → 不过期', async () => {
-    const { storage, svc } = await setup();
-    const p = point();
-    await storage.put('knowledgePoints', p);
-    await svc.add({ knowledgePointId: p.id, origin: 'user' }, [p]);
-
-    const views = await svc.listWithPoints();
-    expect(views[0]!.stale).toBe(false);
-    expect(views[0]!.point).not.toBeNull();
+describe('背面取值：backText → backNote（旧卡兼容）', () => {
+  it('有新字段就用新字段', () => {
+    const c = { frontText: 'x', backText: '新', backNote: '旧' } as unknown as Flashcard;
+    expect(backOf(c)).toBe('新');
   });
 
-  it('知识点被删 → 标过期，但 frontText 仍能显示', async () => {
-    /*
-     * 这是「冗余存 frontText」的意义所在：
-     * 翻开一张卡不该是空白，而是「这句话 + 原知识点已删除」。
-     */
-    const { storage, svc } = await setup();
-    const p = point();
-    await storage.put('knowledgePoints', p);
-    await svc.add({ knowledgePointId: p.id, origin: 'user' }, [p]);
-
-    await storage.remove('knowledgePoints', p.id);
-
-    const views = await svc.listWithPoints();
-    expect(views[0]!.stale).toBe(true);
-    expect(views[0]!.point).toBeNull();
-    expect(views[0]!.card.frontText).toBe('线性时不变系统的定义');
+  it('旧卡没有 backText 时回落到 backNote', () => {
+    const c = { frontText: 'x', backText: undefined, backNote: '旧笔记' } as unknown as Flashcard;
+    expect(backOf(c)).toBe('旧笔记');
   });
 
-  it('知识点表述改了 → 标过期（用户可能在背旧说法）', async () => {
-    const { storage, svc } = await setup();
-    const p = point();
-    await storage.put('knowledgePoints', p);
-    await svc.add({ knowledgePointId: p.id, origin: 'user' }, [p]);
+  it('两个都没有 → null（界面据此不显示背面那一行）', () => {
+    const c = { frontText: 'x', backText: null, backNote: null } as unknown as Flashcard;
+    expect(backOf(c)).toBeNull();
+  });
 
-    await storage.put('knowledgePoints', { ...p, statement: '改过的表述' });
+  it('空字符串当没有', () => {
+    const c = { frontText: 'x', backText: '   ', backNote: '' } as unknown as Flashcard;
+    expect(backOf(c)).toBeNull();
+  });
+});
 
-    const views = await svc.listWithPoints();
-    expect(views[0]!.stale).toBe(true);
-    /* 闪卡上仍是建卡时那句话 —— 不跟着变，这样才看得出差异 */
-    expect(views[0]!.card.frontText).toBe('线性时不变系统的定义');
+describe('来源类型推断（旧卡没有 sourceKind）', () => {
+  it('有 knowledgePointId → point', () => {
+    expect(sourceKindOf({ knowledgePointId: 'kp1' } as unknown as Flashcard)).toBe('point');
+  });
+
+  it('没有 → manual', () => {
+    expect(sourceKindOf({} as unknown as Flashcard)).toBe('manual');
+  });
+
+  it('显式写了就听写了的', () => {
+    expect(sourceKindOf({ sourceKind: 'wrong' } as unknown as Flashcard)).toBe('wrong');
+  });
+});
+
+describe('改内容', () => {
+  it('正面背面都能改', async () => {
+    const card = await svc.add({ frontText: '旧正面', backText: '旧背面', origin: 'user' });
+    const next = await svc.update(card!.id, { frontText: '新正面', backText: '新背面' });
+    expect(next?.frontText).toBe('新正面');
+    expect(next?.backText).toBe('新背面');
+  });
+
+  it('只改一面时另一面不动', async () => {
+    const card = await svc.add({ frontText: '正面', backText: '背面', origin: 'user' });
+    const next = await svc.update(card!.id, { backText: '改了背面' });
+    expect(next?.frontText).toBe('正面');
+    expect(next?.backText).toBe('改了背面');
+  });
+
+  it('不许把正面改成空', async () => {
+    const card = await svc.add({ frontText: '正面', origin: 'user' });
+    expect(await svc.update(card!.id, { frontText: '  ' })).toBeNull();
+  });
+
+  it('改不存在的卡返回 null', async () => {
+    expect(await svc.update('nope', { frontText: 'x' })).toBeNull();
+  });
+
+  it('改过之后 updatedAt 变新，createdAt 不变', async () => {
+    const card = await svc.add({ frontText: '正面', origin: 'user' });
+    await new Promise((r) => setTimeout(r, 5));
+    const next = await svc.update(card!.id, { frontText: '改了' });
+    expect(next?.createdAt).toBe(card!.createdAt);
+    expect(next!.updatedAt >= card!.updatedAt).toBe(true);
   });
 });
 
 describe('删除', () => {
-  it('删单张', async () => {
-    const { svc } = await setup();
-    const p = point();
-    const card = await svc.add({ knowledgePointId: p.id, origin: 'user' }, [p]);
+  it('删掉就没了', async () => {
+    const card = await svc.add({ frontText: '要删的', origin: 'user' });
     expect(await svc.remove(card!.id)).toBe(true);
     expect(await svc.list()).toHaveLength(0);
   });
 
-  it('删不存在的返回 false（不抛错）', async () => {
-    const { svc } = await setup();
+  it('删不存在的返回 false', async () => {
     expect(await svc.remove('nope')).toBe(false);
   });
 
-  it('删知识点时连带删闪卡，并报告删了几张', async () => {
-    /*
-     * 报告张数很重要：删知识点时静默带走几张闪卡，
-     * 用户会觉得东西莫名少了。
-     */
-    const { svc } = await setup();
-    const a = point({ id: 'a' });
-    const b = point({ id: 'b' });
-    await svc.addMany([
-      { knowledgePointId: 'a', origin: 'user' },
-      { knowledgePointId: 'b', origin: 'user' },
-    ], [a, b]);
-
-    const removed = await svc.removeForPoint('a');
-    expect(removed).toBe(1);
-    expect(await svc.list()).toHaveLength(1);
-  });
-
-  it('删没有闪卡的知识点返回 0', async () => {
-    const { svc } = await setup();
-    expect(await svc.removeForPoint('不存在')).toBe(0);
+  it('删卡不影响知识点（卡片独立，删它不该动来源）', async () => {
+    await storage.put('knowledgePoints', point());
+    const card = await svc.add(draftFromPoint(point()));
+    await svc.remove(card!.id);
+    expect(await storage.get('knowledgePoints', 'kp1')).not.toBeNull();
   });
 });
 
-describe('其它', () => {
-  it('hasForPoint 判断是否已加过', async () => {
-    const { svc } = await setup();
-    const p = point();
-    expect(await svc.hasForPoint(p.id)).toBe(false);
-    await svc.add({ knowledgePointId: p.id, origin: 'user' }, [p]);
-    expect(await svc.hasForPoint(p.id)).toBe(true);
+describe('按知识点查/删（知识点那一侧的操作）', () => {
+  it('hasForPoint 能认出从该知识点建的卡', async () => {
+    await svc.add(draftFromPoint(point()));
+    expect(await svc.hasForPoint('kp1')).toBe(true);
+    expect(await svc.hasForPoint('kp2')).toBe(false);
   });
 
-  it('setBackNote 能加也清掉备注', async () => {
-    const { svc } = await setup();
-    const card = await svc.add({ knowledgePointId: 'kp1', origin: 'user' }, [point()]);
-    const withNote = await svc.setBackNote(card!.id, '记住这条');
-    expect(withNote!.backNote).toBe('记住这条');
-
-    const cleared = await svc.setBackNote(card!.id, '   ');
-    expect(cleared!.backNote).toBeNull();
-  });
-
-  it('listBySource 按资料筛', async () => {
-    const { svc } = await setup();
-    await svc.addMany(
-      [
-        { knowledgePointId: 'a', origin: 'user' },
-        { knowledgePointId: 'b', origin: 'user' },
-      ],
-      [point({ id: 'a', sourceId: 's1' }), point({ id: 'b', sourceId: 's2' })],
-    );
-    expect(await svc.listBySource('s1')).toHaveLength(1);
-  });
-
-  it('按创建时间倒序（新加的在前）', async () => {
-    const { storage, svc } = await setup();
-    const p = point();
-    await storage.put('flashcards', {
-      id: 'fc_old', knowledgePointId: 'x', frontText: 'old', backNote: null,
-      origin: 'user', sourceId: null, createdAt: '2026-11-01T00:00:00.000Z',
-      updatedAt: '2026-11-01T00:00:00.000Z',
+  it('removeForPoint 删掉该知识点的所有卡（可能多张）', async () => {
+    await svc.add(draftFromPoint(point()));
+    await svc.add({
+      frontText: '第二张',
+      sourceKind: 'point',
+      sourceId2: 'kp1',
+      origin: 'user',
     });
-    await svc.add({ knowledgePointId: p.id, origin: 'user' }, [p]);
+    expect(await svc.removeForPoint('kp1')).toBe(2);
+    expect(await svc.list()).toHaveLength(0);
+  });
+});
 
+describe('列表', () => {
+  it('新建的排在前面', async () => {
+    const a = await svc.add({ frontText: '早的', origin: 'user' });
+    await new Promise((r) => setTimeout(r, 5));
+    const b = await svc.add({ frontText: '晚的', origin: 'user' });
     const list = await svc.list();
-    expect(list[0]!.frontText).toBe('线性时不变系统的定义');
+    expect(list[0]?.id).toBe(b!.id);
+    expect(list[1]?.id).toBe(a!.id);
+  });
+
+  it('来源标签由调用方注入（拿不到就是 null，不是错误）', async () => {
+    await svc.add(draftFromPoint(point()));
+    const withLabel = await svc.listWithLabels(() => '信号与系统 · 第2章');
+    expect(withLabel[0]?.sourceLabel).toBe('信号与系统 · 第2章');
+
+    const noLabel = await svc.listWithLabels(() => null);
+    expect(noLabel[0]?.sourceLabel).toBeNull();
+  });
+
+  it('不传标签函数也能用（界面不需要来源时省一次查询）', async () => {
+    await svc.add({ frontText: 'x', origin: 'user' });
+    const views = await svc.listWithLabels();
+    expect(views[0]?.sourceLabel).toBeNull();
   });
 });
