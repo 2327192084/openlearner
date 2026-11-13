@@ -194,6 +194,28 @@ export function App({
   const [readerFrom, setReaderFrom] = useState<PageId | null>(null);
 
   /**
+   * 首页各行「点了跳到哪个具体对象」（2026-11-13 深夜，用户要求）。
+   *
+   * 用户原话：「点击界面上的题组、错题或是资料能直接跳转到对应的题组、
+   * 错题或是资料页面，不用再到对于功能栏打开」。
+   *
+   * 目标页（学习地图 / 错题页）需要知道「落到哪一个」，
+   * 所以这里存一份待定位的 id。`token` 每次点都递增 ——
+   * 否则同一行再点一次时 id 没变，目标页的 effect 不会重跑，
+   * 表现为「第二次点没反应」。
+   *
+   * 只保留一种：同一时刻只会从首页跳到一处，不需要栈。
+   */
+  const [mapFocus, setMapFocus] = useState<{ sourceId: string | null; token: number }>({
+    sourceId: null,
+    token: 0,
+  });
+  const [wrongFocus, setWrongFocus] = useState<{ cardId: string | null; token: number }>({
+    cardId: null,
+    token: 0,
+  });
+
+  /**
    * 进「复习巩固」时是否直接开始**今日复习**（2026-11-09 改）。
    *
    * 用户把「开始复习」绑到了复习巩固页：点它就该开始复习。
@@ -1540,6 +1562,8 @@ export function App({
           onOpenWrongBook={() => setPage('wrongbook')}
           onOpenSources={() => setPage('sources')}
           onOpenDecks={() => setPage('decks')}
+          focusSourceId={mapFocus.sourceId}
+          focusToken={mapFocus.token}
         />
       ) : page === 'exam' ? (
         <ExamPage
@@ -1709,6 +1733,8 @@ export function App({
           }}
           view={wrongbookView}
           onViewChange={setWrongbookView}
+          focusCardId={wrongFocus.cardId}
+          focusToken={wrongFocus.token}
           onExportObsidian={async (deckId) => {
             /*
              * 导出为 Obsidian 闪卡。
@@ -2027,6 +2053,31 @@ export function App({
           connected={conn.connected}
           modelName={conn.modelName}
           onOpenSources={() => setPage('sources')}
+          /*
+           * 首页各行的「点进去」（2026-11-13 深夜）。
+           *
+           * 用户原话：「点击界面上的题组、错题或是资料能直接跳转到
+           * 对应的题组、错题或是资料页面，不用再到对于功能栏打开」。
+           *
+           * 三个去处各不相同，映射表在 home-row-target.ts（有单测）：
+           *  - 题组进度行 → 学习地图并展开那份资料（那块统计的是题目）
+           *  - 资料阅读行 → 直接打开阅读器并回到上次那一页
+           *  - 错题行     → 错题页并展开+滚动+高亮到那一题
+           */
+          onOpenMapSource={(sourceId) => {
+            setMapFocus((prev) => ({ sourceId, token: prev.token + 1 }));
+            setPage('flow');
+          }}
+          onOpenSourceAt={(source, page) =>
+            openReader(source.id, {
+              sourceId: source.id,
+              ...(typeof page === 'number' ? { page } : {}),
+            })
+          }
+          onOpenWrongCard={(cardId) => {
+            setWrongFocus((prev) => ({ cardId, token: prev.token + 1 }));
+            setPage('wrongbook');
+          }}
           /*
            * 必须走 navigate，不能 setPage('review')。
            *

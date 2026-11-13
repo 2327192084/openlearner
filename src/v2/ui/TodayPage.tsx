@@ -73,6 +73,24 @@ export interface TodayPageProps {
   onOpenMap: () => void;
   /** 打开错题页 */
   onOpenWrongBook: () => void;
+  /**
+   * 首页各行的「点进去」（2026-11-13 深夜，用户要求）。
+   *
+   * 用户原话：「点击界面上的题组、错题或是资料能直接跳转到对应的
+   * 题组、错题或是资料页面，不用再到对于功能栏打开」。
+   *
+   * 三个回调分开而不是合成一个，因为这三种行的去处**根本不是同一页**：
+   *  - 「题组进度」行 → 学习地图并展开那份资料（它统计的是题目）
+   *  - 「资料阅读」行 → 直接打开那份资料的阅读器（用户要看读到哪了）
+   *  - 「错题」行 → 错题页并定位到那一题（不是只到页顶）
+   *
+   * 目标的推导在 `home-row-target.ts`，有单测钉着。
+   */
+  onOpenMapSource?: (sourceId: string) => void;
+  /** 打开某份资料的阅读器（可带页码 —— 首页写着「到过第 N 页」就要真的到那页） */
+  onOpenSourceAt?: (source: Source, page?: number) => void;
+  /** 打开错题页并定位到这一道题 */
+  onOpenWrongCard?: (cardId: string) => void;
   /* ---- 装配学习地图需要的东西 ---- */
   loadCards: CardLoader;
   decks: DeckService;
@@ -124,6 +142,9 @@ export function TodayPage(props: TodayPageProps) {
     onStartReview,
     onOpenMap,
     onOpenWrongBook,
+    onOpenMapSource,
+    onOpenSourceAt,
+    onOpenWrongCard,
     loadCards,
     decks,
     knowledge,
@@ -401,7 +422,11 @@ export function TodayPage(props: TodayPageProps) {
                 学习地图 →
               </button>
             </h2>
-            <SourceProgress map={snapshot.map} onOpenMap={onOpenMap} />
+            <SourceProgress
+              map={snapshot.map}
+              onOpenMap={onOpenMap}
+              {...(onOpenMapSource ? { onOpenMapSource } : {})}
+            />
           </section>
         ) : null}
 
@@ -421,21 +446,51 @@ export function TodayPage(props: TodayPageProps) {
             <ul className="dash-sources">
               {sortByRecentRead(readRows)
                 .slice(0, 4)
-                .map((s) => (
-                  <li key={s.id} className="dash-source">
-                    <div className="dash-source__line">
-                      <span className="dash-source__title">{s.title}</span>
-                      <span className="dash-source__pct">
-                        {readLabel(s.readProgress, s.pageCount)}
-                      </span>
-                    </div>
-                    <div className="dash-source__bar" aria-hidden="true">
-                      <span
-                        style={{ width: `${Math.round(readRatio(s.readProgress, s.pageCount) * 100)}%` }}
-                      />
-                    </div>
-                  </li>
-                ))}
+                .map((s) => {
+                  /*
+                   * 每行可点 → **直接打开这份资料的阅读器**（2026-11-13 深夜）。
+                   *
+                   * 用户要求「点了直接跳到对应的地方，不用再从功能栏打开」。
+                   * 这一块一行代表「这份资料我读到哪了」，所以最直接的落点
+                   * 就是阅读器本身 —— 中间再插一页「资料库」等于没做到。
+                   *
+                   * 带 lastPage：首页写着「到过第 10/36 页」，
+                   * 点进去停在第 1 页会让那个数字变成假的。
+                   * 不带时阅读器仍会按 readProgress 恢复（跨会话记忆）。
+                   */
+                  const lastPage = s.readProgress?.lastPage;
+                  const body = (
+                    <>
+                      <div className="dash-source__line">
+                        <span className="dash-source__title">{s.title}</span>
+                        <span className="dash-source__pct">
+                          {readLabel(s.readProgress, s.pageCount)}
+                        </span>
+                      </div>
+                      <div className="dash-source__bar" aria-hidden="true">
+                        <span
+                          style={{ width: `${Math.round(readRatio(s.readProgress, s.pageCount) * 100)}%` }}
+                        />
+                      </div>
+                    </>
+                  );
+                  return (
+                    <li key={s.id} className="dash-source">
+                      {onOpenSourceAt ? (
+                        <button
+                          type="button"
+                          className="dash-source__link"
+                          onClick={() => onOpenSourceAt(s, lastPage)}
+                          title={`接着读「${s.title}」`}
+                        >
+                          {body}
+                        </button>
+                      ) : (
+                        <div className="dash-source__static">{body}</div>
+                      )}
+                    </li>
+                  );
+                })}
             </ul>
           )}
         </section>
@@ -504,7 +559,22 @@ export function TodayPage(props: TodayPageProps) {
             <ul className="dash-recent">
               {wrongPreview.map((w) => (
                 <li key={w.card.id}>
-                  <button type="button" className="dash-recent__row" onClick={onOpenWrongBook}>
+                  {/*
+                    每行定位到**那一题**（2026-11-13 深夜）。
+                    原来是五行都跳错题页顶部 —— 用户点了看不出自己点的是哪道，
+                    等于只做到「跳到这个功能」，没做到用户要的
+                    「跳到对应的那一个」。
+                  */}
+                  <button
+                    type="button"
+                    className="dash-recent__row"
+                    onClick={() =>
+                      onOpenWrongCard
+                        ? onOpenWrongCard(w.card.id)
+                        : onOpenWrongBook()
+                    }
+                    title="去错题页看这一道"
+                  >
                     <span className="dash-recent__dot dash-recent__dot--wrong" aria-hidden="true" />
                     <span className="dash-recent__prompt">{w.card.prompt}</span>
                     <span className="dash-recent__day">{w.lastWrongDay}</span>
@@ -569,8 +639,27 @@ export function TodayPage(props: TodayPageProps) {
   );
 }
 
-/** 资料进度：弱的排前面，每行一个掌握度条 */
-function SourceProgress({ map, onOpenMap }: { map: StudyMap; onOpenMap: () => void }) {
+/**
+ * 题组进度：弱的排前面，每行一个掌握度条。
+ *
+ * 每行可点（2026-11-13 深夜，用户要求「点了直接跳到对应的地方」）——
+ * 去**学习地图并展开这份资料**，因为这块统计的是题目掌握度，
+ * 不是阅读位置（那在下面那块）。
+ *
+ * ⚠️ 有一行点不了，是故意的：`__none__` 是「随机或手工题库」这个
+ * **虚拟分组**（整库随机出的题、手工建的题组都没有归属资料，
+ * 见 study-map.ts:226）。它没有对应的资料，点进去必然是一个空页面。
+ * 所以那种行仍是纯展示，但鼠标样式也不做可点的暗示。
+ */
+function SourceProgress({
+  map,
+  onOpenMap,
+  onOpenMapSource,
+}: {
+  map: StudyMap;
+  onOpenMap: () => void;
+  onOpenMapSource?: (sourceId: string) => void;
+}) {
   const weakest = useMemo(() => weakestChapter(map), [map]);
 
   if (map.sources.length === 0) {
@@ -584,27 +673,48 @@ function SourceProgress({ map, onOpenMap }: { map: StudyMap; onOpenMap: () => vo
     );
   }
 
+  /** 行内容（两种容器共用，避免复制一遍三行 span） */
+  const rowBody = (s: StudyMap['sources'][number]) => (
+    <>
+      <div className="dash-source__line">
+        <span className="dash-source__title">{s.title}</span>
+        <span className={`dash-source__pct${s.mastery === 0 && s.learned === 0 ? ' dash-source__pct--zero' : ''}`}>
+          {mapLabel(s.mastery, s.learned > 0, s.wrong > 0)}
+        </span>
+      </div>
+      <div className="dash-source__bar" aria-hidden="true">
+        <span style={{ width: `${Math.round(s.mastery * 100)}%` }} />
+      </div>
+      <div className="dash-source__meta">
+        {s.total} 道 · 已学 {s.learned}
+        {s.due > 0 ? ` · ${s.due} 道到期` : ''}
+        {s.wrong > 0 ? ` · ${s.wrong} 道错着` : ''}
+      </div>
+    </>
+  );
+
   return (
     <>
       <ul className="dash-sources">
-        {map.sources.slice(0, 4).map((s) => (
-          <li key={s.key} className="dash-source">
-            <div className="dash-source__line">
-              <span className="dash-source__title">{s.title}</span>
-              <span className={`dash-source__pct${s.mastery === 0 && s.learned === 0 ? ' dash-source__pct--zero' : ''}`}>
-                {mapLabel(s.mastery, s.learned > 0, s.wrong > 0)}
-              </span>
-            </div>
-            <div className="dash-source__bar" aria-hidden="true">
-              <span style={{ width: `${Math.round(s.mastery * 100)}%` }} />
-            </div>
-            <div className="dash-source__meta">
-              {s.total} 道 · 已学 {s.learned}
-              {s.due > 0 ? ` · ${s.due} 道到期` : ''}
-              {s.wrong > 0 ? ` · ${s.wrong} 道错着` : ''}
-            </div>
-          </li>
-        ))}
+        {map.sources.slice(0, 4).map((s) => {
+          const canOpen = s.sourceId !== '__none__' && !!onOpenMapSource;
+          return (
+            <li key={s.key} className="dash-source">
+              {canOpen ? (
+                <button
+                  type="button"
+                  className="dash-source__link"
+                  onClick={() => onOpenMapSource(s.sourceId)}
+                  title={`在学习地图里看「${s.title}」的题目掌握度`}
+                >
+                  {rowBody(s)}
+                </button>
+              ) : (
+                <div className="dash-source__static">{rowBody(s)}</div>
+              )}
+            </li>
+          );
+        })}
       </ul>
 
       {weakest ? (

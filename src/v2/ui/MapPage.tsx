@@ -53,6 +53,18 @@ export interface MapPageProps {
   onOpenSources: () => void;
   /** 去「我的题组」 */
   onOpenDecks: () => void;
+  /**
+   * 进来时展开并滚动到这一份资料（2026-11-13 深夜）。
+   *
+   * 首页「题组进度」那一块的每一行都要能点进来，
+   * 且应该**落到那一份资料上**，而不是又停在页面顶部让用户自己找。
+   *
+   * 值变化时生效（同一份资料再点一次也应当重新滚过去），
+   * 所以传的是一个带计数 or 每次新建的对象不合适 —— 用 sourceId + token。
+   */
+  focusSourceId?: string | null;
+  /** 每次点首页那一行都递增，让「同一份资料再点一次」也能重新定位 */
+  focusToken?: number;
 }
 
 const STORAGE_KEY = 'openleaner.study-map.open';
@@ -87,6 +99,8 @@ export function MapPage({
   onOpenWrongBook,
   onOpenSources,
   onOpenDecks,
+  focusSourceId,
+  focusToken,
 }: MapPageProps) {
   const [snap, setSnap] = useState<StudySnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -130,6 +144,54 @@ export function MapPage({
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * 从首页「题组进度」点进来时，落到那一份资料上（2026-11-13 深夜）。
+   *
+   * 用户要求「点了直接跳到对应的地方，不用再从功能栏打开」。
+   * 只把页面切过来还不够 —— 资料一多，用户还得自己在树上找那一行，
+   * 那和从侧栏进来没有区别。所以这里两步：
+   *
+   * 1. 把它**展开**（若当前是收起的，展开后才有章节可看）
+   * 2. `scrollIntoView`，让它出现在视口里
+   *
+   * 依赖里带 focusToken：同一份资料再点一次也要重新滚过去
+   * （否则第二次点没反应，用户会以为没生效）。
+   */
+  useEffect(() => {
+    if (!focusSourceId) return;
+    const key = `source:${focusSourceId}`;
+    setOpen((prev) => {
+      const base = prev ?? new Set(snap ? snap.map.sources.map((s) => s.key) : []);
+      if (base.has(key)) return base;
+      const next = new Set(base);
+      next.add(key);
+      return next;
+    });
+    /*
+     * 等两帧再滚：展开是异步渲染的，立刻 scrollIntoView 会滚到一个
+     * 还没撑开的高度上（表现为滚到一半就停）。
+     *
+     * 两帧而不是一帧：一帧时刚 setOpen 的重渲染可能还没提交，
+     * 高亮节点尚未进 DOM。与错题页用的是同一套做法。
+     */
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        const el = document.querySelector('.map-src--focus');
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+    /*
+     * `snap` 必须在依赖里：学习地图是**异步读出来的**，首次渲染时 snap 还是
+     * null，上面 `snap ? … : []` 会退化成空集合。数据到了若 effect 不再跑，
+     * 定位就落空（错题页第一版正是漏了这个，验证脚本抓到了）。
+     */
+  }, [focusSourceId, focusToken, snap]);
 
   /**
    * 当前是否展开。
@@ -293,6 +355,8 @@ export function MapPage({
               source={s}
               open={isOpen(s.key)}
               onToggle={() => toggle(s.key)}
+              /* 首页点进来的那一份：加高亮，让用户一眼看到「就是这条」 */
+              highlighted={!!focusSourceId && s.sourceId === focusSourceId}
             />
           ))}
         </ul>
@@ -313,13 +377,16 @@ function SourceNode({
   source,
   open,
   onToggle,
+  highlighted = false,
 }: {
   source: MapSource;
   open: boolean;
   onToggle: () => void;
+  /** 是否是「从首页点进来的那一份」—— 加一个高亮，用户才知道落对地方了 */
+  highlighted?: boolean;
 }) {
   return (
-    <li className="map-src">
+    <li className={`map-src${highlighted ? ' map-src--focus' : ''}`}>
       <button
         type="button"
         className="map-src__head"

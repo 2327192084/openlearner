@@ -565,3 +565,75 @@
 .home-widget__done {
   color: color-mix(in srgb, var(--paper-ink, #201b15) 55%, transparent);
 }
+
+/* ==========================================================================
+ * 首页各行「点进去」（2026-11-13 深夜，用户要求）。
+ *
+ * 用户原话：「点击界面上的题组、错题或是资料能直接跳转到对应的题组、
+ * 错题或是资料页面，不用再到对于功能栏打开」。
+ *
+ * ⚠️ 这一块写在 @layer **外面**：`.dash-source__link` 是原生 <button>，
+ * 而 base.css 有一条不在任何 @layer 内的 `button { color: inherit }`
+ * 与默认背景/边框。级联「层级先于特异性」，写进层里会被它盖掉
+ * —— 表现是按钮带浏览器默认灰底、和整行样式打架（项目踩过四次）。
+ * ========================================================================== */
+
+/*
+ * 可点击的一整行。
+ *
+ * 用 <button> 而不是给 div 加 onClick：键盘能 Tab 到、回车/空格能触发、
+ * 读屏会念成按钮。这三条用 div + onClick 全都没有。
+ */
+.dash-source__link {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  /* 圆角给 focus 轮廓用，hover 背景才不贴边 */
+  border-radius: var(--radius-xs);
+}
+
+.dash-source__link:hover .dash-source__title {
+  /* 只把标题提亮一点：整行变底色会和「最近在练的题组」那块抢注意力 */
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+
+.dash-source__link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* 点不了的那种（`__none__` = 随机或手工题库，没有对应资料） */
+.dash-source__static {
+  display: block;
+  width: 100%;
+}
+
+/*
+ * 从首页点进学习地图时，落点那份资料的高亮。
+ *
+ * 用左侧一道强调竖条而不是整块变色：
+ * 这一页的主体是树，整块变色会让人以为「选中了、可以做什么」。
+ */
+.map-src--focus > .map-src__head {
+  box-shadow: inset 2.5px 0 0 var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  border-radius: var(--radius-xs);
+}
+
+/* 从首页点进错题页时，落点那一题的高亮 */
+.wbk-item--focus {
+  box-shadow: inset 2.5px 0 0 var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border-radius: var(--radius-xs);
+  /* 滚动定位后留一点呼吸，别紧贴视口边缘 */
+  scroll-margin-top: 96px;
+}

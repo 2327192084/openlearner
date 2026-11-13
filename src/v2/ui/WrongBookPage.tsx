@@ -51,6 +51,7 @@ import type { SourceService } from '@/core/sources.ts';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { ReviewService } from '@/v2/core/review-service.ts';
 import type { CardLoader } from './cards-loader.ts';
+import { wrongGroupKey, type GroupBy, type SortKey } from './wrong-group.ts';
 
 export interface WrongBookPageProps {
   reviewService: ReviewService;
@@ -99,6 +100,16 @@ export interface WrongBookPageProps {
    */
   view?: WrongBookView;
   onViewChange?: (next: WrongBookView) => void;
+  /**
+   * 进来时展开并滚动到这一道题（2026-11-13 深夜）。
+   *
+   * 首页「错题」那一块的每一行都要能点，且必须落到**那一题**上 ——
+   * 原来五行都跳这一页的顶部，用户点了看不出自己点的是哪道，
+   * 等于只做到「跳到这个功能」，没做到用户要的「跳到对应的那一个」。
+   */
+  focusCardId?: string | null;
+  /** 每次点首页那一行都递增，让「同一题再点一次」也能重新定位 */
+  focusToken?: number;
 }
 
 interface WrongRow {
@@ -123,9 +134,11 @@ interface WrongRow {
  * 章节/知识点保留为可切换项 —— 用户说「后续再思考能不能做」，
  * 所以不做删减，只把默认换掉。
  */
-type GroupBy = 'deck' | 'chapter' | 'kind';
-/** 组内排序 */
-type SortKey = 'wrongCount' | 'lastWrong' | 'wrongRate';
+/*
+ * 分组维度 / 排序类型与「分组 key」规则都住在 wrong-group.ts 里
+ * （2026-11-13 深夜抽出）。key 规则要用在两处：渲染分组，
+ * 以及从首页点进来时「该展开哪一组」—— 两处各写一遍必然漂移。
+ */
 
 /**
  * 错题页的视图状态（可跨页面存活，2026-11-09）。
@@ -169,6 +182,8 @@ export function WrongBookPage({
   onExportObsidian,
   view,
   onViewChange,
+  focusCardId,
+  focusToken,
 }: WrongBookPageProps) {
   const [rows, setRows] = useState<WrongRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -216,6 +231,67 @@ export function WrongBookPage({
   /** 导出结果提示 */
   const [exportNote, setExportNote] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+
+  /**
+   * 从首页「错题」点进来时，落到那一题上（2026-11-13 深夜）。
+   *
+   * 三步，缺一步用户就觉得「点了没到」：
+   *  1. 展开它所在的分组（分组收起着的话，题目根本不在 DOM 里）
+   *  2. 滚动到它（错题一多，它可能在好几屏之外）
+   *  3. 加高亮（滚动之后用户仍要确认「就是这条」）
+   *
+   * 依赖带 focusToken：同一题再点一次也要重新定位。
+   */
+  useEffect(() => {
+    if (!focusCardId || !rows) return;
+    const target = rows.find((r) => r.card.id === focusCardId);
+    if (!target) return;
+
+    /* 找出它属于哪个分组：用与渲染同一套 key 规则 */
+    const groupKey = wrongGroupKey(
+      {
+        card: target.card,
+        chapter: target.chapter,
+        kindLabel: kindLabel(target.card),
+      },
+      groupBy,
+    );
+    /*
+     * 用当时的 open 算新集合再交给 setOpen，而不是传函数。
+     * `setOpen` 不是 React 的 setState，而是本页封装的
+     * 「顺便通知宿主」的 setter（见上面的 setOpen 定义），它只接受一个 Set。
+     */
+    if (!open.has(groupKey)) {
+      const next = new Set(open);
+      next.add(groupKey);
+      setOpen(next);
+    }
+
+    /*
+     * 等两帧再滚。
+     *
+     * 一帧不够：上面 setOpen 触发的重渲染还没提交，目标节点
+     * （刚展开的分组里的那一题）此刻**还不在 DOM 里**，
+     * scrollIntoView 会作用到 null 上，表现为「进了错题页但没滚」。
+     */
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-wrong-card="${CSS.escape(focusCardId)}"]`);
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+    /*
+     * `rows` 必须在依赖里：错题是**异步读出来的**，首次渲染时 rows 还是 null，
+     * 上面那行 `if (!rows) return` 会直接退出。若 rows 不入依赖，
+     * 等数据到了 effect 也不会再跑一次 —— 定位就永远不生效。
+     * （第一版正是漏了这个，验证脚本报「进了错题页但没高亮」。）
+     */
+  }, [focusCardId, focusToken, rows]);
 
   /**
    * 点「可点回原句 / 可点回原文」：把这张卡的锚点一起送到阅读器。
@@ -326,18 +402,18 @@ export function WrongBookPage({
     const byKey = new Map<string, WrongRow[]>();
     for (const r of rows) {
       /*
-       * 分组 key 必须带资料 id。
-       *
-       * 踩过的坑：key 只用章节名时，两本书的「第 9 页」会被合并成一组，
-       * 标题写着「第 9 页 · 信号与系统」，里面却混着另一本书的题 ——
-       * 用户点开发现跟标题说的不是一回事。章节名只在**同一份资料内**唯一。
+       * 分组 key 必须带资料 id（chapter 维度）。
+       * 踩过的坑与完整理由见 wrong-group.ts 头注释 —— 规则现在住在那儿，
+       * 因为「从首页定位到某一题、该展开哪一组」也要用同一套规则。
        */
-      const key =
-        groupBy === 'deck'
-          ? r.card.deckId
-          : groupBy === 'chapter'
-            ? `${r.card.sourceId}::${r.chapter}`
-            : kindLabel(r.card);
+      const key = wrongGroupKey(
+        {
+          card: r.card,
+          chapter: r.chapter,
+          kindLabel: kindLabel(r.card),
+        },
+        groupBy,
+      );
       const list = byKey.get(key) ?? [];
       list.push(r);
       byKey.set(key, list);
@@ -665,7 +741,14 @@ export function WrongBookPage({
                   {isOpen ? (
                     <ul className="wbk-list">
                       {g.rows.map((r) => (
-                        <li key={r.card.id} className="wbk-item">
+                        <li
+                          key={r.card.id}
+                          className={`wbk-item${
+                            focusCardId === r.card.id ? ' wbk-item--focus' : ''
+                          }`}
+                          /* 定位用：从首页点进来时靠它 scrollIntoView */
+                          data-wrong-card={r.card.id}
+                        >
                           <div className="wbk-item__head">
                             <span className="wbk-item__count">错 {r.wrongCount} 次</span>
                             <span className="wbk-item__rate">
