@@ -29,6 +29,7 @@ import {
 } from '@/v2/core/grading.ts';
 import { useServices } from '@/app/services-context.ts';
 import { ConfirmDialog } from './dialog.tsx';
+import { ModelPicker } from './ModelPicker.tsx';
 
 /**
  * 设置页。
@@ -1006,6 +1007,11 @@ interface BackendFormProps {
 function BackendForm({ state, saving, error, onChange, onCancel, onSave }: BackendFormProps) {
   const { draft, credential, id } = state;
   const preset = findPreset(draft.provider);
+  /*
+   * 「拉取模型列表」需要真的 Key。已保存的 Key 永不回填到界面，
+   * 所以编辑已有后端时只能现取一次 —— 见 ModelPicker 的 readSavedKey 注释。
+   */
+  const { backends: backendsService } = useServices();
 
   const patch = (next: Partial<BackendDraft>) => {
     onChange({ ...state, draft: { ...draft, ...next } });
@@ -1103,25 +1109,33 @@ function BackendForm({ state, saving, error, onChange, onCancel, onSave }: Backe
           <span className="set-hint">填到 /v1 为止即可，不要带 /chat/completions（带了也会自动去掉）。</span>
         </label>
 
-        <label className="set-field">
-          <span className="set-label">模型名</span>
-          <input
-            className="set-input set-input--mono"
-            value={draft.model}
-            onChange={(e) => patch({ model: e.target.value })}
-            placeholder={preset?.defaultModel ?? 'deepseek-chat'}
-            list="set-model-suggestions"
-            spellCheck={false}
-          />
-          <datalist id="set-model-suggestions">
-            {(preset?.models ?? []).map((m) => (
-              <option key={m} value={m} />
-            ))}
-          </datalist>
-          {preset?.modelMustBeFilled ? (
-            <span className="set-hint">这个服务要求填推理接入点 ID（ep- 开头），不能填模型本名。</span>
-          ) : null}
-        </label>
+        <ModelPicker
+          value={draft.model}
+          onChange={(model) => patch({ model })}
+          baseUrl={draft.baseUrl}
+          /*
+           * 新建后端时取输入框里的 Key；编辑已有后端且留空时
+           * 用已保存的那把（`savedKeyAvailable` 告诉组件「有 Key 可用」）。
+           * 组件内部只在用户点「拉取列表」时才真的发请求。
+           */
+          apiKey={credential}
+          savedKeyAvailable={!!id && !credential.trim()}
+          {...(id && !credential.trim()
+            ? {
+                readSavedKey: async () => {
+                  try {
+                    return await backendsService.readCredential(id);
+                  } catch {
+                    /* 读不出来就当作没有 —— 上层会给「先填入 Key」的提示 */
+                    return null;
+                  }
+                },
+              }
+            : {})}
+          presetModels={preset?.models ?? []}
+          {...(preset?.defaultModel ? { defaultModel: preset.defaultModel } : {})}
+          {...(preset?.modelMustBeFilled ? { modelMustBeFilled: true } : {})}
+        />
       </div>
 
       <label className="set-field">

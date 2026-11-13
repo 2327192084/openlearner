@@ -652,8 +652,27 @@ function checkProxyTarget(url) {
     };
   }
 
-  if (!parsed.pathname.endsWith('/chat/completions')) {
-    return { ok: false, kind: 'invalid-path', message: '只允许调用 /chat/completions' };
+  /*
+   * 路径白名单（2026-11-13 深夜扩了一条）。
+   *
+   * 原来只允许 `/chat/completions`，不做通用代理 —— 这条原则不变。
+   * 现在多放行 `/models`：设置页的「拉取模型列表」要用它问服务商
+   * 有哪些模型（用户要求「填入 api 后能选择实际模型」）。
+   *
+   * 为什么不能只放给渲染进程自己 fetch：
+   * 渲染进程那条路不带主进程的网络/代理设置，桌面版会连不上，
+   * 而错误只会是笼统的 `Failed to fetch`（chat-client 那边同理）。
+   *
+   * 仍然**不是通用代理**：只这两个后缀，其它一律拒绝。
+   */
+  const pathOk =
+    parsed.pathname.endsWith('/chat/completions') || parsed.pathname.endsWith('/models');
+  if (!pathOk) {
+    return {
+      ok: false,
+      kind: 'invalid-path',
+      message: '只允许调用 /chat/completions 与 /models',
+    };
   }
 
   return { ok: true };
@@ -681,7 +700,18 @@ function registerChatProxy() {
       return target;
     }
 
-    if (!apiKey || !requestBody) {
+    /*
+     * 方法：`/models` 是 GET 查询（只管列清单、不计费），
+     * 其它（/chat/completions）仍然是 POST。
+     *
+     * 用「按路径决定」而不是让渲染进程自己传 method：
+     * 渲染进程传来的东西不可信，绝不能让它可以顺手把
+     * /chat/completions 改成 DELETE 或 PUT。
+     */
+    const isListModels = url.split('?')[0].endsWith('/models');
+    const method = isListModels ? 'GET' : 'POST';
+
+    if (!apiKey || (!requestBody && !isListModels)) {
       return { ok: false, kind: 'invalid-request', message: '请求缺少凭据或请求体' };
     }
 
@@ -690,12 +720,16 @@ function registerChatProxy() {
 
     try {
       const response = await fetch(url, {
-        method: 'POST',
+        method,
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
         },
-        body: requestBody,
+        /*
+         * GET 不能带 body（Node 的 fetch 会直接抛错）。
+         * POST 仍然原样带上。
+         */
+        ...(isListModels ? {} : { body: requestBody }),
         signal: controller.signal,
         // Node 侧 fetch 没有浏览器 CORS，但也不该跟随到别的域
         redirect: 'error',

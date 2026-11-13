@@ -694,3 +694,171 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ==========================================================================
+ * 模型选择器（2026-11-13 深夜，用户要求「填入 api 后能选择实际模型」）。
+ *
+ * ⚠️ 全部写在 @layer **外面**：里面都是原生 <button>/<input>，
+ * 而 base.css 有不在任何 @layer 内的 button/input 规则。
+ * 级联「层级先于特异性」，写进层里会被它盖掉（项目踩过六次以上）。
+ * ========================================================================== */
+
+.set-model {
+  /* 列表展开后这一格会变高，靠父级 grid 自动排即可 */
+  align-self: start;
+}
+
+/* 输入框 + 「拉取列表」按钮同一行 */
+.set-model__row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.set-model__row .set-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.set-model__fetch {
+  flex: none;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.set-model__fetch:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.set-model__fetch:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.set-model__toggle {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* 拉取失败的那条提示要用危险色 —— 复用 set-hint 的字号，但颜色要盖过去 */
+.set-hint--bad {
+  color: var(--bad);
+}
+
+.set-model__list {
+  margin-top: var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--bg-raised);
+  max-height: 260px;
+  overflow-y: auto;
+  padding: var(--space-2);
+}
+
+.set-model__filter {
+  width: 100%;
+  margin-bottom: var(--space-2);
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--bg-canvas);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+
+.set-model__items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.set-model__item {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.set-model__item:hover {
+  background: var(--bg-hover);
+}
+
+/* 当前选中的那一个：左边一道强调条，与其它「当前」标记保持一致 */
+.set-model__item--on {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: inset 2.5px 0 0 var(--accent);
+}
+
+.set-model__name {
+  font-size: var(--fs-sm);
+}
+
+/* 展示名与 id 不同时，把 id 用弱一点的颜色跟在后面 —— 用户要填的是 id */
+.set-model__id {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.set-model__tags {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 6px;
+  flex: none;
+}
+
+.set-model__tag {
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.set-model__tag--vision {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent);
+}
+
+.set-model__tag--on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.set-model__empty {
+  margin: 0;
+  padding: 6px 2px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}

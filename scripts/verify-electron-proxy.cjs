@@ -118,7 +118,23 @@ checkTarget('外部 http（明文传 Key）', 'http://api.deepseek.com/chat/comp
 checkTarget('内网 192.168', 'https://192.168.1.1/chat/completions', 'forbidden-host');
 checkTarget('云厂商元数据 169.254', 'https://169.254.169.254/chat/completions', 'forbidden-host');
 checkTarget('file: 协议', 'file:///E:/secret/chat/completions', 'invalid-url');
-checkTarget('不是 /chat/completions 的路径', 'https://api.deepseek.com/v1/models', 'invalid-path');
+/*
+ * ⚠️ 这一条在 2026-11-13 深夜改过：原来断言 `/v1/models` 必须被拒。
+ *
+ * 改动理由：设置页的「拉取模型列表」需要 `GET <base>/models`
+ * （用户要求「填入 api 后能选择实际模型」）。它走同一个主进程通道 ——
+ * 不让它过，桌面版就只能由渲染进程裸 fetch，而那条路不带主进程的
+ * 网络/代理设置，用户会看到「聊天能用、拉列表一直失败」。
+ *
+ * 这**不是**把白名单放开成通用代理：仍然只有两个后缀，其余一律拒。
+ * 所以断言改成：`/models` 放行，但随便别的路径仍然必须拒。
+ */
+checkTarget('允许 /models（拉取模型列表用）', 'https://api.deepseek.com/v1/models', 'allow');
+checkTarget(
+  '别的路径一律拒（不是通用代理）',
+  'https://api.deepseek.com/v1/files',
+  'invalid-path',
+);
 checkTarget('根本不是一个 URL', 'api.deepseek.com', 'invalid-url');
 
 console.log(`\n${fail === 0 ? 'ALL PASS' : 'HAS FAILURE'}  通过 ${pass}，失败 ${fail}`);
