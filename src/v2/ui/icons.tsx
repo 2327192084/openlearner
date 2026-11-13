@@ -90,6 +90,28 @@ export const IconWrongbook = (p: IconProps) =>
     p,
   );
 
+/**
+ * 闪卡管理：叠起来的卡片（2026-11-13 深夜）。
+ *
+ * 为什么不是复用 IconWrongbook：那个图标是「旗子」= 错题本，
+ * 而这一页要管**两种**闪卡（知识点的 + 错题的）。用错题的旗子
+ * 会让人以为这里只管错的那一类。
+ * 叠卡形状是「一叠卡片」的通用意象，与翻面闪卡这个交互对得上。
+ */
+export const IconFlashcards = (p: IconProps) =>
+  svg(
+    <>
+      {/* 后面一张（略微错开） */}
+      <rect x="7" y="3.5" width="12" height="15" rx="2" />
+      {/* 前面一张 */}
+      <rect x="4" y="7" width="12" height="13.5" rx="2" />
+      {/* 卡片上的两行字，暗示这是内容卡而不只是空盒子 */}
+      <path d="M7 12.5h6" />
+      <path d="M7 16h4" />
+    </>,
+    p,
+  );
+
 /** 学习流：曲线箭头 */
 export const IconFlow = (p: IconProps) =>
   svg(

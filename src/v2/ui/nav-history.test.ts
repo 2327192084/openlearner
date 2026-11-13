@@ -113,24 +113,42 @@ describe('「开始复习」不再等于「开始做题」', () => {
 
   it('两个选项走不同的回调', () => {
     expect(studySrc).toContain('onStartQuiz');
-    expect(studySrc).toContain('onStartReview');
+    /*
+     * 2026-11-13 深夜改：回调名从 onStartReview 换成 onOpenReviewBook。
+     *
+     * 用户原话：「开始复习功能不用这种翻面闪卡样式了，
+     * 就做成一个跳转到复习巩固栏目的按钮吧」。
+     * 这一项从「就地起一轮复习」变成「跳到那一页」，
+     * 回调改名是刻意的 —— 名字要说明它现在只是带路。
+     */
+    expect(studySrc).toContain('onOpenReviewBook');
   });
 
-  it('review 分支不再调用 onStartQuiz', () => {
+  it('review 分支不与做题共用回调（守住「复习≠做题」这条）', () => {
     /*
-     * 这是用户实测指出的问题：两个按钮跳到同一个页面，
-     * 所以「复习功能从未真正实现」。这条守住它不再回退。
+     * 这条守的意图**没变**：复习这一项绝不能调 onStartQuiz。
+     * 原来用户实测指出「两个按钮跳到同一个页面，所以复习功能从未实现」；
+     * 现在复习改成跳「复习巩固」，仍然必须与「开始做题」分开。
+     *
+     * 断言从「必须含 onStartReview」改成「必须含 onOpenReviewBook」——
+     * 实现换了，但**要防的那件事完全一样**。
      */
     const reviewBlock = studySrc.slice(
       studySrc.indexOf("if (opt.id === 'review')"),
       studySrc.indexOf("if (opt.id === 'knowledge')"),
     );
     expect(reviewBlock.length).toBeGreaterThan(0);
-    expect(reviewBlock).toContain('onStartReview');
+    expect(reviewBlock).toContain('onOpenReviewBook');
     expect(reviewBlock).not.toContain('onStartQuiz');
   });
 
-  it('没有到期卡时不跳转，就地说明', () => {
-    expect(studySrc).toContain('今天没有到期的卡');
+  it('★ 复习不再自己起翻面会话（那种交互归闪卡了）', () => {
+    /*
+     * 用户明确要求把「翻面闪卡样式」从复习里拿掉。
+     * 所以这一页不该再引用 startTodayReview（起会话的动作），
+     * 也不该再自己判断「今天有没有到期」—— 那是复习巩固页的事。
+     */
+    expect(studySrc).not.toContain('startTodayReview');
+    expect(studySrc).not.toContain('今天没有到期的卡');
   });
 });

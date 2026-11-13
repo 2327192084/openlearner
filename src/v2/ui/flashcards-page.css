@@ -1,0 +1,292 @@
+/*
+ * 闪卡管理页（2026-11-13 深夜）。
+ *
+ * ⚠️ 这一整套都不进 @layer：里面全是原生 <button>/<input>，
+ * 而 `src/styles/base.css` 有不在任何 @layer 内的 button/input 规则。
+ * 级联「层级先于特异性」，写进层里会被它盖掉（项目踩过六次以上）。
+ *
+ * 类名一律 `fcx-` 前缀：避开 v1 的短类名
+ * （项目踩过「v1 的 .wb-item 把 v2 新组件压成竖条」那次）。
+ */
+
+.fcx {
+  width: min(920px, 100% - 48px);
+  margin: var(--space-7) auto var(--space-9);
+}
+
+.fcx__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.fcx__title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-2xl);
+  line-height: 1.25;
+}
+
+.fcx__lead {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+
+.fcx__err {
+  margin: var(--space-3) 0;
+  color: var(--bad);
+  font-size: var(--fs-sm);
+}
+
+/* ---------- 筛选条 ---------- */
+
+.fcx__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--line-soft);
+  margin-bottom: var(--space-4);
+}
+
+.fcx__tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.fcx__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.fcx__tab:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* 选中的那一档：描边 + 强调色，与项目其它 tab 一致 */
+.fcx__tab--on {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--text);
+}
+
+.fcx__tab-n {
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.fcx__search {
+  flex: 1;
+  min-width: 14ch;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--bg-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+
+.fcx__search:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+.fcx__broken {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.fcx__empty {
+  padding: var(--space-6) 0;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+
+/* ---------- 卡片列表 ---------- */
+
+.fcx__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.fcx__item {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+}
+
+/*
+ * 来源已失效的卡：整块降透明度但**不隐藏**。
+ * 用户要能看见「这条卡指向的东西已经没了」，才清得掉。
+ */
+.fcx__item--dead {
+  opacity: 0.72;
+  border-style: dashed;
+}
+
+.fcx__item-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: var(--space-2);
+}
+
+.fcx__badge {
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* 两种来源用不同色相区分，但都保持低调（不是告警） */
+.fcx__badge--point {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent);
+}
+
+.fcx__badge--wrong {
+  border-color: color-mix(in srgb, #d08a3e 45%, transparent);
+  color: #d08a3e;
+}
+
+.fcx__badge--dead {
+  border-color: color-mix(in srgb, var(--bad) 45%, transparent);
+  color: var(--bad);
+}
+
+.fcx__badge--stale {
+  border-color: color-mix(in srgb, #c9a227 50%, transparent);
+  color: #c9a227;
+}
+
+.fcx__front {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-md);
+  line-height: var(--lh-body);
+}
+
+.fcx__front em,
+.fcx__no-back {
+  color: var(--text-faint);
+  font-style: normal;
+  font-size: var(--fs-sm);
+}
+
+/* 背面：与正面用一条细线分开，视觉上「翻过来了」 */
+.fcx__back {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  border-left: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  white-space: pre-wrap;
+}
+
+.fcx__item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.fcx__act {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.fcx__act:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.fcx__act:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 「去做这题」：这是错题卡唯一能让它消失的路，值得稍微强调一点 */
+.fcx__act--go {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--accent);
+}
+
+.fcx__act--del:hover:not(:disabled) {
+  border-color: var(--bad);
+  color: var(--bad);
+  background: transparent;
+}
+
+/* ---------- 删除确认（内联块，不是模态框） ---------- */
+
+/*
+ * 为什么不用模态框：删除一张闪卡是个小动作，弹出盖住全屏的对话框
+ * 会打断用户「我正在清一堆卡」的节奏。做成一条内联确认，位置就在
+ * 页面底部，用户确认完继续清下一张。
+ */
+.fcx__confirm {
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--bad) 40%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bad) 6%, transparent);
+}
+
+.fcx__confirm-text {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-sm);
+}
+
+.fcx__confirm-quote {
+  color: var(--text-dim);
+}
+
+.fcx__confirm-note {
+  margin: 0 0 var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.fcx__confirm-actions {
+  display: flex;
+  gap: var(--space-2);
+}

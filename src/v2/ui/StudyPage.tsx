@@ -36,15 +36,18 @@ export interface StudyPageProps {
   /** 去做题（复习队列） */
   onStartQuiz: () => void;
   /**
-   * 开始复习：直接进「今日到期」队列（2026-11-09 加）。
+   * 去「复习巩固」栏目（2026-11-13 深夜改）。
    *
-   * 返回 true 表示真的开始了；false 表示今天没有到期的卡，
-   * 调用方（本页）据此就地说明，而不是跳到一个空界面。
+   * 原来是 `onStartReview: () => boolean` —— 点了就地起一轮翻面复习。
+   * 用户要求改成「跳转到复习巩固栏目的按钮」，因为那个翻面界面
+   * 与新的闪卡功能在交互上撞车了。
    *
-   * 为什么需要它与 onStartQuiz 分开：
-   * 原来两者都只跳选题页，用户看不出区别 —— 那等于复习功能不存在。
+   * 不再返回 boolean：带路不需要知道「今天有没有到期」，
+   * 那个判断挪回复习巩固页自己去说。
    */
-  onStartReview: () => boolean;
+  onOpenReviewBook: () => void;
+  /** 去「闪卡管理」页（2026-11-13 深夜新增） */
+  onOpenFlashcards: () => void;
   /** 去知识库看知识点 */
   onOpenKnowledge: () => void;
   /** 去我的题组（挑题组做） */
@@ -53,7 +56,7 @@ export interface StudyPageProps {
   dueCount: number | null;
 }
 
-type OptionId = 'knowledge' | 'quiz' | 'review' | 'wrong';
+type OptionId = 'knowledge' | 'quiz' | 'review' | 'flashcards';
 
 interface Option {
   id: OptionId;
@@ -93,23 +96,39 @@ const OPTIONS: Option[] = [
   {
     id: 'review',
     title: '开始复习',
-    desc: '按遗忘曲线，只做今天该复习的卡片',
+    desc: '去复习巩固：按遗忘曲线，只做今天该复习的',
     /*
-     * 2026-11-09 修：这个按钮以前和「开始做题」跳同一个页面，
-     * 等于复习功能不存在（用户实测指出）。现在它直接进「今日到期」
-     * 队列，跳过选题页 —— 两个按钮的行为真正分开了。
+     * 2026-11-13 深夜按用户要求改：**不再直接起一轮翻面复习**，
+     * 改成跳转到「复习巩固」栏目。
      *
-     * 判据也不再是「点进去看看」：这里读 overview.due，
-     * 今天没有到期的卡就当场说明，不跳空页面。
+     * 用户原话：「开始复习功能不用这种翻面闪卡样式了，
+     * 就做成一个跳转到复习巩固栏目的按钮吧」。
+     *
+     * 那个「翻面 + 1-4 自评」的界面（ReviewToday）本来就是照着
+     * Anki 闪卡做的，和下面要做的「闪卡」在交互上撞车 ——
+     * 用户明确区分：复习该是「去那一页看」，闪卡才是翻面。
+     *
+     * 因此这一项现在与「开始做题」一样只是导航，不再自己判断
+     * 「今天有没有到期」；那个数字由复习巩固页自己说明。
      */
     ready: true,
     icon: IconStats,
   },
   {
-    id: 'wrong',
-    title: '错题闪卡',
-    desc: '专门刷做错过的题，直到它们不再错',
-    ready: false,
+    /*
+     * 「错题闪卡」改名并移出这一页（2026-11-13 深夜）。
+     *
+     * 用户原话：「错题闪卡改名为闪卡管理。然后在课程准备与管理的
+     * 栏目下新开一个闪卡管理栏目」。
+     *
+     * 它现在是一个独立页面（侧栏「课程准备与管理 → 闪卡管理」），
+     * 不再挤在「开始学习」这四个「今天做什么」的选项里 ——
+     * 管理闪卡不是「今天学什么」，放这里名不副实。
+     */
+    id: 'flashcards',
+    title: '闪卡管理',
+    desc: '统一管知识点闪卡与错题闪卡',
+    ready: true,
     icon: IconWrongbook,
   },
 ];
@@ -118,7 +137,8 @@ export function StudyPage({
   service,
   cardPool,
   onStartQuiz,
-  onStartReview,
+  onOpenReviewBook,
+  onOpenFlashcards,
   onOpenKnowledge,
   onOpenDecks,
   dueCount,
@@ -165,30 +185,31 @@ export function StudyPage({
     }
     if (opt.id === 'review') {
       /*
-       * 「开始复习」真的按遗忘曲线开始，不再借道选题页（2026-11-09）。
+       * 「开始复习」= 跳到「复习巩固」栏目（2026-11-13 深夜改）。
        *
-       * 返回 false = 今天没有到期的卡。这时**不跳转**，就地说明，
-       * 并给出下一步（去做题 / 去看知识点）—— 不做「跳过去看到空白」。
+       * 用户原话：「开始复习功能不用这种翻面闪卡样式了，
+       * 就做成一个跳转到复习巩固栏目的按钮吧」。
+       *
+       * 所以这里不再起一轮翻面复习、也不再自己判断「今天有没有到期」——
+       * 那两件事都由复习巩固页负责，用户到了那一页能看见到期数、
+       * 能自己决定是做今日复习还是自测。这里只负责带路。
        */
-      const started = onStartReview();
-      if (!started) {
-        setNotice(
-          overview && overview.fresh > 0
-            ? `今天没有到期的卡。题库里还有 ${overview.fresh} 道没做过，去「开始做题」挑一组。`
-            : '今天没有到期的卡，题库里也没有新题。先去「资料」导入内容或整理知识点。',
-        );
-      }
+      onOpenReviewBook();
       return;
     }
     if (opt.id === 'knowledge') {
       onOpenKnowledge();
       return;
     }
+    if (opt.id === 'flashcards') {
+      onOpenFlashcards();
+      return;
+    }
     /*
-     * 还没做的三样：**不跳转**，就地说明。
+     * 兜底：出现没接好入口的新选项时**不假装能点**，就地说明。
      * 跳到一个占位页再让用户退回来是更差的选择 —— 那等于骗了他一次。
      */
-    setNotice(`「${opt.title}」还没做。现在能用的是「开始做题」和「我的题组」。`);
+    setNotice(`「${opt.title}」还没接好入口。`);
   }
 
   /*

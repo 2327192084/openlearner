@@ -14,6 +14,8 @@ import {
 } from './page-layers.ts';
 import { TodayPage } from './TodayPage.tsx';
 import { ReviewPage } from './ReviewPage.tsx';
+import { FlashcardsPage } from './FlashcardsPage.tsx';
+import './flashcards-page.css';
 import { PracticePage } from './PracticePage.tsx';
 import { WrongBookPage } from './WrongBookPage.tsx';
 import type { WrongBookView } from './WrongBookPage.tsx';
@@ -1844,29 +1846,22 @@ export function App({
           dueCount={queueTotal || null}
           onStartQuiz={() => void navigate('review')}
           /*
-           * 「开始复习」直接进今日到期队列（2026-11-09 修）。
+           * 「开始复习」= 跳到「复习巩固」栏目（2026-11-13 深夜改）。
            *
-           * 原来它和「开始做题」都只调 `navigate('review')` ——
-           * 两个按钮跳到同一个选题页，**字面上做的是同一件事**
-           * （用户实测指出「复习功能从未真正实现」，判断准确）。
+           * 用户原话：「开始复习功能不用这种翻面闪卡样式了，
+           * 就做成一个跳转到复习巩固栏目的按钮吧」。
            *
-           * 现在：真的按遗忘曲线把「今天该复习的」直接排好开始做，
-           * 跳过选题页。到期为空时不硬跳 —— 交给 StudyPage 说明情况，
-           * 免得进去看到空队列（那正是「点了没反应」的另一种形式）。
+           * 原来这里走 startTodayReview()，点了就地起一轮「先回想→翻面→
+           * 1-4 自评」的会话（ReviewToday）。那个交互是照 Anki 闪卡做的，
+           * 与这一轮要做的闪卡功能撞车。所以拆开：
+           *  - 复习 = 去那一页（用户在页里自己选做今日复习还是自测）
+           *  - 闪卡 = 翻面看
+           *
+           * 不再预先把队列算好塞进去：带路不需要知道今天有没有到期，
+           * 复习巩固页自己会说明。
            */
-          onStartReview={() => {
-            /*
-             * 「开始复习」= 进入**今日复习会话**（2026-11-09 再改）。
-             *
-             * 上一版把它指向「自测」，用户实测后指出那跟做题没区别——
-             * 因为自测仍是「自由挑卷、随时翻页、不写记录」。
-             *
-             * 现在走 startTodayReview：只做到期 + 新卡、先回想再看答案、
-             * 自评四档**写进间隔**、做完出今日回顾。这才是复习。
-             */
-            void startTodayReview();
-            return true;
-          }}
+          onOpenReviewBook={() => goPage('book')}
+          onOpenFlashcards={() => setPage('flashcards')}
           onOpenKnowledge={() => setPage('knowledge')}
           onOpenDecks={() => setPage('decks')}
         />
@@ -2014,6 +2009,35 @@ export function App({
         />
       ) : page === 'stats' ? (
         <StatsPage service={reviewService} cardPool={pool} loadCards={loadCards} />
+      ) : page === 'flashcards' ? (
+        /*
+         * 闪卡管理（2026-11-13 深夜新增）。
+         *
+         * 用户要求：「错题闪卡改名为闪卡管理。然后在课程准备与管理的
+         * 栏目下新开一个闪卡管理栏目」。确认「两种都要」。
+         *
+         * 这一页只管理，不做「开始背」—— 背闪卡在复习巩固页
+         * （那里已有 FlashcardsPanel）。见 FlashcardsPage 头注释。
+         */
+        <FlashcardsPage
+          flashcards={flashcardsService}
+          reviewService={reviewService}
+          loadCards={loadCards}
+          /*
+           * 错题卡唯一的「消失」办法：去做这题、答对。
+           *
+           * 为什么不跳去某道题的单题视图：项目里没有那个东西。
+           * 现有链路是「选题页 → 挑模式开一轮」。这里送到选题页的
+           * 错题巩固那一档，用户能自己挑到这几道 —— 与错题页的
+           * 「去练错题」走同一条路，不新造一条。
+           */
+          onPracticeCard={() => {
+            setPracticeMode('wrong');
+            setPracticeLabel('错题巩固');
+            void navigate('review');
+          }}
+          onGoReview={() => goPage('book')}
+        />
       ) : page === 'oral' ? (
         /*
          * 提问式复习的记录回看（2026-11-13）。
@@ -2307,6 +2331,7 @@ function Placeholder({ page, onBack }: { page: PageId; onBack: () => void }) {
     book: '复习巩固',
     stats: '统计',
     oral: '提问复习记录',
+    flashcards: '闪卡管理',
     skeleton: '知识骨架',
     audio: '音频转写',
     record: '课堂实录',

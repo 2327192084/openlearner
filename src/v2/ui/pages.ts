@@ -5,6 +5,7 @@ import {
   IconBook,
   IconAudio,
   IconExam,
+  IconFlashcards,
   IconFlow,
   IconGenerate,
   IconHelp,
@@ -62,6 +63,8 @@ export type PageId =
   | 'stats'
   /** 提问式复习的记录回看（2026-11-13） */
   | 'oral'
+  /** 闪卡管理（2026-11-13 深夜） */
+  | 'flashcards'
   | 'skeleton'
   | 'audio'
   | 'record'
@@ -317,6 +320,29 @@ export const PAGES: PageDef[] = [
   },
 
   // ---------- 课程准备与管理 ----------
+  {
+    /*
+     * 闪卡管理（2026-11-13 深夜新增）。
+     *
+     * 用户要求：「错题闪卡改名为闪卡管理。然后在课程准备与管理的
+     * 栏目下新开一个闪卡管理栏目」。
+     *
+     * 为什么放「课程准备与管理」而不是「每天」：
+     * 这一页是**管理**（有哪些卡、从哪来、删掉不用的），
+     * 不是「今天要看哪几张」。每天要看的那件事在首页与复习巩固页。
+     *
+     * 为什么从「开始学习」页挪走：那一页四个选项都是
+     * 「今天做什么」，而管理闪卡不是今天要做的活儿。
+     */
+    id: 'flashcards',
+    label: '闪卡管理',
+    title: '闪卡管理',
+    icon: IconFlashcards,
+    purpose: '统一管知识点闪卡与错题闪卡：看有哪些、从哪来、删掉不用的',
+    group: 'prep',
+    show: true,
+    ready: true,
+  },
   {
     /*
      * 文档解析（2026-11-11）。
