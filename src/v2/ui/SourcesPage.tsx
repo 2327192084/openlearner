@@ -4,6 +4,7 @@ import type { SourceService, ImportOutcome } from '@/core/sources.ts';
 import { IconSources, IconUpload } from './icons.tsx';
 import { ConfirmDialog } from './dialog.tsx';
 import { disambiguateTitles } from '@/core/source-title.ts';
+import { RenameField } from './RenameField.tsx';
 
 /**
  * 资料页。
@@ -76,6 +77,13 @@ export function SourcesPage({
   /** 待删除的资料。二级确认框由它驱动，删完清空。 */
   const [deleting, setDeleting] = useState<Source | null>(null);
   /**
+   * 正在改名的那份资料（2026-11-13 傍晚，用户要求）。
+   *
+   * 存 id 而不是 Source 对象：改名成功后 load() 会换出新的数组，
+   * 存对象的话这份引用就过期了；存 id 则始终指向「那一行」。
+   */
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  /**
    * 正在填页码的那份资料（2026-11-13）。
    *
    * 内联在行里展开一个小小的页码输入，而不是弹窗 ——
@@ -130,6 +138,23 @@ export function SourcesPage({
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * 改名（2026-11-13 傍晚，用户要求）。
+   *
+   * 走现成的 `SourceService.update(id, { title })` —— 它早就有这个能力，
+   * 只是从来没有界面调用它。这里不改服务层语义：
+   * 它会顺带刷 `updatedAt`，那是对的（改名就是用户改属性）。
+   *
+   * 改名**不影响**任何派生数据：段落、知识点、题组都按 sourceId 关联，
+   * 名字只是显示用的。所以不需要重建段、也不需要提示「关联会失效」。
+   */
+  async function renameSource(id: string, title: string) {
+    const next = await service.update(id, { title });
+    if (!next) throw new Error('这份资料已经不在了（可能刚被删掉）');
+    setRenamingId(null);
+    await load();
+  }
 
   /**
    * 删除一份资料。
@@ -482,17 +507,54 @@ export function SourcesPage({
         <ul className="source-list">
           {sources.map((s) => (
             <li key={s.id} className="source-item">
-              <button
-                type="button"
-                className="source-row"
-                onClick={() => onOpenSource(s)}
-                title="打开原文"
-              >
-                <span className="source-row__title">{titleById.get(s.id) ?? s.title}</span>
-                <span className="source-row__meta">
-                  {s.kind.toUpperCase()} · {s.pageCount ?? '?'} 页 · {s.segmentCount} 段
-                </span>
-              </button>
+              {/*
+                改名时就地换成输入框（2026-11-13 傍晚，用户要求）。
+                ⚠️ 这时**不能**再用 <button class="source-row">：
+                改名框里有输入框和按钮，button 里嵌 button 是非法 HTML，
+                浏览器会把内层按钮踢出去、点击行为随之失控。
+                所以改名期间用 div 承载同样的排版。
+              */}
+              {renamingId === s.id ? (
+                <div className="source-row source-row--editing">
+                  <span className="source-row__meta">
+                    {s.kind.toUpperCase()} · {s.pageCount ?? '?'} 页 · {s.segmentCount} 段
+                  </span>
+                  <RenameField
+                    current={s.title}
+                    label="资料名"
+                    onSave={(title) => renameSource(s.id, title)}
+                    onCancel={() => setRenamingId(null)}
+                  />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="source-row"
+                  onClick={() => onOpenSource(s)}
+                  title="打开原文"
+                >
+                  <span className="source-row__title">{titleById.get(s.id) ?? s.title}</span>
+                  <span className="source-row__meta">
+                    {s.kind.toUpperCase()} · {s.pageCount ?? '?'} 页 · {s.segmentCount} 段
+                  </span>
+                </button>
+              )}
+              {renamingId === s.id ? null : (
+                <button
+                  type="button"
+                  className="source-item__rename"
+                  aria-label={`给「${s.title}」改名`}
+                  title="改这个名字"
+                  disabled={busy}
+                  onClick={() => {
+                    setRenamingId(s.id);
+                    /* 同时收起跳页框，避免两个就地编辑同时展开、抢焦点 */
+                    setJumpFor(null);
+                  }}
+                >
+                  改名
+                </button>
+              )}
               {onOrganizeSource ? (
                 <button
                   type="button"

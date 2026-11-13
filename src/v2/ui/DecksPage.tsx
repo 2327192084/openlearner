@@ -9,6 +9,7 @@ import { GeneratePage } from './GeneratePage.tsx';
 import { ConfirmDialog } from './dialog.tsx';
 import { IconGenerate } from './icons.tsx';
 import { QuestionEditor } from './QuestionEditor.tsx';
+import { RenameField } from './RenameField.tsx';
 
 /**
  * 「我的题组」—— 列出现有题组，看题、检查待审核、发布。
@@ -112,6 +113,12 @@ export function DecksPage({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Deck | null>(null);
+  /**
+   * 正在改名的题组（2026-11-13 傍晚，用户要求）。
+   *
+   * 存 id 不存 Deck 对象：改名后 load() 会换出新数组，旧引用会过期。
+   */
+  const [renamingId, setRenamingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -213,6 +220,25 @@ export function DecksPage({
     } finally {
       setBusy(false);
     }
+  }
+
+  /**
+   * 题组改名（2026-11-13 傍晚，用户要求）。
+   *
+   * 走现成的 `QuestionService.updateDeck(deckId, { title })` ——
+   * 它在 2026-11-12 就补上了，注释里写着「没有这个方法时，
+   * 界面上那个『改名』按钮只能撤掉 —— 一个点了必然报错的按钮比没有更糟」。
+   * 但补完之后**界面一直没接**，全仓只有单测在调它。
+   *
+   * 服务层会顺带刷 `updatedAt`，那是对的（改名就是用户改属性）。
+   * 改名不影响题目、发布状态、来源关联，所以不需要额外提示。
+   */
+  async function renameDeck(id: string, title: string) {
+    const next = await decks.updateDeck(id, { title });
+    if (!next) throw new Error('这个题组已经不在了（可能刚被删掉）');
+    setRenamingId(null);
+    await load();
+    onChanged();
   }
 
   async function unpublish(deck: Deck) {
@@ -363,18 +389,39 @@ export function DecksPage({
             return (
               <li key={deck.id} className={`deck-item${isOpen ? ' deck-item--open' : ''}`}>
                 <div className="deck-item__top">
-                  <button
-                    type="button"
-                    className="deck-item__main"
-                    onClick={() => (isOpen ? setOpenId(null) : void openDeck(deck.id))}
-                    aria-expanded={isOpen}
-                  >
-                    <span className="deck-item__title">{deck.title}</span>
-                    <span className="deck-item__meta">
-                      {deck.questionCount} 道题
-                      {fromSource ? ` · 来自「${fromSource}」` : ''}
-                    </span>
-                  </button>
+                  {/*
+                    改名时就地换成输入框（2026-11-13 傍晚，用户要求）。
+                    同资料页：`deck-item__main` 是 button，改名期间改用 div ——
+                    button 里嵌输入框和按钮是非法 HTML，浏览器会把内层元素
+                    踢出去，回车/点击行为随之失控。
+                  */}
+                  {renamingId === deck.id ? (
+                    <div className="deck-item__main deck-item__main--editing">
+                      <span className="deck-item__meta">
+                        {deck.questionCount} 道题
+                        {fromSource ? ` · 来自「${fromSource}」` : ''}
+                      </span>
+                      <RenameField
+                        current={deck.title}
+                        label="题组名"
+                        onSave={(title) => renameDeck(deck.id, title)}
+                        onCancel={() => setRenamingId(null)}
+                      />
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="deck-item__main"
+                      onClick={() => (isOpen ? setOpenId(null) : void openDeck(deck.id))}
+                      aria-expanded={isOpen}
+                    >
+                      <span className="deck-item__title">{deck.title}</span>
+                      <span className="deck-item__meta">
+                        {deck.questionCount} 道题
+                        {fromSource ? ` · 来自「${fromSource}」` : ''}
+                      </span>
+                    </button>
+                  )}
                   <span
                     className={`deck-badge deck-badge--${deck.status === 'published' ? 'ok' : 'warn'}`}
                   >
@@ -411,6 +458,18 @@ export function DecksPage({
                       看原文
                     </button>
                   ) : null}
+                  {renamingId === deck.id ? null : (
+                    <button
+                      type="button"
+                      className="deck-item__rename"
+                      aria-label={`给题组「${deck.title}」改名`}
+                      title="改这个题组的名字"
+                      disabled={busy}
+                      onClick={() => setRenamingId(deck.id)}
+                    >
+                      改名
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="deck-item__delete"

@@ -86,6 +86,7 @@ import './today-page.css';
 import './today-dashboard.css';
 import './review-page.css';
 import './sources-page.css';
+import './rename-field.css';
 import './generate-page.css';
 import './stats-page.css';
 import './settings.css';

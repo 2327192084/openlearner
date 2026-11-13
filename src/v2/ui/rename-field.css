@@ -1,0 +1,163 @@
+/**
+ * 就地改名（2026-11-13 傍晚）。
+ *
+ * ⚠️ 层级：`src/styles/base.css` 里有**不在任何 @layer 内**的
+ * `button` / `input` 规则。CSS 级联是「层级先于特异性」，
+ * 所以按钮与输入框的视觉规则必须写在 @layer 外面，
+ * 否则在 @layer 里写多少特异性都赢不了它（项目踩过六次以上）。
+ * 与 reader-page.css / settings.css 的处理一致。
+ */
+
+/*
+ * 改名时那一行（资料页 / 题组页共用）。
+ *
+ * `.source-row` 原本是个 button（cursor: pointer、hover 变亮）。
+ * 改名期间承载它的是一个 div，所以要把「可点击」的暗示去掉 ——
+ * 否则用户会点这一行，期待它打开原文，实际什么都没发生。
+ */
+.source-row--editing {
+  cursor: default;
+  /* 输入框要占满这一行剩下的宽度，所以标题行不再吃掉全部空间 */
+  gap: var(--space-2);
+}
+
+/*
+ * 「改名」按钮（资料页 / 题组页）。
+ *
+ * 与「整理」「跳页」「删除」并排，所以沿用它们的尺寸语气；
+ * 不用强调色 —— 它是个次要操作，和删除同级但不危险。
+ */
+.source-item__rename,
+.deck-item__rename {
+  flex: none;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.source-item__rename:hover:not(:disabled),
+.deck-item__rename:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.source-item__rename:disabled,
+.deck-item__rename:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/*
+ * 改名时的题组行（2026-11-13 傍晚）。
+ *
+ * `.deck-item__main` 原本是 button（cursor: pointer）。
+ * 改名期间承载它的是 div，要去掉「可点击」的暗示，
+ * 并改为横向排列（输入框 + 保存/取消要并排）。
+ */
+.deck-item__main--editing {
+  cursor: default;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* ---------- 改名输入框本体 ---------- */
+
+.rename-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.rename-field__input {
+  flex: 1;
+  min-width: 12ch;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--bg-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+
+.rename-field__input:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+/*
+ * 出错时把边框变红，并保留 focus 轮廓 ——
+ * 只改 border 的话，聚焦状态下用户看到的是 accent 色，
+ * 完全看不出「这个名字有问题」。
+ */
+.rename-field__input--bad {
+  border-color: var(--bad);
+}
+
+.rename-field__input--bad:focus {
+  outline-color: color-mix(in srgb, var(--bad) 55%, transparent);
+  border-color: var(--bad);
+}
+
+.rename-field__ok,
+.rename-field__cancel {
+  flex: none;
+  padding: 5px 11px;
+  border-radius: var(--radius-xs);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rename-field__ok {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--bg-canvas);
+}
+
+.rename-field__ok:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 85%, var(--text));
+}
+
+.rename-field__cancel {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.rename-field__cancel:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.rename-field__ok:disabled,
+.rename-field__cancel:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/*
+ * 错误提示整行占满（flex-wrap 已打开），换行到输入框下面。
+ *
+ * 不用 `role="alert"` 的默认样式做「弹窗」：这里是一行内联说明，
+ * 用户要能一边看着它一边继续改输入框。
+ */
+.rename-field__error {
+  flex: 1 0 100%;
+  color: var(--bad);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
