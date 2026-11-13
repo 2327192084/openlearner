@@ -25,6 +25,11 @@ import { SelectionActionBar, measureSelectionRect } from './SelectionActionBar.t
 import { SearchResults } from './SearchResults.tsx';
 import { PageSlider } from './PageSlider.tsx';
 import { ReaderBottomNav } from './ReaderBottomNav.tsx';
+import {
+  EMPTY_SCROLL_MEMORY,
+  rememberScroll,
+  worthRemembering,
+} from './reader-scroll.ts';
 import type { RectLike } from './selection-bar-place.ts';
 import { snapFiguresToBlocks } from './snap-figures.ts';
 import './reader-figure.css';
@@ -193,6 +198,27 @@ export function ReaderPage({
    */
   const [pageInput, setPageInput] = useState('1');
   const bodyRef = useRef<HTMLDivElement | null>(null);
+  /*
+   * 真正的滚动容器是 `.reader-main`，不是 `.reader-body`（2026-11-13 查明）。
+   *
+   * `.reader-body` 也写了 `overflow-y: auto`，但它是 `flex: 1` 且内容高度
+   * 由父级约束，实测 `scrollHeight === clientHeight`（不滚）；
+   * 页面级的滚动发生在 `.reader-main`（`overflow-y: auto`）。
+   *
+   * 这个区别以前没人发现，因为原来的 `bodyRef.current?.scrollTo({top:0})`
+   * **从来没有生效过** —— 翻页时用户其实停在原处。做「记住每段读到哪」时
+   * 才暴露出来：无论怎么翻，读到的 scrollTop 都是 0。
+   */
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  /*
+   * 每段各自滚到哪儿（2026-11-13）。
+   *
+   * 用 ref 而不是 state：滚动事件每秒几十次，进 state 会让整页重渲染。
+   * 它只在两个时刻被读：翻页后恢复位置、离开时不需要写库（纯会话内记忆）。
+   */
+  const scrollMemoryRef = useRef<Map<number, number>>(new Map(EMPTY_SCROLL_MEMORY));
+  /** 正在恢复位置时不要把它当成用户的滚动记下来，否则会覆盖原来的值 */
+  const restoringScrollRef = useRef(false);
   const markRef = useRef<HTMLElement | null>(null);
   /**
    * 第一个备注元素（2026-11-11）。
@@ -343,6 +369,8 @@ export function ReaderPage({
     // 没有目标 → 纯阅读，从第一页开始
     if (!target) {
       setPageNo(1);
+      /* 同步页码输入框（2026-11-13）：不同步的话它会停在上一次的数字上 */
+      setPageInput('1');
       setHighlight(null);
       setJumpNote(null);
       return;
@@ -357,6 +385,15 @@ export function ReaderPage({
       return;
     }
     setPageNo(seg.index);
+    /*
+     * 同步页码输入框（2026-11-13 修）。
+     *
+     * 输入框是独立受控的（`pageInput`），只在 `goPage` 里被同步。
+     * 而从「资料库跳页」「错题跳原文」这些入口进来时走的是**这个 effect**，
+     * 不经过 `goPage` —— 于是正文已经到第 3 页，输入框还写着「1」。
+     * 用户看到两个互相矛盾的数字，会以为跳转没生效。
+     */
+    setPageInput(String(seg.index));
     setJumpNote(seg.page === wantPage ? null : `原文第 ${wantPage} 页不存在，已回到第 ${seg.page} 页。`);
 
     const text = seg.text;
@@ -1151,6 +1188,24 @@ export function ReaderPage({
     (next: number) => {
       if (phase.kind !== 'ready') return;
       const clamped = Math.max(1, Math.min(phase.segments.length, next));
+      /*
+       * 翻页前先把**当前段**滚到哪儿记下来（2026-11-13）。
+       *
+       * 记的是 `pageNo`（旧值）而不是 clamped —— 用户的动作是
+       * 「我在这段看到一半，要去下一段」，要留住的是这一段的进度。
+       *
+       * ⚠️ 用文档滚动位置（`window.scrollY`），不是某个 div 的 scrollTop。
+       * 实测（`.tmp/probe-chain2.cjs`）：`.app` 是 `min-height: 100vh`
+       * 会随内容长高，所以 `.reader-body` 与 `.reader-main` 的
+       * `scrollHeight` 都等于 `clientHeight`（不滚），真正的滚动发生在
+       * document 上。原来的 `bodyRef.current?.scrollTo({top:0})` 因此
+       * **从来没有生效过** —— 翻页时用户其实停在原来的位置。
+       */
+      const docTop =
+        typeof window !== 'undefined' ? window.scrollY || document.documentElement.scrollTop || 0 : 0;
+      if (worthRemembering(docTop)) {
+        scrollMemoryRef.current = rememberScroll(scrollMemoryRef.current, pageNo, docTop);
+      }
       setPageNo(clamped);
       // 手翻页就不再保留上一个定位的高亮，否则用户以为那页有锚点
       setHighlight(null);
@@ -1165,7 +1220,25 @@ export function ReaderPage({
       setRecentSelRange(null);
       setSelectionText('');
       setSelectionRect(null);
-      bodyRef.current?.scrollTo({ top: 0 });
+      /*
+       * 恢复目标段上次读到哪（2026-11-13）。
+       *
+       * 原来是回顶部 —— 每次回头都从头开始滚。长资料一段要滚好几屏，
+       * 「来回对照」是真实读法，一律回顶等于每翻一次就丢掉一次位置。
+       *
+       * 恢复放到下一帧：这一帧 DOM 还是旧内容，量出来的可滚上限不对。
+       */
+      const remembered = scrollMemoryRef.current.get(clamped) ?? 0;
+      restoringScrollRef.current = true;
+      requestAnimationFrame(() => {
+        const maxTop = Math.max(
+          0,
+          document.documentElement.scrollHeight - document.documentElement.clientHeight,
+        );
+        const top = Math.min(Math.max(0, remembered), maxTop);
+        window.scrollTo({ top });
+        restoringScrollRef.current = false;
+      });
       /*
        * 同步页码输入框（2026-11-11 晚）。
        * 不在这里同步的话，用「下一段」按钮或滑块跳页后，
@@ -1173,7 +1246,7 @@ export function ReaderPage({
        */
       setPageInput(String(clamped));
     },
-    [phase],
+    [phase, pageNo],
   );
 
   /**
@@ -1468,7 +1541,7 @@ export function ReaderPage({
       ) : null}
 
       <div className="reader-split">
-      <div className="reader-main">
+      <div className="reader-main" ref={scrollerRef}>
       {/* 正文 */}
       {/*
        * chapter 是解析器从「这一页的第一行」猜出来的（见 parsers/pdf.ts
@@ -1579,7 +1652,16 @@ export function ReaderPage({
             <button
               type="button"
               className="reader-bottom-nav__top"
-              onClick={() => bodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+              onClick={() => {
+                /*
+                 * 回顶部时把这一段的记忆也清掉（2026-11-13）。
+                 * 不清的话，用户按了「回到顶部」、翻走再翻回来，
+                 * 又会被送回原来那个位置 —— 那是他自己刚否定的位置。
+                 */
+                scrollMemoryRef.current.delete(pageNo);
+                /* 同上：滚的是 document（见 goPage 里的说明） */
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
               title="回到这一段的顶部"
             >
               回到顶部 ↑

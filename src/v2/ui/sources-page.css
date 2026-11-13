@@ -396,6 +396,14 @@
     align-items: center;
     gap: var(--space-2);
     border-bottom: 1px solid var(--line-soft);
+    /*
+     * 允许换行，让「跳页」展开的号码框落到第二行（2026-11-13）。
+     *
+     * 原来是单行 flex：号码框插进来后把 `.source-row`（标题 + 「36 页 · 36 段」）
+     * 挤成一条窄缝，截图里那两行字被压成每行一个字 —— 明显的排版事故。
+     * 让它换行之后，标题行保持原宽，号码框自己占下一行。
+     */
+    flex-wrap: wrap;
   }
 
   .source-item:hover {
@@ -446,6 +454,102 @@
     color: var(--text-faint);
     font-variant-numeric: tabular-nums;
   }
+
+  /*
+   * 「跳页」按钮与就地展开的号码框（2026-11-13）。
+   *
+   * 与「整理」「删除」同排，体积一致 —— 它是行内动作之一，不是主操作。
+   */
+  .source-item__jump {
+    flex: none;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+  }
+
+  .source-item__jump:hover {
+    border-color: var(--line);
+    background: var(--bg-raised);
+  }
+
+  /*
+   * 号码框占据整行宽度并换行到资料行下方（flex-wrap + 100% 基准）。
+   * 不弹模态框：用户只是想去第 200 页，弹框太重。
+   */
+  .source-item__jump-form {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex: 1 0 100%;
+    padding: 0 var(--space-2) var(--space-2);
+  }
+
+  .source-item__jump-input {
+    width: 96px;
+    padding: 3px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .source-item__jump-go,
+  .source-item__jump-cancel {
+    padding: 3px var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: transparent;
+  }
+
+  .source-item__jump-go {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+}
+
+/*
+ * 「跳页」按钮与其输入框的字号/颜色同样必须放层外（同下条注释：
+ * base.css 有无层级的 button 规则，层级先于特异性）。
+ */
+.source-item__jump {
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+}
+
+.source-item__jump:hover {
+  color: var(--text);
+}
+
+.source-item__jump:disabled {
+  opacity: 0.45;
+}
+
+.source-item__jump-form {
+  flex-wrap: wrap;
+}
+
+.source-item__jump-input,
+.source-item__jump-go,
+.source-item__jump-cancel {
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.source-item__jump-input {
+  cursor: text;
+}
+
+.source-item__jump-cancel {
+  color: var(--text-faint);
+}
+
+.source-item__jump-cancel:hover {
+  color: var(--text);
 }
 
 /*

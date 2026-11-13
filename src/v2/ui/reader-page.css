@@ -41,6 +41,24 @@
 .reader-main {
   flex: 1 1 auto;
   min-width: 0;
+  /*
+   * `min-height: 0`（2026-11-13 补）。
+   *
+   * flex 子项默认 `min-height: auto` = 「不能比内容矮」。对一个带
+   * `overflow-y: auto` 的子项来说这是自相矛盾的组合，补上它是对的。
+   *
+   * ⚠️ 但要如实说明：**补了它也不足以让正文自己滚**。
+   * 实测（`.tmp/probe-chain2.cjs`）：`.app` 是 `min-height: 100vh`
+   * （随内容长高），`.reader-page` 的 `height: 100%` 因此解析成
+   * 「内容高度」而非「视口高度」，于是整页仍由 document 滚动，
+   * `.reader-main` 的 `scrollHeight === clientHeight`（932 = 932）。
+   *
+   * 要真做到「右栏不跟着滚」，得把 `.app` 改成固定高度（`height: 100vh`
+   * + `overflow: hidden`），那会改变**全站每一页**的滚动行为 ——
+   * 属于另一件事，本轮不动。阅读器的「记住每段读到哪」
+   * 因此改用文档滚动位置（见 ReaderPage 的 goPage）。
+   */
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-2, 8px);

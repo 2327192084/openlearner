@@ -28,6 +28,14 @@ export interface SourcesPageProps {
   service: SourceService;
   /** 点资料行 —— 打开阅读器看原文 */
   onOpenSource: (source: Source) => void;
+  /**
+   * 跳到某一份资料的某一页（2026-11-13）。
+   *
+   * 与 `onOpenSource` 分开：那个是「打开看原文」，这个是「直接到第 N 页」。
+   * 阅读器早就有页码输入框了，但**资料库这一侧只有「打开」** ——
+   * 用户从列表看到「442 页」，想到第 200 页还得先打开、再滚到输入框、再输入。
+   */
+  onOpenSourceAtPage?: (source: Source, page: number) => void;
   /** 点「整理」—— 把这份资料整理成知识点 */
   onOrganizeSource?: (source: Source) => void;
   /** 导入成功后通知上层刷新卡片池 */
@@ -37,6 +45,7 @@ export interface SourcesPageProps {
 export function SourcesPage({
   service,
   onOpenSource,
+  onOpenSourceAtPage,
   onOrganizeSource,
   onImported,
 }: SourcesPageProps) {
@@ -66,6 +75,14 @@ export function SourcesPage({
   const [pasteTitle, setPasteTitle] = useState('');
   /** 待删除的资料。二级确认框由它驱动，删完清空。 */
   const [deleting, setDeleting] = useState<Source | null>(null);
+  /**
+   * 正在填页码的那份资料（2026-11-13）。
+   *
+   * 内联在行里展开一个小小的页码输入，而不是弹窗 ——
+   * 用户只是想去第 200 页，弹一个模态框去填一个数字太重。
+   */
+  const [jumpFor, setJumpFor] = useState<string | null>(null);
+  const [jumpText, setJumpText] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -488,6 +505,26 @@ export function SourcesPage({
                   整理
                 </button>
               ) : null}
+              {/*
+                跳页（2026-11-13）。
+                只在「有页码信息且不止 1 页」时出现 —— 单页资料没有可跳的。
+                点一下就地展开一个号码框，回车即走，不弹模态框。
+              */}
+              {onOpenSourceAtPage && (s.pageCount ?? 0) > 1 ? (
+                <button
+                  type="button"
+                  className="source-item__jump"
+                  aria-label={`跳到「${s.title}」的某一页`}
+                  title={`跳到某一页（共 ${s.pageCount} 页）`}
+                  disabled={busy}
+                  onClick={() => {
+                    setJumpFor(jumpFor === s.id ? null : s.id);
+                    setJumpText('');
+                  }}
+                >
+                  跳页
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="source-item__delete"
@@ -498,6 +535,61 @@ export function SourcesPage({
               >
                 删除
               </button>
+
+              {/*
+                跳页输入（2026-11-13）。
+                就地展开在行的下方，不弹模态框。
+                回车 / 点「去」都走同一个 submit，行为一致。
+              */}
+              {jumpFor === s.id && onOpenSourceAtPage ? (
+                <form
+                  className="source-item__jump-form"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const total = s.pageCount ?? 0;
+                    const want = Number(jumpText);
+                    if (!Number.isFinite(want) || want < 1) {
+                      setError(`页码要是 1 到 ${total} 之间的数字。`);
+                      return;
+                    }
+                    /* 超出范围就夹到边界，并如实告诉用户去了哪一页 */
+                    const page = Math.min(Math.max(1, Math.round(want)), Math.max(1, total));
+                    if (page !== Math.round(want)) {
+                      setError(`这份资料只有 ${total} 页，已跳到第 ${page} 页。`);
+                    } else {
+                      setError(null);
+                    }
+                    setJumpFor(null);
+                    setJumpText('');
+                    onOpenSourceAtPage(s, page);
+                  }}
+                >
+                  <input
+                    type="number"
+                    min={1}
+                    max={s.pageCount ?? undefined}
+                    className="source-item__jump-input"
+                    value={jumpText}
+                    onChange={(e) => setJumpText(e.target.value)}
+                    placeholder={`1–${s.pageCount ?? '?'}`}
+                    aria-label={`跳到「${s.title}」的第几页`}
+                    autoFocus
+                  />
+                  <button type="submit" className="source-item__jump-go">
+                    去
+                  </button>
+                  <button
+                    type="button"
+                    className="source-item__jump-cancel"
+                    onClick={() => {
+                      setJumpFor(null);
+                      setJumpText('');
+                    }}
+                  >
+                    取消
+                  </button>
+                </form>
+              ) : null}
             </li>
           ))}
         </ul>

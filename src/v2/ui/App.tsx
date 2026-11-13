@@ -53,6 +53,7 @@ import { DEFAULT_WIDGETS, widgetsFromSettings, type HomeWidget } from './home-wi
 import { fetchDailyQuote } from './daily-quote.ts';
 import type { KnowledgePoint, Todo } from '@/core/model.ts';
 import { StatsPage } from './StatsPage.tsx';
+import { OralReviewArchive } from './OralReviewArchive.tsx';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { AnnotationService } from '@/core/annotation-service.ts';
@@ -1840,6 +1841,12 @@ export function App({
              */
             openReader(source.id, null); // 从资料页进来是纯阅读，不定位
           }}
+          /*
+           * 从资料库直接跳到某一页（2026-11-13）。
+           * 阅读器那侧早就有页码输入框，但用户得先打开、再滚到输入框、再输入；
+           * 从列表看到「442 页」想直接去第 200 页时，这条路太长。
+           */
+          onOpenSourceAtPage={(source, page) => openReader(source.id, { sourceId: source.id, page })}
           onOrganizeSource={(source) => {
             setOrganizeSourceId(source.id);
             setPage('organize');
@@ -1919,6 +1926,24 @@ export function App({
         />
       ) : page === 'stats' ? (
         <StatsPage service={reviewService} cardPool={pool} loadCards={loadCards} />
+      ) : page === 'oral' ? (
+        /*
+         * 提问式复习的记录回看（2026-11-13）。
+         *
+         * 这套记录一直能存不能看：服务层的 list()/recentStats() 都在、
+         * 也有单测，但没有任何界面调用它们。这里补上入口。
+         *
+         * 只读页面：不写 reviewLogs / reviewRecords，不改任何复习进度。
+         */
+        <OralReviewArchive
+          service={oralReviewService}
+          onOpenSource={(sourceId, page) =>
+            openReader(sourceId, { sourceId, ...(typeof page === 'number' ? { page } : {}) })
+          }
+          onRemove={async (id) => {
+            await oralReviewService.remove(id);
+          }}
+        />
       ) : page === 'settings' ? (
         <SettingsPage onChanged={() => void refreshShellState()} />
       ) : page === 'trash' ? (
@@ -2070,6 +2095,7 @@ function Placeholder({ page, onBack }: { page: PageId; onBack: () => void }) {
     examprep: '备考补习',
     book: '复习巩固',
     stats: '统计',
+    oral: '提问复习记录',
     skeleton: '知识骨架',
     audio: '音频转写',
     record: '课堂实录',

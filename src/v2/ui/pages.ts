@@ -60,6 +60,8 @@ export type PageId =
   | 'examprep'
   | 'book'
   | 'stats'
+  /** 提问式复习的记录回看（2026-11-13） */
+  | 'oral'
   | 'skeleton'
   | 'audio'
   | 'record'
@@ -289,6 +291,26 @@ export const PAGES: PageDef[] = [
     title: '学习统计',
     icon: IconStats,
     purpose: '练了多少、掌握得怎么样、哪一块还薄弱',
+    group: 'staged',
+    show: true,
+    ready: true,
+  },
+  {
+    /*
+     * 提问式复习的记录回看（2026-11-13）。
+     *
+     * 这套记录一直能存不能看：OralReviewService.list() 与 recentStats()
+     * 都实现了、也有单测，但全仓库没有一处 UI 调用它们 ——
+     * 用户做完一轮，回头想复习「我上次在哪儿记错了」没有任何入口。
+     *
+     * 放在「阶段性」而不是「每天」：它是一次性的回顾动作，
+     * 不是每天该做的事（每天该做的是「复习巩固」）。
+     */
+    id: 'oral',
+    label: '提问复习记录',
+    title: '提问式复习 · 记录回看',
+    icon: IconNotes,
+    purpose: '回看提问式复习的记录：当时问什么、你答了什么、判成记错还是理解偏',
     group: 'staged',
     show: true,
     ready: true,

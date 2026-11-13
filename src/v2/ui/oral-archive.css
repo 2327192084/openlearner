@@ -1,0 +1,308 @@
+/*
+ * 提问式复习 · 记录回看（2026-11-13）。
+ *
+ * ⚠️ 硬约束：`base.css` 有**不在任何 @layer 内**的 button 规则，
+ * 级联「层级先于特异性」。所以本文件里原生控件的样式
+ * （appearance / font / cursor）一律写在层外，布局类才进 @layer。
+ */
+
+@layer study.features {
+  .oral-archive {
+    max-width: 860px;
+  }
+
+  .oral-archive__head {
+    margin-bottom: var(--space-5);
+  }
+
+  .oral-archive__title {
+    font-size: var(--fs-3xl);
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    margin-bottom: var(--space-1);
+  }
+
+  .oral-archive__sub {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+    line-height: var(--lh-body);
+  }
+
+  .oral-archive__loading {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+  }
+
+  .oral-archive__error {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--bad);
+    border-radius: var(--radius-sm);
+    color: var(--bad);
+    font-size: var(--fs-sm);
+  }
+
+  .oral-archive__empty {
+    padding: var(--space-6) var(--space-5);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    text-align: center;
+    color: var(--text-dim);
+    font-size: var(--fs-sm);
+  }
+
+  .oral-archive__hint {
+    margin-top: var(--space-2);
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    line-height: var(--lh-body);
+  }
+
+  /* ---------- 筛选 ---------- */
+  .oral-archive__filters {
+    display: flex;
+    gap: var(--space-2);
+    margin-bottom: var(--space-4);
+  }
+
+  /*
+   * 页签用描边胶囊，选中态只换描边色不填实底 ——
+   * 与 knowledge-page 的 .kb-level、统计页的 .today-detail__tab 同一套语言。
+   */
+  .oral-archive__filter {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font-size: var(--fs-xs);
+    color: var(--text-dim);
+    transition: color 120ms ease, border-color 120ms ease;
+  }
+
+  .oral-archive__filter:hover {
+    color: var(--text);
+    border-color: var(--line-strong);
+  }
+
+  .oral-archive__filter--on {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .oral-archive__n {
+    margin-left: 4px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-faint);
+  }
+
+  .oral-archive__filter--on .oral-archive__n {
+    color: var(--accent);
+  }
+
+  /* ---------- 列表 ---------- */
+  .oral-archive__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .oral-archive__item {
+    border-bottom: 1px solid var(--line);
+  }
+
+  /*
+   * 一行：判定徽标 + 问题 + 时间/来源。
+   *
+   * 问题占满剩余宽度并允许换行 —— 提问式复习的问题常常是一整句
+   * 「请说明……为什么……」，截断会让两行看起来一样。
+   */
+  .oral-archive__row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    width: 100%;
+    padding: var(--space-3) var(--space-2);
+    background: transparent;
+    border: none;
+    text-align: left;
+  }
+
+  .oral-archive__row:hover {
+    background: var(--bg-hover);
+  }
+
+  .oral-archive__verdict {
+    flex: 0 0 auto;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+  }
+
+  /* 答对用绿、记错用红、理解偏用黄 —— 三色对应三种补救方式 */
+  .oral-archive__verdict--correct {
+    color: var(--ok);
+    background: color-mix(in srgb, var(--ok) 12%, transparent);
+  }
+
+  .oral-archive__verdict--memory {
+    color: var(--bad);
+    background: color-mix(in srgb, var(--bad) 12%, transparent);
+  }
+
+  .oral-archive__verdict--understanding {
+    color: var(--warn);
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+  }
+
+  .oral-archive__question {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: var(--fs-sm);
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  .oral-archive__meta {
+    flex: 0 0 auto;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- 展开的详情 ---------- */
+  .oral-archive__detail {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-3) var(--space-4) var(--space-5);
+    background: color-mix(in srgb, var(--paper-ink) 4%, transparent);
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--space-3);
+  }
+
+  .oral-archive__block-title {
+    margin: 0 0 var(--space-2);
+    font-size: var(--fs-xs);
+    font-weight: 550;
+    color: var(--text-faint);
+    letter-spacing: 0.04em;
+  }
+
+  .oral-archive__answer {
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    border-left: 2px solid var(--line-strong);
+    font-size: var(--fs-sm);
+    color: var(--text);
+    line-height: var(--lh-body);
+    white-space: pre-wrap;
+  }
+
+  .oral-archive__advice {
+    margin: 0 0 var(--space-2);
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: var(--lh-body);
+  }
+
+  .oral-archive__explain {
+    margin: 0 0 var(--space-2);
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+    line-height: var(--lh-body);
+  }
+
+  .oral-archive__correction {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--text);
+    line-height: var(--lh-body);
+  }
+
+  .oral-archive__correction-label {
+    color: var(--text-faint);
+  }
+
+  /*
+   * 原文依据：用引用块样式，与「用户的回答」的左侧竖线区分开 ——
+   * 前者是教材原话，后者是用户自己写的。
+   */
+  .oral-archive__quote {
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    border-left: 2px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    font-size: var(--fs-sm);
+    color: var(--text);
+    line-height: var(--lh-body);
+    white-space: pre-wrap;
+  }
+
+  .oral-archive__verified {
+    margin: var(--space-2) 0 0;
+    font-size: var(--fs-xs);
+    color: var(--ok);
+  }
+
+  /* 引文核对不上时的警示：必须显眼到不会被忽略 */
+  .oral-archive__warn {
+    margin: var(--space-2) 0 0;
+    font-size: var(--fs-xs);
+    color: var(--bad);
+    line-height: var(--lh-body);
+  }
+
+  .oral-archive__fulltext {
+    margin: 0;
+    max-height: 240px;
+    overflow-y: auto;
+    padding: var(--space-3);
+    border: 1px dashed var(--line);
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: var(--lh-body);
+    white-space: pre-wrap;
+  }
+
+  .oral-archive__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+
+  .oral-archive__del {
+    color: var(--text-faint);
+  }
+
+  .oral-archive__del:hover:not(:disabled) {
+    color: var(--bad);
+  }
+}
+
+/* ==========================================================================
+   层外：原生控件（见文件头）
+   ========================================================================== */
+
+.oral-archive__filter,
+.oral-archive__row {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.oral-archive__filter:focus-visible,
+.oral-archive__row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
