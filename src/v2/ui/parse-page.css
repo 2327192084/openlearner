@@ -194,3 +194,116 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/* ==========================================================================
+ * 解析引擎选择器（2026-11-15，用户要求）。
+ *
+ * ⚠️ 在 @layer 外面：里面有原生 radio/input，
+ * base.css 有无层级的 button/input 规则（硬约束 4）。
+ * ========================================================================== */
+
+.engine-pick {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+}
+
+.engine-pick__lead {
+  margin: 0 0 var(--space-3);
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+
+.engine-pick__options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-3);
+}
+
+.engine-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  background: transparent;
+}
+
+.engine-opt:hover {
+  background: var(--bg-hover);
+}
+
+/* 选中的那个：强调色描边，与项目其它「当前项」一致 */
+.engine-opt--on {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+/* 不可用的那个：降透明度但**不隐藏** —— 用户要知道这条路存在、为什么不能走 */
+.engine-opt--off {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.engine-opt input[type='radio'] {
+  margin-top: 3px;
+  flex: none;
+  accent-color: var(--accent);
+}
+
+.engine-opt__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.engine-opt__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-md);
+  color: var(--text);
+}
+
+.engine-opt__tag {
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: normal;
+}
+
+.engine-opt__note {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  line-height: var(--lh-body);
+}
+
+/*
+ * 「云端不出插图」这条警告。
+ *
+ * 用 warning 色而不是普通灰字：用户漏看这条会以为功能坏了
+ * （解析完发现阅读器里没有插图）。
+ */
+.engine-opt__warn {
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: #c9a227;
+}
+
+.engine-opt__why {
+  font-size: var(--fs-sm);
+  color: var(--bad);
+}
+
+/* 错误提示（云端 runner 建不起来时） */
+.pp-note--bad {
+  color: var(--bad);
+}

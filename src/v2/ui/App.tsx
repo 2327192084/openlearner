@@ -2109,6 +2109,55 @@ export function App({
             setOrganizeSourceId(sourceId);
             setPage('organize');
           }}
+          /*
+           * 云端 OCR 那条路（2026-11-15，用户要求）。
+           *
+           * 用户原话：「把调用 ocr 识别作为除了本地模型解析 pdf 的另一方式」。
+           *
+           * 只有接了后端才显示这个选项 —— 没后端时界面上不该出现一条
+           * 永远点不了的选项（项目一贯：不做假开关）。
+           */
+          cloudOcr={{
+            available: conn.connected,
+            ...(conn.connected ? {} : { reason: '还没接入模型。到「设置 → 模型与出题」加一个后端（要有 API Key）' }),
+            makeRunner: async (sourceId: string) => {
+              const list = await backends.list();
+              const ready = list.filter((b) => b.status === 'ready');
+              if (ready.length === 0) {
+                return { error: '还没有可用的模型后端。到「设置 → 模型与出题」添加一个。' };
+              }
+              const b = ready[0]!;
+              const apiKey = await backends.readCredential(b.id);
+              if (!apiKey) {
+                return { error: '读不到这个后端的 API Key，请到设置页重新填一次。' };
+              }
+
+              /*
+               * 官方 OCR 端点只在 api.deepseek.com 上。
+               * 如果用户当前后端是别家（智谱/通义等），如实说明 ——
+               * 不要拿别人的地址去调 DeepSeek 的路径（那会 404，
+               * 而用户会以为是功能坏了）。
+               */
+              const base = (b.baseUrl ?? '').trim() || 'https://api.deepseek.com';
+              if (base.indexOf('api.deepseek.com') === -1) {
+                return {
+                  error: `云端 OCR 目前只支持 DeepSeek 官方地址（api.deepseek.com）。当前后端是「${b.label}」（${base}），换一个 DeepSeek 后端再试。`,
+                };
+              }
+
+              const { createDeepSeekOcrRunner } = await import('@/core/ocr/ocr-runner.ts');
+              const runner = createDeepSeekOcrRunner({
+                apiKey,
+                baseUrl: base,
+                readFile: async () => {
+                  const bytes = await sourceService.getOriginalFile(sourceId);
+                  if (!bytes) throw new Error('这份资料的原始文件没存下来（导入时可能因为太大跳过了保存）');
+                  return bytes;
+                },
+              });
+              return { runner };
+            },
+          }}
         />
       ) : page === 'organize' ? (
         <OrganizePage

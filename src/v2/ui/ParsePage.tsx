@@ -33,6 +33,9 @@ import type { SourceService } from '@/core/sources.ts';
 import { needsConversion } from '@/core/mineru/convert.ts';
 import { disambiguateTitles, formatImportedAt } from '@/core/source-title.ts';
 import { ConvertPanel } from './ConvertPanel.tsx';
+import { EnginePicker } from './EnginePicker.tsx';
+import { defaultEngine, engineLabel, reconcileEngine, type MinerUEngine } from './engine-choice.ts';
+import type { MinerURunner } from '@/core/mineru/runner.ts';
 import { EmptyCard } from './EmptyCard.tsx';
 import { IconSources } from './icons.tsx';
 import './parse-page.css';
@@ -45,6 +48,18 @@ export interface ParsePageProps {
   onOpenReader?: (sourceId: string) => void;
   /** 去「整理知识点」页 */
   onOpenOrganize?: (sourceId: string) => void;
+  /**
+   * 云端 OCR 那条路是否可用（2026-11-15，用户要求）。
+   *
+   * 不可用时选择器上会显示原因并禁用 —— 不做「点了才报错」的假开关。
+   * 不传 = 这个环境没有云 OCR（网页版/没配后端），选择器只显示本地那条。
+   */
+  cloudOcr?: {
+    available: boolean;
+    reason?: string | null;
+    /** 建 runner：传进来的资料 id → 可运行的 MinerURunner */
+    makeRunner: (sourceId: string) => Promise<{ runner: import('@/core/mineru/runner.ts').MinerURunner } | { error: string }>;
+  };
 }
 
 type Load =
@@ -57,9 +72,79 @@ export function ParsePage({
   initialSourceId,
   onOpenReader,
   onOpenOrganize,
+  cloudOcr,
 }: ParsePageProps) {
   const [state, setState] = useState<Load>({ kind: 'loading' });
   const [picked, setPicked] = useState<string | null>(initialSourceId ?? null);
+  /**
+   * 用哪个引擎解析（2026-11-15）。
+   *
+   * 规则住在 engine-choice.ts（有单测）：默认本地（原有行为、免费），
+   * 本地不可用且云端可用才切云端。云端挂了自动切回本地 ——
+   * 不把用户留在一个点不了的选项上。
+   */
+  /*
+   * 初值用 defaultEngine：本地可用就本地（原有行为），
+   * 本地不可用且云端可用才云 —— 与补救逻辑同一份规则，不各写一遍。
+   */
+  const [engine, setEngine] = useState<MinerUEngine>(() =>
+    defaultEngine({ localOk: true, cloudOk: Boolean(cloudOcr?.available) }),
+  );
+  /** 云端 runner（按资料懒建；null = 还没建/建失败） */
+  const [cloudRunner, setCloudRunner] = useState<MinerURunner | null>(null);
+  const [cloudErr, setCloudErr] = useState<string | null>(null);
+
+  /**
+   * 云端那条路现在能不能用。
+   *
+   * 只在「有 cloudOcr 且它说可用」时为真 —— 网页版或没配后端时是 false，
+   * 选择器上会显示原因并禁用。
+   */
+  const cloudOk = Boolean(cloudOcr?.available);
+
+  /**
+   * 纠正失效的选择（2026-11-15）。
+   *
+   * 典型场景：用户选了云端，然后去设置里删了后端，再回来 ——
+   * 选择器不该还停在云端并且可点（那会点了才报错）。
+   * 规则在 engine-choice.ts 里，有单测。
+   */
+  useEffect(() => {
+    const next = reconcileEngine(engine, {
+      localOk: true,
+      cloudOk,
+      ...(cloudOcr?.reason ? { cloudReason: cloudOcr.reason } : {}),
+    });
+    if (next.changed) setEngine(next.engine);
+  }, [engine, cloudOk, cloudOcr?.reason]);
+
+  /**
+   * 切到云端时懒建 runner。
+   *
+   * 只在那份资料被选中时才建 —— 建它要读后端凭据、要读原文件，
+   * 一进页面就为所有资料建一遍是白花钱。
+   */
+  useEffect(() => {
+    if (engine !== 'deepseek' || !cloudOcr || !picked) return;
+    let cancelled = false;
+    setCloudErr(null);
+    setCloudRunner(null);
+
+    void (async () => {
+      try {
+        const r = await cloudOcr.makeRunner(picked);
+        if (cancelled) return;
+        if ('error' in r) setCloudErr(r.error);
+        else setCloudRunner(r.runner);
+      } catch (e) {
+        if (!cancelled) setCloudErr(e instanceof Error ? e.message : '云端 OCR 不可用');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [engine, picked, cloudOcr]);
 
   const load = useCallback(async () => {
     try {
@@ -245,6 +330,27 @@ export function ParsePage({
           {current ? (
             <div className="pp-panel">
               {/*
+                引擎选择（2026-11-15，用户要求）。
+                「本地 MinerU」与「DeepSeek 云 OCR」并列，各有取舍，
+                代价写在选项上（尤其云端不出插图这条）。
+                只在云端真的可用时才显示两个选项 ——
+                没有云 OCR 的环境不该看到一条永远点不了的选项。
+              */}
+              {cloudOcr ? (
+                <EnginePicker
+                  value={engine}
+                  onChange={setEngine}
+                  {...(cloudOcr.reason ? { cloudDisabledReason: cloudOcr.reason } : {})}
+                />
+              ) : null}
+
+              {engine === 'deepseek' && cloudErr ? (
+                <p className="pp-note pp-note--bad">
+                  {engineLabel('deepseek')}现在用不了：{cloudErr}
+                </p>
+              ) : null}
+
+              {/*
                 alwaysShow：即使已有正文也要显示面板。
                 这正是用户报的那个问题的修法 ——
                 解析过 2 页之后仍然要能接着解析。
@@ -257,6 +363,13 @@ export function ParsePage({
                 {...(onOpenReader
                   ? { onOpenPage: () => onOpenReader(current.id) }
                   : {})}
+                /*
+                 * 选云端时注入云 runner（ConvertPanel 的 runner 是注入式的，
+                 * 所以「换引擎」在这里就是「换一个 runner 实例」，
+                 * 面板内部一行都不用改）。
+                 * 不传 runner = 面板自己取本地 MinerU 实现。
+                 */
+                {...(engine === 'deepseek' && cloudRunner ? { runner: cloudRunner } : {})}
               />
             </div>
           ) : null}
