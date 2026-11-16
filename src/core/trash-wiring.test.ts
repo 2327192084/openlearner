@@ -92,6 +92,51 @@ describe('资料删除进回收站', () => {
     expect(await storage.get('sourceFiles', 'src_2')).toBeNull();
   });
 
+  /**
+   * 还原后 `fileStored` 必须按实际重写（2026-11-17 修）。
+   *
+   * ## 这个谎话是怎么被发现的
+   *
+   * 用户库实测：高等数学 442 页 `fileStored=true`，但 `sourceFiles` 里
+   * 没有它的记录 —— 它 11-16 被删进回收站（字节被清掉）、
+   * 又从回收站恢复（字节回不来，字段却还是 true）。
+   *
+   * 后果：ConvertPanel 据此认为「库里有原件」→ 去取 → 取不到 →
+   * 回落到弹系统文件框，让用户重新找一遍。用户报的
+   * 「解析时还要再选一次文件」，这一条就是其中一个来源。
+   */
+  it('★ 还原资料后，fileStored 按实际有没有原件校正（不能继续撒谎）', async () => {
+    const { storage, trash } = newStack();
+    const sources = new SourceService(storage, trash);
+
+    await storage.put('sources', {
+      id: 'src_fs', title: '带原件的资料', fileName: 'd.pdf', kind: 'pdf',
+      courseId: null, pageCount: 1, byteSize: 100, textStatus: 'ready',
+      segmentCount: 0, fileStored: true, createdAt: '', updatedAt: '',
+    } as never);
+    await storage.put('sourceFiles', {
+      id: 'src_fs', data: new ArrayBuffer(16), byteSize: 16, savedAt: '',
+    } as never);
+
+    /* 删 → 原件字节被清掉（回收站不装字节） */
+    await sources.remove('src_fs');
+    expect(await storage.get('sourceFiles', 'src_fs')).toBeNull();
+
+    /* 还原 */
+    const rec = (await trash.list())[0]!;
+    await trash.restore(rec.id);
+
+    const back = (await storage.get('sources', 'src_fs')) as { fileStored?: boolean } | null;
+    expect(back).not.toBeNull();
+
+    /*
+     * 关键断言：字节已经不在了，fileStored 必须是 false。
+     * 挂掉说明界面又会去「取一个不存在的原件」，
+     * 然后回落到让用户重新选文件 —— 正是用户抱怨的那一步。
+     */
+    expect(back!.fileStored).toBe(false);
+  });
+
   it('有插图时 skipped 里说明插图没保留', async () => {
     const { storage, trash } = newStack();
     const sources = new SourceService(storage, trash);

@@ -200,6 +200,53 @@ export class TrashService {
       restored += 1;
     }
 
+    /*
+     * 资料恢复后，`fileStored` 必须按**实际**情况重写（2026-11-17 修）。
+     *
+     * ## 为什么
+     *
+     * 删资料时 `sourceFiles` 里的原件字节会被连带清掉（那是几十 MB，
+     * 塞进回收站会让库膨胀几倍）。而恢复只把 `sources` 那一行放回来，
+     * **字节不会回来**。
+     *
+     * 但 `fileStored` 是资料对象上的一个字段，它跟着 payload 一起被存进
+     * 回收站、又一起被放回来 —— 于是恢复后它仍是删除前的 `true`。
+     *
+     * 实测到的真实数据（用户库，2026-11-17）：
+     *   高等数学 442 页   fileStored=true   sourceFiles 里没有这条记录
+     *
+     * 这个谎话的后果：ConvertPanel 曾据此判定「库里有原件」，
+     * 去取、取不到，最后回退到弹系统文件框 —— 用户明明刚恢复的资料，
+     * 却还要去文件管理器里重新找一遍。
+     *
+     * ## 为什么在这里修而不是在界面里兜
+     *
+     * `fileStored` 被多处读取（图文页入口、列表徽标、解析路径）。
+     * 在界面里逐个兜等于让每个调用方都记得「这个字段可能不准」——
+     * 迟早漏一处。在源头把它写对，所有读者都受益。
+     */
+    if (rec.kind === 'sources' && rec.payload && typeof rec.payload === 'object') {
+      const payload = rec.payload as { id?: unknown };
+      const sourceId = typeof payload.id === 'string' ? payload.id : '';
+      if (sourceId) {
+        try {
+          const fileRec = await this.storage.get('sourceFiles', sourceId);
+          const realStored = Boolean(fileRec);
+          await this.storage.put('sources', {
+            ...(rec.payload as object),
+            fileStored: realStored,
+          } as never);
+        } catch {
+          /*
+           * 修不上也不算致命：界面那头已经从「实际能否取到」判断了
+           * （见 ConvertPanel 的 materializeFromLibrary）。
+           * 但不静默 —— 留一条日志，别让下一个接手的人查半天。
+           */
+          console.warn('[trash] 恢复资料后没能校正 fileStored，界面已按实际取用兜底');
+        }
+      }
+    }
+
     await this.storage.remove('trash', id);
     return { restored };
   }

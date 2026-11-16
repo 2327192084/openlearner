@@ -897,9 +897,24 @@ async function materializeFromLibrary(
 
   /* 只有 PDF 与图片需要原件；docx/pptx 的正文早就切进分段了 */
   if (source.kind !== 'pdf' && source.kind !== 'image') return null;
-  /* 导入时就没存下来 —— 别去取，取也是空 */
-  if (source.fileStored === false) return null;
 
+  /*
+   * ⚠️ 这里**不要**用 `source.fileStored === false` 提前返回（2026-11-17 实测）。
+   *
+   * 那个字段会过期：资料删进回收站时，`sourceFiles` 里的原件字节会被
+   * 连带清掉；从回收站恢复时资料行回来了、字节回不来，而 `restore()`
+   * **没有把 fileStored 设回 false** —— 于是它继续写 `true`。
+   *
+   * 用户库里的实测数据：
+   *   高等数学 442 页   fileStored=true   sourceFiles 里**没有**这条记录
+   *
+   * 信了这个字段的后果：去取字节、取不到、回落到「请用户重新选文件」——
+   * 而真正该做的是**直接承认库里没有**，给一句准确的话，
+   * 而不是让用户白跑一趟文件管理器。
+   *
+   * `getOriginalFile` 本来就是「读不到返回 null」，那才是最可靠的判据：
+   * **以实际能否取到为准，不以记账字段为准**。
+   */
   let bytes: Uint8Array | null = null;
   try {
     bytes = await sourceService.getOriginalFile(source.id);

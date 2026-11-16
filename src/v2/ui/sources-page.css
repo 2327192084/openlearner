@@ -633,3 +633,32 @@
 .sources-store__btn:hover {
   color: var(--accent-text);
 }
+
+/* ---------- 「这个目录里还有什么」展开区（2026-11-17） ---------- */
+@layer study.features {
+  .sources-store__more {
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px dashed var(--line-soft);
+  }
+
+  .sources-store__more .sources-store__hint + .sources-store__hint {
+    margin-top: var(--space-2);
+  }
+}
+
+/*
+ * 「这个目录里还有什么」按钮——层外（理由同上：base.css 有无层级 button 规则）。
+ * 比「打开」按钮更弱化：它只是展开说明，不是主要动作。
+ */
+.sources-store__btn--more {
+  display: block;
+  margin-top: var(--space-2);
+  color: var(--text-faint);
+  text-decoration: none;
+}
+
+.sources-store__btn--more:hover {
+  color: var(--text-muted);
+  text-decoration: underline;
+}
