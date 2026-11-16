@@ -291,7 +291,58 @@ export async function runOcr(request: OcrRequest): Promise<OcrResult> {
     }
     if (res.status === 402) return { ok: false, reason: '账户余额不足', retryable: false };
     if (res.status === 413) {
-      return { ok: false, reason: '文件超过 100 MiB，请先拆分', retryable: false };
+      /*
+       * 413 有两种来源，**必须分清**（2026-11-16 实测发现）：
+       *
+       * 1. **应用层**（官方文档写的那个）：文件超过 100 MiB。
+       *    会返回 JSON `{error:{message:'file is too large: max 100 MiB'}}`。
+       *
+       * 2. **openresty 网关**：它前面那层反代的请求体上限，比 100 MiB 低。
+       *    返回的是 **HTML** 错误页（`<title>413 Request Entity Too Large</title>`
+       *    + `server: openresty`），**根本没有 JSON**。
+       *
+       * ## 为什么这条必须改
+       *
+       * 原来这里直接写死「文件超过 100 MiB，请先拆分」，**完全不读响应体**。
+       * 用户实测：55.07 MiB 的 PDF 被拒，屏幕上却显示「超过 100 MiB」——
+       * 用户看着自己 55 MB 的文件，只会认为程序坏了。
+       * 实测证据（2026-11-16）：
+       *   - 1 KiB → HTTP 401 JSON（链路正常）
+       *   - 55.07 MiB → HTTP 413 **HTML/openresty**，耗时 18.5 秒
+       *     （= 整个文件传完才被网关拒）
+       * 也就是说服务端从没说过「100 MiB」，那句话是程序自己编的。
+       *
+       * 现在：先读响应体判断是哪一种；网关那种如实说「网关不收这么大的请求」，
+       * 并把**实际发出的体积**写出来 —— 那是用户唯一能据此行动的信息。
+       */
+      const text = await safeText(res);
+      const body = parseMaybeJson(text);
+      const serverMsg = errorMessageOf(body);
+
+      /* 应用层的 413：有 JSON error，照它的原话说 */
+      if (serverMsg) {
+        return { ok: false, reason: serverMsg, retryable: false };
+      }
+
+      const sentMiB = (bytes.length / 1024 / 1024).toFixed(1);
+
+      /*
+       * 网关层的 413（HTML / 空体 / 无 error 字段）。
+       *
+       * 措辞要点：
+       *  - 不要说「超过 100 MiB」—— 那是另一层的限制，会误导
+       *  - 要写出**实际发了多大**，用户才知道「我这文件到底哪里不对」
+       *  - 要说明这是「服务端前置网关」的限制，不是软件算错
+       *  - 给出可行动的做法：换本地 MinerU（它能处理大扫描件）
+       */
+      return {
+        ok: false,
+        reason:
+          `服务端拒收了这次上传：请求体 ${sentMiB} MiB 超过它前置网关的上限` +
+          `（这是 DeepSeek 网关的限制，比官方文档写的 100 MiB 更低，不是软件算错了）。` +
+          `这份文件走不了云 OCR，改用本机 MinerU 解析这份资料。`,
+        retryable: false,
+      };
     }
     if (res.status === 408) {
       return { ok: false, reason: '上传太慢（中途停顿超过 30 秒），换个网络再试', retryable: true };
@@ -342,6 +393,39 @@ export async function runOcr(request: OcrRequest): Promise<OcrResult> {
 async function safeJson(res: Response): Promise<unknown> {
   try {
     return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 读纯文本，失败返回空串（不抛）。
+ *
+ * 为什么不能只用 safeJson：413 在**网关层**返回的是 HTML
+ * （`<title>413 Request Entity Too Large</title>` + `server: openresty`），
+ * 不是 JSON。用 safeJson 读会得到 null，于是「有没有服务端原话」
+ * 这个判断永远为假 —— 正是 2026-11-16 那次误报的机制。
+ */
+async function safeText(res: Response): Promise<string> {
+  try {
+    return await res.text();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * 把一段文本当 JSON 解析；不是 JSON 就返回 null（不抛）。
+ *
+ * 与 `safeJson` 的区别：那个直接读 Response 的 body（只能读一次），
+ * 这个作用于**已经读出来的字符串**。413 分支要先拿文本判断是 HTML
+ * 还是 JSON，不可能再让 Response 读第二次。
+ */
+function parseMaybeJson(text: string): unknown {
+  const t = text.trim();
+  if (!t || t[0] !== '{') return null;
+  try {
+    return JSON.parse(t);
   } catch {
     return null;
   }

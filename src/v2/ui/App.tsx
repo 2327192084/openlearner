@@ -662,6 +662,93 @@ export function App({
   }, [refreshShellState, refreshHomeWidgets]);
 
   /**
+   * 云端 OCR 的 runner 构造器（2026-11-16 抽出来做**稳定引用**）。
+   *
+   * ## 为什么必须抽出来
+   *
+   * 原来它是直接写在 JSX 里的 `cloudOcr={{ ..., makeRunner: async () => {...} }}`。
+   * 那是个**内联对象字面量**：每次渲染都产生新的 `cloudOcr` 对象、
+   * 新的 `makeRunner` 函数。
+   *
+   * `ParsePage` 里建云 runner 的 effect 依赖 `cloudOcr`（后来改成依赖
+   * `makeRunner`），于是**每次渲染都重跑**：先把 `cloudRunner` 置 null，
+   * 再异步重建。重建期间界面回落到「本机 MinerU」——
+   *
+   * 实测现象（这就是用户报的那个 413 之前的真问题）：
+   *   radio 明明切到了「DeepSeek 云 OCR」，`.engine-opt--on` 也在云那条上，
+   *   但按钮始终写「用本机 MinerU 转成正文」，点下去走的是本地那条路。
+   *   也就是说**云 OCR 在界面上从没真正接通过**。
+   *
+   * 这与 `docs/交接文档-2026-11-13-傍晚.md` 记的「对象字面量进依赖数组」
+   * 是同一个坑（`usePageTask` 那次）。修法一样：只依赖原始值/稳定函数。
+   *
+   * 依赖数组只放 `backends` 与 `sourceService` —— 两个都是长生命周期的
+   * service 实例，不会每次渲染变。
+   */
+  const makeCloudOcrRunner = useCallback(
+    async (sourceId: string) => {
+      const list = await backends.list();
+      const ready = list.filter((b) => b.status === 'ready');
+      if (ready.length === 0) {
+        return { error: '还没有可用的模型后端。到「设置 → 模型与出题」添加一个。' };
+      }
+      const b = ready[0]!;
+      const apiKey = await backends.readCredential(b.id);
+      if (!apiKey) {
+        return { error: '读不到这个后端的 API Key，请到设置页重新填一次。' };
+      }
+
+      /*
+       * 官方 OCR 端点只在 api.deepseek.com 上。
+       * 如果用户当前后端是别家（智谱/通义等），如实说明 ——
+       * 不要拿别人的地址去调 DeepSeek 的路径（那会 404，
+       * 而用户会以为是功能坏了）。
+       */
+      const base = (b.baseUrl ?? '').trim() || 'https://api.deepseek.com';
+      if (base.indexOf('api.deepseek.com') === -1) {
+        return {
+          error: `云端 OCR 目前只支持 DeepSeek 官方地址（api.deepseek.com）。当前后端是「${b.label}」（${base}），换一个 DeepSeek 后端再试。`,
+        };
+      }
+
+      const { createDeepSeekOcrRunner } = await import('@/core/ocr/ocr-runner.ts');
+      const runner = createDeepSeekOcrRunner({
+        apiKey,
+        baseUrl: base,
+        readFile: async () => {
+          const bytes = await sourceService.getOriginalFile(sourceId);
+          if (!bytes) throw new Error('这份资料的原始文件没存下来（导入时可能因为太大跳过了保存）');
+          return bytes;
+        },
+      });
+      return { runner };
+    },
+    [backends, sourceService],
+  );
+
+  /**
+   * 传给 ParsePage 的 cloudOcr（2026-11-16）。
+   *
+   * 用 `useMemo` 锁住对象引用：`makeRunner` 已经是稳定的（上面 useCallback），
+   * 所以这里只在「后端连通状态变了」时才换新对象。
+   *
+   * 为什么非要做这一步：ParsePage 里建云 runner 的 effect 依赖
+   * 这个对象的成员。对象每次渲染都换新，effect 就会每次重跑、
+   * 把已建好的 runner 置 null —— 表现是「选了云 OCR 但按钮还是本地那条」。
+   * 详见 `makeCloudOcrRunner` 上的注释。
+   */
+  const cloudOcrProp = useMemo(
+    () => ({
+      available: conn.connected,
+      ...(conn.connected
+        ? {}
+        : { reason: '还没接入模型。到「设置 → 模型与出题」加一个后端（要有 API Key）' }),
+      makeRunner: makeCloudOcrRunner,
+    }),
+    [conn.connected, makeCloudOcrRunner],
+  );
+
+  /**
    * 侧栏计数。
    *
    * 只给「复习」显示待复习数量、给「资料」显示资料份数 ——
@@ -2117,47 +2204,7 @@ export function App({
            * 只有接了后端才显示这个选项 —— 没后端时界面上不该出现一条
            * 永远点不了的选项（项目一贯：不做假开关）。
            */
-          cloudOcr={{
-            available: conn.connected,
-            ...(conn.connected ? {} : { reason: '还没接入模型。到「设置 → 模型与出题」加一个后端（要有 API Key）' }),
-            makeRunner: async (sourceId: string) => {
-              const list = await backends.list();
-              const ready = list.filter((b) => b.status === 'ready');
-              if (ready.length === 0) {
-                return { error: '还没有可用的模型后端。到「设置 → 模型与出题」添加一个。' };
-              }
-              const b = ready[0]!;
-              const apiKey = await backends.readCredential(b.id);
-              if (!apiKey) {
-                return { error: '读不到这个后端的 API Key，请到设置页重新填一次。' };
-              }
-
-              /*
-               * 官方 OCR 端点只在 api.deepseek.com 上。
-               * 如果用户当前后端是别家（智谱/通义等），如实说明 ——
-               * 不要拿别人的地址去调 DeepSeek 的路径（那会 404，
-               * 而用户会以为是功能坏了）。
-               */
-              const base = (b.baseUrl ?? '').trim() || 'https://api.deepseek.com';
-              if (base.indexOf('api.deepseek.com') === -1) {
-                return {
-                  error: `云端 OCR 目前只支持 DeepSeek 官方地址（api.deepseek.com）。当前后端是「${b.label}」（${base}），换一个 DeepSeek 后端再试。`,
-                };
-              }
-
-              const { createDeepSeekOcrRunner } = await import('@/core/ocr/ocr-runner.ts');
-              const runner = createDeepSeekOcrRunner({
-                apiKey,
-                baseUrl: base,
-                readFile: async () => {
-                  const bytes = await sourceService.getOriginalFile(sourceId);
-                  if (!bytes) throw new Error('这份资料的原始文件没存下来（导入时可能因为太大跳过了保存）');
-                  return bytes;
-                },
-              });
-              return { runner };
-            },
-          }}
+          cloudOcr={cloudOcrProp}
         />
       ) : page === 'organize' ? (
         <OrganizePage

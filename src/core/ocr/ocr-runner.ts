@@ -30,17 +30,38 @@
  *
  * ## ⚠️ 现状：没有真的分片，如实说明
  *
- * 官方限制是 100 MiB / 1000 页 / **180 秒总时长**（含上传与识别）。
- * 用户选了「分片上传」。但**当前实现是整份上传**，原因：
+ * 官方限制写在文档上的是 100 MiB / 1000 页 / **180 秒总时长**。
+ * 但 2026-11-16 实测发现**还有一层文档没写的限制**：DeepSeek 前面的
+ * openresty 网关有自己的请求体上限，比 100 MiB 低得多 ——
+ * 一份 55.07 MiB 的真实 PDF 就被它以 `HTTP 413 + HTML` 拒了
+ * （响应头 `server: openresty`，耗时 18.5 秒 = 传完才拒）。
+ * 应用层的 413 会返回 JSON `{error:{...}}`，网关层返回的是 HTML，
+ * 两者在 `deepseek-ocr.ts` 的 413 分支里已经分开处理。
  *
- * 按页切 PDF 需要 pdf-lib（项目里有，用于幻灯片），但切出来的每一片
- * 都要重新拼一个合法 PDF 再上传。这件事本身不难，可它有一个前提没定：
- * 「同一份资料的第二片解析完，怎么与第一片合并」——
- * 那要动 `writeSegments` 的 merge 语义与页码范围校验。
+ * 用户之前选了「分片上传」，但**当前实现是整份上传**。
+ *
+ * ## 为什么这一版仍然不做分片
+ *
+ * 按页切 PDF 需要一个能重写 PDF 的库。**注意：原来这里写着
+ * 「pdf-lib（项目里有，用于幻灯片）」，那是错的 —— 2026-11-16 核实：
+ * `pdf-lib` 既不在 `package.json` 里，也没装进 `node_modules`。**
+ * 所以「切页」这件事本身还没有工具，得先引入依赖。
+ *
+ * 引入之后还有第二个没定的问题：「同一份资料的第二片解析完，
+ * 怎么与第一片合并」—— 那要动 `writeSegments` 的 merge 语义与
+ * 页码范围校验。
  *
  * 所以分两步走：这一版先把**单次识别**这条路打通并如实标注限制；
- * 分片是下一步。界面上必须写清「大文件可能超时，建议先用 MinerU
- * 或分批解析」，而不是假装已经分片了。
+ * 分片是下一步。
+ *
+ * ## 选了分片怎么办（2026-11-16 新增）
+ *
+ * `request.pages` 原先是**完全不读**的 —— 用户在界面上选「解析 1-50 页」，
+ * 云 OCR 照样把整份 442 页传上去，然后撞上网关的 413。
+ * 用户以为「分批就能过」，实际一点用都没有。
+ *
+ * 现在：检测到用户明确要求了页码范围时，**直接报错说清楚**，
+ * 不要静默忽略。说清楚比假装能做有用得多。
  *
  * 为什么不在注释里写「已按 10 页分片」：那会让下一个接手的人
  * 以为这里有合并逻辑，去查半天 —— 这个项目已经因为「注释写得像
@@ -88,6 +109,30 @@ export function createDeepSeekOcrRunner(options: DeepSeekOcrRunnerOptions): Mine
       /* 阶段提示：让界面知道现在在干什么，而不是空白转圈 */
       onProgress?.({ phase: '正在读取文件', ratio: null, detail: null });
 
+      /*
+       * 用户明确要求了页范围 → 云 OCR 做不到，如实拒绝（2026-11-16）。
+       *
+       * ## 为什么必须拦，不能静默忽略
+       *
+       * 原先 `request.pages` 在这个 runner 里**一次都没被读过**。
+       * 用户在界面上选「解析 1-50 页」，云 OCR 照样把整份 442 页传上去 —
+       * 然后撞上网关的 413。用户会得出错误结论：「分批没用，这功能坏的」。
+       *
+       * 静默忽略比报错更糟：它让用户以为自己在控制上传量。
+       * 所以要明说「云 OCR 目前只能整份上传」，并指出替代做法。
+       *
+       * `pages === 'all'` 是「完整解析」，那正是我们能做的，放行。
+       */
+      if (request.pages && request.pages !== 'all') {
+        const err = new Error(
+          `云 OCR 目前只能整份上传，做不到「只解析第 ${request.pages} 页」。` +
+            '要么改成「完整解析」整份走云 OCR（大文件可能被服务端网关拒收），' +
+            '要么改用本机 MinerU —— 它支持按页范围解析。',
+        ) as Error & { trouble?: string };
+        err.trouble = 'cloud-ocr';
+        throw err;
+      }
+
       const bytes = await readFile(request.filePath);
 
       /*
@@ -120,8 +165,14 @@ export function createDeepSeekOcrRunner(options: DeepSeekOcrRunnerOptions): Mine
         /*
          * 错误信息直接抛出去，由 ConvertPanel 的 catch 显示。
          * 消息里已经写了「能照着改」的原因（见 deepseek-ocr.ts 的状态码分支）。
+         *
+         * `trouble: 'cloud-ocr'`（2026-11-16）：ConvertPanel 靠这个字段
+         * 选提示语。不标的话会落到 default，说「看看 MinerU 那边的日志」——
+         * 可用户走的是云 OCR，本机可能根本没装 MinerU。
          */
-        throw new Error(result.reason);
+        const err = new Error(result.reason) as Error & { trouble?: string };
+        err.trouble = 'cloud-ocr';
+        throw err;
       }
 
       onProgress?.({

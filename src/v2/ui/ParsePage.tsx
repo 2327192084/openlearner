@@ -95,12 +95,43 @@ export function ParsePage({
   const [cloudErr, setCloudErr] = useState<string | null>(null);
 
   /**
+   * 云端 runner 的构造器（2026-11-16 抽出来做稳定依赖）。
+   *
+   * ## 为什么不能直接依赖 `cloudOcr`
+   *
+   * `cloudOcr` 是 App.tsx 里**内联的对象字面量** —— 每次渲染都是新引用。
+   * 下面那个建 runner 的 effect 若把 `cloudOcr` 放进依赖数组，
+   * 就会「每次渲染都重跑」：先把 `cloudRunner` 置 null、再异步重建。
+   * 而重建是异步的，界面在那一瞬间又会回落成「本机 MinerU」的样子 ——
+   * 实测现象：radio 明明切到了「DeepSeek 云 OCR」（`.engine-opt--on`
+   * 也在云那条上），按钮却始终写着「用本机 MinerU 转成正文」，
+   * 而且这个按钮一直点不动云 OCR 那条路。
+   *
+   * 这正是交接文档里记过的「对象字面量进依赖数组」同一个坑
+   * （`usePageTask` 那次也是它）。修法同样：只依赖**原始值或稳定函数**。
+   *
+   * ## 这里用的是 useMemo 而不是 useRef
+   *
+   * `useRef` 兜底虽然能防住「对象换了但函数没换」，但拿不到
+   * 「函数真的换了」这个信号（比如用户换了后端，构造逻辑跟着变）。
+   * `useMemo` 依赖 `cloudOcr.makeRunner` 这个**函数引用本身**：
+   *  - 内联字面量每次重建 → 但里面的箭头函数如果每次也是新的，它还是会变
+   *  - 所以真正的稳定点在 App.tsx 那边用 useCallback 包住（已一起改）
+   *
+   * 两处都做：App 侧给稳定引用，这里再做一层「只有函数真的换了才重建」，
+   * 任何一侧单独失效都不会退回到「永远建不起来」。
+   */
+  const makeRunner = cloudOcr?.makeRunner;
+  const stableMakeRunner = useMemo(() => makeRunner, [makeRunner]);
+  const cloudAvailable = Boolean(cloudOcr?.available);
+
+  /**
    * 云端那条路现在能不能用。
    *
    * 只在「有 cloudOcr 且它说可用」时为真 —— 网页版或没配后端时是 false，
    * 选择器上会显示原因并禁用。
    */
-  const cloudOk = Boolean(cloudOcr?.available);
+  const cloudOk = cloudAvailable;
 
   /**
    * 纠正失效的选择（2026-11-15）。
@@ -125,14 +156,14 @@ export function ParsePage({
    * 一进页面就为所有资料建一遍是白花钱。
    */
   useEffect(() => {
-    if (engine !== 'deepseek' || !cloudOcr || !picked) return;
+    if (engine !== 'deepseek' || !picked || !stableMakeRunner) return;
     let cancelled = false;
     setCloudErr(null);
     setCloudRunner(null);
 
     void (async () => {
       try {
-        const r = await cloudOcr.makeRunner(picked);
+        const r = await stableMakeRunner(picked);
         if (cancelled) return;
         if ('error' in r) setCloudErr(r.error);
         else setCloudRunner(r.runner);
@@ -144,7 +175,7 @@ export function ParsePage({
     return () => {
       cancelled = true;
     };
-  }, [engine, picked, cloudOcr]);
+  }, [engine, picked, stableMakeRunner]);
 
   const load = useCallback(async () => {
     try {
@@ -359,6 +390,7 @@ export function ParsePage({
                 source={current}
                 sourceService={sourceService}
                 alwaysShow
+                engine={engine}
                 onConverted={() => void load()}
                 {...(onOpenReader
                   ? { onOpenPage: () => onOpenReader(current.id) }

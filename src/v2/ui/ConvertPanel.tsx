@@ -180,6 +180,22 @@ export interface ConvertPanelProps {
    * 那边由 OrganizePage 自己给一句「去解析页继续」的提醒。
    */
   alwaysShow?: boolean;
+  /**
+   * 当前选的是哪个解析引擎（2026-11-16 新增）。
+   *
+   * ## 为什么必须传进来
+   *
+   * 原先这个面板**完全不知道引擎是哪个**：按钮写死「用本机 MinerU 转成正文」，
+   * 下面的说明写死「首次运行可能要下载识别模型」—— 那都是 MinerU 的说法。
+   *
+   * 用户切到「DeepSeek 云 OCR」后：`engine-opt--on` 高亮变了、对应的
+   * runner 也换成了云的，**但按钮仍写着「用本机 MinerU 转成正文」**。
+   * 实测复核时一眼就看出来了（截图 .verify-shots/ocr-fix-20261116/）。
+   *
+   * 用户看到的界面在说谎：明明点下去走的是云 OCR，字却写着 MinerU。
+   * 不传 = 本地（保持原有行为，整理页那边不传也不影响）。
+   */
+  engine?: 'local' | 'deepseek';
 }
 
 export function ConvertPanel({
@@ -189,7 +205,10 @@ export function ConvertPanel({
   onOpenPage,
   runner,
   alwaysShow = false,
+  engine = 'local',
 }: ConvertPanelProps) {
+  /** 走的是云 OCR 那条路吗（决定按钮文案与说明，见 Props 上的注释） */
+  const isCloud = engine === 'deepseek';
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
   /**
    * 解析方式与页范围（2026-11-11）。
@@ -313,37 +332,59 @@ export function ConvertPanel({
     setPhase({ kind: 'running', progress: null });
     try {
       /*
-       * 这里需要原文件的**绝对路径**。桌面版里资料是从文件导入的，
-       * 真实路径由主进程通过导入流程记住（见 electron 的导入 handler）。
-       * 拿不到路径时如实说清楚，不要让用户以为点了没反应。
+       * 拿原文件的**绝对路径** —— 但只有 MinerU 需要它（2026-11-16 修）。
+       *
+       * ## 为什么云 OCR 不该走这段
+       *
+       * MinerU 是本机进程，只能吃「磁盘上的路径」，所以必须先拿到绝对路径
+       * （拿不到就弹框让用户当场指一次，见 resolveSourcePath 的注释）。
+       *
+       * 但**云 OCR 根本不读磁盘**：它的 readFile 走的是
+       * `sourceService.getOriginalFile(sourceId)` —— 从 IndexedDB 取字节。
+       * 原来不管选哪个引擎都先跑这段路径解析，后果有两个：
+       *  1. 云端也要先弹一个「找到这份资料的原文件」的对话框，
+       *     用户莫名其妙：我选的是云 OCR，为什么要我找文件？
+       *  2. 用户随手指了**另一份 PDF**（或者指错了），
+       *     虽然最终没用上这个路径，但整个过程让人以为「它要读那个文件」。
+       *
+       * 所以：云端跳过路径解析，直接调 runner。
+       * `filePath` 对云端只用来取文件名（官方要求带扩展名判断格式），
+       * 给 source.title 兜底即可 —— 真名由 runner 里的 baseName 处理。
        */
-      /*
-       * 拿原文件路径。登记表里没有就请用户当场指一次 ——
-       * 升级前导入的资料没有记录，而重导一份 45MB 教材代价太大。
-       */
-      const absolutePath = await resolveSourcePath(source, async () => {
-        const bridge = typeof window !== 'undefined' ? window.openleaner?.mineru : undefined;
-        if (!bridge || typeof bridge.pickSourceFile !== 'function') return null;
-        try {
-          return await bridge.pickSourceFile(source.id, source.title);
-        } catch {
-          return null;
-        }
-      });
-      if (!absolutePath) {
-        setPhase({
-          kind: 'failed',
-          message: '拿不到这份资料的原文件路径。',
-          hint:
-            '桌面版会用导入时的原路径调用 MinerU。如果这份资料是很早以前导入的、' +
-            '或原文件已经被移动/删除，请重新导入一次那份 PDF。',
+      let absolutePath = '';
+      if (!isCloud) {
+        const resolved = await resolveSourcePath(source, async () => {
+          const bridge = typeof window !== 'undefined' ? window.openleaner?.mineru : undefined;
+          if (!bridge || typeof bridge.pickSourceFile !== 'function') return null;
+          try {
+            return await bridge.pickSourceFile(source.id, source.title);
+          } catch {
+            return null;
+          }
         });
-        return;
+        if (!resolved) {
+          setPhase({
+            kind: 'failed',
+            message: '拿不到这份资料的原文件路径。',
+            hint:
+              '桌面版会用导入时的原路径调用 MinerU。如果这份资料是很早以前导入的、' +
+              '或原文件已经被移动/删除，请重新导入一次那份 PDF。' +
+              '（如果只是想要正文，也可以切到「DeepSeek 云 OCR」—— 它从库里取文件，不需要原路径。）',
+          });
+          return;
+        }
+        absolutePath = resolved;
       }
 
       const result = await effectiveRunner.run(
         {
-          filePath: absolutePath,
+          /*
+           * 云 OCR 不需要磁盘路径（见上面注释），但 `filePath` 这个字段
+           * 还要承担一个职责：给服务端提供**带扩展名的文件名**
+           * （官方据此判断解析方式）。所以云端这里传 source.title，
+           * runner 里的 baseName 会取出文件名。
+           */
+          filePath: isCloud ? source.title : absolutePath,
           /*
            * exePath 留空：主进程启动时已经探测到 mineru-kit 在哪，
            * 页面不需要（也不该）知道本机路径。主进程会用它探到的那个。
@@ -498,7 +539,13 @@ export function ConvertPanel({
             <div className="convert-panel__progress">
               <div className="convert-panel__progress-top">
                 <span className="convert-panel__phase">
-                  {phase.progress?.phase ?? '正在启动 MinerU…'}
+                  {/*
+                    兜底文案也要看引擎（2026-11-16）。
+                    原来一律写「正在启动 MinerU…」——
+                    云 OCR 那条路根本不启动 MinerU，界面上却这么说，
+                    用户会以为选错了，或者以为程序走错了路。
+                  */}
+                  {phase.progress?.phase ?? (isCloud ? '正在上传到 DeepSeek…' : '正在启动 MinerU…')}
                 </span>
                 <span className="convert-panel__ratio">
                   {phase.progress?.detail ??
@@ -521,8 +568,9 @@ export function ConvertPanel({
                 </div>
               ) : null}
               <p className="convert-panel__note">
-                整本大书要几十分钟。进度是 MinerU 当前阶段的进度（比如「文字识别 112/252」），
-                不是整本的百分比 —— 阶段会往下走，说明它在干活。
+                {isCloud
+                  ? '正在整份上传并由服务端识别。按页计费；上传阶段没有百分比可看，注意别关窗口。'
+                  : '整本大书要几十分钟。进度是 MinerU 当前阶段的进度（比如「文字识别 112/252」），不是整本的百分比 —— 阶段会往下走，说明它在干活。'}
               </p>
             </div>
           ) : (
@@ -555,17 +603,34 @@ export function ConvertPanel({
                   按钮文案要看语境（2026-11-11）。
                   已有正文时「转成正文」是错的 —— 那是第一次解析的说法；
                   这时用户是在「接着解析更多页」。
+
+                  2026-11-16：文案还要看**引擎**。原来写死「用本机 MinerU」，
+                  切到云 OCR 后按钮仍在说 MinerU —— 界面在说谎。
                 */}
                 {parseMode === 'full'
-                  ? (hasText ? '重新解析整本' : '用本机 MinerU 转成正文')
+                  ? hasText
+                    ? '重新解析整本'
+                    : isCloud
+                      ? '用 DeepSeek 云 OCR 识别'
+                      : '用本机 MinerU 转成正文'
                   : '解析这几页'}
               </button>
               <p className="convert-panel__note">
                 {parseMode === 'full'
-                  ? (hasText
-                      ? '会把整本重新解析一遍，覆盖已有正文（通常只有识别质量不满意时才需要）。整本大书可能要几十分钟。'
-                      : '首次运行可能要下载识别模型，会有一段时间没有反应 —— 那是正常的，不是卡死了。整本大书可能要几十分钟。')
-                  : '只解析指定的页范围，通常几十秒就好。适合先看某一章，或分批把整本凑齐。'}
+                  ? hasText
+                    ? '会把整本重新解析一遍，覆盖已有正文（通常只有识别质量不满意时才需要）。整本大书可能要几十分钟。'
+                    : isCloud
+                      ? /*
+                         * 云 OCR 的说明（2026-11-16 补）。
+                         * 原来这里说的是「下载识别模型」—— 那是 MinerU 的事，
+                         * 云 OCR 什么都不下载。而且它有一个用户必须知道的事实：
+                         * 只能整份上传，且服务端网关对请求体有上限。
+                         */
+                        '整份上传到 DeepSeek 识别，不用在本机装任何东西。按页收费（1.5 元 / 1000 页），不会切出插图。注意：目前只能整份上传，服务端网关对请求体有体积上限，太大的扫描件可能被拒 —— 那种情况改用本机 MinerU。'
+                      : '首次运行可能要下载识别模型，会有一段时间没有反应 —— 那是正常的，不是卡死了。整本大书可能要几十分钟。'
+                  : isCloud
+                    ? '云 OCR 目前只能整份上传，做不到只解析指定页范围 —— 需要按页解析请切回本机 MinerU。'
+                    : '只解析指定的页范围，通常几十秒就好。适合先看某一章，或分批把整本凑齐。'}
               </p>
 
               {/*
@@ -711,6 +776,16 @@ function hintForTrouble(trouble?: string): string {
       return '转换被取消了。已经转好的部分没有写回，可以重新开始。';
     case 'missing-file':
       return '原文件找不到了。可能被移动或删除，需要重新导入那份 PDF。';
+    case 'cloud-ocr':
+      /*
+       * 云 OCR 的失败（2026-11-16 新增）。
+       *
+       * 走 default 会说「看看 MinerU 那边的日志」—— 可用户用的是云 OCR，
+       * 本机 MinerU 可能压根没装。让人去找一个不存在的东西，比不给提示更糟。
+       * 具体原因已经写在上面的 message 里（服务端原话 / 网关拒收 / 字节数），
+       * 这里只给下一步做什么。
+       */
+      return '云 OCR 这条路走不通时，改用「本机 MinerU」解析这份资料 —— 它支持按页范围，不受云服务网关的体积上限限制。';
     default:
       return '再试一次；如果一直失败，看看 MinerU 那边的日志。';
   }

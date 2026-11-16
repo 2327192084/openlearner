@@ -402,3 +402,116 @@ describe('runOcr：真实调用路径', () => {
     if (r.ok) expect(r.pages.map((p) => p.page)).toEqual([1, 2]);
   });
 });
+
+/**
+ * 413 的两种来源（2026-11-16 实测后新增）。
+ *
+ * ## 这一组钉的是一个真实误报
+ *
+ * 用户实测：55.07 MiB 的 PDF 被云 OCR 拒了，界面上却写「文件超过 100 MiB」。
+ * 用户看着自己 55 MB 的文件，只会认为程序坏了。
+ *
+ * 真因（有实测证据）：
+ *  - 1 KiB → HTTP 401 JSON（链路正常，认证在大小检查之前）
+ *  - 55.07 MiB → HTTP 413 **HTML**，响应头 `server: openresty`，耗时 18.5 秒
+ *    （= 整个文件传完才被网关拒）
+ *  - 响应体是 `openresty` 的错误页，**不是 JSON**
+ *
+ * 也就是说服务端从没说过「100 MiB」，那句话是代码自己写死的：
+ * 原实现 `if (res.status === 413) return 文件超过 100 MiB` —— **不读响应体**。
+ *
+ * 所以这里要分开验：
+ *  - 应用层的 413（JSON error）→ 照服务端原话说
+ *  - 网关层的 413（HTML）→ 说清是网关体积上限 + **写出实际发送的 MiB**
+ *
+ * ⚠️ 否定断言：新文案里**不许**再出现「超过 100 MiB」这种断言式说法
+ * （网关的限制比 100 MiB 低，写死 100 就是在骗人）。
+ */
+describe('413：要分清网关层与应用层（2026-11-16 误报修复）', () => {
+  /** 造一个只有 text() 的 Response —— 网关返回 HTML 时就是这样 */
+  const htmlRes = (status: number, html: string) =>
+    ({
+      ok: false,
+      status,
+      text: async () => html,
+      json: async () => {
+        throw new SyntaxError('not json');
+      },
+    }) as unknown as Response;
+
+  /** 应用层错误：JSON 体 */
+  const jsonRes = (status: number, body: unknown) =>
+    ({
+      ok: false,
+      status,
+      text: async () => JSON.stringify(body),
+      json: async () => body,
+    }) as unknown as Response;
+
+  const GATEWAY_HTML =
+    '<html>\n<head><title>413 Request Entity Too Large</title></head>\n' +
+    '<body>\n<center><h1>413 Request Entity Too Large</h1></center>\n' +
+    '<hr><center>openresty</center>\n</body>\n</html>\n';
+
+  const base = {
+    fileName: 'a.pdf',
+    apiKey: 'sk-x',
+    baseUrl: 'https://api.deepseek.com',
+  };
+
+  it('★ 网关返回 HTML 413 → 说「网关上限」，不说「超过 100 MiB」', async () => {
+    const fake = (async () => htmlRes(413, GATEWAY_HTML)) as unknown as typeof globalThis.fetch;
+
+    const r = await runOcr({
+      ...base,
+      /* 55.07 MiB：用户那份高等数学的实际体积 */
+      bytes: new Uint8Array(Math.round(55.07 * 1024 * 1024)),
+      fetchImpl: fake,
+    });
+
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      /* 这是关键的否定断言：不能再说是 100 MiB 超了 */
+      expect(r.reason).not.toContain('超过 100 MiB');
+      /* 但要写出实际发了多大 —— 那是用户唯一能据以行动的数字 */
+      expect(r.reason).toContain('55.1 MiB');
+      /* 而且要指出是「网关」这一层，不是软件算错 */
+      expect(r.reason).toContain('网关');
+      expect(r.retryable).toBe(false);
+    }
+  });
+
+  it('★ 应用层 JSON 413 → 照服务端原话说，不自己编', async () => {
+    const fake = (async () =>
+      jsonRes(413, { error: { message: 'file is too large: max 100 MiB' } })) as unknown as typeof globalThis.fetch;
+
+    const r = await runOcr({
+      ...base,
+      bytes: new Uint8Array([1]),
+      fetchImpl: fake,
+    });
+
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      /* 服务端说了什么就显示什么 */
+      expect(r.reason).toBe('file is too large: max 100 MiB');
+    }
+  });
+
+  it('网关 413 里带 JSON 但没 error 字段 → 仍按网关处理', async () => {
+    const fake = (async () =>
+      jsonRes(413, { something: 'else' })) as unknown as typeof globalThis.fetch;
+
+    const r = await runOcr({
+      ...base,
+      bytes: new Uint8Array(Math.round(2 * 1024 * 1024)),
+      fetchImpl: fake,
+    });
+
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toContain('网关');
+      expect(r.reason).toContain('2.0 MiB');
+    }
+  });
+});
