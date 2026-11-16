@@ -148,19 +148,20 @@ function rec(name, pass, detail = '') {
 
   const pageState = await evalJs(`(() => {
     const btns = [...document.querySelectorAll('.source-item__export')].map(b => b.innerText.trim());
-    const store = document.querySelector('.sources-store');
     return {
       exportButtons: btns,
-      storeNote: store ? store.innerText.replace(/\\s+/g, ' ').slice(0, 200) : null,
+      /* 「资料保存位置」说明条已于 2026-11-17 按用户要求删除，这里改查它确实不在了 */
+      hasStoreNote: !!document.querySelector('.sources-store'),
     };
   })()`);
 
   rec('资料页有「导出原件」按钮', pageState.exportButtons.length > 0, `${pageState.exportButtons.length} 个`);
-  rec(
-    '说明条说明了原件就存在库里',
-    typeof pageState.storeNote === 'string' && pageState.storeNote.indexOf('原件') >= 0,
-    (pageState.storeNote ?? '').slice(0, 80),
-  );
+  /*
+   * 否定断言：「资料保存位置」说明条必须已经不在了。
+   * 用户原话：「那这个文件保存位置不要了，能导出原件就不需要这个功能了」。
+   * 对「没删干净」的实现，这条会挂 —— 那正是要抓的。
+   */
+  rec('★「资料保存位置」说明条已删除', pageState.hasStoreNote === false);
 
   /* ---------- 3. 取出字节并写成文件，与磁盘原文件比对 MD5 ---------- */
   const exported = await evalJs(`(async () => {

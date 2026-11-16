@@ -5,7 +5,6 @@ import { IconSources, IconUpload } from './icons.tsx';
 import { ConfirmDialog } from './dialog.tsx';
 import { disambiguateTitles } from '@/core/source-title.ts';
 import { RenameField } from './RenameField.tsx';
-import { SourcesStorageNote } from './SourcesStorageNote.tsx';
 import { extOf } from '@/v2/core/source-ext.ts';
 
 /**
@@ -334,12 +333,11 @@ export function SourcesPage({
       </div>
 
       {/*
-        资料存哪 / 是不是只链接（2026-11-16 用户要求）。
-        用户问：「资料是否在软件里有个单独的储存库，还是单纯链接资料位置」，
-        并要求「在软件界面内明确标注出资料库在电脑里的保存路径」。
-        就放在资料列表上方 —— 看资料的人正好在这一页。
+        「资料保存在 <IndexedDB 路径>」那条说明已删除（2026-11-17 用户要求）。
+        用户原话：「那这个文件保存位置不要了，能导出原件就不需要这个功能了」。
+        它解决不了任何问题：那个路径是数据库文件的位置，不是原件的位置，
+        点开只有 000004.log 这类二进制。真正有用的是每行的「导出原件」。
       */}
-      <SourcesStorageNote />
 
       <input
         ref={fileInputRef}

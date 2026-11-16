@@ -1030,35 +1030,16 @@ function registerMineru() {
   });
 
   /*
-   * 打开**数据目录**（userData/IndexedDB），不是整个 userData（2026-11-17）。
+   * `openleaner:reveal-data-dir` 已删除（2026-11-17 用户要求）。
    *
-   * ## 为什么要分开
+   * 那个 handler 用来打开 `userData/IndexedDB`，配合资料页那条
+   * 「资料保存位置」说明。用户看过之后说：
+   * 「那这个文件保存位置不要了，能导出原件就不需要这个功能了」。
    *
-   * 用户反馈：「资料的路径不够具体，我按提示打开的是软件本身的库，
-   * 里面还有很多其他资料，不是单纯资料保存的库。」
-   *
-   * 他说得对。userData 里除了 IndexedDB / Local Storage（真正的学习库），
-   * 还有 Cache、Code Cache、GPUCache、Network、Session Storage、
-   * DawnGraphiteCache、DIPS、WebStorage 等十几个浏览器内核目录。
-   * 让用户在那堆东西里找资料，等于什么都没告诉他。
-   *
-   * 这里直接打开 IndexedDB —— 资料、正文、知识点、题目都在里面。
-   *
-   * 目录不存在时（刚装还没导过东西）如实报错，不要打开一个空位置
-   * 让用户以为资料丢了。
+   * 删得有道理：那个目录里是 000004.log / 000005.ldb 这类 leveldb
+   * 二进制，用户既打不开也看不懂，看了也拿不到原件。
+   * 真正解决问题的是 `openleaner:export-source-file`（把字节还原成真文件）。
    */
-  ipcMain.handle('openleaner:reveal-data-dir', async () => {
-    const dir = path.join(app.getPath('userData'), 'IndexedDB');
-    try {
-      if (!fs.existsSync(dir)) {
-        return { ok: false, message: '还没有资料数据目录（导入第一份资料后才会生成）。' };
-      }
-    } catch (e) {
-      return { ok: false, message: e && e.message ? e.message : '读不到数据目录' };
-    }
-    const err = await shell.openPath(dir);
-    return err ? { ok: false, message: err } : { ok: true, message: null };
-  });
 
   /*
    * 把库里存的**原件字节**导出成一个真正的文件（2026-11-17）。

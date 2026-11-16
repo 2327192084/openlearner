@@ -172,14 +172,13 @@ const openleanerApi = Object.freeze({
     /** 在资源管理器里打开库目录（备份时要用） */
     reveal: () => ipcRenderer.invoke('openleaner:reveal-library-dir'),
 
-    /**
-     * 打开**数据目录**（userData/IndexedDB），不是整个 userData（2026-11-17）。
+    /*
+     * `revealData` 已删除（2026-11-17 用户要求）。
      *
-     * 用户反馈「按提示打开的是软件本身的库，里面还有很多其他资料」——
-     * 那是因为打开了 userData 根目录，里面十几个浏览器缓存目录
-     * 混着真正的 IndexedDB。这里直接打开装数据的那一层。
+     * 它配合资料页的「资料保存位置」说明条，用来打开 IndexedDB 目录。
+     * 用户看过之后说那个功能不要了 —— 那目录里只有 leveldb 二进制，
+     * 拿不到原件。真正有用的是下面的 exportSourceFile。
      */
-    revealData: () => ipcRenderer.invoke('openleaner:reveal-data-dir'),
 
     /**
      * 把库里的原件字节导出成一个真正的文件（2026-11-17）。
