@@ -180,6 +180,15 @@ const openleanerApi = Object.freeze({
      * 混着真正的 IndexedDB。这里直接打开装数据的那一层。
      */
     revealData: () => ipcRenderer.invoke('openleaner:reveal-data-dir'),
+
+    /**
+     * 把库里的原件字节导出成一个真正的文件（2026-11-17）。
+     *
+     * 用户要的是「能拿到原件文件」，而原件被封在 IndexedDB 里 ——
+     * 磁盘上没有 .pdf。这条 IPC 弹保存框并写出真实文件。
+     */
+    exportSourceFile: (suggestedName, ext, bytes) =>
+      ipcRenderer.invoke('openleaner:export-source-file', { suggestedName, ext, bytes }),
   }),
 
   /**

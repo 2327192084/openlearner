@@ -12,6 +12,7 @@ import { countFigures, importFigures } from '@/core/mineru/images.ts';
 import { PageRangePicker, pagesArgToCoveredPages, toPagesArg, validatePageRange } from './PageRangePicker.tsx';
 import type { ParseMode } from './PageRangePicker.tsx';
 import { usePageTask } from './page-task-context.ts';
+import { extOf } from '@/v2/core/source-ext.ts';
 
 /**
  * 扫描件 / 图片文件的转换面板。
@@ -925,11 +926,13 @@ async function materializeFromLibrary(
 
   /*
    * 扩展名：MinerU 的白名单只认 .pdf / 图片那几种。
-   * 从标题里取；取不到就按 kind 给一个合理默认
-   * （PDF 传 .pdf，图片传 .png —— 服务端按内容判断，扩展名只影响分派）。
+   *
+   * 用 `extOf` 而不是在这里再写一个正则（2026-11-17 抽出去）：
+   * 导出原件那条路也要同一套规则，两处各写一遍必然漂移 ——
+   * 漂移的表现是「导出能用、交给 MinerU 却报不支持」或者反过来。
+   * 那个函数有 8 项单测。
    */
-  const m = /\.(pdf|png|jpe?g|webp|bmp|gif|tiff?)$/i.exec(source.title.trim());
-  const ext = m ? `.${m[1]!.toLowerCase().replace('jpeg', 'jpg')}` : source.kind === 'pdf' ? '.pdf' : '.png';
+  const ext = extOf(source);
 
   try {
     const r = await put(source.id, ext, bytes);

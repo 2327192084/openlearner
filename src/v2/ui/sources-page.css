@@ -662,3 +662,41 @@
   color: var(--text-muted);
   text-decoration: underline;
 }
+
+/*
+ * 「导出原件」按钮与结果提示（2026-11-17）。
+ *
+ * 按钮样式放在层外：base.css 有无层级的 button 规则，压过 @layer 内的。
+ * 结果提示用 warn 色 —— 它多半是在说「库里没有原件，去重新导入」，
+ * 那不是成功消息。
+ */
+.source-item__export {
+  /*
+   * 用 --text-muted 而不是 --text-faint（2026-11-17 截图复核后改）。
+   *
+   * 原来用 faint，截图里和「删除」一样灰，**看起来像被禁用了** ——
+   * 实测 disabled 是 false，纯粹是颜色太弱造成的错觉。
+   * 「导出原件」是个正常可用的动作，不该长得像点不动。
+   */
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.source-item__export:hover {
+  color: var(--text);
+}
+
+.source-item__export:disabled {
+  opacity: 0.45;
+}
+
+@layer study.features {
+  .source-item__export-note {
+    flex-basis: 100%;
+    margin-top: var(--space-2);
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+}

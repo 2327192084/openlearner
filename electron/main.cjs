@@ -1061,6 +1061,65 @@ function registerMineru() {
   });
 
   /*
+   * 把库里存的**原件字节**导出成一个真正的文件（2026-11-17）。
+   *
+   * ## 为什么需要
+   *
+   * 用户原话：「我需要的是存原件的位置，你给这个不是原件啊」。
+   *
+   * 他说得对。原件**存在**（PDF 的每个字节都在 IndexedDB 里，
+   * 上一轮 MD5 验过 55 MB 完整无损），但磁盘上**没有任何 .pdf 文件** ——
+   * 字节被切碎存在 leveldb 的 000004.log 里，和知识点、题目混在一起。
+   *
+   * 所以「告诉我原件在哪」这个问题，在当前架构下**无解**：没有那个位置。
+   * 能给的只有「把原件导出来」。
+   *
+   * ## 设计
+   *
+   * 弹系统保存框 → 用户选位置与文件名 → 写入。
+   * 默认文件名用资料标题 + 正确扩展名。
+   *
+   * ## 安全边界
+   *
+   * - 扩展名白名单（与 MinerU 一致：pdf / 图片）
+   * - 拒绝空内容
+   * - 文件名里的非法字符替换掉，避免用户看到一堆系统报错
+   */
+  ipcMain.handle('openleaner:export-source-file', async (event, payload) => {
+    const body = payload && typeof payload === 'object' ? payload : {};
+    const suggested = typeof body.suggestedName === 'string' ? body.suggestedName : '资料';
+    const ext = typeof body.ext === 'string' ? body.ext.toLowerCase() : '';
+    const bytes = body.bytes;
+
+    const ALLOWED_EXT = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.tif', '.tiff']);
+    if (!ALLOWED_EXT.has(ext)) {
+      return { ok: false, message: `不支持导出「${ext || '无扩展名'}」这类文件。` };
+    }
+    if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) {
+      return { ok: false, message: '没有拿到原件字节。' };
+    }
+
+    /* 文件名里 Windows 不接受的字符换成下划线 */
+    const safe = suggested.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim() || '资料';
+
+    const owner = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+    const result = await dialog.showSaveDialog(owner, {
+      title: '导出原件',
+      defaultPath: path.join(app.getPath('downloads'), `${safe}${ext}`),
+      filters: [{ name: ext.replace('.', '').toUpperCase(), extensions: [ext.replace('.', '')] }],
+    });
+    if (result.canceled || !result.filePath) return { ok: false, canceled: true, message: null };
+
+    try {
+      fs.writeFileSync(result.filePath, bytes);
+      const size = fs.statSync(result.filePath).size;
+      return { ok: true, filePath: result.filePath, size, message: null };
+    } catch (e) {
+      return { ok: false, message: `写入失败：${e && e.message ? e.message : e}` };
+    }
+  });
+
+  /*
    * MinerU 手工路径（2026-11-11）。
    *
    * 三个动作：读当前值、弹框选 exe、存/清。

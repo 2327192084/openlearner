@@ -6,6 +6,7 @@ import { ConfirmDialog } from './dialog.tsx';
 import { disambiguateTitles } from '@/core/source-title.ts';
 import { RenameField } from './RenameField.tsx';
 import { SourcesStorageNote } from './SourcesStorageNote.tsx';
+import { extOf } from '@/v2/core/source-ext.ts';
 
 /**
  * 资料页。
@@ -91,6 +92,15 @@ export function SourcesPage({
    */
   const [renamingId, setRenamingId] = useState<string | null>(null);
   /**
+   * 正在导出原件的那份资料（2026-11-17）。
+   *
+   * 导出要读几十 MB 字节 + 等用户选保存位置，有停顿，
+   * 按钮上给个「导出中…」比什么都不显示好。
+   */
+  const [exportingId, setExportingId] = useState<string | null>(null);
+  /** 导出结果（成功给了路径 / 失败给了原因），按资料 id 挂在行下面 */
+  const [exportNote, setExportNote] = useState<{ id: string; text: string } | null>(null);
+  /**
    * 正在填页码的那份资料（2026-11-13）。
    *
    * 内联在行里展开一个小小的页码输入，而不是弹窗 ——
@@ -161,6 +171,60 @@ export function SourcesPage({
     if (!next) throw new Error('这份资料已经不在了（可能刚被删掉）');
     setRenamingId(null);
     await load();
+  }
+
+  /**
+   * 导出原件成真正的文件（2026-11-17）。
+   *
+   * ## 为什么会需要这个
+   *
+   * 用户原话：「我需要的是存原件的位置，你给这个不是原件啊」。
+   *
+   * 原件**确实存着**（PDF 每个字节都在 IndexedDB 的 sourceFiles 里，
+   * 实测 55 MB 与磁盘原文件 MD5 一致），但磁盘上**没有任何 .pdf 文件** ——
+   * 字节被切碎存在 leveldb 的 000004.log 里，和知识点、题目混在一起。
+   *
+   * 所以「告诉我原件在哪个文件夹」在当前架构下无解：没有那个位置。
+   * 能给的只有这一条 —— 把字节还原成一个真文件交出去。
+   *
+   * ## 拿不到原件时如实说
+   *
+   * `fileStored` 会过期（删进回收站再恢复时字节不会回来，
+   * 见 trash.ts restore 的注释），所以这里**以能不能真的取到为准**，
+   * 并且提示用户「重新导入一次就能补上」—— 而不是弹一个保存框
+   * 然后写一个 0 字节的文件。
+   */
+  async function exportOriginal(s: Source) {
+    setExportingId(s.id);
+    try {
+      const bytes = await service.getOriginalFile(s.id);
+      if (!bytes || bytes.byteLength === 0) {
+        setExportNote({
+          id: s.id,
+          text: '库里没有这份资料的原件（可能是删除后又从回收站恢复的，恢复不会带回原件）。重新导入一次那份文件即可补上。',
+        });
+        return;
+      }
+      const bridge = (window as unknown as {
+        openleaner?: { library?: { exportSourceFile?: (n: string, e: string, b: Uint8Array) => Promise<{ ok: boolean; filePath?: string; size?: number; canceled?: boolean; message?: string | null }> } };
+      }).openleaner?.library;
+      if (typeof bridge?.exportSourceFile !== 'function') {
+        setExportNote({ id: s.id, text: '这个环境不支持导出（需要在桌面应用里用）。' });
+        return;
+      }
+      const r = await bridge.exportSourceFile(s.title, extOf(s), bytes);
+      if (r.canceled) return;
+      setExportNote({
+        id: s.id,
+        text: r.ok
+          ? `已导出到 ${r.filePath}（${((r.size ?? 0) / 1048576).toFixed(2)} MiB）`
+          : `导出失败：${r.message ?? '未知原因'}`,
+      });
+    } catch (e) {
+      setExportNote({ id: s.id, text: e instanceof Error ? e.message : '导出失败' });
+    } finally {
+      setExportingId(null);
+    }
   }
 
   /**
@@ -611,6 +675,34 @@ export function SourcesPage({
               >
                 删除
               </button>
+
+              {/*
+                「导出原件」（2026-11-17）。
+                用户要「原件在哪个文件夹」，但原件被封在 IndexedDB 里、
+                磁盘上没有 .pdf。能给的就是把字节还原成真文件。
+                只在可能存了原件时出现（PDF / 图片），其余类型留了也没意义。
+              */}
+              {s.kind === 'pdf' || s.kind === 'image' ? (
+                <button
+                  type="button"
+                  className="source-item__export"
+                  aria-label={`导出「${s.title}」的原件`}
+                  title="把库里的原件导出成一个文件（PDF / 图片原样）"
+                  disabled={busy || exportingId === s.id}
+                  onClick={() => void exportOriginal(s)}
+                >
+                  {exportingId === s.id ? '导出中…' : '导出原件'}
+                </button>
+              ) : null}
+
+              {/*
+                导出结果（2026-11-17）：成功给路径、失败给原因。
+                就地显示在行下方 —— 导出是个明确的一次性动作，
+                不需要一个会一直挂着的全局提示。
+              */}
+              {exportNote && exportNote.id === s.id ? (
+                <p className="source-item__export-note">{exportNote.text}</p>
+              ) : null}
 
               {/*
                 跳页输入（2026-11-13）。
