@@ -21,6 +21,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';import type { Deck, GenerationRun, Source, UsageRecord } from '@/core/model.ts';
+import { bucketOf, type TaskBucket } from '@/core/task-run-service.ts';
 import type { SourceService } from '@/core/sources.ts';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { UsageService } from '@/core/usage.ts';
@@ -37,6 +38,16 @@ export interface TasksPageProps {
   onOpenOrganize: (sourceId: string | null) => void;
   /** 去我的题组 */
   onOpenDecks: () => void;
+  /**
+   * 去「文档解析」页并选中这份资料（2026-11-17）。
+   *
+   * 用户要求：「未完成和进行中可以通过点击相关任务转到对应功能界面
+   * 选择重新进行任务或是查看任务进度」。
+   *
+   * 给的是「去那一页」而不是「立刻重跑」：用户到那页既能看进度、
+   * 也能改页码范围再跑。一次性动作满足不了「查看进度」这个需求。
+   */
+  onOpenParse: (sourceId: string | null) => void;
   /**
    * 删除一条任务记录（2026-11-08）。
    *
@@ -69,8 +80,8 @@ export interface TasksPageProps {
  */
 interface RunRow {
   id: string;
-  /** 'organize' 整理知识点 / 'questions' 出题 */
-  kind: 'organize' | 'questions';
+  /** 'organize' 整理知识点 / 'questions' 出题 / 'parse' 文档解析 */
+  kind: 'organize' | 'questions' | 'parse';
   /** 归属对象标题（资料名或题组名） */
   target: string;
   /** 整理记录有真实状态；出题记录只有「完成」一种（失败的根本不会建 deck） */
@@ -94,6 +105,52 @@ const STATUS_LABEL: Record<GenerationRun['status'], string> = {
   failed: '失败',
 };
 
+/** 任务种类的显示名 */
+const KIND_LABEL: Record<RunRow['kind'], string> = {
+  organize: '整理知识点',
+  questions: '出题',
+  parse: '文档解析',
+};
+
+/**
+ * 「产出」那一行的说法要看种类（2026-11-17）。
+ *
+ * 解析产出的单位是**页**，整理与出题是**条**。
+ * 一律写「条」的话，解析记录会显示「产出 36 条」——
+ * 用户会以为出了 36 道题或 36 条知识点。
+ */
+function runProducedText(r: RunRow): string | null {
+  if (r.kind === 'parse') {
+    /* 失败 / 停掉时页数是 0，说「产出 0 页」没有信息量，索性不显示 */
+    return r.produced > 0 ? `转出 ${r.produced} 页` : null;
+  }
+  return `产出 ${r.produced} 条`;
+}
+
+/**
+ * 三栏（2026-11-17 用户要求：「未完成；进行中；已完成」）。
+ *
+ * 顺序按用户的说法排：未完成在前（那是最需要处理的），
+ * 已完成在最后（那是历史）。
+ */
+const BUCKETS: { id: TaskBucket; label: string; hint: string }[] = [
+  {
+    id: 'todo',
+    label: '未完成',
+    hint: '失败或中途停下的。点进去可以重新跑一次。',
+  },
+  {
+    id: 'running',
+    label: '进行中',
+    hint: '正在跑的任务。点进去看进度。',
+  },
+  {
+    id: 'done',
+    label: '已完成',
+    hint: '跑完并产出了结果的。',
+  },
+];
+
 type Load =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
@@ -106,6 +163,7 @@ export function TasksPage({
   knowledge,
   onOpenOrganize,
   onOpenDecks,
+  onOpenParse,
   onRemoveRun,
   onClearRuns,
 }: TasksPageProps) {
@@ -138,9 +196,23 @@ export function TasksPage({
        * 2026-11-08：generationRuns 现在也记出题了，所以要按 kind 分开。
        * 老数据没有 kind 字段 → 当时只有整理会写，按 'organize' 处理。
        */
-      const isOrganize = (r: GenerationRun) => (r.kind ?? 'organize') === 'organize';
+      /*
+       * ⚠️ 必须按 kind **精确**分，不能用 `!isOrganize(r)` 当「出题」。
+       *
+       * 2026-11-17 加 `kind: 'parse'`（文档解析）时，原来那句
+       * `runs.filter((r) => !isOrganize(r))` 会把解析记录也算进「出题」——
+       * 任务页就会出现一行「出题：高等数学 / 未完成」，而实际上
+       * 那是一次解析。这正是本项目反复踩的「宽条件」坑
+       * （GeneratePage 里也记过一次同类事故）。
+       */
+      const kindOf = (r: GenerationRun): 'organize' | 'questions' | 'parse' => {
+        const k = r.kind ?? 'organize';
+        if (k === 'questions' || k === 'parse') return k;
+        /* 'slides' 与老数据都按整理处理（slides 目前没有对应行） */
+        return 'organize';
+      };
 
-      const organizeRows: RunRow[] = runs.filter(isOrganize).map((r) => ({
+      const organizeRows: RunRow[] = runs.filter((r) => kindOf(r) === 'organize').map((r) => ({
         id: r.id,
         kind: 'organize',
         target: sourceTitle.get(r.sourceId) ?? '（资料已删除）',
@@ -154,11 +226,35 @@ export function TasksPage({
         sourceId: r.sourceId,
       }));
 
+      /*
+       * 解析记录（2026-11-17 新增）。
+       *
+       * 用户要求：「任务栏没有记录文档解析的任务，把这个加上去。」
+       * 解析是最耗时的一步（442 页扫描件几十分钟），用户切走后
+       * 需要一个地方回来看「跑完没有、成没成」。
+       *
+       * 沿用 RunRow 形状，`produced` 在这里是**页数**（不是条数），
+       * 显示时按 kind 换单位（见 runProducedText）。
+       */
+      const parseRows: RunRow[] = runs.filter((r) => kindOf(r) === 'parse').map((r) => ({
+        id: r.id,
+        kind: 'parse',
+        target: sourceTitle.get(r.sourceId) ?? '（资料已删除）',
+        status: r.status,
+        produced: r.producedCount,
+        unlocated: 0,
+        tokens: null,
+        startedAt: r.startedAt,
+        finishedAt: r.finishedAt,
+        error: r.error,
+        sourceId: r.sourceId,
+      }));
+
       /* 出题记录：来自 generationRuns（有真实 token 与耗时） */
       const deckTitle = new Map<string, string>(
         deckList.map((d: Deck) => [d.id, d.title]),
       );
-      const questionRows: RunRow[] = runs.filter((r) => !isOrganize(r)).map((r) => ({
+      const questionRows: RunRow[] = runs.filter((r) => kindOf(r) === 'questions').map((r) => ({
         id: r.id,
         kind: 'questions',
         target:
@@ -216,7 +312,7 @@ export function TasksPage({
           deckId: d.id,
         }));
 
-      const rows = [...organizeRows, ...questionRows, ...legacyDeckRows];
+      const rows = [...parseRows, ...organizeRows, ...questionRows, ...legacyDeckRows];
       /* 最近的在最上面 */
       rows.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
 
@@ -301,8 +397,9 @@ export function TasksPage({
       <header className="tk-head">
         <h1 className="tk-title">任务</h1>
         <p className="tk-lead">
-          整理知识点和出题的每一次运行都记在这里：什么时候跑的、成没成、
-          产出多少条、花了多少 token。失败的原因也在这里，不用再猜。
+          文档解析、整理知识点、出题的每一次运行都记在这里：什么时候跑的、成没成、
+          产出多少、花了多少 token。按「未完成 / 进行中 / 已完成」分开，
+          没做完的点进去就能重新跑。
         </p>
         {onClearRuns && runs.length > 0 ? (
           <button
@@ -333,78 +430,122 @@ export function TasksPage({
         </div>
       ) : null}
 
-      {/* ---- 运行记录 ---- */}
+      {/* ---- 运行记录：三栏（2026-11-17 用户要求） ---- */}
       {runs.length === 0 ? (
         <div className="tk-empty">
           <p>还没有任何任务记录。</p>
           <p className="tk-hint">
-            到「资料」里点某一份的「整理」，或者到「我的题组」出一次题，
-            记录就会出现在这里。
+            到「文档解析」转一份资料的正文，或到「资料」里点「整理」，
+            或者到「我的题组」出一次题，记录就会出现在这里。
           </p>
           <button type="button" className="btn-ghost" onClick={() => onOpenOrganize(null)}>
             去整理知识点
           </button>
         </div>
       ) : (
-        <ul className="tk-list">
-          {runs.map((r) => (
-            <li key={r.id} className="tk-item">
-              <div className="tk-item__head">
-                <span className={`tk-badge tk-badge--${r.status}`}>{STATUS_LABEL[r.status]}</span>
-                <span className="tk-item__kind">
-                  {r.kind === 'organize' ? '整理知识点' : '出题'}
-                </span>
-                <span className="tk-item__time">{formatWhen(r.startedAt)}</span>
-                {r.finishedAt ? (
-                  <span className="tk-item__dur">{formatDuration(r.startedAt, r.finishedAt)}</span>
-                ) : null}
-              </div>
+        <div className="tk-buckets">
+          {BUCKETS.map((b) => {
+            const items = runs.filter((r) => bucketOf(r.status) === b.id);
+            return (
+              <section key={b.id} className={`tk-bucket tk-bucket--${b.id}`}>
+                <header className="tk-bucket__head">
+                  <h2 className="tk-bucket__title">
+                    {b.label}
+                    <span className="tk-bucket__count">{items.length}</span>
+                  </h2>
+                  <p className="tk-bucket__hint">{b.hint}</p>
+                </header>
 
-              <p className="tk-item__target">{r.target}</p>
-
-              <div className="tk-item__meta">
-                <span>产出 {r.produced} 条</span>
-                {r.unlocated > 0 ? (
-                  <span className="tk-item__warn">{r.unlocated} 条未定位</span>
-                ) : null}
-                {r.tokens !== null ? <span>{r.tokens.toLocaleString()} tokens</span> : null}
-              </div>
-
-              {r.error ? <p className="tk-item__error">{r.error}</p> : null}
-
-              <div className="tk-item__foot">
-                {r.kind === 'organize' && r.sourceId ? (
-                  <button
-                    type="button"
-                    className="btn-text"
-                    onClick={() => onOpenOrganize(r.sourceId)}
-                  >
-                    再去整理这份
-                  </button>
+                {items.length === 0 ? (
+                  <p className="tk-bucket__none">（空）</p>
                 ) : (
-                  <button type="button" className="btn-text" onClick={onOpenDecks}>
-                    去我的题组
-                  </button>
+                  <ul className="tk-list">
+                    {items.map((r) => (
+                      <li key={r.id} className="tk-item">
+                        <div className="tk-item__head">
+                          <span className={`tk-badge tk-badge--${r.status}`}>
+                            {STATUS_LABEL[r.status]}
+                          </span>
+                          <span className="tk-item__kind">{KIND_LABEL[r.kind]}</span>
+                          <span className="tk-item__time">{formatWhen(r.startedAt)}</span>
+                          {r.finishedAt ? (
+                            <span className="tk-item__dur">
+                              {formatDuration(r.startedAt, r.finishedAt)}
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <p className="tk-item__target">{r.target}</p>
+
+                        <div className="tk-item__meta">
+                          {(() => {
+                            const t = runProducedText(r);
+                            return t ? <span>{t}</span> : null;
+                          })()}
+                          {r.unlocated > 0 ? (
+                            <span className="tk-item__warn">{r.unlocated} 条未定位</span>
+                          ) : null}
+                          {r.tokens !== null ? (
+                            <span>{r.tokens.toLocaleString()} tokens</span>
+                          ) : null}
+                        </div>
+
+                        {r.error ? <p className="tk-item__error">{r.error}</p> : null}
+
+                        <div className="tk-item__foot">
+                          {/*
+                            跳转（2026-11-17 用户要求）：
+                            「未完成和进行中可以通过点击相关任务转到对应功能界面
+                              选择重新进行任务或是查看任务进度」。
+                            所以这两栏给的是「去那一页」，而不是「再来一次」的
+                            一次性动作 —— 用户到那页既能看进度、也能重跑。
+                          */}
+                          {r.kind === 'parse' && r.sourceId ? (
+                            <button
+                              type="button"
+                              className="btn-text"
+                              onClick={() => onOpenParse(r.sourceId)}
+                            >
+                              {r.status === 'running' ? '去看解析进度' : '去重新解析'}
+                            </button>
+                          ) : null}
+                          {r.kind === 'organize' && r.sourceId ? (
+                            <button
+                              type="button"
+                              className="btn-text"
+                              onClick={() => onOpenOrganize(r.sourceId)}
+                            >
+                              {r.status === 'running' ? '去看整理进度' : '再去整理这份'}
+                            </button>
+                          ) : null}
+                          {r.kind === 'questions' ? (
+                            <button type="button" className="btn-text" onClick={onOpenDecks}>
+                              去我的题组
+                            </button>
+                          ) : null}
+                          {/*
+                            删除这一条记录（2026-11-08）。
+                            只删**记录**，不动知识点/题目本身 —— 用户想清掉一条
+                            失败的历史，不该顺手把他的劳动成果也删了。
+                          */}
+                          {onRemoveRun ? (
+                            <button
+                              type="button"
+                              className="tk-remove"
+                              onClick={() => setPendingRun({ id: r.id, target: r.target })}
+                            >
+                              删除记录
+                            </button>
+                          ) : null}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
                 )}
-                {/*
-                  删除这一条记录（2026-11-08）。
-                  只删**记录**，不动知识点/题目本身 —— 用户想清掉一条
-                  失败的历史，不该顺手把他的劳动成果也删了。
-                  这一点在确认框里写清楚。
-                */}
-                {onRemoveRun ? (
-                  <button
-                    type="button"
-                    className="tk-remove"
-                    onClick={() => setPendingRun({ id: r.id, target: r.target })}
-                  >
-                    删除记录
-                  </button>
-                ) : null}
-              </div>
-            </li>
-          ))}
-        </ul>
+              </section>
+            );
+          })}
+        </div>
       )}
 
       {pendingClear ? (

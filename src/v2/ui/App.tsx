@@ -492,6 +492,14 @@ export function App({
   const [organizeSourceId, setOrganizeSourceId] = useState<string | null>(null);
 
   /**
+   * 「文档解析」页要选中哪一份资料（2026-11-17）。
+   *
+   * 与 organizeSourceId 同样单独存：从任务页点「去重新解析 / 看进度」时
+   * 要带上 sourceId，而「显示哪一页」和「解析哪一份」是两件事。
+   */
+  const [parseSourceId, setParseSourceId] = useState<string | null>(null);
+
+  /**
    * 阅读器要打开哪一份资料、定位到哪里。
    *
    * 和 organizeSourceId 一样单独存：从知识点列表点「可点回原文」时
@@ -537,6 +545,7 @@ export function App({
     knowledge: knowledgeService,
     flashcards: flashcardsService,
     oralReviews: oralReviewService,
+    taskRuns,
   } = useServices();
 
   /**
@@ -1862,6 +1871,15 @@ export function App({
           }}
           onOpenDecks={() => setPage('decks')}
           /*
+            去「文档解析」页并选中那份资料（2026-11-17）。
+            用户要求未完成/进行中的任务能点进去「查看进度或重新进行」——
+            所以这里跳到解析页，而不是就地重跑一次。
+          */
+          onOpenParse={(sourceId) => {
+            setParseSourceId(sourceId);
+            setPage('parse');
+          }}
+          /*
             任务记录删除（2026-11-08）。
             只删记录，不动知识点/题目 —— 服务层注释里写了理由。
           */
@@ -2190,7 +2208,16 @@ export function App({
       ) : page === 'parse' ? (
         <ParsePage
           sourceService={sourceService}
-          initialSourceId={organizeSourceId}
+          /*
+            两个来源共用一个入参（2026-11-17）：
+            从整理页跳来的用 organizeSourceId，从任务页点「去重新解析」来的
+            用 parseSourceId。后者优先 —— 那是用户刚刚点的那一下。
+          */
+          initialSourceId={parseSourceId ?? organizeSourceId}
+          runRecorder={{
+            start: (input) => taskRuns.startParseRun(input),
+            finish: (id, outcome) => taskRuns.finishParseRun(id, outcome),
+          }}
           onOpenReader={(sourceId) => openReader(sourceId, null)}
           onOpenOrganize={(sourceId) => {
             setOrganizeSourceId(sourceId);

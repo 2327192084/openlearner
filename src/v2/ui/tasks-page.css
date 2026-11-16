@@ -187,3 +187,70 @@
     margin-top: var(--space-2);
   }
 }
+
+/* ---------- 三栏分类（2026-11-17 用户要求） ---------- */
+@layer study.features {
+  .tk-buckets {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+  }
+
+  .tk-bucket__head {
+    margin-bottom: var(--space-2);
+  }
+
+  .tk-bucket__title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--fs-lg);
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  /*
+   * 计数徽标：中性底。
+   * 「未完成」那一栏如果数字 > 0，用户需要注意到 —— 但别用红色，
+   * 失败的任务不是危险，只是待处理。
+   */
+  .tk-bucket__count {
+    padding: 0 7px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--text) 10%, transparent);
+    color: var(--text-muted);
+    font-size: var(--fs-xs);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.7;
+  }
+
+  .tk-bucket__hint {
+    margin-top: 2px;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+  }
+
+  .tk-bucket__none {
+    padding: var(--space-3) 0;
+    font-size: var(--fs-sm);
+    color: var(--text-faint);
+  }
+
+  /*
+   * 三栏之间用左侧细线区分，而不是把每栏做成卡片 ——
+   * 任务页是清单式的，卡片边框会让一屏能看的内容变少。
+   */
+  .tk-bucket {
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--line-soft);
+  }
+
+  .tk-bucket--running {
+    border-left-color: var(--accent);
+  }
+
+  .tk-bucket--todo {
+    border-left-color: var(--bad);
+  }
+}

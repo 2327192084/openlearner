@@ -6,6 +6,7 @@ import { CourseService, SourceService } from '@/core/sources.ts';
 import { KnowledgeService } from '@/core/knowledge/service.ts';
 import { FlashcardService } from '@/core/flashcards.ts';
 import { OralReviewService } from '@/core/oral-review-service.ts';
+import { TaskRunService } from '@/core/task-run-service.ts';
 import { DeckService } from '@/core/questions/service.ts';
 import { SlideService } from '@/core/slides/service.ts';
 import { UsageService } from '@/core/usage.ts';
@@ -92,6 +93,8 @@ function Bootstrap() {
     const flashcards = new FlashcardService(storage);
     /* 提问式复习的记录（2026-11-10）：判定逻辑在 core/oral-review.ts */
     const oralReviews = new OralReviewService(storage);
+    /* 任务运行记录（2026-11-17）：解析 / 整理 / 出题共用 generationRuns */
+    const taskRuns = new TaskRunService(storage);
 
     library
       .init()
@@ -173,6 +176,7 @@ function Bootstrap() {
           slides,
           flashcards,
           oralReviews,
+          taskRuns,
           trash,
           env: detectEnv(),
         });

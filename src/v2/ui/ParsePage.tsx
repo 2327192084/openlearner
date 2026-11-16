@@ -60,6 +60,24 @@ export interface ParsePageProps {
     /** 建 runner：传进来的资料 id → 可运行的 MinerURunner */
     makeRunner: (sourceId: string) => Promise<{ runner: import('@/core/mineru/runner.ts').MinerURunner } | { error: string }>;
   };
+  /**
+   * 记录解析运行（2026-11-17，用户要求任务栏也记文档解析）。
+   *
+   * 原样透传给 ConvertPanel —— 真正的运行在这里发生，
+   * 所以起止记录也在那儿写。本页只负责把服务传下去。
+   */
+  runRecorder?: {
+    start: (input: {
+      sourceId: string;
+      sourceTitle: string;
+      pageRange: { from: number; to: number } | null;
+      engine: 'local' | 'deepseek';
+    }) => Promise<string>;
+    finish: (
+      id: string,
+      outcome: { status: 'completed' | 'stopped' | 'failed'; pages: number; error?: string | null },
+    ) => Promise<void>;
+  };
 }
 
 type Load =
@@ -73,6 +91,7 @@ export function ParsePage({
   onOpenReader,
   onOpenOrganize,
   cloudOcr,
+  runRecorder,
 }: ParsePageProps) {
   const [state, setState] = useState<Load>({ kind: 'loading' });
   const [picked, setPicked] = useState<string | null>(initialSourceId ?? null);
@@ -392,6 +411,7 @@ export function ParsePage({
                 alwaysShow
                 engine={engine}
                 onConverted={() => void load()}
+                {...(runRecorder ? { runRecorder } : {})}
                 {...(onOpenReader
                   ? { onOpenPage: () => onOpenReader(current.id) }
                   : {})}

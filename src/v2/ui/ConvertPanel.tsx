@@ -197,6 +197,36 @@ export interface ConvertPanelProps {
    * 不传 = 本地（保持原有行为，整理页那边不传也不影响）。
    */
   engine?: 'local' | 'deepseek';
+  /**
+   * 记录一次解析运行（2026-11-17 用户要求）。
+   *
+   * ## 为什么要它
+   *
+   * 用户原话：「任务栏没有记录文档解析的任务，把这个加上去。」
+   *
+   * 解析是本项目最耗时的事（442 页扫描件几十分钟）。用户切走去看别的、
+   * 回来忘了它还在跑；或者失败了不知道 —— 任务页正是该显示它的地方。
+   *
+   * 不传 = 不记录（单测、以及将来别的调用方不想污染记录时用）。
+   *
+   * ## 契约
+   *
+   * start 返回一个 id，无论成功失败**必须**调 finish ——
+   * 否则那条记录会永远停在「进行中」，任务页看起来像卡死。
+   * 这里所有分支（成功 / 失败 / 用户中途停 / 抛异常）都接了 finish。
+   */
+  runRecorder?: {
+    start: (input: {
+      sourceId: string;
+      sourceTitle: string;
+      pageRange: { from: number; to: number } | null;
+      engine: 'local' | 'deepseek';
+    }) => Promise<string>;
+    finish: (
+      id: string,
+      outcome: { status: 'completed' | 'stopped' | 'failed'; pages: number; error?: string | null },
+    ) => Promise<void>;
+  };
 }
 
 export function ConvertPanel({
@@ -207,6 +237,7 @@ export function ConvertPanel({
   runner,
   alwaysShow = false,
   engine = 'local',
+  runRecorder,
 }: ConvertPanelProps) {
   /** 走的是云 OCR 那条路吗（决定按钮文案与说明，见 Props 上的注释） */
   const isCloud = engine === 'deepseek';
@@ -331,6 +362,49 @@ export function ConvertPanel({
     }
 
     setPhase({ kind: 'running', progress: null });
+
+    /*
+     * 开一条「解析」任务记录（2026-11-17 用户要求）。
+     *
+     * 放在页范围校验**之后**：范围不合法不该在任务页留一条记录，
+     * 那会让用户以为「跑过一次」。
+     *
+     * 记录里带页码范围与引擎：任务页据此显示「解析 3-15 页 / 云 OCR」，
+     * 用户回来后一眼能看出是哪次、用什么跑的。
+     */
+    const range =
+      parseMode === 'full'
+        ? null
+        : { from: Number(rangeStart) || 1, to: Number(rangeEnd) || source.pageCount || 1 };
+    let runId: string | null = null;
+    if (runRecorder) {
+      try {
+        runId = await runRecorder.start({
+          sourceId: source.id,
+          sourceTitle: source.title,
+          pageRange: range,
+          engine,
+        });
+      } catch {
+        /* 记不上不影响解析本身 —— 别因为一个统计功能挡住主流程 */
+        runId = null;
+      }
+    }
+    /** 收尾用的助手：无论走哪个分支都要把记录关掉 */
+    const finishRun = async (
+      status: 'completed' | 'stopped' | 'failed',
+      pages: number,
+      error?: string | null,
+    ) => {
+      if (!runId || !runRecorder) return;
+      try {
+        await runRecorder.finish(runId, { status, pages, error: error ?? null });
+      } catch {
+        /* 同上：统计失败不该影响用户 */
+      }
+      runId = null;
+    };
+
     try {
       /*
        * 拿原文件的**绝对路径** —— 但只有 MinerU 需要它（2026-11-16 修）。
@@ -403,6 +477,12 @@ export function ConvertPanel({
               '重新导入一次那份文件即可 —— 之后就不用再选第二次了。' +
               '（也可以切到「DeepSeek 云 OCR」，但它同样需要库里有原件。）',
           });
+          /*
+           * ⚠️ 提前返回前必须关掉任务记录（2026-11-17）。
+           * 漏了这一步，任务页会永远显示「进行中」—— 看起来像卡死，
+           * 而实际上这一步压根没开始跑。
+           */
+          void finishRun('failed', 0, '库里没有原件');
           return;
         }
         absolutePath = resolved;
@@ -445,6 +525,21 @@ export function ConvertPanel({
       );
 
       const report = await convertAndWriteBack({ source, sourceService, result });
+
+      /*
+       * 关掉任务记录（2026-11-17）。
+       *
+       * ⚠️ 必须在 `if (!aliveRef.current) return` **之前**调用：
+       * 组件卸载了也照样要把记录关掉，否则任务页会永远显示「进行中」。
+       * 所以这里不像下面那句 setPhase 那样受 aliveRef 保护。
+       */
+      void finishRun(
+        'completed',
+        /* 成功解析出的页数 —— 任务页显示「产出 N 页」 */
+        result.pages.length,
+        null,
+      );
+
       if (!aliveRef.current) return;
       setPhase({ kind: 'done', report });
       onConverted();
@@ -474,9 +569,21 @@ export function ConvertPanel({
         pagesArgToCoveredPages(toPagesArg(parseMode, rangeStart, rangeEnd)),
       );
     } catch (err) {
-      if (!aliveRef.current) return;
       const message = err instanceof Error ? err.message : '转换失败';
       const trouble = (err as Error & { trouble?: string }).trouble;
+
+      /*
+       * 失败也要关掉任务记录（2026-11-17）。
+       * 同样放在 aliveRef 判断之前 —— 否则用户切走页面后，
+       * 那条记录会永远停在「进行中」。
+       *
+       * 用 'failed' 而不是 'stopped'：这里是真出错了（网络/格式/权限），
+       * 与用户主动停下不同。任务页把它们都归到「未完成」，
+       * 但记录里保留区别，方便排查。
+       */
+      void finishRun('failed', 0, message);
+
+      if (!aliveRef.current) return;
       setPhase({
         kind: 'failed',
         message,
@@ -484,7 +591,7 @@ export function ConvertPanel({
         ...(trouble ? { trouble } : {}),
       });
     }
-  }, [source, sourceService, effectiveRunner, onConverted, parseMode, rangeStart, rangeEnd]);
+  }, [source, sourceService, effectiveRunner, onConverted, parseMode, rangeStart, rangeEnd, engine, runRecorder]);
 
   /*
    * 什么时候不再渲染这个面板（2026-11-11 改）。

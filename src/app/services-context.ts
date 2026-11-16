@@ -14,6 +14,7 @@ import type { ExamService } from '@/core/exam.ts';
 import type { TodoService } from '@/core/todos.ts';
 import type { FocusService } from '@/core/focus.ts';
 import type { TrashService } from '@/core/trash.ts';
+import type { TaskRunService } from '@/core/task-run-service.ts';
 
 /**
  * 应用运行时上下文。
@@ -47,6 +48,15 @@ export interface AppServices {
   trash: TrashService;
   /** P2：知识点整理与校对 */
   knowledge: KnowledgeService;
+  /**
+   * 任务运行记录（2026-11-17）。
+   *
+   * 用户要求任务栏也记「文档解析」，并把任务分成未完成/进行中/已完成。
+   * 这张表原先只由整理知识点写（出题后来补了 kind），解析从来没写过。
+   * 抽一个只管运行记录的小服务，谁跑任务谁调它 —— 不塞进 KnowledgeService
+   * （那个管的是知识点，不是运行历史）。
+   */
+  taskRuns: TaskRunService;
   /** P3：习题集、作答与错题 */
   decks: DeckService;
   /**
