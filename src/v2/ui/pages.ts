@@ -3,7 +3,6 @@ import {
   IconBack,
   IconBoard,
   IconBook,
-  IconAudio,
   IconExam,
   IconFlashcards,
   IconFlow,
@@ -11,12 +10,10 @@ import {
   IconHelp,
   IconLibrary,
   IconNotes,
-  IconRecord,
   IconSettings,
   IconSkeleton,
   IconSources,
   IconStats,
-  IconTarget,
   IconTasks,
   IconTrash,
   IconWrongbook,
@@ -58,7 +55,6 @@ export type PageId =
   | 'board'
   | 'focus'
   | 'exam'
-  | 'examprep'
   | 'book'
   | 'stats'
   /** 提问式复习的记录回看（2026-11-13） */
@@ -66,8 +62,6 @@ export type PageId =
   /** 闪卡管理（2026-11-13 深夜） */
   | 'flashcards'
   | 'skeleton'
-  | 'audio'
-  | 'record'
   | 'organize'
   | 'reader'
   | 'guide'
@@ -253,25 +247,6 @@ export const PAGES: PageDef[] = [
     ready: true,
   },
   {
-    id: 'examprep',
-    label: '备考补习',
-    title: '备考补习',
-    icon: IconTarget,
-    /*
-     * 从侧栏摘掉。
-     *
-     * 这一页需要「考试大纲」作为输入：知道要考哪些点，才能算「缺什么补什么」。
-     * 项目里目前没有任何导入考纲的入口，也没有考纲的数据结构 ——
-     * 做出来只会是一个让人填不出东西的空壳。
-     *
-     * 按项目一贯的规矩：不摆点了没反应的入口。
-     * 等真的要做了（并确定考纲从哪来），再把 show 打开。
-     */
-    purpose: '按考试大纲整理要复习的清单（需要先支持导入考纲，暂未做）',
-    group: 'staged',
-    show: false,
-  },
-  {
     id: 'book',
     /*
      * 「复习全书」改名为「复习巩固」（2026-11-09，用户要求）。
@@ -396,32 +371,6 @@ export const PAGES: PageDef[] = [
     group: 'prep',
     show: true,
     ready: true,
-  },
-  {
-    id: 'audio',
-    label: '音频转写',
-    title: '音频转写',
-    icon: IconAudio,
-    /*
-     * 从侧栏摘掉：需要接一个语音转写引擎（Whisper / 云端 API 等），
-     * 选哪个是产品决策，得由用户定。在那之前做不了，也就没有入口。
-     */
-    purpose: '把课堂录音转成文字（需要先定用哪个转写引擎，暂未做）',
-    group: 'prep',
-    show: false,
-  },
-  {
-    id: 'record',
-    label: '课堂实录',
-    title: '课堂实录',
-    icon: IconRecord,
-    /*
-     * 从侧栏摘掉：它依赖音频转写（先录下来再转文字），
-     * 而转写引擎还没定。链路上游没有，下游就不能摆出来。
-     */
-    purpose: '边上课边记，课后自动整理（依赖音频转写，暂未做）',
-    group: 'prep',
-    show: false,
   },
 ];
 

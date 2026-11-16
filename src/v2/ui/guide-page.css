@@ -73,10 +73,6 @@
     margin: var(--space-7) 0 var(--space-3);
   }
 
-  .gd-h2--pending {
-    color: var(--text-dim);
-  }
-
   .gd-group {
     margin-bottom: var(--space-4);
   }
@@ -87,14 +83,6 @@
     color: var(--text-faint);
     letter-spacing: 0.06em;
     margin-bottom: var(--space-2);
-  }
-
-  .gd-hint {
-    color: var(--text-faint);
-    font-size: var(--fs-sm);
-    line-height: var(--lh-body);
-    margin-bottom: var(--space-3);
-    max-width: 64ch;
   }
 
   /* ---------- 每一项 ---------- */
@@ -137,8 +125,7 @@
     background: var(--bg-hover);
   }
 
-  .gd-item--static,
-  .gd-item--pending {
+  .gd-item--static {
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -154,37 +141,16 @@
     font-weight: 550;
   }
 
-  /* 还没做的项名字压暗，一眼能分出来 */
-  .gd-item--pending .gd-item__name {
-    color: var(--text-dim);
-    font-weight: 400;
-  }
-
   .gd-item__purpose {
     color: var(--text-dim);
     font-size: var(--fs-sm);
     line-height: 1.55;
   }
 
-  .gd-item--pending .gd-item__purpose {
-    color: var(--text-faint);
-  }
-
   .gd-item__how {
     color: var(--text-faint);
     font-size: var(--fs-xs);
     margin-top: 2px;
-  }
-
-  /* 「还没做」徽标：中性灰，不用彩色（它不是警告，只是事实） */
-  .gd-badge {
-    padding: 0 6px;
-    border-radius: var(--radius-xs);
-    background: color-mix(in srgb, var(--text) 8%, transparent);
-    color: var(--text-faint);
-    font-size: var(--fs-xs);
-    font-weight: 400;
-    line-height: 1.7;
   }
 
   /* ---------- 要点 ---------- */

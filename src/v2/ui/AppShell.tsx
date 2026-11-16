@@ -147,7 +147,7 @@ export function AppShell({
             <BrandGlyph />
           </div>
           <div className="brand__text">
-            <div className="brand__name">OpenLeaner</div>
+            <div className="brand__name">Open Learner</div>
             <div className="brand__tag">每道题都点得回原页</div>
           </div>
         </div>
@@ -355,7 +355,7 @@ export function AppShell({
           </button>
           {/* 面包屑：品牌 › 页名。只用一个 ›，多一个是多余的 */}
           <span className="topbar__crumb">
-            OpenLeaner <span className="topbar__crumb-sep">›</span>
+            Open Learner <span className="topbar__crumb-sep">›</span>
           </span>
           <span className="topbar__title">{page.title}</span>
 

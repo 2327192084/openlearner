@@ -125,7 +125,7 @@ function record(name, ok, detail = '') {
     const bodyLen = await evalJs('document.body.innerText.trim().length');
     record('应用启动并渲染出界面', bodyLen > 50, `正文 ${bodyLen} 字`);
 
-    const hasBrand = await evalJs("document.body.innerText.includes('OpenLeaner')");
+    const hasBrand = await evalJs("document.body.innerText.includes('Open Learner')");
     record('侧栏品牌可见', hasBrand === true);
 
     // ---- 2. 进做题页，确认三种模式 ----

@@ -241,21 +241,6 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* ---------- 音频占位 ---------- */
-  .audio-todo {
-    padding: var(--space-5);
-    border: 1px solid var(--line-soft);
-    border-radius: var(--radius-card);
-    background: var(--bg-surface);
-  }
-
-  .audio-todo__text {
-    font-size: var(--fs-sm);
-    color: var(--text-muted);
-    line-height: var(--lh-body);
-    max-width: 58ch;
-  }
-
   /* ---------- 格式说明折叠 ---------- */
   .sources-note {
     margin-top: var(--space-4);

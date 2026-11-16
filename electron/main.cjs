@@ -291,7 +291,7 @@ if (!userDataResult.ok) {
     fs.writeFileSync(
       path.join(path.dirname(process.execPath), 'openleaner-startup-error.txt'),
       [
-        'OpenLeaner 无法启动：找不到可写的用户数据目录。',
+        'Open Learner 无法启动：找不到可写的用户数据目录。',
         '',
         '已尝试的位置：',
         '  - 系统默认 userData 目录',
@@ -802,7 +802,15 @@ function createWindow() {
      * 两个都要做：只改底色，内容没铺满时会露出深色板，仍然像缺一块。
      */
     backgroundColor: '#161412',
-    title: 'OpenLeaner',
+    /*
+     * 窗口标题是**用户可见的名字**，随 2026-11-16 的更名改成 Open Learner。
+     *
+     * ⚠️ 不要顺手把上面第 32 行的 `'OpenLeaner'`（APPDATA 目录名）
+     * 和 package.json 的 productName 一起改掉 —— 那是**身份**不是文案：
+     * 用户的 52MB 学习库就在 `%APPDATA%\OpenLeaner`，改了它，
+     * 软件下次启动会去一个空目录，用户看到的是「数据全丢了」。
+     */
+    title: 'Open Learner',
     autoHideMenuBar: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

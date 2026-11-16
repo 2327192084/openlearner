@@ -75,7 +75,7 @@ export async function exportToPptx(
     height: SLIDE_SIZE.height,
   });
   pptx.layout = LAYOUT_NAME;
-  pptx.author = 'OpenLeaner';
+  pptx.author = 'Open Learner';
   pptx.title = deck.title;
 
   // 主题对这个 deck 全局生效；resolveTheme 对未知 id 退回默认，不抛错

@@ -138,7 +138,7 @@ export function ImportPanel({ decks, onImported, disabled }: ImportPanelProps) {
             {[...byKind.entries()].map(([k, n]) => `${kindLabel(k)} ${n}`).join(' · ')}
           </dd>
           <dt>格式</dt>
-          <dd>{parsed.format === 'openleaner' ? 'OpenLeaner 导出' : '通用格式'}</dd>
+          <dd>{parsed.format === 'openleaner' ? 'Open Learner 导出' : '通用格式'}</dd>
         </dl>
 
         {parsed.droppedFields.length > 0 ? (

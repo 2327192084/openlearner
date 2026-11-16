@@ -11,19 +11,25 @@ import { RenameField } from './RenameField.tsx';
  *
  * 按截图还原：
  *  - 标题「资料」+ 副标题 + 右侧「已归档 (N)」+ 朱砂「添加资料」按钮
- *  - 三个标签：文件 / 粘贴文本 / 音频 / 录音
+ *  - 两个标签：文件 / 粘贴文本
  *  - 虚线拖放区（可一次放多个）
  *  - 格式说明那一行灰字
  *  - 「PDF 解析」折叠（讲扫描件与公式多的文件）
  *
  * ## 为什么标签而不是一个按钮
  *
- * 三种资料的「导入体验」完全不同：
- * 文件要选/拖，粘贴要文本框，音频要上传后转写。
+ * 两种资料的「导入体验」完全不同：
+ * 文件要选/拖，粘贴要文本框。
  * 塞进一个入口会让用户猜「我该点哪里」。
+ *
+ * ⚠️ 2026-11-16 删掉了第三个标签「音频 / 录音」。
+ * 用户原话：「这些还没有做的功能无论是描述还是按钮都删掉。」
+ * 那个标签点进去只有一句「音频转写还在做」，是个**说明为什么不行的按钮**，
+ * 没有任何可做的事。音频转写要做，得先定转写引擎，是另一件事；
+ * 真做了就在 `pages.ts` 新增一页，不要在这里先摆一个空标签。
  */
 
-type Tab = 'file' | 'paste' | 'audio';
+type Tab = 'file' | 'paste';
 
 export interface SourcesPageProps {
   service: SourceService;
@@ -279,7 +285,7 @@ export function SourcesPage({
         <div className="sources-empty">
           <h2 className="sources-empty__title">还没有资料</h2>
           <p className="sources-empty__desc">
-            添加讲义、笔记或录音，之后就能用它们出题；题目会引用原文。
+            添加讲义、笔记或课件，之后就能用它们出题；题目会引用原文。
           </p>
         </div>
       ) : null}
@@ -304,7 +310,6 @@ export function SourcesPage({
           [
             ['file', '文件', IconSources],
             ['paste', '粘贴文本', null],
-            ['audio', '音频 / 录音', null],
           ] as const
         ).map(([id, label, Icon]) => (
           <button
@@ -409,14 +414,14 @@ export function SourcesPage({
       ) : null}
 
       {/* ---- 音频 ---- */}
-      {tab === 'audio' ? (
-        <div className="audio-todo">
-          <p className="audio-todo__text">
-            音频转写还在做。现在需要的话，可以先用别的工具转成文字，
-            再粘贴到「粘贴文本」里导入 —— 效果一样。
-          </p>
-        </div>
-      ) : null}
+      {/*
+        音频占位块已删除（2026-11-16）。原样保留一份说明，免得下一个人
+        以为这里「忘了做」而重新加一个空标签：
+
+        旧内容是一句「音频转写还在做。现在需要的话，可以先用别的工具
+        转成文字，再粘贴到「粘贴文本」里导入」。用户要求把没做的功能
+        的按钮与描述都删掉 —— 这个标签背后没有任何可操作的东西。
+      */}
 
       {/*
         「PDF 解析」折叠块已删除（2026-11-11）。

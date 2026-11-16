@@ -1461,7 +1461,7 @@ function summarizeBackup(raw: unknown): string {
   if (!raw || typeof raw !== 'object') return '这个文件里没有可识别的备份内容。';
   const obj = raw as Record<string, unknown>;
   if (obj.format !== 'openleaner-library') {
-    return '这个文件不是 OpenLeaner 的备份（缺少 format 标识）。';
+    return '这个文件不是 Open Learner 的备份（缺少 format 标识）。';
   }
   const parts = SUMMARY_STORES.map(({ key, label }) => {
     const v = obj[key];

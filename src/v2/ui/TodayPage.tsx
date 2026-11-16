@@ -262,7 +262,7 @@ export function TodayPage(props: TodayPageProps) {
     return (
       <div className="welcome">
         <div className="welcome__eyebrow">开始使用</div>
-        <h1 className="welcome__title">欢迎使用 OpenLeaner</h1>
+        <h1 className="welcome__title">欢迎使用 Open Learner</h1>
         <p className="welcome__lead">
           把老师的课件变成题，每道题都点得回原页；做完一轮，看得见自己变熟。
         </p>

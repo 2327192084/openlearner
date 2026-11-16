@@ -338,12 +338,12 @@ export function FlashcardsPage({
     };
 
     const { content, count } = flashcardsToObsidianMarkdown(
-      'OpenLeaner 闪卡',
+      'Open Learner 闪卡',
       list,
       { includeSource: true },
       labelOf,
     );
-    downloadBlob(new Blob([content], { type: 'text/markdown;charset=utf-8' }), flashcardFileName('OpenLeaner 闪卡'));
+    downloadBlob(new Blob([content], { type: 'text/markdown;charset=utf-8' }), flashcardFileName('Open Learner 闪卡'));
     setNotice(`已导出 ${count} 张卡到 markdown 文件。把它放进 Obsidian 库里即可。`);
   }
 

@@ -27,7 +27,7 @@ export function AppShell() {
             OL
           </span>
           <span className="shell__brand-text">
-            <strong>OpenLeaner</strong>
+            <strong>Open Learner</strong>
             <small>学习备考</small>
           </span>
         </div>
@@ -58,7 +58,7 @@ export function AppShell() {
       <div className="shell__main">
         <header className="shell__topbar">
           <div className="shell__topbar-left">
-            <h1 className="shell__page-title">{current?.title ?? 'OpenLeaner'}</h1>
+            <h1 className="shell__page-title">{current?.title ?? 'Open Learner'}</h1>
             {current?.phase ? <Badge tone="neutral">{current.phase}</Badge> : null}
             {current?.status === 'planned' ? <Badge tone="planned">待接入</Badge> : null}
           </div>
