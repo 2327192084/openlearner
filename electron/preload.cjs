@@ -298,6 +298,16 @@ const openleanerApi = Object.freeze({
     pickSourceFile: (sourceId, title) =>
       ipcRenderer.invoke('openleaner:pick-source-file', { sourceId, title }),
 
+    /**
+     * 把库里的原始字节落成临时文件，返回绝对路径（2026-11-16）。
+     *
+     * 用于「MinerU 需要磁盘路径，但原文件路径已经丢了」的情况 ——
+     * 路径表 `sourcePaths` 只在内存里，重启就空，而原件其实存在库里。
+     * 有了这条，用户不必再去文件管理器里重新选一次。
+     */
+    materializeSourceFile: (sourceId, ext, bytes) =>
+      ipcRenderer.invoke('openleaner:materialize-source-file', { sourceId, ext, bytes }),
+
     /** 跑一次转换。返回值形状与主进程 handler 一致。 */
     run: (request) => ipcRenderer.invoke('openleaner:mineru-convert', request),
 

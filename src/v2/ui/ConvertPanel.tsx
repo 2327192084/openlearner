@@ -353,23 +353,54 @@ export function ConvertPanel({
        */
       let absolutePath = '';
       if (!isCloud) {
-        const resolved = await resolveSourcePath(source, async () => {
-          const bridge = typeof window !== 'undefined' ? window.openleaner?.mineru : undefined;
-          if (!bridge || typeof bridge.pickSourceFile !== 'function') return null;
-          try {
-            return await bridge.pickSourceFile(source.id, source.title);
-          } catch {
-            return null;
-          }
-        });
+        /*
+         * 先用「导入时登记的路径」。这张表只在主进程内存里，重启就空 ——
+         * 所以大多数情况下这里是空的。
+         */
+        let resolved = await resolveSourcePath(source, async () => null);
+
+        /*
+         * 拿不到路径时，**先用库里的原件**（2026-11-16 用户要求）。
+         *
+         * 用户原话：「解析选择的 pdf 的时候需要再在文件资源管理器里
+         * 选择一次要解析的文件。」而那份 PDF 其实完整存在库里
+         * （IndexedDB 的 sourceFiles，我们已经实测过 55.07 MiB 逐字节一致）。
+         *
+         * 原来这里直接弹系统文件框让用户重选 —— 明明有原件却要用户去找，
+         * 这一步完全多余。现在改成：从库里取字节 → 落到 userData 下的
+         * 临时文件 → 拿这个路径喂给 MinerU。
+         *
+         * 只有「库里也没存原件」时（超上限的老资料、或配额满导致降级）
+         * 才回退到让用户指一次。
+         */
+        if (!resolved) {
+          resolved = await materializeFromLibrary(source, sourceService);
+        }
+
+        /*
+         * 库里也没有 → 最后才请用户指一次。
+         * 这时的措辞要说清「为什么还要你找」：库里没存原件，不是我们偷懒。
+         */
+        if (!resolved) {
+          resolved = await resolveSourcePath(source, async () => {
+            const bridge = typeof window !== 'undefined' ? window.openleaner?.mineru : undefined;
+            if (!bridge || typeof bridge.pickSourceFile !== 'function') return null;
+            try {
+              return await bridge.pickSourceFile(source.id, source.title);
+            } catch {
+              return null;
+            }
+          });
+        }
+
         if (!resolved) {
           setPhase({
             kind: 'failed',
-            message: '拿不到这份资料的原文件路径。',
+            message: '拿不到这份资料的原文件。',
             hint:
-              '桌面版会用导入时的原路径调用 MinerU。如果这份资料是很早以前导入的、' +
-              '或原文件已经被移动/删除，请重新导入一次那份 PDF。' +
-              '（如果只是想要正文，也可以切到「DeepSeek 云 OCR」—— 它从库里取文件，不需要原路径。）',
+              '库里没有存它的原件（可能是导入时文件超过了当时的上限）。' +
+              '重新导入一次那份文件即可 —— 之后就不用再选第二次了。' +
+              '（也可以切到「DeepSeek 云 OCR」，但它同样需要库里有原件。）',
           });
           return;
         }
@@ -828,4 +859,67 @@ async function resolveSourcePath(
 
   // 登记表里没有（升级前导入的、或原文件被移动/删除）→ 请用户指一次
   return await pickFile();
+}
+
+/**
+ * 把「库里存的原始字节」落成临时文件，返回可交给 MinerU 的绝对路径
+ * （2026-11-16）。
+ *
+ * ## 解决的问题
+ *
+ * 用户报：「解析选择的 pdf 的时候需要再在文件资源管理器里选择一次
+ * 要解析的文件。」而那份 PDF 其实**已经完整存在库里**
+ * （IndexedDB 的 `sourceFiles` 分区，实测 55.07 MiB 与磁盘逐字节一致）。
+ *
+ * 之所以还要重选：MinerU 是命令行程序，只能吃磁盘路径，而
+ * 「sourceId → 路径」那张表只在主进程内存里（路径含个人信息，
+ * 不该进备份），应用一重启就空。于是手里有原件却拿不出路径。
+ *
+ * ## 现在
+ *
+ * 从库里取字节 → 经 `materializeSourceFile` 写到
+ * `userData/mineru-input/<sourceId><ext>` → 用这个路径调 MinerU。
+ * 同一份资料重解析时按大小判断要不要重写，不会越堆越多。
+ *
+ * ## 拿不到就如实返回 null
+ *
+ * 库里没存原件的情况：导入时超过当时的存储上限（60 MiB 时代的旧资料）、
+ * 或配额满导致降级成 fileStored=false。这时返回 null，
+ * 由调用方回退到「请用户指一次」，并说明原因 —— 不猜路径。
+ */
+async function materializeFromLibrary(
+  source: Source,
+  sourceService: SourceService,
+): Promise<string | null> {
+  const bridge = typeof window !== 'undefined' ? window.openleaner?.mineru : undefined;
+  const put = bridge?.materializeSourceFile;
+  if (typeof put !== 'function') return null;
+
+  /* 只有 PDF 与图片需要原件；docx/pptx 的正文早就切进分段了 */
+  if (source.kind !== 'pdf' && source.kind !== 'image') return null;
+  /* 导入时就没存下来 —— 别去取，取也是空 */
+  if (source.fileStored === false) return null;
+
+  let bytes: Uint8Array | null = null;
+  try {
+    bytes = await sourceService.getOriginalFile(source.id);
+  } catch {
+    return null;
+  }
+  if (!bytes || bytes.byteLength === 0) return null;
+
+  /*
+   * 扩展名：MinerU 的白名单只认 .pdf / 图片那几种。
+   * 从标题里取；取不到就按 kind 给一个合理默认
+   * （PDF 传 .pdf，图片传 .png —— 服务端按内容判断，扩展名只影响分派）。
+   */
+  const m = /\.(pdf|png|jpe?g|webp|bmp|gif|tiff?)$/i.exec(source.title.trim());
+  const ext = m ? `.${m[1]!.toLowerCase().replace('jpeg', 'jpg')}` : source.kind === 'pdf' ? '.pdf' : '.png';
+
+  try {
+    const r = await put(source.id, ext, bytes);
+    return r.ok ? r.filePath : null;
+  } catch {
+    return null;
+  }
 }

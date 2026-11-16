@@ -1305,6 +1305,73 @@ function registerMineru() {
     return picked;
   });
 
+  /*
+   * 把「库里的原始字节」落成临时文件，返回它的绝对路径（2026-11-16）。
+   *
+   * ## 为什么需要这条 IPC
+   *
+   * 用户报：「解析选择的 pdf 的时候需要再在文件资源管理器里选择一次
+   * 要解析的文件。」而那份 PDF 其实**已经存在库里**（IndexedDB 的
+   * sourceFiles 分区，完整字节）。
+   *
+   * 之所以还要重选，是因为 MinerU 是命令行程序、只能读磁盘路径，
+   * 而 sourceId → 路径 的那张表 `sourcePaths` **只存在内存里**
+   * （见上面的注释：路径带个人信息，不该进备份），应用一重启就空。
+   *
+   * 于是明明手里有原件，却因为没有路径而逼用户去文件管理器里再找一遍。
+   *
+   * ## 现在怎么做
+   *
+   * 页面从 IndexedDB 取出字节 → 经这条 IPC 写到 userData 下的临时文件 →
+   * 拿这个路径去调 MinerU。文件用 sourceId 命名，同一份资料重解析时
+   * 直接覆盖，不会越堆越多。
+   *
+   * ## 安全边界
+   *
+   * - 路径由主进程拼（`userData/mineru-input/<sourceId><ext>`），
+   *   页面只能传 sourceId 与扩展名
+   * - 扩展名白名单校验，防止 `../` 之类穿越
+   * - 目录固定，不接受页面指定位置
+   */
+  ipcMain.handle('openleaner:materialize-source-file', async (_event, payload) => {
+    const body = payload && typeof payload === 'object' ? payload : {};
+    const sourceId = typeof body.sourceId === 'string' ? body.sourceId : '';
+    const ext = typeof body.ext === 'string' ? body.ext.toLowerCase() : '';
+    const bytes = body.bytes;
+
+    if (!sourceId || !/^[\w-]{8,64}$/.test(sourceId)) {
+      return { ok: false, message: '资料 id 不合法。' };
+    }
+    const ALLOWED_EXT = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.tif', '.tiff']);
+    if (!ALLOWED_EXT.has(ext)) {
+      return { ok: false, message: `不支持写入「${ext || '无扩展名'}」这类文件。` };
+    }
+    if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) {
+      return { ok: false, message: '没有拿到资料字节。' };
+    }
+
+    try {
+      const dir = path.join(app.getPath('userData'), 'mineru-input');
+      fs.mkdirSync(dir, { recursive: true });
+      const target = path.join(dir, `${sourceId}${ext}`);
+
+      /* 同样大小就复用，避免重复写几十 MB */
+      try {
+        const st = fs.statSync(target);
+        if (st.size === bytes.byteLength) {
+          return { ok: true, filePath: target, reused: true };
+        }
+      } catch {
+        /* 不存在，往下写 */
+      }
+
+      fs.writeFileSync(target, bytes);
+      return { ok: true, filePath: target, reused: false };
+    } catch (err) {
+      return { ok: false, message: `写入临时文件失败：${err.message}` };
+    }
+  });
+
   ipcMain.handle('openleaner:mineru-convert', async (event, payload) => {
     const mineru = require('./mineru.cjs');
 

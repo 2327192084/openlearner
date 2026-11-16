@@ -5,6 +5,7 @@ import { IconSources, IconUpload } from './icons.tsx';
 import { ConfirmDialog } from './dialog.tsx';
 import { disambiguateTitles } from '@/core/source-title.ts';
 import { RenameField } from './RenameField.tsx';
+import { SourcesStorageNote } from './SourcesStorageNote.tsx';
 
 /**
  * 资料页。
@@ -267,6 +268,14 @@ export function SourcesPage({
           </button>
         </div>
       </div>
+
+      {/*
+        资料存哪 / 是不是只链接（2026-11-16 用户要求）。
+        用户问：「资料是否在软件里有个单独的储存库，还是单纯链接资料位置」，
+        并要求「在软件界面内明确标注出资料库在电脑里的保存路径」。
+        就放在资料列表上方 —— 看资料的人正好在这一页。
+      */}
+      <SourcesStorageNote />
 
       <input
         ref={fileInputRef}

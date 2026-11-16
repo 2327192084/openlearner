@@ -68,6 +68,17 @@ interface OpenLeanerBridge {
      * 兜底：升级前导入的资料没有路径记录。用户取消返回 null。
      */
     pickSourceFile: (sourceId: string, title?: string) => Promise<string | null>;
+    /**
+     * 把库里的原始字节写成临时文件，返回绝对路径（2026-11-16）。
+     *
+     * 让 MinerU 不必依赖「导入时登记的磁盘路径」—— 那张表只在内存里，
+     * 重启就空，而原件其实完整存在 IndexedDB 里。
+     */
+    materializeSourceFile: (
+      sourceId: string,
+      ext: string,
+      bytes: Uint8Array,
+    ) => Promise<{ ok: true; filePath: string; reused: boolean } | { ok: false; message: string }>;
     /** 跑一次转换 */
     run: (request: {
       filePath: string;

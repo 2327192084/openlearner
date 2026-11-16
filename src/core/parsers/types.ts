@@ -86,7 +86,18 @@ export const IMPORT_HINTS: Record<ImportFailureCode, string> = {
   corrupted: '文件可能不完整或已损坏。请用原软件重新打开确认能正常显示，再另存一份后导入。',
   encrypted: '这份文件设了密码。请先用原软件去掉密码保护（另存为不加密的副本）再导入。',
   empty: '文件里没有可读取的内容。如果是空白文档，请确认导出时内容确实写进去了。',
-  'too-large': '文件超过单份 200 MB 的上限。请拆分后再导入，或先压缩其中的图片。',
+  /*
+   * 这里曾经硬编码「200 MB」。上限提到 500 MiB 之后那句话就成了谎话 ——
+   * 用户看到「超过 200 MB」而文件只有 300 MB，会以为程序算错了
+   * （本项目刚因为硬编码「100 MiB」被用户投诉过一轮）。
+   *
+   * ⚠️ 用 getter 而不是直接调 tooLargeMessage()：MAX_FILE_BYTES 定义在
+   * 本文件**后面**，模块初始化时直接调用会撞 TDZ（Cannot access before
+   * initialization）。getter 在**读取时**才算，那时常量已就绪。
+   */
+  get 'too-large'() {
+    return tooLargeMessage();
+  },
   unknown: '导入时遇到未预期的问题。可以换一份文件试试；若持续出现，请记下文件名反馈。',
 };
 
@@ -99,5 +110,45 @@ export function importError(
   return new ImportError(code, message, hint ?? IMPORT_HINTS[code]);
 }
 
-/** 单份资料上限 200MB：再大的 PDF 在浏览器里解析会卡死主线程 */
-export const MAX_FILE_BYTES = 200 * 1024 * 1024;
+/**
+ * 单份资料上限 —— **存储与解析共用这一条**（2026-11-16 从 200 MiB 提到 500 MiB）。
+ *
+ * ## 为什么提到 500 MiB
+ *
+ * 用户要求「资料库不限制大小」。真正卡住他的是两处：
+ *  - 存储上限 60 MiB：超了不保存原件 → 每次解析都要重新在文件管理器里选一次
+ *  - 解析上限 200 MiB：超了直接拒绝导入
+ *
+ * 提到 500 MiB 后，一份 300~400 MiB 的高清扫描教材也能完整进来并存下原件。
+ *
+ * ## 为什么不是「真不限制」
+ *
+ * 导入路径里同时存在两份字节：`file.arrayBuffer()` 的原 buffer 与
+ * `new Uint8Array(data)` 的副本，**峰值内存约为文件的两倍**：
+ *
+ * | 文件 | 峰值内存 |
+ * |---|---|
+ * | 200 MiB | ~400 MiB |
+ * | 500 MiB | ~1000 MiB |
+ * | 800 MiB | ~1600 MiB |
+ *
+ * 500 MiB（峰值约 1 GB）在 64 位 Electron 上可控；再往上，
+ * 低配机器会在导入瞬间 OOM 崩掉 —— 而那时用户已经等了很久，
+ * 崩了比「明说太大」糟得多。
+ *
+ * ## ⚠️ 两条上限必须一致
+ *
+ * `MAX_STORED_FILE_BYTES`（sources.ts）与本常量曾经是 60 / 200 两个值。
+ * 只要存储上限 > 解析上限，前者就是个**死配置** —— 超过解析上限的文件
+ * 根本进不来，永远走不到存储判断。所以两者设为同一数值，
+ * 语义也统一成「单份资料上限」。
+ */
+export const MAX_FILE_BYTES = 500 * 1024 * 1024;
+
+/**
+ * 单份资料太大时的提示（与上面同源，避免两处数字漂移）。
+ */
+export function tooLargeMessage(): string {
+  const mib = Math.round(MAX_FILE_BYTES / 1024 / 1024);
+  return `文件超过单份 ${mib} MB 的上限。请拆分后再导入，或先压缩其中的图片。`;
+}

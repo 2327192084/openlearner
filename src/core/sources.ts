@@ -4,6 +4,7 @@ import type { TrashService } from './trash.ts';
 import { kindFromFileName, parseAny, titleFromFileName } from './parsers/index.ts';
 import { ImportError, importError } from './parsers/types.ts';
 import type { ImportFailureCode } from './parsers/types.ts';
+import { MAX_FILE_BYTES } from './parsers/types.ts';
 import type { StorageAdapter } from './storage/types.ts';
 import type { FigureStorage } from './mineru/images.ts';
 /*
@@ -70,14 +71,31 @@ export interface WriteSegmentInput {
 }
 
 /**
- * 保留原始文件字节的大小上限。
+ * 保留原始文件字节的大小上限（2026-11-16：60 MiB → 与解析上限对齐）。
  *
- * 超了就不存（fileStored=false），图文页入口在界面上如实关闭。
- * 为什么不设成「无上限」：IndexedDB 存得下，但备份、重建索引、
- * 换机器时的写放大都会变慢，而用户对「点了没反应」的容忍度远低于
- * 「这个功能这份资料用不了，因为文件太大」。
+ * ## 为什么改成引用 MAX_FILE_BYTES 而不是另写一个数
+ *
+ * 原来这里是 60 MiB，而解析上限是 200 MiB。后果：
+ *  - 60~200 MiB 的文件**能导入、正文也能切**，但不保存原件字节
+ *  - 于是「看原图 / 看原页」用不了，本机 MinerU 每次都要用户
+ *    重新在文件管理器里选一次原文件 —— 用户报了这个问题
+ *
+ * 现在两者同源（都是 MAX_FILE_BYTES = 500 MiB）：
+ * 凡是能导进来的 PDF/图片，原件都会存进库里。
+ *
+ * ## 为什么上限不设成「无限」
+ *
+ * IndexedDB 存得下，但导入时内存峰值约为文件的**两倍**
+ * （原 buffer + 副本），500 MiB 的文件峰值约 1 GB。
+ * 再往上低配机器会在导入瞬间 OOM 崩溃，而那时用户已经等了很久。
+ * 详见 MAX_FILE_BYTES 上的说明。
+ *
+ * ## 存不下时仍然降级
+ *
+ * 配额满、磁盘满等情况由 storeOriginalFile 的 try/catch 兜住，
+ * 降级为 fileStored=false，导入本身仍然成功 —— 这条行为不变。
  */
-export const MAX_STORED_FILE_BYTES = 60 * 1024 * 1024;
+export const MAX_STORED_FILE_BYTES = MAX_FILE_BYTES;
 
 /** 按课程分组的资料 */
 export interface CourseGroup {
