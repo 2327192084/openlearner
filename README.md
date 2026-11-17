@@ -7,7 +7,7 @@
 不需要注册账号，也不上传任何东西到别人的服务器。
 Windows 桌面版（Electron）与浏览器版共用同一份代码。
 
-**当前版本 0.2.0** · [下载安装包](https://github.com/2327192084/openlearner/releases/latest) · [开发文档](DEVELOPMENT.md)
+**当前版本 0.3.0** · [下载安装包](https://github.com/2327192084/openlearner/releases/latest) · [开发文档](DEVELOPMENT.md)
 
 ---
 
@@ -85,10 +85,26 @@ MinerU 服务没在跑时由程序自动启动，不需要用户敲命令。
 | PDF（有文字层） | pdfjs-dist 直接抽文字，逐页分段 |
 | PDF / 图片（扫描件） | MinerU 转正文，可分片、可按页合并 |
 | Word / Markdown / HTML / TXT | 直接解析文字，**不送 MinerU** |
-| PPTX | 逐页抽文字与备注 |
+| PPTX | 逐页抽文字与备注；同时保存原件，可在阅读器里「看原图」逐页浏览幻灯片 |
 
 Word 这类本来就带文字的格式**不该**当扫描件送去 OCR ——
 这个 bug 曾把一份 2 页的 docx 写成 36 段。现在有格式守卫。
+
+### PPTX 看原件：文字用来复习，原件用来对照
+
+PPT 导入后既抽文字（总结知识点、出题用），也把原件字节存进库。
+阅读器右上角有「看原图 / 看文字」切换：原图模式用 `pptx-wasm`
+（约 1 MB 的纯前端渲染库，中文实测清晰）把幻灯片逐页画出来，
+和 PDF 的看原图体验一致。
+
+**注意**：看原件功能只对**新导入**的 PPT 生效 —— 旧资料导入时没存原件字节，
+需要删掉重新导入。文字、题目、闪卡链路完全不受影响。
+
+### 阅读器全屏沉浸查看
+
+阅读器右上角「全屏」按钮进入真全屏 + 沉浸布局：侧栏、顶栏、右侧面板、
+搜索框全部收起，正文放大；再点按钮或按 `Esc` 退出。
+「看原图」模式下同样能全屏，幻灯片铺满整屏。
 
 ### 闪卡：独立内容，可导出到 Obsidian
 
@@ -171,11 +187,11 @@ AI 写的卡**先展示，确认后才入库** —— 模型偶尔会写出偏�
 | 前端 | React 19 + TypeScript + Vite（纯前端 SPA） |
 | 桌面 | Electron 38（同一份代码，浏览器 / 桌面都能跑） |
 | 数据 | IndexedDB —— DB v12 / schema 19 / 27 个分区（22 个进备份） |
-| 文档处理 | pdfjs-dist / JSZip / fast-xml-parser / MinerU（外部依赖，可外挂） |
+| 文档处理 | pdfjs-dist / pptx-wasm / JSZip / fast-xml-parser / MinerU（外部依赖，可外挂） |
 | PPT 导出 | pptxgenjs |
 | AI | 任何 OpenAI 兼容接口 |
 
-**规模**：源码 104,000+ 行，单元测试 117 个文件 / 2,185 条，验收脚本 89 个。
+**规模**：源码 104,000+ 行，单元测试 144 个文件 / 2,657 条，验收脚本 95 个。
 
 ### AI 接入
 
@@ -224,11 +240,11 @@ node scripts/update-desktop.cjs          # 只更新已装的桌面版
 
 ```bash
 npx tsc -b          # 类型检查，0 错误
-npx vitest run      # 117 files / 2185 passed（6 跳过）
+npx vitest run      # 144 files / 2657 passed（6 跳过）
 npx vite build      # 构建
 ```
 
-端到端验收脚本在 `scripts/` 下，共 89 个。它们有一个共同点：
+端到端验收脚本在 `scripts/` 下，共 95 个。它们有一个共同点：
 **验产物，不采信自我报告**。
 
 比如 PPT 验收会把导出文件真的下载到磁盘、解压、检查 XML 里有没有文本 run；
