@@ -1796,6 +1796,23 @@ export function App({
           decks={decks}
           sourceService={sourceService}
           onOpenDecks={() => setPage('decks')}
+          /*
+            AI 评分（2026-11-17 方案 3）。
+            复用做题页那套 handleShortGrade —— 同一个 grade-short 提示词、
+            同一套防注入规则。再写一份必然漂移（交接文档 5.2：
+            「反馈只能有一份实现」）。
+          */
+          onAiGrade={async (input) => {
+            try {
+              return await handleShortGrade(input);
+            } catch {
+              /*
+                返回 null 而不是抛：考场里的评分是「参考」，
+                失败不该打断用户看卷子。面板会显示「读不懂，请重试或自己评」。
+              */
+              return null;
+            }
+          }}
         />
       ) : page === 'notes' ? (
         <NotesPage

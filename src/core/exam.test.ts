@@ -57,33 +57,42 @@ describe('ExamService', () => {
 
     it('抽题数量超过池子时全用', () => {
       const paper = svc.buildPaper({ pool, count: 100, title: 't' });
-      expect(paper).toHaveLength(3); // 问答类被排除
-    });
-
-    it('问答类不进模拟考（判分需要人工自评）', () => {
-      const paper = svc.buildPaper({ pool, count: 100, title: 't' });
-      expect(paper.some((q) => q.kind === 'essay')).toBe(false);
+      /*
+       * 2026-11-17 方案 3 起是 4（含问答）——
+       * 用户要求「计算题和问答题都放进考场」。
+       * 改之前是 3，因为自评题被过滤掉了。
+       */
+      expect(paper).toHaveLength(4);
     });
 
     /*
-     * 2026-11-12 加计算题时漏掉的那种情况。
+     * 方案 3（2026-11-17）：自评题型**进考场**。
      *
-     * 原来按 `q.kind !== 'essay'` 排除，计算题（graded 也是 'self'）
-     * 就混进了考场，交卷时被当成简答走字符串相似度判分。
-     * 这条测试钉住「按 graded 排除」，不是按题型名排除。
+     * 用户原话：「我选方案3（计算题和问答题都放进考场），但是除了自评
+     * 还可以加入 ai 评分，主要是 ai 评分，要是用户觉得评分不对可以自己再评。」
+     *
+     * ⚠️ 这里仍然钉住一条老底线：它们进来之后**不能**被当成自动题判分。
+     * 交卷时应该是「待评」（correct: null），由 AI 或用户来定。
+     * 那条断言在 exam-scheme3.test.ts 里，这里只验「能进考场」。
      */
-    it('计算题也不进模拟考（同样需要人工自评）', () => {
-      const withCalc = [...pool, mkQ({ id: 'q_calc', kind: 'calc', answer: '0.5' })];
-      const paper = svc.buildPaper({ pool: withCalc, count: 100, title: 't' });
-      expect(paper.some((q) => q.kind === 'calc')).toBe(false);
+    it('★ 问答类**能**进模拟考（方案 3；判分交给 AI/自评）', () => {
+      const paper = svc.buildPaper({ pool, count: 100, title: 't' });
+      expect(paper.some((q) => q.kind === 'essay')).toBe(true);
     });
 
-    it('自评类题型一道都不剩时给空卷', () => {
+    it('★ 计算题**能**进模拟考（方案 3；判分交给 AI/自评）', () => {
+      const withCalc = [...pool, mkQ({ id: 'q_calc', kind: 'calc', answer: '0.5' })];
+      const paper = svc.buildPaper({ pool: withCalc, count: 100, title: 't' });
+      expect(paper.some((q) => q.kind === 'calc')).toBe(true);
+    });
+
+    it('★ 池子里只有自评题型时**不**给空卷（方案 3）', () => {
       const onlySelf = [
         mkQ({ id: 'e1', kind: 'essay' }),
         mkQ({ id: 'c1', kind: 'calc', answer: '1' }),
       ];
-      expect(svc.buildPaper({ pool: onlySelf, count: 10, title: 't' })).toHaveLength(0);
+      /* 改之前是 0 —— 那样用户一份只有问答/计算的题组根本考不了 */
+      expect(svc.buildPaper({ pool: onlySelf, count: 10, title: 't' })).toHaveLength(2);
     });
 
     it('抽题不重复', () => {

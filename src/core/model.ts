@@ -1073,6 +1073,21 @@ export interface ExamAttempt {
   correct: number;
   total: number;
   /**
+   * 还没评完的题数（2026-11-17 新增，方案 3）。
+   *
+   * ## 为什么要它
+   *
+   * 方案 3 让计算题/问答题也能进考场，而这些题交卷时没有结论 ——
+   * 要等 AI 评分或用户自评。所以「correct / total」在评完之前
+   * **不是最终成绩**。
+   *
+   * 界面必须据此说清「这份卷子还有 N 题没评」，而不是拿一个
+   * 半截分数当最终分（那是在骗人）。统计聚合也要能跳过未评完的卷子。
+   *
+   * 旧数据没有这个字段 → 视为 0（那时候进考场的全是能自动判分的题）。
+   */
+  pendingCount?: number;
+  /**
    * 是否超时自动交卷。
    *
    * 单独标记而不是只看 usedSec > limitSec：用户主动提前交卷时
@@ -1087,8 +1102,48 @@ export interface ExamAnswer {
   questionId: string;
   /** 用户写的答案（选项 key 或文本） */
   response: string;
-  /** 判定结果；essay 类为 null（需自评，但模拟考里按未答对计） */
+  /**
+   * 判定结果。
+   *
+   * ## 三态（2026-11-17 起）
+   *
+   * | 值 | 含义 |
+   * |---|---|
+   * | true | 判对（自动判分的题，或自评题被评对） |
+   * | false | 判错 |
+   * | null | **还没评**（自评题刚交卷，等 AI / 用户评） |
+   *
+   * 在方案 3 之前，essay 类在考场里一律记 null 且**按未答对计**；
+   * 现在自评题可以进考场，null 变成「待评分」的真实状态，
+   * 交卷时**不能**把它当错 —— 那会先扣一笔冤枉分再让用户改。
+   * 见 `ExamAttempt.pendingCount`。
+   */
   correct: boolean | null;
+  /**
+   * 这道题的评分来自哪里（2026-11-17 新增，方案 3）。
+   *
+   * 为什么要记：用户可能覆盖 AI 的结论，事后要能分清
+   * 「当初是谁判的」。统计页与成绩页据此显示来源。
+   *
+   * 旧数据没有这个字段 —— 按 `correct !== null ? 'auto' : 'pending'` 推。
+   */
+  gradedBy?: 'auto' | 'ai' | 'self' | 'pending';
+  /**
+   * AI 给的逐要点比对结果（只对自评题型有值）。
+   *
+   * 存下来而不是只放内存：用户可能过一会儿才回来看，
+   * 或者想对照「AI 当时说了什么」再决定要不要改判。
+   * 形状与 `ShortGradeResult` 一致，但不在这里 import（保持 model 无依赖）。
+   */
+  aiGrade?: {
+    coveredCount: number;
+    total: number;
+    level: 'correct' | 'partial' | 'wrong';
+    comment: string;
+    points: { text: string; covered: boolean }[];
+  } | null;
+  /** AI 给的一句点评（冗余便于列表显示；完整内容在 aiGrade 里） */
+  aiComment?: string | null;
 }
 
 /**

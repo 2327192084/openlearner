@@ -542,3 +542,217 @@
     line-height: 1.7;
   }
 }
+
+/* ---------- 待评状态与评分面板（2026-11-17 方案 3） ---------- */
+@layer study.features {
+  /*
+   * 待评的题：左边一条中性色竖线，**不用红色**。
+   * 没评 ≠ 答错 —— 用红色会让用户以为自己做错了。
+   */
+  .ex-review__item--pending {
+    border-left: 3px solid var(--line-strong);
+  }
+
+  .ex-review__mark--pending {
+    color: var(--text-faint);
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+  }
+
+  /* 评分来源徽标：AI / 自评，小字灰底，不抢戏 */
+  .ex-review__src {
+    padding: 0 6px;
+    border-radius: var(--radius-xs);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent-text);
+    font-size: var(--fs-xs);
+  }
+
+  /* 「还有 N 道题没评」那条提示 */
+  .ex-pending {
+    margin: var(--space-3) 0;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    border-radius: var(--radius-card);
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-body);
+  }
+
+  .ex-score__num--pending {
+    font-size: var(--fs-2xl);
+  }
+
+  /* ---- 评分面板 ---- */
+  .ex-grade {
+    margin-top: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius-card);
+    background: var(--bg-sunken);
+  }
+
+  .ex-grade__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .ex-grade__row + .ex-grade__row {
+    margin-top: var(--space-2);
+  }
+
+  .ex-grade__label {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+  }
+
+  .ex-grade__badge {
+    padding: 0 6px;
+    border-radius: var(--radius-xs);
+    font-size: var(--fs-xs);
+  }
+
+  .ex-grade__badge--ai {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent-text);
+  }
+
+  .ex-grade__badge--self {
+    background: color-mix(in srgb, var(--text) 10%, transparent);
+    color: var(--text-muted);
+  }
+
+  .ex-grade__pending {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+  }
+
+  .ex-grade__note {
+    font-size: var(--fs-sm);
+    color: var(--text-faint);
+    margin-bottom: var(--space-2);
+  }
+
+  .ex-grade__err {
+    margin-top: var(--space-2);
+    font-size: var(--fs-sm);
+    color: var(--bad);
+  }
+
+  /*
+   * AI 结果卡：**虚线**边框。
+   * 沿用做题页 SelfGradePanel 的约定（交接文档 5.1）：
+   * 实线卡片会被读成「系统判定」，而这里只是参考。
+   */
+  .ex-grade__ai {
+    margin-top: var(--space-3);
+    padding: var(--space-3);
+    border: 1px dashed var(--line-strong);
+    border-radius: var(--radius-card);
+  }
+
+  .ex-grade__ai-head {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+    margin-bottom: var(--space-2);
+  }
+
+  .ex-grade__points {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .ex-grade__point {
+    display: flex;
+    gap: var(--space-2);
+    font-size: var(--fs-sm);
+    color: var(--text-faint);
+    line-height: 1.55;
+  }
+
+  .ex-grade__point--on {
+    color: var(--text);
+  }
+
+  .ex-grade__tick {
+    flex-shrink: 0;
+    width: 1em;
+    color: var(--text-faint);
+  }
+
+  .ex-grade__point--on .ex-grade__tick {
+    color: var(--accent-text);
+  }
+
+  .ex-grade__comment {
+    margin-top: var(--space-2);
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .ex-grade__disclaimer {
+    margin-top: var(--space-2);
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+  }
+
+  .ex-grade__ref {
+    margin-top: var(--space-3);
+    font-size: var(--fs-sm);
+  }
+
+  .ex-grade__ref summary {
+    cursor: pointer;
+    color: var(--text-muted);
+  }
+
+  .ex-grade__ref-body {
+    margin-top: var(--space-2);
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--line-soft);
+    color: var(--text);
+    line-height: var(--lh-body);
+  }
+
+  .ex-grade__ref-exp {
+    margin-top: var(--space-2);
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--line-soft);
+    color: var(--text-dim);
+    line-height: var(--lh-body);
+  }
+}
+
+/*
+ * 选中态按钮 —— 层外（base.css 有无层级 button 规则）。
+ */
+.ex-grade__on {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+/* 历史成绩里的「+N 待评」标记（2026-11-17 方案 3） */
+@layer study.features {
+  .ex-history__pending {
+    margin-left: 4px;
+    font-size: var(--fs-xs);
+    font-style: normal;
+    color: var(--accent-text);
+  }
+}
+
+/* 开考前的「有 N 道要评分」提示（2026-11-17 方案 3） */
+@layer study.features {
+  .ex-note {
+    margin: var(--space-2) 0;
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+    line-height: var(--lh-body);
+  }
+}

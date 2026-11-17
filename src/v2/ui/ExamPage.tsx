@@ -25,8 +25,9 @@ import type { ExamService } from '@/core/exam.ts';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { SourceService } from '@/core/sources.ts';
 import { isCorrect } from '@/v2/core/cards.ts';
-import { isAutoGraded } from '@/core/questions/kinds.ts';
 import { MathText } from './MathText.tsx';
+import { isAutoGraded } from '@/core/questions/kinds.ts';
+import { ExamGradePanel } from './ExamGradePanel.tsx';
 import { usePageTask } from './page-task-context.ts';
 
 export interface ExamPageProps {
@@ -34,6 +35,20 @@ export interface ExamPageProps {
   decks: DeckService;
   sourceService: SourceService;
   onOpenDecks: () => void;
+  /**
+   * AI 评分（2026-11-17 方案 3）。
+   *
+   * 用户要求「主要是 AI 评分，要是用户觉得评分不对可以自己再评」。
+   * 由 App 注入 —— 本页不碰后端配置与 Key。
+   *
+   * 不传 = 不显示评分面板（成绩页保持老样子）。
+   */
+  onAiGrade?: (input: {
+    prompt: string;
+    answer: string;
+    explanation: string;
+    response: string;
+  }) => Promise<import('@/core/ai/grade-short.ts').ShortGradeResult | null>;
 }
 
 /**
@@ -60,7 +75,7 @@ const LIMIT_OPTIONS = [
   { min: 60, label: '60 分钟' },
 ];
 
-export function ExamPage({ exam, decks, sourceService, onOpenDecks }: ExamPageProps) {
+export function ExamPage({ exam, decks, sourceService, onOpenDecks, onAiGrade }: ExamPageProps) {
   const [phase, setPhase] = useState<Phase>({ kind: 'setup' });
 
   /* ---- 可选题池 ---- */
@@ -92,13 +107,25 @@ export function ExamPage({ exam, decks, sourceService, onOpenDecks }: ExamPagePr
           : `题组：${d.title}`;
         const cur = bySource.get(key) ?? { label, questions: [] };
         /*
-         * 只放能自动判分的题（2026-11-12 修）。
+         * 全部题型都能进考场（2026-11-17 方案 3，用户要求）。
          *
-         * 原来写的是 `q.kind !== 'essay'`，于是计算题漏了进来 ——
-         * 交卷时它被当成简答走字符串相似度判分（见下方 isCorrect 调用）。
-         * 现在统一问题型注册表的 `graded` 字段，与 ExamService.buildPaper 一致。
+         * 用户原话：「我选方案3（计算题和问答题都放进考场），但是除了自评
+         * 还可以加入 ai 评分，主要是 ai 评分，要是用户觉得评分不对可以
+         * 自己再评。」
+         *
+         * ## 为什么现在敢放开
+         *
+         * 2026-11-12 那次是「把计算题放进来，但判分仍走字符串相似度」——
+         * 那才会错。现在自评题交卷时标 `correct: null` + `gradedBy:'pending'`，
+         * 不算错、也不算对，评完才落定（见 ExamService.grade / submit）。
+         *
+         * ## 但仍要知道哪些题需要评
+         *
+         * 下面的 `needsGrading` 传给界面，用于：
+         *  - 出卷时提示「其中 N 道交卷后需评分」
+         *  - 成绩页把未评完的卷子标出来
          */
-        cur.questions.push(...qs.filter((q) => isAutoGraded(q.kind)));
+        cur.questions.push(...qs);
         bySource.set(key, cur);
       }
 
@@ -132,6 +159,14 @@ export function ExamPage({ exam, decks, sourceService, onOpenDecks }: ExamPagePr
 
   const pool = pools.find((p) => p.id === poolId);
   const available = pool?.questions.length ?? 0;
+  /**
+   * 这个范围里有多少道是「交卷后要评分」的（方案 3，2026-11-17）。
+   *
+   * 为什么要提前告诉用户：自评题进考场之后，一场 10 题的卷子
+   * 可能有 3 题要等评分。用户在**开考前**就该知道，
+   * 而不是交完卷发现「怎么不给我分数」。
+   */
+  const needsGradingCount = (pool?.questions ?? []).filter((q) => !isAutoGraded(q.kind)).length;
 
   if (loading) {
     return (
@@ -173,6 +208,7 @@ export function ExamPage({ exam, decks, sourceService, onOpenDecks }: ExamPagePr
           limitMin={limitMin}
           onLimit={setLimitMin}
           available={available}
+          needsGrading={needsGradingCount}
           history={history}
           err={err}
           onStart={() => {
@@ -223,6 +259,16 @@ export function ExamPage({ exam, decks, sourceService, onOpenDecks }: ExamPagePr
             setPhase({ kind: 'setup' });
             void load();
           }}
+          {...(onAiGrade ? { onAiGrade } : {})}
+          /*
+            评分落库（2026-11-17 方案 3）。
+            用 exam.regradeAnswer —— 它会把整份卷子的 correct / pendingCount
+            重算并写回，所以用户评到一半关软件，下次打开还在。
+          */
+          onRegrade={async (questionId, patch) => {
+            const next = await exam.regradeAnswer(phase.attempt.id, questionId, patch);
+            if (next) setPhase({ kind: 'result', attempt: next, questions: phase.questions });
+          }}
         />
       ) : null}
     </div>
@@ -240,6 +286,7 @@ function SetupView({
   limitMin,
   onLimit,
   available,
+  needsGrading = 0,
   history,
   err,
   onStart,
@@ -253,6 +300,8 @@ function SetupView({
   limitMin: number;
   onLimit: (v: number) => void;
   available: number;
+  /** 其中有多少道交卷后需要评分（方案 3）。不传 = 0（不显示提示） */
+  needsGrading?: number;
   history: ExamAttempt[];
   err: string | null;
   onStart: () => void;
@@ -324,6 +373,18 @@ function SetupView({
           {available > 0 && count > available ? `（这个范围只有 ${available} 道，全用）` : ''}
         </div>
 
+        {/*
+          提前告知「有些题要评分」（2026-11-17 方案 3）。
+          不说的话，用户交完卷看到「待评」会莫名其妙 ——
+          他以为考试应该自动出分。
+        */}
+        {needsGrading > 0 ? (
+          <p className="ex-note">
+            这个范围里有 <strong>{needsGrading}</strong> 道计算/问答题，
+            交卷后需要评分：可以让 AI 评，也可以自己判。没评完之前分数会标「待评」。
+          </p>
+        ) : null}
+
         <div className="ex-actions">
           <button
             type="button"
@@ -347,13 +408,23 @@ function SetupView({
           <h2 className="ex-h2">历史成绩</h2>
           <ul className="ex-history__list">
             {history.slice(0, 10).map((a) => {
-              const rate = a.total > 0 ? a.correct / a.total : 0;
+              /*
+               * 待评的题不进分母（2026-11-17 方案 3）。
+               * 拿 correct/total 算，一份还有 4 题没评的卷子会显示成
+               * 「19/23 = 83%」，看起来像考砸了 —— 而那 4 题是没评，不是答错。
+               */
+              const pending = a.pendingCount ?? 0;
+              const gradedTotal = a.total - pending;
+              const rate = gradedTotal > 0 ? a.correct / gradedTotal : 0;
               return (
                 <li key={a.id} className="ex-history__item">
                   <span className="ex-history__score">
-                    {a.correct}/{a.total}
+                    {a.correct}/{gradedTotal}
+                    {pending > 0 ? <em className="ex-history__pending">+{pending} 待评</em> : null}
                   </span>
-                  <span className="ex-history__rate">{Math.round(rate * 100)}%</span>
+                  <span className="ex-history__rate">
+                    {gradedTotal > 0 ? `${Math.round(rate * 100)}%` : '待评'}
+                  </span>
                   <span className="ex-history__title">{a.title}</span>
                   <span className="ex-history__time">{formatWhen(a.finishedAt)}</span>
                   {a.timedOut ? <span className="ex-history__flag">超时交卷</span> : null}
@@ -593,13 +664,47 @@ function ResultView({
   attempt,
   questions,
   onAgain,
+  onAiGrade,
+  onRegrade,
 }: {
   attempt: ExamAttempt;
   questions: Question[];
   onAgain: () => void;
+  /** 调 AI 评分（2026-11-17 方案 3）。不传 = 不显示评分面板（保持老行为） */
+  onAiGrade?: (input: {
+    prompt: string;
+    answer: string;
+    explanation: string;
+    response: string;
+  }) => Promise<import('@/core/ai/grade-short.ts').ShortGradeResult | null>;
+  /** 把评分结论落库 */
+  onRegrade?: (
+    questionId: string,
+    patch: {
+      correct: boolean;
+      gradedBy: 'ai' | 'self';
+      aiGrade?: ExamAnswer['aiGrade'];
+      aiComment?: string | null;
+    },
+  ) => Promise<void>;
 }) {
-  const rate = attempt.total > 0 ? attempt.correct / attempt.total : 0;
+  /*
+   * 分数怎么算（2026-11-17 方案 3）。
+   *
+   * ⚠️ 不能再用 `correct / total` —— 有题「还没评」时那样算会**压低分数**，
+   * 用户看到「60 分」以为答错一堆，实际是 4 道题还没评。
+   *
+   * 所以分母排除掉待评题：
+   *   已评完 → 正常百分比
+   *   全待评 → 不给分数，只说「还没评」
+   *   部分待评 → 给出「已评部分的正确率」并明确标注基数
+   */
+  const pending = attempt.answers.filter((a) => a.correct === null).length;
+  const gradedTotal = attempt.total - pending;
+  const rate = gradedTotal > 0 ? attempt.correct / gradedTotal : 0;
   const qById = new Map(questions.map((q) => [q.id, q]));
+  /** 有评分面板才显示逐题评分区 */
+  const canGrade = Boolean(onAiGrade && onRegrade);
 
   return (
     <>
@@ -609,13 +714,30 @@ function ResultView({
       </header>
 
       <div className="ex-score">
-        <span className="ex-score__num">{Math.round(rate * 100)}</span>
-        <span className="ex-score__unit">分</span>
+        {gradedTotal > 0 ? (
+          <>
+            <span className="ex-score__num">{Math.round(rate * 100)}</span>
+            <span className="ex-score__unit">分</span>
+          </>
+        ) : (
+          <span className="ex-score__num ex-score__num--pending">待评</span>
+        )}
         <span className="ex-score__detail">
-          答对 {attempt.correct} / {attempt.total} 题 · 用时 {fmtClock(attempt.usedSec)}
+          答对 {attempt.correct} / {gradedTotal} 题（已评） · 用时 {fmtClock(attempt.usedSec)}
           {attempt.timedOut ? ' · 超时自动交卷' : ''}
         </span>
       </div>
+
+      {/*
+        未评完的提示（方案 3 的关键）。
+        不写这句，用户会拿「已评部分的分」当最终成绩 —— 那是在骗人。
+      */}
+      {pending > 0 ? (
+        <p className="ex-pending">
+          还有 <strong>{pending}</strong> 道题没评（计算题 / 问答题需要评分）。
+          下面的逐题回看里可以让 AI 评，也可以自己判。
+        </p>
+      ) : null}
 
       <div className="ex-actions">
         <button type="button" className="btn-fill" onClick={onAgain}>
@@ -628,23 +750,67 @@ function ResultView({
         {attempt.answers.map((a, i) => {
           const q = qById.get(a.questionId);
           if (!q) return null;
-          const ok = a.correct === true;
+          /*
+           * 三态展示（2026-11-17）：
+           *   true  → ✓
+           *   false → ✕
+           *   null  → ?（待评，不是 ✕ —— 判也没判过，不能说错）
+           */
+          const mark = a.correct === null ? '?' : a.correct ? '✓' : '✕';
+          const cls =
+            a.correct === null
+              ? ' ex-review__item--pending'
+              : a.correct
+                ? ' ex-review__item--ok'
+                : '';
+          /** 只有自评题型才需要（且能）评分 */
+          const needGrade = a.correct === null || a.gradedBy === 'ai' || a.gradedBy === 'self';
+
           return (
-            <li key={a.questionId} className={`ex-review__item${ok ? ' ex-review__item--ok' : ''}`}>
+            <li key={a.questionId} className={`ex-review__item${cls}`}>
               <div className="ex-review__head">
                 <span className="ex-review__no">{i + 1}</span>
-                <span className={`ex-review__mark${ok ? ' ex-review__mark--ok' : ''}`}>
-                  {ok ? '✓' : '✕'}
+                <span
+                  className={`ex-review__mark${a.correct === true ? ' ex-review__mark--ok' : ''}${
+                    a.correct === null ? ' ex-review__mark--pending' : ''
+                  }`}
+                >
+                  {mark}
                 </span>
                 <span className="ex-review__kind">{kindLabel(q.kind)}</span>
+                {a.gradedBy === 'ai' ? (
+                  <span className="ex-review__src">AI 评</span>
+                ) : a.gradedBy === 'self' ? (
+                  <span className="ex-review__src">自评</span>
+                ) : null}
               </div>
               <p className="ex-review__prompt"><MathText text={q.prompt} /></p>
               <p className="ex-review__your">
                 你的答案：{a.response.trim() || '（未作答）'}
               </p>
-              {!ok ? <p className="ex-review__right">正确答案：<MathText text={q.answer} /></p> : null}
+              {/*
+                正确答案：待评时不提前show —— 先看了答案再让 AI 评分，
+                用户会怀疑 AI 是照着答案说的（虽然事实不是）。
+                评完或自评后展开。
+              */}
+              {a.correct !== true && (a.correct !== null || !canGrade) ? (
+                <p className="ex-review__right">正确答案：<MathText text={q.answer} /></p>
+              ) : null}
               {q.explanation ? (
                 <p className="ex-review__explain"><MathText text={q.explanation} /></p>
+              ) : null}
+
+              {/* ---- 评分面板（方案 3） ---- */}
+              {canGrade && needGrade ? (
+                <ExamGradePanel
+                  attempt={attempt}
+                  question={q}
+                  answer={a}
+                  onAiGrade={onAiGrade!}
+                  onGraded={async (patch) => {
+                    await onRegrade!(a.questionId, patch);
+                  }}
+                />
               ) : null}
             </li>
           );
