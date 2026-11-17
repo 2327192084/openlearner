@@ -324,6 +324,66 @@ export function ReaderPage({
   /** 有没有原文件可供渲染（没有就藏掉这个开关，不摆假按钮） */
   const [canShowOriginal, setCanShowOriginal] = useState(false);
 
+  /**
+   * 全屏沉浸阅读（2026-11-17 用户要求「资料库能全屏查看资料」）。
+   *
+   * 真全屏走浏览器 Fullscreen API（Electron 里即 F11 式整窗全屏），
+   * 同时用 reader-page--fullscreen 这个 class 收起右侧栏与搜索框，
+   * 把整块屏幕让给正文/原图。
+   *
+   * 状态以 document.fullscreenElement 为准（Esc / F11 退出时浏览器
+   * 会发 fullscreenchange，这里跟着同步，按钮文案才不会说谎）。
+   */
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
+
+  /*
+   * 先切 state（沉浸布局），再异步申请真全屏。
+   *
+   * 不能把 setIsFullscreen 放进 await / catch 里：requestFullscreen()
+   * 在非用户手势（CDP 点击、自动化）或环境不支持时，promise 可能长时间
+   * 不 settle，按钮就会看起来「点了没反应」。先切 state 保证点击即时生效，
+   * 真全屏成功时 fullscreenchange 再同步一次（此时以 API 状态为准）。
+   */
+  const toggleFullscreen = useCallback(() => {
+    const next = !isFullscreen;
+    setIsFullscreen(next);
+    if (next) {
+      try {
+        void document.documentElement.requestFullscreen?.().catch(() => {
+          /* 被拒绝/不支持：保留纯沉浸布局，不回滚 state */
+        });
+      } catch {
+        /* 同步抛错：同样保留纯沉浸 */
+      }
+    } else {
+      try {
+        if (document.fullscreenElement) void document.exitFullscreen();
+      } catch { /* 已退出 */ }
+    }
+  }, [isFullscreen]);
+
+  /*
+   * Esc 退出兜底。真全屏下浏览器自己处理 Esc 并触发 fullscreenchange，
+   * 上面已经同步；但降级成纯沉浸时没有 fullscreenchange，
+   * 所以这里必须自己接 —— 否则用户按 Esc 退不出去。
+   */
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (document.fullscreenElement) void document.exitFullscreen();
+      else setIsFullscreen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isFullscreen]);
+
   // ---------- 载入资料与正文 ----------
   useEffect(() => {
     let cancelled = false;
@@ -535,11 +595,12 @@ export function ReaderPage({
   }, [highlight, pageNo]);
 
   // ---------- 原图渲染 ----------
-  // 只在「打开原图」且是 PDF 时按需渲染当前页。整本预渲染会吃几百 MB 内存。
+  // 只在「打开原图」且是可渲染原件的格式时按需渲染当前页。整本预渲染会吃几百 MB 内存。
   useEffect(() => {
     if (phase.kind !== 'ready') return;
     if (!showOriginal) return;
-    if (phase.source.kind !== 'pdf') return;
+    const kind = phase.source.kind;
+    if (kind !== 'pdf' && kind !== 'pptx') return;
 
     let cancelled = false;
     setOriginalLoading(true);
@@ -555,9 +616,17 @@ export function ReaderPage({
           setOriginalError('这份资料没有保存原始文件，看不了原图。');
           return;
         }
-        const { renderSourcePage } = await import('@/core/slides/source-page.ts');
-        // 目标宽度 1100px：够看清正文与图表，又不至于把 628 页的教材撑爆内存
-        const rendered = await renderSourcePage(bytes, pageNo, { targetWidth: 1100 });
+        // 按格式选渲染器：PDF 走 pdfjs，PPTX 走 pptx-wasm（2026-11-17）
+        const rendered =
+          phase.source.kind === 'pptx'
+            ? await (async () => {
+                const { renderPptxPage } = await import('@/core/slides/pptx-page.ts');
+                return renderPptxPage(bytes, pageNo, { targetWidth: 1100 });
+              })()
+            : await (async () => {
+                const { renderSourcePage } = await import('@/core/slides/source-page.ts');
+                return renderSourcePage(bytes, pageNo, { targetWidth: 1100 });
+              })();
         if (cancelled) return;
         setOriginalImage(rendered.imageData);
       } catch (err) {
@@ -576,10 +645,11 @@ export function ReaderPage({
     };
   }, [phase, showOriginal, pageNo, sourceService]);
 
-  // 载入后判断有没有原文件可看（PDF 才有意义）
+  // 载入后判断有没有原文件可看（PDF / PPTX 才有意义）
   useEffect(() => {
     if (phase.kind !== 'ready') return;
-    if (phase.source.kind !== 'pdf') {
+    const kind = phase.source.kind;
+    if (kind !== 'pdf' && kind !== 'pptx') {
       setCanShowOriginal(false);
       return;
     }
@@ -1539,7 +1609,7 @@ export function ReaderPage({
   }
 
   return (
-    <div className="reader-page">
+    <div className={`reader-page${isFullscreen ? ' reader-page--fullscreen' : ''}`}>
       <header className="reader-head">
         <div>
           <h1 className="reader-title">{source.title}</h1>
@@ -1549,10 +1619,21 @@ export function ReaderPage({
             {` · 第 ${seg?.page ?? 1} / ${totalSegments} 段`}
           </p>
         </div>
-        <button type="button" className="btn-ghost" onClick={onBack}>
-          <IconSources size={15} />
-          返回{backLabel ?? '资料'}
-        </button>
+        <div className="reader-head__actions">
+          <button
+            type="button"
+            className={`btn-ghost${isFullscreen ? ' reader-fullscreen--on' : ''}`}
+            onClick={() => void toggleFullscreen()}
+            title={isFullscreen ? '退出全屏（Esc）' : '全屏沉浸查看资料'}
+            data-action="fullscreen"
+          >
+            {isFullscreen ? '退出全屏' : '全屏'}
+          </button>
+          <button type="button" className="btn-ghost" onClick={onBack}>
+            <IconSources size={15} />
+            返回{backLabel ?? '资料'}
+          </button>
+        </div>
       </header>
 
       {/*

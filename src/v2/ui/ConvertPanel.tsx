@@ -249,6 +249,13 @@ export function ConvertPanel({
    * 默认完整解析 —— 那是原有行为，不该因为加了选项而改变默认。
    */
   const [parseMode, setParseMode] = useState<ParseMode>('full');
+  /*
+   * 云 OCR 只支持整本（ocr-runner 对任何 pages !== 'all' 都直接报错）。
+   * 界面已经不给他分片选项了，但用户可能先选了分片、再切到云 OCR，
+   * parseMode 还停留在 'range'。这里统一兜一层：云 OCR 永远按整本处理，
+   * 绝不把页范围发给 runner（渲染的按钮/说明也用这个值，保持一致）。
+   */
+  const effectiveParseMode: ParseMode = isCloud ? 'full' : parseMode;
   const [rangeStart, setRangeStart] = useState('1');
 
   /**
@@ -345,7 +352,7 @@ export function ConvertPanel({
      *
      * 所以这里硬拦：说不通就不发请求，并把原因写进 failed 状态。
      */
-    const rangeProblem = validatePageRange(parseMode, rangeStart, rangeEnd, source.pageCount);
+    const rangeProblem = validatePageRange(effectiveParseMode, rangeStart, rangeEnd, source.pageCount);
     if (rangeProblem) {
       /*
        * 用 failed 状态但 trouble='invalid-range'，
@@ -373,7 +380,7 @@ export function ConvertPanel({
      * 用户回来后一眼能看出是哪次、用什么跑的。
      */
     const range =
-      parseMode === 'full'
+      effectiveParseMode === 'full'
         ? null
         : { from: Number(rangeStart) || 1, to: Number(rangeEnd) || source.pageCount || 1 };
     let runId: string | null = null;
@@ -517,7 +524,7 @@ export function ConvertPanel({
            */
           /* tier 留空 */
           /* 页范围（2026-11-11）：完整解析传 'all'，分片传 '3-15' */
-          pages: toPagesArg(parseMode, rangeStart, rangeEnd),
+          pages: toPagesArg(effectiveParseMode, rangeStart, rangeEnd),
         },
         (p) => {
           if (aliveRef.current) setPhase({ kind: 'running', progress: p });
@@ -566,7 +573,7 @@ export function ConvertPanel({
         aliveRef,
         setFigureNote,
         onConverted,
-        pagesArgToCoveredPages(toPagesArg(parseMode, rangeStart, rangeEnd)),
+        pagesArgToCoveredPages(toPagesArg(effectiveParseMode, rangeStart, rangeEnd)),
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : '转换失败';
@@ -629,8 +636,11 @@ export function ConvertPanel({
           <p className="convert-panel__hint">
             这份资料已经有正文了（{source.segmentCount ?? 0} 段
             {source.pageCount ? ` / 共 ${source.pageCount} 页` : ''}）。
-            想解析还没解析的页，用下面的「分片解析」再跑一次 ——
-            新解析的页会合并进来，已解析的页不会丢。
+            {isCloud ? (
+              <>云端 OCR 只支持整本解析，重新解析会覆盖已有正文（通常只有识别质量不满意时才需要）。</>
+            ) : (
+              <>想解析还没解析的页，用下面的「分片解析」再跑一次 —— 新解析的页会合并进来，已解析的页不会丢。</>
+            )}
           </p>
         </>
       ) : (
@@ -719,6 +729,11 @@ export function ConvertPanel({
                 完整解析 = 整份；分片解析 = 指定起止页。
                 只在 idle 状态显示 —— 跑起来之后改它没有意义。
               */}
+              {/*
+                云 OCR（DeepSeek）不支持按页范围解析（ocr-runner 会直接报错），
+                所以只给它「整本解析」，不显示分片选项——别让用户选了再撞错。
+                本机 MinerU 照旧可选完整 / 分片。
+              */}
               <PageRangePicker
                 mode={parseMode}
                 onModeChange={setParseMode}
@@ -731,6 +746,7 @@ export function ConvertPanel({
                   setRangeEnd(v);
                 }}
                 pageCount={source.pageCount}
+                fullOnly={isCloud}
               />
 
               <button
@@ -746,7 +762,7 @@ export function ConvertPanel({
                   2026-11-16：文案还要看**引擎**。原来写死「用本机 MinerU」，
                   切到云 OCR 后按钮仍在说 MinerU —— 界面在说谎。
                 */}
-                {parseMode === 'full'
+                {effectiveParseMode === 'full'
                   ? hasText
                     ? '重新解析整本'
                     : isCloud
@@ -755,7 +771,7 @@ export function ConvertPanel({
                   : '解析这几页'}
               </button>
               <p className="convert-panel__note">
-                {parseMode === 'full'
+                {effectiveParseMode === 'full'
                   ? hasText
                     ? '会把整本重新解析一遍，覆盖已有正文（通常只有识别质量不满意时才需要）。整本大书可能要几十分钟。'
                     : isCloud

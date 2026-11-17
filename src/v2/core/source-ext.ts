@@ -22,8 +22,8 @@
 
 import type { Source } from '@/core/model.ts';
 
-/** 允许的扩展名（与 electron/main.cjs 的白名单保持一致） */
-const KNOWN = /\.(pdf|png|jpe?g|webp|bmp|gif|tiff?)$/i;
+/** 允许的扩展名（与 electron/main.cjs 的白名单保持一致；pptx 为「看原图」新增） */
+const KNOWN = /\.(pdf|pptx|png|jpe?g|webp|bmp|gif|tiff?)$/i;
 
 /**
  * 取扩展名（带点，小写）。
@@ -40,8 +40,9 @@ export function extOf(source: Pick<Source, 'title' | 'kind'>): string {
   }
   if (source.kind === 'pdf') return '.pdf';
   if (source.kind === 'image') return '.png';
+  if (source.kind === 'pptx') return '.pptx';
   /*
-   * docx / pptx / md / txt：这些不留原件（正文已切进分段），
+   * docx / md / txt：这些不留原件（正文已切进分段），
    * 所以理论上走不到这里。真走到了给 .txt 也比空串安全。
    */
   return '.txt';

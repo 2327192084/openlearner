@@ -46,6 +46,14 @@ export interface PageRangePickerProps {
   pageCount?: number | null;
   /** 是否禁用（解析中） */
   disabled?: boolean;
+  /**
+   * 隐藏「完整 / 分片」选择，只留整本解析（2026-11-17）。
+   *
+   * 云 OCR（DeepSeek）目前不支持按页范围解析——ocr-runner 会在运行时
+   * 直接抛「只能整份上传」。与其让用户选了分片再到运行时撞错，
+   * 不如在界面上不给他这个选项。本机 MinerU 不受影响。
+   */
+  fullOnly?: boolean;
 }
 
 /** 把 start/end 收成一个 MinerU 认识的 `--pages` 值 */
@@ -149,6 +157,7 @@ export function PageRangePicker({
   onEndChange,
   pageCount,
   disabled,
+  fullOnly = false,
 }: PageRangePickerProps) {
   /** 即时判断范围是否说得通（只用于提示，不替代主进程校验） */
   /* 与提交前用的是同一个判断 —— 一处写两遍迟早会不一致 */
@@ -161,36 +170,38 @@ export function PageRangePicker({
 
   return (
     <div className="prp">
-      <div className="prp__modes" role="radiogroup" aria-label="解析方式">
-        <label className={`prp__mode${mode === 'full' ? ' prp__mode--on' : ''}`}>
-          <input
-            type="radio"
-            name="parse-mode"
-            checked={mode === 'full'}
-            disabled={disabled}
-            onChange={() => onModeChange('full')}
-          />
-          <span className="prp__mode-name">完整解析</span>
-          <span className="prp__mode-hint">
-            整份从头到尾解析一遍
-            {pageCount ? `（共 ${pageCount} 页）` : ''}
-          </span>
-        </label>
+      {!fullOnly ? (
+        <div className="prp__modes" role="radiogroup" aria-label="解析方式">
+          <label className={`prp__mode${mode === 'full' ? ' prp__mode--on' : ''}`}>
+            <input
+              type="radio"
+              name="parse-mode"
+              checked={mode === 'full'}
+              disabled={disabled}
+              onChange={() => onModeChange('full')}
+            />
+            <span className="prp__mode-name">完整解析</span>
+            <span className="prp__mode-hint">
+              整份从头到尾解析一遍
+              {pageCount ? `（共 ${pageCount} 页）` : ''}
+            </span>
+          </label>
 
-        <label className={`prp__mode${mode === 'range' ? ' prp__mode--on' : ''}`}>
-          <input
-            type="radio"
-            name="parse-mode"
-            checked={mode === 'range'}
-            disabled={disabled}
-            onChange={() => onModeChange('range')}
-          />
-          <span className="prp__mode-name">分片解析</span>
-          <span className="prp__mode-hint">只解析指定的页范围，快得多</span>
-        </label>
-      </div>
+          <label className={`prp__mode${mode === 'range' ? ' prp__mode--on' : ''}`}>
+            <input
+              type="radio"
+              name="parse-mode"
+              checked={mode === 'range'}
+              disabled={disabled}
+              onChange={() => onModeChange('range')}
+            />
+            <span className="prp__mode-name">分片解析</span>
+            <span className="prp__mode-hint">只解析指定的页范围，快得多</span>
+          </label>
+        </div>
+      ) : null}
 
-      {mode === 'range' ? (
+      {!fullOnly && mode === 'range' ? (
         <div className="prp__range">
           <label className="prp__field">
             <span className="prp__label">从第</span>
@@ -229,7 +240,7 @@ export function PageRangePicker({
         </div>
       ) : null}
 
-      {mode === 'range' ? (
+      {!fullOnly && mode === 'range' ? (
         <p className="prp__note">
           分片解析只转这一段，<strong>其他页的正文会保留</strong> ——
           可以分几次把整本凑齐（重新解析同一页会覆盖该页的旧内容）。

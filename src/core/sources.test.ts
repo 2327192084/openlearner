@@ -120,10 +120,16 @@ describe('导入 PDF', () => {
 });
 
 describe('导入其他格式', () => {
-  it('PPTX 按幻灯片切分', async () => {
-    const source = await sources.importBuffer('课件.pptx', fixture('course.pptx'));
+  it('PPTX 按幻灯片切分，并存原件供「看原图」用（2026-11-17）', async () => {
+    const bytes = fixture('course.pptx');
+    const expected = Buffer.from(bytes);
+    const source = await sources.importBuffer('课件.pptx', bytes);
     expect(source.kind).toBe('pptx');
     expect(source.segmentCount).toBe(3);
+    expect(source.fileStored).toBe(true);
+    const stored = await sources.getOriginalFile(source.id);
+    expect(stored).not.toBeNull();
+    expect(Buffer.from(stored!).equals(expected)).toBe(true);
   });
 
   it('DOCX 按章节切分', async () => {

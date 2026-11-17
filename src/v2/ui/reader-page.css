@@ -74,6 +74,19 @@
   gap: var(--space-4, 16px);
 }
 
+/* 顶部右侧按钮容器：全屏 + 返回并排，全屏态下保留可退出的入口 */
+.reader-head__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  flex-shrink: 0;
+}
+
+.reader-fullscreen--on {
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
 .reader-title {
   margin: 0;
   font-size: var(--fs-2xl, 23px);
@@ -328,6 +341,68 @@
 .reader-search__input:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+/* ---------- 全屏沉浸阅读（2026-11-17） ---------- */
+
+/*
+ * 真全屏时浏览器已把页面铺满屏幕，但应用顶栏/侧边导航还在 DOM 里。
+ * 这里用 :has() 把外层 chrome 隐掉（:has 在所有现代 Electron 都支持），
+ * 只留阅读器自己的内容。为了不让 :has 失败时露出半截界面，
+ * 还给 html:fullscreen 兜底（真全屏下根元素就是它）。
+ */
+/*
+ * 实际外壳：AppShell 里是 .app > .sidebar + .main，.main 里是 .topbar。
+ * 真全屏（html:fullscreen）与降级沉浸（.app:has 命中）都把这两块收起。
+ */
+html:fullscreen .sidebar,
+html:fullscreen .topbar,
+.app:has(.reader-page--fullscreen) > .sidebar,
+.app:has(.reader-page--fullscreen) .topbar {
+  display: none !important;
+}
+
+/* 沉浸层占满整窗，不受外层 main/page-layer 的余量影响 */
+html:fullscreen .main,
+html:fullscreen .page-layer,
+.app:has(.reader-page--fullscreen) .main,
+.app:has(.reader-page--fullscreen) .page-layer {
+  height: 100vh;
+  max-height: 100vh;
+  padding: 0;
+  margin: 0;
+}
+
+.reader-page--fullscreen {
+  height: 100vh;
+  padding: 0 var(--space-4, 16px) var(--space-3, 12px);
+  background: var(--bg-canvas);
+}
+
+/* 沉浸：收起右栏（批注/查看留给普通模式，全屏就是读） */
+.reader-page--fullscreen .rside {
+  display: none !important;
+}
+
+/* 沉浸：收起搜索框（翻页保留：全屏看资料也要能翻页） */
+.reader-page--fullscreen .reader-search {
+  display: none !important;
+}
+
+/* 正文/原图占满可用高度，字号略放大 */
+.reader-page--fullscreen .reader-body {
+  padding: var(--space-5, 20px) var(--space-6, 24px);
+}
+
+.reader-page--fullscreen .reader-para {
+  font-size: var(--fs-lg, 17px);
+}
+
+/* 原图模式：全屏下让图片尽量铺满，但保持比例不裁切 */
+.reader-page--fullscreen .reader-original__img {
+  max-width: 100%;
+  max-height: calc(100vh - 200px);
+  object-fit: contain;
 }
 
 /* ---------- 正文 ---------- */

@@ -168,16 +168,18 @@ export class SourceService {
      * `copy.set(data)` 会抛 TypeError 被降级成 fileStored=false，
      * 表现是「任何 PDF 导入后图文页入口都置灰」。
      *
-     * 只有 PDF 和图片需要留字节：
+     * 这几种格式需要留字节：
      *  - PDF：图文页与 OCR 要拿它重新渲染某一页；
      *  - 图片：本身就是要显示的那张图，不留字节就只剩一条空记录。
+     *  - PPTX：阅读器「看原图」要用 pptx-wasm 重新渲染某一页（2026-11-17）。
      *
-     * docx/pptx/md/txt 不留：它们的文字已经切进分段了，
+     * docx/md/txt 不留：它们的文字已经切进分段了，
      * 留着整份原文件只是白占配额。
      */
     const kind = kindFromFileName(fileName);
     const original =
-      (kind === 'pdf' || kind === 'image') && data.byteLength <= MAX_STORED_FILE_BYTES
+      (kind === 'pdf' || kind === 'image' || kind === 'pptx') &&
+      data.byteLength <= MAX_STORED_FILE_BYTES
         ? new Uint8Array(data)
         : null;
 
@@ -213,8 +215,8 @@ export class SourceService {
       updatedAt: ts,
     };
 
-    // 原始字节只对 PDF 留：图文页要用 pdfjs 重新渲染某一页，
-    // 而 docx/pptx/md 的页面布局由 Office/浏览器实时排版，没有「原页」可渲染。
+    // 原始字节只对 PDF / PPTX 留：图文页要用 pdfjs 或 pptx-wasm 重新渲染某一页，
+    // 而 docx/md 的页面布局由 Office/浏览器实时排版，没有「原页」可渲染。
     if (original) await this.storeOriginalFile(source, original);
 
     // 先写段再写资料：万一中途失败，是「有段没资料」（不可见、可被清理），
@@ -274,13 +276,13 @@ export class SourceService {
   }
 
   /**
-   * 保存原始文件字节（仅 PDF，仅限大小上限内）。
+   * 保存原始文件字节（PDF / PPTX / 图片，仅限大小上限内）。
    *
    * 返回是否真的存下了，调用方据此设置 Source.fileStored。
    * 存不下不是错误：图文页用不了而已，不该让整次导入失败。
    */
   private async storeOriginalFile(source: Source, data: Uint8Array): Promise<boolean> {
-    if (source.kind !== 'pdf') return false;
+    if (source.kind === 'docx' || source.kind === 'markdown' || source.kind === 'text') return false;
     if (data.byteLength > MAX_STORED_FILE_BYTES) return false;
     // 调用方（importBuffer）已经在解析前复制过一份独立 buffer，
     // 这里如果还是 detached/空数组，说明上游逻辑出了问题，别静默写进去
@@ -324,7 +326,7 @@ export class SourceService {
     }
   }
 
-  /** 取原始字节，没有就返回 null（旧资料、超限文件、非 PDF 都会是 null） */
+  /** 取原始字节，没有就返回 null（旧资料、超限文件、不留原件的格式都会是 null） */
   async getOriginalFile(sourceId: string): Promise<Uint8Array | null> {
     const rec = await this.storage.get('sourceFiles', sourceId);
     if (!rec) return null;

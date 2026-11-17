@@ -31,6 +31,11 @@ describe('extOf：从标题或 kind 推断扩展名', () => {
     expect(extOf({ title: '扫描件 第 3 页', kind: 'image' })).toBe('.png');
   });
 
+  it('PPTX 按 kind 兜底成 .pptx（看原图与导出要用）', () => {
+    expect(extOf({ title: '信号与系统 第三章', kind: 'pptx' })).toBe('.pptx');
+    expect(extOf({ title: '课件.PPTX', kind: 'pptx' })).toBe('.pptx');
+  });
+
   it('★ .jpeg 归一成 .jpg（Windows 常见写法）', () => {
     expect(extOf({ title: '扫描.jpeg', kind: 'image' })).toBe('.jpg');
   });

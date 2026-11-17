@@ -106,7 +106,7 @@ export function EnginePicker({
             */}
             <span className="engine-opt__warn">
               不会切出插图（阅读器里那些「这一页有哪些图」会没有），也不推章节。
-              超过 180 秒的大文件可能超时，大书建议先分批。
+              只支持整本解析，不能只解析指定页；超过 180 秒的大文件可能超时。
             </span>
             {cloudDisabledReason ? (
               <span className="engine-opt__why">{cloudDisabledReason}</span>
