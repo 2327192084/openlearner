@@ -66,6 +66,18 @@ export interface ExamPageProps {
     scopeLabel: string;
   }) => Promise<{ picked: string[]; rationale: string; tokens?: number | null } | null>;
   /**
+   * 在用户挑中的题基础上，让 AI 改造出新题并组成一套卷（2026-11-17）。
+   *
+   * 用户原话：「用户先在题库挑选想要的题目，然后 ai 在这些题目的基础上改动出题」。
+   *
+   * 返回生成好的题目（已经落库成题组），本页拿去开考。
+   * 不传 = 没有后端，下拉里那一项置灰。
+   */
+  onComposeVariantFrom?: (input: {
+    questions: readonly Question[];
+    axes: readonly string[];
+  }) => Promise<{ questions: Question[]; deckTitle: string; tokens?: number | null } | null>;
+  /**
    * 任务运行记录（2026-11-17 用户要求：
    * 「这个让 ai 组卷的过程在任务栏目里面也要有记录」）。
    *
@@ -137,6 +149,7 @@ export function ExamPage({
   onOpenDecks,
   onAiGrade,
   onAiCompose,
+  onComposeVariantFrom,
   runRecorder,
 }: ExamPageProps) {
   const [phase, setPhase] = useState<Phase>({ kind: 'setup' });
@@ -157,6 +170,13 @@ export function ExamPage({
   const [aiBusy, setAiBusy] = useState(false);
   const [aiNote, setAiNote] = useState<string | null>(null);
   const [aiErr, setAiErr] = useState<string | null>(null);
+  /**
+   * 这次打开选题面板是「原样开考」还是「改造后组卷」（2026-11-17）。
+   *
+   * 用同一个 QuestionPicker 但两种用途 —— 用户要求
+   * 「不用多加个按钮」，所以入口合并成下拉里的两项。
+   */
+  const [pickerFor, setPickerFor] = useState<'exam' | 'variant'>('exam');
   /**
    * 按**题组**分好的题（2026-11-17 跨题组选题用）。
    *
@@ -418,6 +438,106 @@ export function ExamPage({
     }
   }, [pool, count, limitMin, onAiCompose, runRecorder]);
 
+  /**
+   * 「先自己挑，再让 AI 改造」（2026-11-17 用户要求）。
+   *
+   * 用户原话：「用户先在题库挑选想要的题目，然后 ai 在这些题目的基础上
+   * 改动出题」。
+   *
+   * ## 与 `runAiCompose` 的区别
+   *
+   * | | runAiCompose | 本函数 |
+   * |---|---|---|
+   * | 题从哪来 | AI 从题库里挑 | **用户挑** |
+   * | 题目内容 | 原样不动 | **AI 改造出新题** |
+   * | 用途 | 快速配一套 | 按自己的重点造一套 |
+   *
+   * 两条路并存，互不影响 —— 用户明确说「原有的组卷功能上不变」。
+   *
+   * ## 改造出来的题会落成一个新题组
+   *
+   * 由 App 侧的 `decks.generate` 负责（它已经有完整的生成+落库链路）。
+   * 本函数只管「拿结果去开考」。
+   */
+  const runComposeVariant = useCallback(
+    async (picked: Question[], axes: string[]) => {
+      if (!onComposeVariantFrom) {
+        setAiErr('这个功能需要先配好模型后端。到「设置 → 模型与出题」加一个。');
+        return;
+      }
+      if (picked.length === 0) {
+        setAiErr('先挑至少一道题。');
+        return;
+      }
+      setAiBusy(true);
+      setAiErr(null);
+      setAiNote(null);
+
+      /* 任务记录：与 AI 组卷同一套纪律（开场 → 无论成败都关） */
+      let runId: string | null = null;
+      if (runRecorder) {
+        try {
+          runId = await runRecorder.startCompose({
+            scopeId: 'picked-variant',
+            scopeLabel: `自选 ${picked.length} 题 · AI 改造`,
+            wantCount: picked.length,
+            poolSize: picked.length,
+          });
+        } catch {
+          runId = null;
+        }
+      }
+      const finish = async (
+        status: 'completed' | 'failed',
+        produced: number,
+        tokens: number | null,
+        error?: string | null,
+      ) => {
+        if (!runId || !runRecorder) return;
+        try {
+          await runRecorder.finishCompose(runId, { status, picked: produced, tokens, error: error ?? null });
+        } catch {
+          /* 统计失败不影响主流程 */
+        }
+        runId = null;
+      };
+
+      try {
+        const r = await onComposeVariantFrom({ questions: picked, axes });
+        if (!r || r.questions.length === 0) {
+          void finish('failed', 0, null, '没有产出可用的新题');
+          setAiErr('AI 这次没有改造出可用的题，再试一次，或者换个方向。');
+          return;
+        }
+
+        /* 按题型统计，让用户看清改造出了什么 */
+        const byKind = new Map<string, number>();
+        for (const q of r.questions) byKind.set(q.kind, (byKind.get(q.kind) ?? 0) + 1);
+        const parts = [...byKind.entries()].map(([k, n]) => `${kindLabel(k)} ${n}`);
+        setAiNote(
+          `基于你挑的 ${picked.length} 题，AI 改造出 ${r.questions.length} 题：${parts.join(' / ')}。` +
+            `已存成题组「${r.deckTitle}」。`,
+        );
+
+        void finish('completed', r.questions.length, r.tokens ?? null, null);
+
+        setPhase({
+          kind: 'taking',
+          paper: r.questions,
+          title: r.deckTitle,
+          limitSec: limitMin * 60,
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : '改造失败';
+        void finish('failed', 0, null, msg);
+        setAiErr(msg);
+      } finally {
+        setAiBusy(false);
+      }
+    },
+    [onComposeVariantFrom, limitMin, runRecorder],
+  );
+
   if (loading) {
     return (
       <div className="exam-page">
@@ -477,7 +597,21 @@ export function ExamPage({
           }}
           onOpenDecks={onOpenDecks}
           onOpenAttempt={(id) => void openAttempt(id)}
-          onOpenPicker={() => setPhase({ kind: 'picking' })}
+          onOpenPicker={() => {
+            /* 从「自己挑题」按钮进来 = 原样开考（2026-11-17） */
+            setPickerFor('exam');
+            setPhase({ kind: 'picking' });
+          }}
+          {...(onComposeVariantFrom
+            ? {
+                onComposeVariant: () => undefined,
+                onOpenPickerForVariant: () => {
+                  /* 从「先自己挑，再让 AI 改造」进来 = 改造模式 */
+                  setPickerFor('variant');
+                  setPhase({ kind: 'picking' });
+                },
+              }
+            : {})}
           {...(onAiCompose ? { onAiCompose: () => runAiCompose() } : {})}
           aiBusy={aiBusy}
           aiNote={aiNote}
@@ -560,6 +694,18 @@ export function ExamPage({
               .filter((q) => pickedIds.has(q.id));
             if (picked.length === 0) return;
             /*
+             * 同一个选题面板，两种用途（2026-11-17 用户要求）：
+             *  - pickerFor === 'variant' → 让 AI 改造后组卷
+             *  - 否则 → 原题原样开考
+             *
+             * 用户要求「不用多加个按钮」，所以用途由入口决定，
+             * 面板本身不多摆一个「改造」按钮。
+             */
+            if (pickerFor === 'variant') {
+              void runComposeVariant(picked, []);
+              return;
+            }
+            /*
              * 自己挑的题**不打乱顺序** —— 用户是按一定思路挑的
              * （先单选后计算之类），打乱会破坏那个意图。
              * buildPaper 是「随机抽 N 道」，这里直接给全套。
@@ -571,6 +717,12 @@ export function ExamPage({
               limitSec: limitMin * 60,
             });
           }}
+          /*
+            面板里的确认按钮文案随用途变（2026-11-17）。
+            「用这些题开考」在改造模式下是错的 —— 那时候是去造题，
+            不是直接开考。
+          */
+          confirmLabel={pickerFor === 'variant' ? '让 AI 改造后组卷' : undefined}
         />
       ) : null}
 
@@ -612,6 +764,8 @@ function SetupView({
   onOpenAttempt,
   onOpenPicker,
   onAiCompose,
+  onComposeVariant,
+  onOpenPickerForVariant,
   aiBusy = false,
   aiNote = null,
   aiErr = null,
@@ -643,6 +797,14 @@ function SetupView({
    * 不传 = 没有可用后端，不显示按钮。
    */
   onAiCompose?: () => void;
+  /**
+   * 「先自己挑，再让 AI 改造」这条路是否可用（2026-11-17）。
+   *
+   * 不传 = 没有后端，下拉里那一项置灰并说明原因（不摆假开关）。
+   */
+  onComposeVariant?: () => Promise<void> | void;
+  /** 打开选题面板，但选中后走「改造」而不是「原样开考」 */
+  onOpenPickerForVariant?: () => void;
   /** AI 组卷进行中（按钮显示「组卷中…」并禁用） */
   aiBusy?: boolean;
   /** AI 组卷的结果说明（「配了 10 题：单选 6 / 计算 2 …」） */
@@ -653,6 +815,13 @@ function SetupView({
   onDeleteAttempt: (attempt: ExamAttempt) => void;
 }) {
   const usableCount = Math.min(count, available);
+  /**
+   * 「让 AI 组卷」的二级选项是否展开（2026-11-17 用户要求）。
+   *
+   * 用户明确说「不用多加个按钮…这样界面看起来不会太臃肿」——
+   * 所以两条 AI 路径收在同一个下拉里，不并排摆两个按钮。
+   */
+  const [aiMenuOpen, setAiMenuOpen] = useState(false);
 
   return (
     <>
@@ -697,15 +866,62 @@ function SetupView({
               不传回调 = 这个环境没有后端，不显示（不摆假按钮）。
             */}
             {onAiCompose ? (
+              <>
               <button
                 type="button"
                 className="btn-ghost"
                 disabled={aiBusy}
-                onClick={() => void onAiCompose()}
-                title="让 AI 从当前范围内的题里配一套，题型分布像正常考试的卷子"
+                onClick={() => setAiMenuOpen((v) => !v)}
+                aria-expanded={aiMenuOpen}
+                title="让 AI 配一套卷子 —— 可以直接从题库挑，也可以在你挑中的题基础上改造出新题"
               >
                 {aiBusy ? 'AI 组卷中…' : '让 AI 组卷'}
+                <span className="ex-menu__caret">{aiMenuOpen ? '▴' : '▾'}</span>
               </button>
+
+              {/*
+                二级选项（2026-11-17 用户要求：不要多一个按钮，点开再选）。
+                
+                两条路：
+                  A. 直接从题库挑（原有功能，保持不变）
+                  B. 先自己挑题 → AI 在那些题基础上改造出新题
+                
+                做成下拉而不是并排两个按钮：用户明确说
+                「不用多加个按钮…这样界面看起来不会太臃肿」。
+              */}
+              {aiMenuOpen && !aiBusy ? (
+                <div className="ex-menu">
+                  <button
+                    type="button"
+                    className="ex-menu__item"
+                    onClick={() => {
+                      setAiMenuOpen(false);
+                      void onAiCompose();
+                    }}
+                  >
+                    <span className="ex-menu__title">直接从题库挑一套</span>
+                    <span className="ex-menu__desc">
+                      用现有的题，只重新挑，不改题目
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="ex-menu__item"
+                    disabled={!onComposeVariant}
+                    onClick={() => {
+                      setAiMenuOpen(false);
+                      onOpenPickerForVariant?.();
+                    }}
+                    title={onComposeVariant ? '' : '需要先有可用模型'}
+                  >
+                    <span className="ex-menu__title">先自己挑，再让 AI 改造</span>
+                    <span className="ex-menu__desc">
+                      你在题库里选几道，AI 在这些题基础上出新题（考同一考点、换个问法）
+                    </span>
+                  </button>
+                </div>
+              ) : null}
+              </>
             ) : null}
           </div>
         </div>

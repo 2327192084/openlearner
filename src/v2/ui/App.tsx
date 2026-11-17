@@ -1893,6 +1893,99 @@ export function App({
             startCompose: (input) => taskRuns.startComposeRun(input),
             finishCompose: (id, outcome) => taskRuns.finishComposeRun(id, outcome),
           }}
+          /*
+            「先自己挑，再让 AI 改造」（2026-11-17 用户要求）。
+
+            用户原话：「用户先在题库挑选想要的题目，然后 ai 在这些题目的
+            基础上改动出题」。
+
+            ## 为什么复用变式那套素材
+
+            `pickedQuestionsToVariantMaterials` 内部用的就是
+            `questionToVariantMaterial` —— 它已经把「原题 + 原答案 + 原解析
+            + 选项 + 考点 + 变式维度 + 硬性限制」拼好了，措辞经过
+            2026-11-12 那轮修正（防止模型改出另一道题）。再写一份必然漂移。
+          */
+          onComposeVariantFrom={async ({ questions: picked, axes }) => {
+            const { pickedQuestionsToVariantMaterials, composeVariantTitle } = await import(
+              '@/core/questions/compose-variant.ts'
+            );
+            /*
+             * 取知识点：用来给变式提供「考点」。
+             * 取不到也能改（素材里会写「原题未标注考点」），
+             * 所以失败不阻断，只是提示质量差一点。
+             */
+            const pointsById = new Map<string, import('@/core/model.ts').KnowledgePoint>();
+            try {
+              for (const src of (await sourceService.list()) ?? []) {
+                for (const p of await knowledgeService.listBySource(src.id)) {
+                  /* 知识点与题不是一一对应，这里按题干相同来关联 */
+                  pointsById.set(p.statement, p);
+                }
+              }
+            } catch {
+              /* 没有知识点也能改造 */
+            }
+            const pointsForQ = new Map<string, import('@/core/model.ts').KnowledgePoint>();
+            for (const q of picked) {
+              const hit = pointsById.get(q.prompt) ?? pointsById.get(q.topic ?? '');
+              if (hit) pointsForQ.set(q.id, hit);
+            }
+
+            const materials = pickedQuestionsToVariantMaterials({
+              questions: picked,
+              pointsById: pointsForQ,
+              axes: axes as never,
+            });
+            if (materials.length === 0) {
+              throw new Error('这些题没法用来改造（题干可能是空的）。');
+            }
+
+            const b = await resolveBackend();
+            /*
+             * 构造出题后端（与 GeneratePage 里变式出题同一套）。
+             *
+             * 为什么不复用 `resolveBackend` 的返回值直接当 backend：
+             * 那个返回的是「后端视图」（含 apiKey / status 等 UI 字段），
+             * 而 `decks.generate` 要的是 `QuestionBackend` 实现
+             * （有 generate 方法）。两者不是一回事。
+             */
+            const { DeepSeekQuestionBackend } = await import('@/core/questions/deepseek-backend.ts');
+            const backend = new DeepSeekQuestionBackend({
+              apiKey: b.apiKey,
+              provider: b.provider,
+              model: b.model,
+              ...(b.baseUrl ? { baseUrl: b.baseUrl } : {}),
+            });
+
+            const out = await decks.generate({
+              /* 素材优先；points 留空 —— generate 会用 materials */
+              points: [],
+              materials,
+              title: composeVariantTitle(picked.length ? `自选 ${picked.length} 题` : null),
+              sourceId: null,
+              backend,
+              options: {
+                kinds: ['single', 'multiple', 'truefalse', 'blank', 'essay', 'calc'],
+                /* 一道原题 → 一道变式题（组卷语义：挑几道就出几道） */
+                count: picked.length,
+                /* 变式不强制难度分布 —— 同一考点换考法比换难度更有意义 */
+                levels: null,
+                language: 'zh',
+              },
+              /*
+               * 必须给 signal（`GenerateQuestionsInput` 要求它）。
+               * 用全新 controller：调用方（ExamPage）没有取消入口，
+               * 但传一个不会被 abort 的 signal 是合法且最简单的做法。
+               */
+              signal: new AbortController().signal,
+            });
+            return {
+              questions: out.questions,
+              deckTitle: out.deck.title,
+              tokens: out.actualTokens ?? null,
+            };
+          }}
         />
       ) : page === 'notes' ? (
         <NotesPage

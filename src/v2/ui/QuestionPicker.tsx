@@ -44,8 +44,15 @@ export interface QuestionPickerProps {
   /** 已勾选的题目 id（受控） */
   selected: ReadonlySet<string>;
   onChange: (next: Set<string>) => void;
-  /** 确认用这一套题 */
+  /** 确认用这一套题（原样开考） */
   onConfirm: () => void;
+  /**
+   * 确认按钮的文案（2026-11-17）。
+   *
+   * 同一个面板有两种用途（原样开考 / 让 AI 改造），
+   * 文案不同但**不多摆按钮** —— 用户明确要求界面别臃肿。
+   */
+  confirmLabel?: string;
   onCancel: () => void;
 }
 
@@ -54,6 +61,7 @@ export function QuestionPicker({
   selected,
   onChange,
   onConfirm,
+  confirmLabel = '用这些题开考',
   onCancel,
 }: QuestionPickerProps) {
   /** 展开的题组（默认全展开 —— 用户点进来就是要看题） */
@@ -219,7 +227,7 @@ export function QuestionPicker({
             disabled={selected.size === 0}
             onClick={onConfirm}
           >
-            用这些题开考
+            {confirmLabel}
           </button>
         </div>
       </footer>

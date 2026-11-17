@@ -982,3 +982,73 @@
 .ex-history__del:hover {
   color: var(--bad);
 }
+
+/* ---------- 「让 AI 组卷」的二级选项（2026-11-17） ---------- */
+@layer study.features {
+  /*
+   * 下拉容器：浮在按钮下方。
+   * 用 absolute 定位而不是把内容挤进文档流 ——
+   * 用户要求界面别臃肿，展开时不应该把下面的选项往下推。
+   */
+  .ex-field__row {
+    position: relative;
+  }
+
+  .ex-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 20;
+    min-width: 320px;
+    max-width: 420px;
+    padding: var(--space-1);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-card);
+    background: var(--bg-raised);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .ex-menu__item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-2) var(--space-3);
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .ex-menu__item:hover:not(:disabled) {
+    background: var(--bg-hover);
+  }
+
+  .ex-menu__item:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  .ex-menu__title {
+    font-size: var(--fs-sm);
+    font-weight: 550;
+    color: var(--text);
+  }
+
+  .ex-menu__desc {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    line-height: 1.5;
+  }
+
+  .ex-menu__caret {
+    margin-left: 4px;
+    font-size: 10px;
+    color: var(--text-faint);
+  }
+}
