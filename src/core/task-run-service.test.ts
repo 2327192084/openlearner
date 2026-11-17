@@ -132,3 +132,93 @@ describe('TaskRunService：解析运行记录', () => {
     await expect(svc.finishParseRun('nope', { status: 'completed', pages: 1 })).resolves.toBeUndefined();
   });
 });
+/**
+ * AI 组卷的任务记录（2026-11-17 用户要求）。
+ *
+ * 用户原话：「这个让 ai 组卷的过程在任务栏目里面也要有记录」。
+ *
+ * 组卷与解析同样是「要等、可能失败、花了钱」的动作：
+ * 实测一次调用约 3600 token、10 秒左右。用户点完切走再回来，
+ * 需要知道那次到底成没成。
+ */
+describe('TaskRunService：AI 组卷记录', () => {
+  const composeInput = {
+    scopeId: '__all__',
+    scopeLabel: '全部已发布题目',
+    wantCount: 20,
+    poolSize: 23,
+  };
+
+  it('★ 开一条组卷记录 → kind 是 compose，状态 running', async () => {
+    const storage = new MemoryStorage();
+    const svc = new TaskRunService(storage);
+
+    const id = await svc.startComposeRun(composeInput);
+    const rows = await svc.listRuns();
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe(id);
+    expect(rows[0]!.kind).toBe('compose');
+    expect(rows[0]!.status).toBe('running');
+    expect(rows[0]!.finishedAt).toBeNull();
+  });
+
+  it('★ 结束时记下「挑了几题」与真实 token', async () => {
+    const storage = new MemoryStorage();
+    const svc = new TaskRunService(storage);
+
+    const id = await svc.startComposeRun(composeInput);
+    await svc.finishComposeRun(id, { status: 'completed', picked: 20, tokens: 3654 });
+
+    const rows = await svc.listRuns();
+    expect(rows[0]!.status).toBe('completed');
+    expect(rows[0]!.producedCount).toBe(20);
+    /* 组卷真的花 token —— 与解析不同，这里要真数 */
+    expect(rows[0]!.actualTokens).toBe(3654);
+  });
+
+  it('★ 失败也落成终态（不永远停在「进行中」）', async () => {
+    const storage = new MemoryStorage();
+    const svc = new TaskRunService(storage);
+
+    const id = await svc.startComposeRun(composeInput);
+    await svc.finishComposeRun(id, {
+      status: 'failed',
+      picked: 0,
+      tokens: null,
+      error: '模型把输出预算全用在思考上了',
+    });
+
+    const rows = await svc.listRuns();
+    expect(rows[0]!.status).toBe('failed');
+    expect(bucketOf(rows[0]!.status)).toBe('todo');
+    expect(rows[0]!.error).toContain('输出预算');
+  });
+
+  it('拿不到 token 时给 null 而不是 0（0 是假数据）', async () => {
+    const storage = new MemoryStorage();
+    const svc = new TaskRunService(storage);
+
+    const id = await svc.startComposeRun(composeInput);
+    await svc.finishComposeRun(id, { status: 'completed', picked: 5 });
+
+    const rows = await svc.listRuns();
+    expect(rows[0]!.actualTokens).toBeNull();
+  });
+
+  it('scopeLabel 存在 sourceId 字段里（组卷范围可能不是真实资料）', async () => {
+    const storage = new MemoryStorage();
+    const svc = new TaskRunService(storage);
+    await svc.startComposeRun(composeInput);
+    const rows = await svc.listRuns();
+    expect(rows[0]!.sourceId).toBe('__all__');
+  });
+
+  it('finish 不存在的 id 不抛错（幂等）', async () => {
+    const storage = new MemoryStorage();
+    const svc = new TaskRunService(storage);
+    await expect(
+      svc.finishComposeRun('nope', { status: 'completed', picked: 1 }),
+    ).resolves.toBeUndefined();
+  });
+});

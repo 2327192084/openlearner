@@ -79,6 +79,29 @@ export function bucketOf(status: GenerationRun['status']): TaskBucket {
   }
 }
 
+/** 一次 AI 组卷运行的输入 */
+export interface ComposeRunInput {
+  /**
+   * 从哪个范围组卷（资料名 / 「全部已发布题目」）。
+   *
+   * 记成 `sourceId` 字段会误导（组卷的范围可能是跨资料的「全部」），
+   * 所以这里借 `sourceId` 存一个**描述性字符串**，
+   * 并在注释里说清它不是真的 sourceId。
+   *
+   * 为什么复用这个字段而不加新字段：`GenerationRun` 已经有
+   * `sourceId` 且任务页拿它显示「归属对象」。组卷的「归属」
+   * 就是那个范围标签。加新字段要动 model 与所有读的人，
+   * 而复用只要注释说清。
+   */
+  scopeId: string;
+  /** 范围标签，任务页直接显示 */
+  scopeLabel: string;
+  /** 要几道题 */
+  wantCount: number;
+  /** 备选题总数（让用户看得出「从多少里挑了多少」） */
+  poolSize: number;
+}
+
 export class TaskRunService {
   constructor(private readonly storage: StorageAdapter) {}
 
@@ -135,6 +158,72 @@ export class TaskRunService {
       ...existing,
       status: outcome.status,
       producedCount: outcome.pages,
+      error: outcome.error ?? null,
+      finishedAt: new Date().toISOString(),
+    } satisfies GenerationRun);
+  }
+
+  /**
+   * 开一条「AI 组卷」运行记录（2026-11-17 用户要求）。
+   *
+   * 用户原话：「这个让 ai 组卷的过程在任务栏目里面也要有记录」。
+   *
+   * ## 为什么组卷该有记录
+   *
+   * 它跟解析一样是「要等一会儿、可能失败、花了钱」的动作：
+   * 实测一次调用约 3600 token，推理模型要跑 10 秒左右。
+   * 用户点完切走再回来，需要知道「那次到底成没成」。
+   *
+   * ## token 字段这次是真的有数
+   *
+   * 与解析不同（解析不花 token，给 null），组卷真的花：
+   * 结束时要调 `finishComposeRun` 把实际用量填进去。
+   * 填不上就留 null —— **不写 0**，0 是「花了但没花」，是假数据。
+   */
+  async startComposeRun(input: ComposeRunInput): Promise<string> {
+    const id = this.newId();
+    const run: GenerationRun = {
+      id,
+      kind: 'compose',
+      sourceId: input.scopeId,
+      pageRange: null,
+      status: 'running',
+      estimatedTokens: null,
+      actualTokens: null,
+      /* 要几道题先记 0 —— 结束时换成实际挑到的数量 */
+      producedCount: 0,
+      unlocatedCount: 0,
+      error: null,
+      backendId: null,
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+    };
+    await this.storage.put('generationRuns', run);
+    return id;
+  }
+
+  /**
+   * 结束一条组卷记录。
+   *
+   * @param picked 实际挑到几道题（失败时 0）
+   * @param tokens 实际用量；拿不到就给 null（不写 0）
+   */
+  async finishComposeRun(
+    id: string,
+    outcome: {
+      status: 'completed' | 'stopped' | 'failed';
+      picked: number;
+      tokens?: number | null;
+      error?: string | null;
+    },
+  ): Promise<void> {
+    const existing = await this.storage.get('generationRuns', id);
+    if (!existing) return;
+    await this.storage.put('generationRuns', {
+      ...existing,
+      status: outcome.status,
+      producedCount: outcome.picked,
+      actualTokens: outcome.tokens ?? null,
       error: outcome.error ?? null,
       finishedAt: new Date().toISOString(),
     } satisfies GenerationRun);

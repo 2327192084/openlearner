@@ -64,7 +64,30 @@ export interface ExamPageProps {
     questions: readonly Question[];
     count: number;
     scopeLabel: string;
-  }) => Promise<{ picked: string[]; rationale: string } | null>;
+  }) => Promise<{ picked: string[]; rationale: string; tokens?: number | null } | null>;
+  /**
+   * 任务运行记录（2026-11-17 用户要求：
+   * 「这个让 ai 组卷的过程在任务栏目里面也要有记录」）。
+   *
+   * 不传 = 不记录（单测里不传，避免污染）。
+   */
+  runRecorder?: {
+    startCompose: (input: {
+      scopeId: string;
+      scopeLabel: string;
+      wantCount: number;
+      poolSize: number;
+    }) => Promise<string>;
+    finishCompose: (
+      id: string,
+      outcome: {
+        status: 'completed' | 'stopped' | 'failed';
+        picked: number;
+        tokens?: number | null;
+        error?: string | null;
+      },
+    ) => Promise<void>;
+  };
 }
 
 /**
@@ -114,6 +137,7 @@ export function ExamPage({
   onOpenDecks,
   onAiGrade,
   onAiCompose,
+  runRecorder,
 }: ExamPageProps) {
   const [phase, setPhase] = useState<Phase>({ kind: 'setup' });
 
@@ -308,6 +332,42 @@ export function ExamPage({
     setAiBusy(true);
     setAiErr(null);
     setAiNote(null);
+
+    /*
+     * 开一条任务记录（2026-11-17 用户要求：
+     * 「这个让 ai 组卷的过程在任务栏目里面也要有记录」）。
+     *
+     * 与解析记录同样的纪律：**无论成功失败都要关掉**，
+     * 否则任务页会永远显示「进行中」。
+     */
+    let runId: string | null = null;
+    if (runRecorder) {
+      try {
+        runId = await runRecorder.startCompose({
+          scopeId: pool.id,
+          scopeLabel: pool.label,
+          wantCount: Math.min(count, pool.questions.length),
+          poolSize: pool.questions.length,
+        });
+      } catch {
+        runId = null;
+      }
+    }
+    const finish = async (
+      status: 'completed' | 'failed',
+      picked: number,
+      tokens: number | null,
+      error?: string | null,
+    ) => {
+      if (!runId || !runRecorder) return;
+      try {
+        await runRecorder.finishCompose(runId, { status, picked, tokens, error: error ?? null });
+      } catch {
+        /* 统计失败不影响主流程 */
+      }
+      runId = null;
+    };
+
     try {
       const want = Math.min(count, pool.questions.length);
       const parsed = await onAiCompose({
@@ -316,10 +376,10 @@ export function ExamPage({
         scopeLabel: pool.label,
       });
       if (!parsed) {
+        void finish('failed', 0, null, '没有返回可用结果');
         /*
          * 现在 App.tsx 会把真实原因**抛上来**（不再吞成 null），
          * 所以走到这里只剩一种情况：没有可用后端（回调被省略）。
-         * 泛泛的「再试一次」已经骗不了人，说清是什么问题。
          */
         setAiErr('还没有可用的模型后端，或者这次组卷没有返回结果。到「设置 → 模型与出题」检查一下。');
         return;
@@ -328,6 +388,7 @@ export function ExamPage({
       const pickedSet = new Set(parsed.picked);
       const paper = pool.questions.filter((q) => pickedSet.has(q.id));
       if (paper.length === 0) {
+        void finish('failed', 0, null, '挑的题不在题库里');
         setAiErr('AI 挑的题不在题库里（可能是幻觉 id），再试一次。');
         return;
       }
@@ -341,6 +402,8 @@ export function ExamPage({
           (parsed.rationale ? `。${parsed.rationale}` : ''),
       );
 
+      void finish('completed', paper.length, parsed.tokens ?? null, null);
+
       setPhase({
         kind: 'taking',
         paper,
@@ -348,11 +411,12 @@ export function ExamPage({
         limitSec: limitMin * 60,
       });
     } catch (e) {
+      void finish('failed', 0, null, e instanceof Error ? e.message : '组卷失败');
       setAiErr(e instanceof Error ? e.message : 'AI 组卷失败');
     } finally {
       setAiBusy(false);
     }
-  }, [pool, count, limitMin, onAiCompose]);
+  }, [pool, count, limitMin, onAiCompose, runRecorder]);
 
   if (loading) {
     return (

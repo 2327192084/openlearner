@@ -1879,7 +1879,19 @@ export function App({
                   : 'AI 返回了空内容，再试一次。',
               );
             }
-            return parsed;
+            /*
+             * 把 token 用量带回去（2026-11-17）。
+             * 任务页要显示「这次组卷花了多少」—— 不给就只能是 null。
+             */
+            return { ...parsed, tokens: res.usage?.totalTokens ?? null };
+          }}
+          /*
+            AI 组卷的任务记录（2026-11-17 用户要求）。
+            与解析记录同一套：开场 → 结束时无论成败都关掉。
+          */
+          runRecorder={{
+            startCompose: (input) => taskRuns.startComposeRun(input),
+            finishCompose: (id, outcome) => taskRuns.finishComposeRun(id, outcome),
           }}
         />
       ) : page === 'notes' ? (
@@ -1964,6 +1976,8 @@ export function App({
             setParseSourceId(sourceId);
             setPage('parse');
           }}
+          /* AI 组卷记录 → 模拟考页（2026-11-17） */
+          onOpenExam={() => setPage('exam')}
           /*
             任务记录删除（2026-11-08）。
             只删记录，不动知识点/题目 —— 服务层注释里写了理由。

@@ -304,7 +304,7 @@ export interface GenerationRun {
    *
    * 旧数据没有这个字段，读取时按 'organize' 处理（那时候只有整理会写）。
    */
-  kind?: 'organize' | 'questions' | 'slides' | 'parse';
+  kind?: 'organize' | 'questions' | 'slides' | 'parse' | 'compose';
   /** 归属资料（P2 阶段一次只处理一份） */
   sourceId: string;
   /**

@@ -49,6 +49,13 @@ export interface TasksPageProps {
    */
   onOpenParse: (sourceId: string | null) => void;
   /**
+   * 去「模拟考试」页（2026-11-17）。
+   *
+   * AI 组卷记录的跳转目标 —— 组卷的结果就是一张卷子，
+   * 去模拟考页能接着考、也能看历史。
+   */
+  onOpenExam?: () => void;
+  /**
    * 删除一条任务记录（2026-11-08）。
    *
    * 只删 generationRuns 里的记录，**不动**知识点与题目 ——
@@ -80,8 +87,8 @@ export interface TasksPageProps {
  */
 interface RunRow {
   id: string;
-  /** 'organize' 整理知识点 / 'questions' 出题 / 'parse' 文档解析 */
-  kind: 'organize' | 'questions' | 'parse';
+  /** 'organize' 整理知识点 / 'questions' 出题 / 'parse' 文档解析 / 'compose' AI 组卷 */
+  kind: 'organize' | 'questions' | 'parse' | 'compose';
   /** 归属对象标题（资料名或题组名） */
   target: string;
   /** 整理记录有真实状态；出题记录只有「完成」一种（失败的根本不会建 deck） */
@@ -110,6 +117,7 @@ const KIND_LABEL: Record<RunRow['kind'], string> = {
   organize: '整理知识点',
   questions: '出题',
   parse: '文档解析',
+  compose: 'AI 组卷',
 };
 
 /**
@@ -123,6 +131,10 @@ function runProducedText(r: RunRow): string | null {
   if (r.kind === 'parse') {
     /* 失败 / 停掉时页数是 0，说「产出 0 页」没有信息量，索性不显示 */
     return r.produced > 0 ? `转出 ${r.produced} 页` : null;
+  }
+  if (r.kind === 'compose') {
+    /* 组卷的单位是「题」，不是「条」——它挑的是现成的题 */
+    return r.produced > 0 ? `挑出 ${r.produced} 题` : null;
   }
   return `产出 ${r.produced} 条`;
 }
@@ -164,6 +176,7 @@ export function TasksPage({
   onOpenOrganize,
   onOpenDecks,
   onOpenParse,
+  onOpenExam,
   onRemoveRun,
   onClearRuns,
 }: TasksPageProps) {
@@ -205,9 +218,9 @@ export function TasksPage({
        * 那是一次解析。这正是本项目反复踩的「宽条件」坑
        * （GeneratePage 里也记过一次同类事故）。
        */
-      const kindOf = (r: GenerationRun): 'organize' | 'questions' | 'parse' => {
+      const kindOf = (r: GenerationRun): 'organize' | 'questions' | 'parse' | 'compose' => {
         const k = r.kind ?? 'organize';
-        if (k === 'questions' || k === 'parse') return k;
+        if (k === 'questions' || k === 'parse' || k === 'compose') return k;
         /* 'slides' 与老数据都按整理处理（slides 目前没有对应行） */
         return 'organize';
       };
@@ -244,6 +257,38 @@ export function TasksPage({
         produced: r.producedCount,
         unlocated: 0,
         tokens: null,
+        startedAt: r.startedAt,
+        finishedAt: r.finishedAt,
+        error: r.error,
+        sourceId: r.sourceId,
+      }));
+
+      /*
+       * AI 组卷记录（2026-11-17 用户要求）。
+       *
+       * 用户原话：「这个让 ai 组卷的过程在任务栏目里面也要有记录」。
+       *
+       * 与解析不同的是 `target`：组卷的范围可能是「全部已发布题目」
+       * 这种跨资料的标签，不是一个 sourceId。所以直接用记录里存的
+       * scopeLabel（存在 sourceId 字段里，理由见 TaskRunService 的注释）。
+       */
+      const composeRows: RunRow[] = runs.filter((r) => kindOf(r) === 'compose').map((r) => ({
+        id: r.id,
+        kind: 'compose',
+        /*
+         * ⚠️ 不能直接显示 `sourceId` —— 组卷存进去的是范围 id
+         * （如 `__all__`）。实测截图抓到显示成「__all__」，用户看不懂。
+         *
+         * 优先级：真实资料名 → 非内部标记的范围 id → 通用说法
+         */
+        target:
+          sourceTitle.get(r.sourceId) ??
+          (r.sourceId && !r.sourceId.startsWith('__') ? r.sourceId : '全部已发布题目'),
+        status: r.status,
+        produced: r.producedCount,
+        unlocated: 0,
+        /* 组卷真的花 token（实测一次约 3600–5900），如实显示 */
+        tokens: r.actualTokens,
         startedAt: r.startedAt,
         finishedAt: r.finishedAt,
         error: r.error,
@@ -312,7 +357,7 @@ export function TasksPage({
           deckId: d.id,
         }));
 
-      const rows = [...parseRows, ...organizeRows, ...questionRows, ...legacyDeckRows];
+      const rows = [...parseRows, ...composeRows, ...organizeRows, ...questionRows, ...legacyDeckRows];
       /* 最近的在最上面 */
       rows.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
 
@@ -507,6 +552,18 @@ export function TasksPage({
                               onClick={() => onOpenParse(r.sourceId)}
                             >
                               {r.status === 'running' ? '去看解析进度' : '去重新解析'}
+                            </button>
+                          ) : null}
+                          {/*
+                            AI 组卷的跳转（2026-11-17）。
+                            组卷的结果就是一个「卷子」—— 已完成的话可以去
+                            模拟考页看历史；失败/中断的话去重试。
+                            范围内没有真实 sourceId（可能是「全部」），
+                            所以统一跳模拟考页，不尝试定位具体资料。
+                          */}
+                          {r.kind === 'compose' ? (
+                            <button type="button" className="btn-text" onClick={onOpenExam}>
+                              {r.status === 'running' ? '去看组卷进度' : '去重新组卷'}
                             </button>
                           ) : null}
                           {r.kind === 'organize' && r.sourceId ? (
