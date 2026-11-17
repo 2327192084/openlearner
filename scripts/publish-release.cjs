@@ -172,6 +172,12 @@ const RELEASE_BODY = `## OpenLeaner ${VERSION}
 音频转写 / 课堂实录、导入考纲做备考补习。
 `;
 
+/* --body-file <path>：从文件读 Release 说明，便于每个版本写自己的说明而不改脚本内嵌模板 -- */
+const BODY_FILE = arg('body-file', null);
+const FINAL_BODY = BODY_FILE
+  ? fs.readFileSync(path.resolve(ROOT, BODY_FILE), 'utf8')
+  : RELEASE_BODY;
+
 (async () => {
   if (!fs.existsSync(FILE)) {
     console.error(`找不到要上传的文件: ${FILE}`);
@@ -206,11 +212,11 @@ const RELEASE_BODY = `## OpenLeaner ${VERSION}
      * 已经打进包里，但页面上的「这一版做了什么」里没有它。
      * 用户看页面会以为没更新。
      */
-    if (!DRY && release.body !== RELEASE_BODY) {
+    if (!DRY && release.body !== FINAL_BODY) {
       const patched = await api(`https://api.github.com/repos/${REPO}/releases/${release.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: RELEASE_BODY, name: `OpenLeaner ${VERSION}` }),
+        body: JSON.stringify({ body: FINAL_BODY, name: `OpenLeaner ${VERSION}` }),
       });
       if (patched.status >= 300) {
         console.error(`更新说明失败 ${patched.status}: ${patched.text.slice(0, 300)}`);
@@ -218,7 +224,7 @@ const RELEASE_BODY = `## OpenLeaner ${VERSION}
         console.log('Release 说明已同步更新');
         release = patched.json;
       }
-    } else if (DRY && release.body !== RELEASE_BODY) {
+    } else if (DRY && release.body !== FINAL_BODY) {
       console.log('[dry-run] 将更新 Release 说明');
     }
   } else if (existing.status === 404) {
@@ -232,7 +238,7 @@ const RELEASE_BODY = `## OpenLeaner ${VERSION}
         body: JSON.stringify({
           tag_name: TAG,
           name: `OpenLeaner ${VERSION}`,
-          body: RELEASE_BODY,
+          body: FINAL_BODY,
           draft: false,
           prerelease: false,
         }),
