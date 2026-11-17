@@ -683,12 +683,32 @@ export function ExamPage({
 
       {/* 跨题组选题组卷（2026-11-17 用户要求） */}
       {phase.kind === 'picking' ? (
-        <QuestionPicker
-          groups={deckGroups}
-          selected={pickedIds}
-          onChange={setPickedIds}
-          onCancel={() => setPhase({ kind: 'setup' })}
-          onConfirm={() => {
+        <>
+          {/*
+            改造组卷在这个阶段就会开始跑（点确认之后），
+            而提示原本只在设置页显示 —— 用户会停在选题面板上，
+            看不到任何「正在跑」的迹象（2026-11-17 发现的真缺口）。
+
+            所以这里也放一条同样的状态条。
+          */}
+          {aiBusy ? (
+            <div className="ex-running" role="status" aria-live="polite">
+              <span className="ex-running__spinner" aria-hidden="true" />
+              <div className="ex-running__body">
+                <p className="ex-running__title">AI 正在改造出题…</p>
+                <p className="ex-running__hint">
+                  通常十几秒到半分钟。改好后会自动进入考试，不用再点。
+                </p>
+              </div>
+            </div>
+          ) : null}
+          <QuestionPicker
+            groups={deckGroups}
+            selected={pickedIds}
+            onChange={setPickedIds}
+            onCancel={() => setPhase({ kind: 'setup' })}
+            busy={aiBusy}
+            onConfirm={() => {
             const picked = deckGroups
               .flatMap((g) => g.questions)
               .filter((q) => pickedIds.has(q.id));
@@ -724,6 +744,7 @@ export function ExamPage({
           */
           confirmLabel={pickerFor === 'variant' ? '让 AI 改造后组卷' : undefined}
         />
+        </>
       ) : null}
 
       {/* 删除历史记录：二次确认（2026-11-17） */}
@@ -925,6 +946,44 @@ function SetupView({
             ) : null}
           </div>
         </div>
+
+        {/*
+          组卷进行中的明确提示（2026-11-17 用户要求）。
+
+          用户原话：「ai组卷需要时间，这个时间内用户并不知道组卷是否成功进行，
+          我需要在进行组卷时按钮变灰并提醒用户正在组卷。」
+
+          ## 为什么光靠按钮变灰不够
+
+          按钮变灰 + 文字变「AI 组卷中…」本来就有，但**位置不显眼**：
+          它在「或者自己挑题」那一行里，而组卷要 10 秒以上。
+          用户的视线可能已经移到下面（题目数、时限、开始考试），
+          看不到那个小按钮在说什么，就会以为点了没反应。
+
+          所以这里在**视线所在的区域**（原来显示结果说明的位置）
+          放一条带转圈动画的状态条，说清三件事：
+           1. 正在做什么（AI 正在配卷）
+           2. 大概要多久（十几秒，别急）
+           3. 结束后会发生什么（自动进考试）
+
+          ## 为什么不用进度条
+
+          组卷是一次请求，拿不到中间进度 —— 画一个假的百分比
+          比不画更糟（用户会盯着一个不动的条等）。转圈是诚实的：
+          它只说「在跑」，不假装知道跑了多少。
+        */}
+        {aiBusy ? (
+          <div className="ex-running" role="status" aria-live="polite">
+            <span className="ex-running__spinner" aria-hidden="true" />
+            <div className="ex-running__body">
+              <p className="ex-running__title">AI 正在组卷…</p>
+              <p className="ex-running__hint">
+                通常十几秒。组好后会自动进入考试，不用再点。
+                想放弃就等它结束，或者切到别的页面 —— 它会在后台跑完。
+              </p>
+            </div>
+          </div>
+        ) : null}
 
         {aiNote ? <p className="ex-note">{aiNote}</p> : null}
         {aiErr ? <p className="ex-note ex-note--bad">{aiErr}</p> : null}

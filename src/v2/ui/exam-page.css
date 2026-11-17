@@ -1052,3 +1052,78 @@
     color: var(--text-faint);
   }
 }
+
+/* ---------- 组卷进行中的状态条（2026-11-17 用户要求） ---------- */
+@layer study.features {
+  /*
+   * 为什么是转圈而不是进度条：
+   * 组卷是一次请求，中间拿不到进度。画一个假百分比比不画更糟 ——
+   * 用户会盯着一个不动的条等。转圈只说「在跑」，不假装知道跑了多少。
+   */
+  .ex-running {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    margin: var(--space-3) 0;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    border-radius: var(--radius-card);
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+  }
+
+  .ex-running__spinner,
+  .qp-foot__spinner {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    margin-top: 1px;
+    border: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: ex-spin 0.8s linear infinite;
+  }
+
+  .ex-running__body {
+    min-width: 0;
+  }
+
+  .ex-running__title {
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .ex-running__hint {
+    margin-top: 2px;
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+
+  .qp-foot__spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    margin-right: 6px;
+    vertical-align: -1px;
+  }
+}
+
+/*
+ * 动画放层外：@keyframes 不受 layer 影响，但放里面容易被误以为要跟着层走。
+ * 另：`prefers-reduced-motion` 下停掉旋转 —— 动效是提示，不是必需品。
+ */
+@keyframes ex-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ex-running__spinner,
+  .qp-foot__spinner {
+    animation: none;
+    border-top-color: color-mix(in srgb, var(--accent) 30%, transparent);
+    border-left-color: var(--accent);
+  }
+}

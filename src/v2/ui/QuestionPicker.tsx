@@ -53,6 +53,14 @@ export interface QuestionPickerProps {
    * 文案不同但**不多摆按钮** —— 用户明确要求界面别臃肿。
    */
   confirmLabel?: string;
+  /**
+   * 正在跑（改造组卷时要十几秒到半分钟）。
+   *
+   * 忙碌时：确认按钮变灰+改文案、禁用所有勾选与取消 ——
+   * 用户不该在「AI 正在拿这批题改造」的时候继续勾选，
+   * 那会让他以为改动生效了（实际上已经发出去的请求不会带上新勾选）。
+   */
+  busy?: boolean;
   onCancel: () => void;
 }
 
@@ -62,6 +70,7 @@ export function QuestionPicker({
   onChange,
   onConfirm,
   confirmLabel = '用这些题开考',
+  busy = false,
   onCancel,
 }: QuestionPickerProps) {
   /** 展开的题组（默认全展开 —— 用户点进来就是要看题） */
@@ -195,7 +204,17 @@ export function QuestionPicker({
                     return (
                       <li key={q.id} className={`qp-item${on ? ' qp-item--on' : ''}`}>
                         <label className="qp-item__label">
-                          <input type="checkbox" checked={on} onChange={() => toggle(q.id)} />
+                          {/*
+                            busy 时禁用勾选（2026-11-17）：
+                            请求已经带着「现在的勾选」发出去了，
+                            这时再勾/取消会让人以为改动生效了。
+                          */}
+                          <input
+                            type="checkbox"
+                            checked={on}
+                            disabled={busy}
+                            onChange={() => toggle(q.id)}
+                          />
                           <span className="qp-item__no">{i + 1}</span>
                           <span className="qp-item__kind">{kindLabel(q.kind)}</span>
                           <span className="qp-item__prompt">
@@ -214,20 +233,33 @@ export function QuestionPicker({
 
       <footer className="qp-foot">
         <span className="qp-foot__count">
-          已选 <strong>{selected.size}</strong> 道
-          {selected.size === 0 ? '（至少选 1 道）' : ''}
+          {busy ? (
+            <>
+              <span className="qp-foot__spinner" aria-hidden="true" />
+              正在处理，请稍候…
+            </>
+          ) : (
+            <>
+              已选 <strong>{selected.size}</strong> 道
+              {selected.size === 0 ? '（至少选 1 道）' : ''}
+            </>
+          )}
         </span>
         <div className="qp-foot__actions">
-          <button type="button" className="btn-ghost" onClick={onCancel}>
+          {/*
+            忙碌时禁用取消与确认（2026-11-17）。
+            请求已经发出去了，这时点取消只会让界面和实际状态不一致。
+          */}
+          <button type="button" className="btn-ghost" onClick={onCancel} disabled={busy}>
             取消
           </button>
           <button
             type="button"
             className="btn-fill"
-            disabled={selected.size === 0}
+            disabled={selected.size === 0 || busy}
             onClick={onConfirm}
           >
-            {confirmLabel}
+            {busy ? '处理中…' : confirmLabel}
           </button>
         </div>
       </footer>
