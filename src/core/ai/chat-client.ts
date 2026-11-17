@@ -131,6 +131,20 @@ export interface ChatResult {
   } | null;
   /** 实际使用的模型名（服务端可能返回带版本号的） */
   model: string;
+  /**
+   * 结束原因（2026-11-17 加，可选）。
+   *
+   * ## 为什么需要它
+   *
+   * 推理模型（如 deepseek-flash）先输出思考、再输出正文。
+   * 若 `max_tokens` 全被思考吃掉，`content` 是**空字符串**而 HTTP 仍是 200。
+   * 调用方只看 content 会以为「模型答非所问」，实际是「预算不够」——
+   * 两者该给的提示完全不同（一个该调大预算，一个该重试）。
+   *
+   * `'length'` = 被 max_tokens 截断；`'stop'` = 正常结束。
+   * 旧实现可能不返回，所以是可选的。
+   */
+  finishReason?: string | null;
 }
 
 /** 一张随请求发送的图片（多模态模型） */
@@ -453,6 +467,19 @@ export async function chatCompletion(options: ChatOptions): Promise<ChatResult> 
   }
 
   const content = extractContent(parsed);
+
+  /*
+   * 取出 finish_reason（2026-11-17 加）。
+   *
+   * 推理模型（deepseek-flash 等）会先输出思考再输出正文；若 max_tokens
+   * 全被思考吃掉，content 就是空串而 HTTP 仍是 200。
+   * 这时 **不能** 当作「服务端出错」抛错 —— 那是预算问题，
+   * 调用方该做的是调大 maxTokens 或换模型，提示完全不同。
+   */
+  const firstChoice = parsed.choices?.[0] as { finish_reason?: unknown } | undefined;
+  const finishReason =
+    typeof firstChoice?.finish_reason === 'string' ? firstChoice.finish_reason : null;
+
   if (typeof content !== 'string') {
     throw new ApiError(
       'server-error',
@@ -473,6 +500,7 @@ export async function chatCompletion(options: ChatOptions): Promise<ChatResult> 
     content,
     usage,
     model: parsed.model ?? model,
+    finishReason,
   };
 }
 

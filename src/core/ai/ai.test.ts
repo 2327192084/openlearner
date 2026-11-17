@@ -656,3 +656,77 @@ describe('知识点标签清洗', () => {
     expect(tagsOf(['**'])).toEqual([]);
   });
 });
+
+/**
+ * `finishReason` 透传（2026-11-17 实测后加）。
+ *
+ * ## 为什么要这条
+ *
+ * 用户报「AI 组卷功能没使用成功」。实测查明：`deepseek-flash` 是**推理模型**，
+ * 会先输出思考（reasoning_tokens）再输出正文（content）。
+ * 当时 `maxTokens: 1200` 全被思考吃光：
+ *
+ *   finish_reason:      "length"
+ *   completion_tokens:  1200
+ *   reasoning_tokens:   1200   ← 全部
+ *   content:            ""     ← 正文一个字都没轮到
+ *
+ * 而原实现把「空 content」当成「服务端出错」抛错 —— 那是误判：
+ * 这是**预算问题**，不是服务端故障。两者该给的提示完全不同。
+ *
+ * 这条测试钉住：空 content + finish_reason=length 要能正常返回
+ * （不抛错），且 finishReason 透出来让调用方判断。
+ */
+describe('finishReason：推理模型把预算吃光时不当作服务端错误', () => {
+  const respondWith = (payload: unknown) =>
+    mockFetch(() => ({ body: JSON.stringify(payload) }));
+
+  it('★ 空 content + finish_reason=length → 不抛错，返回空内容并带上 finishReason', async () => {
+    const r = await chatCompletion({
+      apiKey: 'sk-test',
+      model: 'deepseek-flash',
+      systemPrompt: 's',
+      userPrompt: 'u',
+      fetchImpl: respondWith({
+        model: 'deepseek-flash',
+        choices: [{ message: { content: '' }, finish_reason: 'length' }],
+        usage: { prompt_tokens: 1864, completion_tokens: 1200, total_tokens: 3064 },
+      }),
+    });
+
+    /* 不抛错 —— 这是关键：它不是服务端故障 */
+    expect(r.content).toBe('');
+    expect(r.finishReason).toBe('length');
+  });
+
+  it('finish_reason=stop 时正常透出', async () => {
+    const r = await chatCompletion({
+      apiKey: 'sk-test',
+      model: 'deepseek-chat',
+      systemPrompt: 's',
+      userPrompt: 'u',
+      fetchImpl: respondWith({
+        model: 'deepseek-chat',
+        choices: [{ message: { content: '{"picked":["a"]}' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      }),
+    });
+    expect(r.content).toBe('{"picked":["a"]}');
+    expect(r.finishReason).toBe('stop');
+  });
+
+  it('没有 finish_reason 字段时给 null（旧后端兼容）', async () => {
+    const r = await chatCompletion({
+      apiKey: 'sk-test',
+      model: 'deepseek-chat',
+      systemPrompt: 's',
+      userPrompt: 'u',
+      fetchImpl: respondWith({
+        model: 'deepseek-chat',
+        choices: [{ message: { content: 'ok' } }],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      }),
+    });
+    expect(r.finishReason).toBeNull();
+  });
+});

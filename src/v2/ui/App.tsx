@@ -1819,32 +1819,67 @@ export function App({
             返回的是**已校验 id** 的结果（parseCompose 里把幻觉 id 丢掉了）。
           */
           onAiCompose={async ({ questions, count, scopeLabel }) => {
-            try {
-              const { buildComposePrompt, parseCompose } = await import('@/core/ai/compose-exam.ts');
-              const prompt = buildComposePrompt({ questions, count, scopeLabel });
-              const b = await resolveBackend();
-              const { chatCompletion } = await import('@/core/ai/deepseek-client.ts');
-              const res = await chatCompletion({
-                apiKey: b.apiKey,
-                model: b.model,
-                ...(b.baseUrl ? { baseUrl: b.baseUrl } : {}),
-                provider: b.provider,
-                systemPrompt: prompt.system,
-                userPrompt: prompt.user,
-                /* 组卷要稳，不要发挥 */
-                temperature: 0.2,
-                maxTokens: 1200,
-              });
+            /*
+             * ⚠️ 这里**不再吞掉错误**（2026-11-17 实测后改）。
+             *
+             * 原来是 `catch { return null }` —— 网络失败、Key 错、
+             * 被截断、id 全是幻觉……五种完全不同的原因全变成界面上一句
+             * 「AI 这次没给出可用的组卷结果」。用户没法判断，
+             * 我也只能另写诊断脚本才查得出真因。
+             *
+             * 现在把真实原因抛上去，由 ExamPage 原样显示。
+             */
+            const { buildComposePrompt, parseCompose } = await import('@/core/ai/compose-exam.ts');
+            const prompt = buildComposePrompt({ questions, count, scopeLabel });
+            const b = await resolveBackend();
+            const { chatCompletion } = await import('@/core/ai/deepseek-client.ts');
+            const res = await chatCompletion({
+              apiKey: b.apiKey,
+              model: b.model,
+              ...(b.baseUrl ? { baseUrl: b.baseUrl } : {}),
+              provider: b.provider,
+              systemPrompt: prompt.system,
+              userPrompt: prompt.user,
+              /* 组卷要稳，不要发挥 */
+              temperature: 0.2,
               /*
-                ⚠️ 这里直接返回 parseCompose 的结果，**不再补题**。
-                模型挑少了就少几道 —— 补的题不受它判断约束，
-                会破坏它刚配好的题型分布。
-              */
-              return parseCompose(res.content, questions, count);
-            } catch {
-              /* 失败返回 null，ExamPage 显示「没给出可用结果，再试一次」 */
-              return null;
+               * ⚠️ 4000 而不是 1200（2026-11-17 实测改的）。
+               *
+               * `deepseek-flash` 是**推理模型**：先输出思考（reasoning），
+               * 再输出正文（content）。原来设 1200，实测：
+               *   completion_tokens: 1200
+               *   reasoning_tokens:  1200   ← 全花在思考上
+               *   content:           ""     ← 正文一个字都没轮到
+               *   finish_reason:     "length"
+               *
+               * 所以 parseCompose('') 返回 null，界面报「没给出可用结果」。
+               * 不是模型不会组卷，是没给它留输出空间。
+               */
+              maxTokens: 4000,
+            });
+            /*
+              被截断这种情况单独说清楚 —— 它跟「模型答非所问」是两回事。
+            */
+            if (res.finishReason === 'length' && !res.content.trim()) {
+              throw new Error(
+                '模型把输出预算全用在思考上了，正文是空的（推理模型的特性）。' +
+                  '预算已调到 4000，请再试一次；若还不行，到设置里换一个非推理模型。',
+              );
             }
+            const parsed = parseCompose(res.content, questions, count);
+            if (!parsed) {
+              /*
+               * 走到这里说明「有内容但不是可用的 JSON」。
+               * 把模型原文的前 200 字带上 —— 没有它，用户和我都只能猜。
+               */
+              const head = res.content.trim().slice(0, 200);
+              throw new Error(
+                head
+                  ? `AI 返回的内容读不懂（不是约定的 JSON）。它开头说的是：「${head}」`
+                  : 'AI 返回了空内容，再试一次。',
+              );
+            }
+            return parsed;
           }}
         />
       ) : page === 'notes' ? (
