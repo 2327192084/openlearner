@@ -276,3 +276,102 @@ describe('趋势：待评的题不进分母（2026-11-17 方案 3）', () => {
     expect(trend[0]!.rate).toBe(0.75);
   });
 });
+/**
+ * 试卷错题进错题本（2026-11-17 用户要求）。
+ *
+ * 用户原话：「在错题巩固栏目增加试卷的错题」。
+ *
+ * 实现方式是写 `reviewLogs`（kind: 'question'、grade: 'again'）——
+ * 错题本页读的就是那里，所以不用改错题本一行代码。
+ */
+describe('试卷错题进错题本', () => {
+  const mkQ2 = (id: string, kind: Question['kind']): Question =>
+    ({ id, deckId: 'd1', kind, prompt: `题 ${id}`, answer: 'A', explanation: '', options: null, createdAt: '', updatedAt: '' }) as never;
+
+  const readLogs = async (storage: MemoryStorage) =>
+    (await storage.getAll('reviewLogs')) as { id: string; cardId: string; kind: string; grade: string }[];
+
+  it('★ 答错的题会进错题本（写一条 grade=again 的 reviewLog）', async () => {
+    const storage = new MemoryStorage();
+    const exam = new ExamService(storage);
+    const questions = [mkQ2('q1', 'single'), mkQ2('q2', 'single')];
+
+    await exam.submit({
+      title: 't',
+      questions,
+      answers: [
+        { questionId: 'q1', response: 'A', correct: true, gradedBy: 'auto' },
+        { questionId: 'q2', response: 'B', correct: false, gradedBy: 'auto' },
+      ],
+      startedAt: '2026-11-17T00:00:00Z',
+      limitSec: 0,
+      usedSec: 10,
+      timedOut: false,
+    });
+
+    const logs = await readLogs(storage);
+    /* 只记答错的 q2，答对的 q1 不记 */
+    expect(logs).toHaveLength(1);
+    expect(logs[0]!.cardId).toBe('q2');
+    expect(logs[0]!.grade).toBe('again');
+    expect(logs[0]!.kind).toBe('question');
+  });
+
+  it('★ 待评的题**不**记（还没评就说人家错，不公平）', async () => {
+    const storage = new MemoryStorage();
+    const exam = new ExamService(storage);
+    await exam.submit({
+      title: 't',
+      questions: [mkQ2('e1', 'essay')],
+      answers: [],
+      startedAt: '2026-11-17T00:00:00Z',
+      limitSec: 0,
+      usedSec: 5,
+      timedOut: false,
+    });
+
+    expect(await readLogs(storage)).toHaveLength(0);
+  });
+
+  it('★ 待评的题后来被评成错 → 补记进错题本', async () => {
+    const storage = new MemoryStorage();
+    const exam = new ExamService(storage);
+    const attempt = await exam.submit({
+      title: 't',
+      questions: [mkQ2('e1', 'essay')],
+      answers: [],
+      startedAt: '2026-11-17T00:00:00Z',
+      limitSec: 0,
+      usedSec: 5,
+      timedOut: false,
+    });
+    expect(await readLogs(storage)).toHaveLength(0);
+
+    await exam.regradeAnswer(attempt.id, 'e1', { correct: false, gradedBy: 'self' });
+
+    const logs = await readLogs(storage);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]!.cardId).toBe('e1');
+  });
+
+  it('★ 幂等：反复评成错不会把错题次数刷上去', async () => {
+    const storage = new MemoryStorage();
+    const exam = new ExamService(storage);
+    const attempt = await exam.submit({
+      title: 't',
+      questions: [mkQ2('e1', 'essay')],
+      answers: [],
+      startedAt: '2026-11-17T00:00:00Z',
+      limitSec: 0,
+      usedSec: 5,
+      timedOut: false,
+    });
+
+    await exam.regradeAnswer(attempt.id, 'e1', { correct: false, gradedBy: 'self' });
+    await exam.regradeAnswer(attempt.id, 'e1', { correct: false, gradedBy: 'ai' });
+    await exam.regradeAnswer(attempt.id, 'e1', { correct: false, gradedBy: 'self' });
+
+    /* 只有一条 —— id 是 exam:<attemptId>:<questionId>，天然去重 */
+    expect(await readLogs(storage)).toHaveLength(1);
+  });
+});

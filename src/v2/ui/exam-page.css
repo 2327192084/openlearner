@@ -756,3 +756,229 @@
     line-height: var(--lh-body);
   }
 }
+
+/* ---------- 跨题组选题组卷（2026-11-17） ---------- */
+@layer study.features {
+  .ex-field__row {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .ex-head__actions,
+  .qp-head__actions {
+    display: flex;
+    gap: var(--space-2);
+  }
+
+  .qp {
+    max-width: 900px;
+  }
+
+  .qp-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-4);
+    margin-bottom: var(--space-4);
+  }
+
+  .qp-title {
+    font-size: var(--fs-2xl);
+    font-weight: 650;
+    margin-bottom: var(--space-1);
+  }
+
+  .qp-lead {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+  }
+
+  /* 题型快选：一排小胶囊 */
+  .qp-kinds {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-4);
+  }
+
+  .qp-group {
+    margin-bottom: var(--space-3);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius-card);
+    overflow: hidden;
+  }
+
+  .qp-group__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    background: var(--bg-sunken);
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .qp-group__toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex: 1;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: var(--fs-sm);
+    text-align: left;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .qp-group__arrow {
+    color: var(--text-faint);
+    width: 1em;
+  }
+
+  .qp-group__title {
+    font-weight: 550;
+  }
+
+  .qp-group__count {
+    margin-left: auto;
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .qp-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .qp-item {
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .qp-item--on {
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+  }
+
+  .qp-item__label {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    cursor: pointer;
+    font-size: var(--fs-sm);
+    line-height: 1.55;
+  }
+
+  .qp-item__no {
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+    min-width: 1.6em;
+  }
+
+  .qp-item__kind {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    font-size: var(--fs-xs);
+    padding-top: 1px;
+  }
+
+  .qp-item__prompt {
+    color: var(--text-dim);
+    overflow-wrap: anywhere;
+  }
+
+  .qp-item--on .qp-item__prompt {
+    color: var(--text);
+  }
+
+  .qp-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    position: sticky;
+    bottom: 0;
+    padding: var(--space-3) 0;
+    background: var(--bg-canvas);
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .qp-foot__count {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+  }
+
+  .qp-foot__actions {
+    display: flex;
+    gap: var(--space-2);
+  }
+
+  .ex-note--bad {
+    color: var(--bad);
+  }
+}
+
+/*
+ * 按钮类样式必须放层外（base.css 有无层级 button 规则）。
+ */
+.qp-group__all {
+  border: none;
+  background: transparent;
+  color: var(--accent-text);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  padding: 0;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.qp-kind {
+  border: 1px solid var(--line-soft);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  padding: 3px 9px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.qp-kind:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.ex-history__open {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+
+.ex-history__open:hover {
+  color: var(--text);
+}
+
+.ex-history__del {
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  padding: 0;
+}
+
+.ex-history__del:hover {
+  color: var(--bad);
+}

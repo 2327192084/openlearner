@@ -1813,6 +1813,39 @@ export function App({
               return null;
             }
           }}
+          /*
+            AI 组卷（2026-11-17 用户要求）。
+            读后端凭据 + 发请求放在这里，ExamPage 不碰 Key。
+            返回的是**已校验 id** 的结果（parseCompose 里把幻觉 id 丢掉了）。
+          */
+          onAiCompose={async ({ questions, count, scopeLabel }) => {
+            try {
+              const { buildComposePrompt, parseCompose } = await import('@/core/ai/compose-exam.ts');
+              const prompt = buildComposePrompt({ questions, count, scopeLabel });
+              const b = await resolveBackend();
+              const { chatCompletion } = await import('@/core/ai/deepseek-client.ts');
+              const res = await chatCompletion({
+                apiKey: b.apiKey,
+                model: b.model,
+                ...(b.baseUrl ? { baseUrl: b.baseUrl } : {}),
+                provider: b.provider,
+                systemPrompt: prompt.system,
+                userPrompt: prompt.user,
+                /* 组卷要稳，不要发挥 */
+                temperature: 0.2,
+                maxTokens: 1200,
+              });
+              /*
+                ⚠️ 这里直接返回 parseCompose 的结果，**不再补题**。
+                模型挑少了就少几道 —— 补的题不受它判断约束，
+                会破坏它刚配好的题型分布。
+              */
+              return parseCompose(res.content, questions, count);
+            } catch {
+              /* 失败返回 null，ExamPage 显示「没给出可用结果，再试一次」 */
+              return null;
+            }
+          }}
         />
       ) : page === 'notes' ? (
         <NotesPage

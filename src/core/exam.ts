@@ -173,7 +173,78 @@ export class ExamService {
     };
 
     await this.storage.put('examAttempts', attempt);
+
+    /*
+     * 交卷时把确定答错的题记进错题本（2026-11-17 用户要求：
+     * 「在错题巩固栏目增加试卷的错题」）。
+     *
+     * 放在落库之后：先保证考试记录本身存好，再去做附加动作。
+     * 出错也不该让交卷失败 —— 用户考完点交卷，最怕的是「没交上」。
+     */
+    try {
+      await this.recordWrongAnswers(attempt);
+    } catch {
+      /* 记错题失败不影响交卷；考试记录已经存下了 */
+    }
+
     return attempt;
+  }
+
+  /**
+   * 把这份卷子的错题记进「错题本」（2026-11-17 用户要求）。
+   *
+   * 用户原话：「在错题巩固栏目增加试卷的错题」。
+   *
+   * ## 为什么写 `reviewLogs` 而不是另建一张表
+   *
+   * 「错题与待巩固」页读的是 `reviewService.wrongCardsDetailed()`，
+   * 它扫的就是 `reviewLogs` 里 `kind === 'question'` 且 `grade === 'again'`
+   * 的记录。写进那里，试卷错题**自动**出现在错题本里，不用改错题本一行代码。
+   *
+   * 另建一张表的话，错题本要同时读两处并去重、排序 ——
+   * 那是将来必然漂移的地方（本项目的老毛病）。
+   *
+   * ## 只记「确定答错」的题
+   *
+   * - `correct === false` → 记一条 `again`
+   * - `correct === null`（待评）→ **不记**。还没评就说人家错，不公平；
+   *   等 AI 或用户评完再决定（`regradeAnswer` 那里会补记）。
+   * - `correct === true` → 不记
+   *
+   * ## 幂等
+   *
+   * id 用 `exam:<attemptId>:<questionId>` —— 同一场考试重复调用只留一条，
+   * 不会因为用户反复点「重新评分」把错题次数刷上去。
+   */
+  async recordWrongAnswers(attempt: ExamAttempt): Promise<number> {
+    const wrong = attempt.answers.filter((a) => a.correct === false);
+    if (wrong.length === 0) return 0;
+
+    const day = attempt.finishedAt.slice(0, 10);
+    let n = 0;
+    for (const a of wrong) {
+      const id = `exam:${attempt.id}:${a.questionId}`;
+      const existing = await this.storage.get('reviewLogs', id);
+      /* 已经记过就不重复记（幂等） */
+      if (existing) continue;
+      await this.storage.put('reviewLogs', {
+        id,
+        cardId: a.questionId,
+        kind: 'question',
+        grade: 'again',
+        day,
+        /*
+         * 间隔字段给 0：考试错题不参与间隔排期推算，
+         * 它只是一个「这里错了」的记录。错题本读的是 grade，
+         * 排期读的是别处（做题页写的那些）。
+         */
+        prevIntervalDays: 0,
+        newIntervalDays: 0,
+        at: attempt.finishedAt,
+      });
+      n += 1;
+    }
+    return n;
   }
 
   /**
@@ -227,6 +298,20 @@ export class ExamService {
       pendingCount: answers.filter((a) => a.correct === null).length,
     };
     await this.storage.put('examAttempts', next);
+
+    /*
+     * 评成「错」时补记进错题本（2026-11-17）。
+     *
+     * 交卷时待评的题还没结论，所以 `recordWrongAnswers` 跳过了它们。
+     * 现在 AI 或用户评成了错，就该出现在错题本里 ——
+     * 否则「待评的题答错了却永远进不了错题本」。
+     *
+     * 幂等由 `recordWrongAnswers` 里的 id 保证，评几次都只有一条。
+     */
+    if (patch.correct === false) {
+      await this.recordWrongAnswers(next);
+    }
+
     return next;
   }
 

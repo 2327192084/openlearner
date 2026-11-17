@@ -28,6 +28,9 @@ import { isCorrect } from '@/v2/core/cards.ts';
 import { MathText } from './MathText.tsx';
 import { isAutoGraded } from '@/core/questions/kinds.ts';
 import { ExamGradePanel } from './ExamGradePanel.tsx';
+import { HistoryView } from './ExamHistoryView.tsx';
+import { QuestionPicker } from './QuestionPicker.tsx';
+import { ConfirmDialog } from './dialog.tsx';
 import { usePageTask } from './page-task-context.ts';
 
 export interface ExamPageProps {
@@ -49,6 +52,19 @@ export interface ExamPageProps {
     explanation: string;
     response: string;
   }) => Promise<import('@/core/ai/grade-short.ts').ShortGradeResult | null>;
+  /**
+   * AI 组卷（2026-11-17 用户要求）。
+   *
+   * 由 App 注入：读后端凭据、发请求都在那边（本页不碰 Key）。
+   * 返回**已校验过 id** 的题库子集；失败返回 null。
+   *
+   * 不传 = 没有可用后端，界面不显示「让 AI 组卷」按钮（不摆假按钮）。
+   */
+  onAiCompose?: (input: {
+    questions: readonly Question[];
+    count: number;
+    scopeLabel: string;
+  }) => Promise<{ picked: string[]; rationale: string } | null>;
 }
 
 /**
@@ -61,7 +77,23 @@ export interface ExamPageProps {
 type Phase =
   | { kind: 'setup' }
   | { kind: 'taking'; paper: Question[]; title: string; limitSec: number }
-  | { kind: 'result'; attempt: ExamAttempt; questions: Question[] };
+  | { kind: 'result'; attempt: ExamAttempt; questions: Question[] }
+  /**
+   * 回看历史试卷（2026-11-17 用户要求）。
+   *
+   * 「最后下面的历史成绩可以点击查看试卷所有的习题」——
+   * 与 `result` 分开：那个是刚交完卷、可以接着评分的；
+   * 这个是纯回看，题目可能已经从题组里删掉（找不到的是少数）。
+   */
+  | { kind: 'history'; attempt: ExamAttempt; questions: Question[] }
+  /**
+   * 跨题组手动选题（2026-11-17 用户要求）。
+   *
+   * 单独一个 phase 而不是在 setup 里弹模态框：
+   * 选题是个**浏览型**任务（要看几十道题的题干），
+   * 塞进窄弹窗里体验很差。
+   */
+  | { kind: 'picking' };
 
 /** 可选的题目数量 */
 const COUNT_OPTIONS = [5, 10, 20, 30, 50];
@@ -75,7 +107,14 @@ const LIMIT_OPTIONS = [
   { min: 60, label: '60 分钟' },
 ];
 
-export function ExamPage({ exam, decks, sourceService, onOpenDecks, onAiGrade }: ExamPageProps) {
+export function ExamPage({
+  exam,
+  decks,
+  sourceService,
+  onOpenDecks,
+  onAiGrade,
+  onAiCompose,
+}: ExamPageProps) {
   const [phase, setPhase] = useState<Phase>({ kind: 'setup' });
 
   /* ---- 可选题池 ---- */
@@ -86,6 +125,23 @@ export function ExamPage({ exam, decks, sourceService, onOpenDecks, onAiGrade }:
   const [history, setHistory] = useState<ExamAttempt[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  /** 待删除的历史记录（2026-11-17，二次确认框由它驱动） */
+  const [pendingDelete, setPendingDelete] = useState<ExamAttempt | null>(null);
+  /** 跨题组选题里已勾的题（2026-11-17） */
+  const [pickedIds, setPickedIds] = useState<Set<string>>(new Set());
+  /** AI 组卷状态（2026-11-17） */
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiNote, setAiNote] = useState<string | null>(null);
+  const [aiErr, setAiErr] = useState<string | null>(null);
+  /**
+   * 按**题组**分好的题（2026-11-17 跨题组选题用）。
+   *
+   * 与 `pools` 分开存：pools 是按「资料」合并的（出卷下拉要那个口径），
+   * 而选题面板要看清「这道题来自哪个题组」—— 合并后就看不出边界了。
+   */
+  const [deckGroups, setDeckGroups] = useState<
+    { deckId: string; deckTitle: string; questions: Question[] }[]
+  >([]);
 
   const load = useCallback(async () => {
     try {
@@ -99,8 +155,11 @@ export function ExamPage({ exam, decks, sourceService, onOpenDecks, onAiGrade }:
 
       /* 每个「可考范围」= 一份资料下所有已发布题组的题 */
       const bySource = new Map<string, { label: string; questions: Question[] }>();
+      /* 按题组分开留一份（2026-11-17 跨题组选题要用） */
+      const byDeck: { deckId: string; deckTitle: string; questions: Question[] }[] = [];
       for (const d of published) {
         const qs = await decks.getQuestions(d.id);
+        if (qs.length > 0) byDeck.push({ deckId: d.id, deckTitle: d.title, questions: qs });
         const key = d.sourceId ?? `__deck_${d.id}`;
         const label = d.sourceId
           ? (srcTitle.get(d.sourceId) ?? '（资料已删除）')
@@ -145,6 +204,7 @@ export function ExamPage({ exam, decks, sourceService, onOpenDecks, onAiGrade }:
 
       setPools(list);
       setPoolId(list[0]?.id ?? '');
+      setDeckGroups(byDeck);
       setHistory(attempts);
     } catch (e) {
       setErr(e instanceof Error ? e.message : '读不出题库');
@@ -167,6 +227,127 @@ export function ExamPage({ exam, decks, sourceService, onOpenDecks, onAiGrade }:
    * 而不是交完卷发现「怎么不给我分数」。
    */
   const needsGradingCount = (pool?.questions ?? []).filter((q) => !isAutoGraded(q.kind)).length;
+
+  /**
+   * 打开某一次历史考试（2026-11-17 用户要求）。
+   *
+   * ## 为什么要重新取题目
+   *
+   * 考试记录里只存了 `questionIds`，题目正文在 `questions` 分区。
+   * 题目可能已经被删（题组删了、题被改过）—— 那种情况如实跳过，
+   * 不能让整页打不开。
+   *
+   * 用 `decks` 服务取（它已经按 id 提供了读题能力），
+   * 比在 ExamPage 里直接摸 storage 干净。
+   */
+  const openAttempt = useCallback(
+    async (id: string) => {
+      try {
+        const attempt = await exam.get(id);
+        if (!attempt) {
+          setErr('这条记录已经不存在了（可能刚被删掉）。');
+          return;
+        }
+        /* 按 questionIds 顺序取题，删掉的跳过 */
+        const found: Question[] = [];
+        for (const qid of attempt.questionIds) {
+          const q = await decks.getQuestion(qid);
+          if (q) found.push(q);
+        }
+        setPhase({ kind: 'history', attempt, questions: found });
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : '打不开这份试卷');
+      }
+    },
+    [exam, decks],
+  );
+
+  /**
+   * 删除一条历史记录（2026-11-17 用户要求）。
+   *
+   * 用户原话：「试卷的历史纪录要能删除，以免后期出卷太多不好查询历史记录」。
+   *
+   * 二次确认由 `pendingDelete` 驱动（删了就真没了，不像回收站能还原 ——
+   * 考试记录本来就是流水账，进回收站反而没意义）。
+   */
+  const confirmDelete = useCallback(async () => {
+    if (!pendingDelete) return;
+    try {
+      await exam.remove(pendingDelete.id);
+      setPendingDelete(null);
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '删除失败');
+    }
+  }, [pendingDelete, exam, load]);
+
+  /**
+   * 让 AI 从当前范围里配一套卷（2026-11-17 用户要求）。
+   *
+   * ## 为什么是「挑」不是「生成」
+   *
+   * 用户说的是「不好查询历史记录」+「题型分布符合考试标准」——
+   * 他要的是从**已有题**里配。新生成的题没有原文出处、点不回原页，
+   * 而这个项目的支点就是「每道题都能点回原文」。
+   *
+   * ## 凑不够怎么办
+   *
+   * 模型挑的题可能少于要求（它觉得重复的都只挑一道）。
+   * 这里**不自己补题** —— 补的题不受模型判断约束，会破坏它刚配好的分布。
+   * 但也不能让用户白等：如实说「配了 N 题」并直接开考。
+   */
+  const runAiCompose = useCallback(async () => {
+    if (!pool || pool.questions.length === 0) {
+      setAiErr('这个范围里没有可考的题。');
+      return;
+    }
+    if (!onAiCompose) {
+      setAiErr('还没有可用的模型后端。到「设置 → 模型与出题」加一个。');
+      return;
+    }
+    setAiBusy(true);
+    setAiErr(null);
+    setAiNote(null);
+    try {
+      const want = Math.min(count, pool.questions.length);
+      const parsed = await onAiCompose({
+        questions: pool.questions,
+        count: want,
+        scopeLabel: pool.label,
+      });
+      if (!parsed) {
+        setAiErr('AI 这次没给出可用的组卷结果，再试一次，或者自己挑题。');
+        return;
+      }
+
+      const pickedSet = new Set(parsed.picked);
+      const paper = pool.questions.filter((q) => pickedSet.has(q.id));
+      if (paper.length === 0) {
+        setAiErr('AI 挑的题不在题库里（可能是幻觉 id），再试一次。');
+        return;
+      }
+
+      /* 按题型统计，让用户看清它配了什么 */
+      const byKind = new Map<string, number>();
+      for (const q of paper) byKind.set(q.kind, (byKind.get(q.kind) ?? 0) + 1);
+      const parts = [...byKind.entries()].map(([k, n]) => `${kindLabel(k)} ${n}`);
+      setAiNote(
+        `AI 配了 ${paper.length} 题：${parts.join(' / ')}` +
+          (parsed.rationale ? `。${parsed.rationale}` : ''),
+      );
+
+      setPhase({
+        kind: 'taking',
+        paper,
+        title: `AI 组卷 · ${pool.label}`,
+        limitSec: limitMin * 60,
+      });
+    } catch (e) {
+      setAiErr(e instanceof Error ? e.message : 'AI 组卷失败');
+    } finally {
+      setAiBusy(false);
+    }
+  }, [pool, count, limitMin, onAiCompose]);
 
   if (loading) {
     return (
@@ -226,6 +407,13 @@ export function ExamPage({ exam, decks, sourceService, onOpenDecks, onAiGrade }:
             });
           }}
           onOpenDecks={onOpenDecks}
+          onOpenAttempt={(id) => void openAttempt(id)}
+          onOpenPicker={() => setPhase({ kind: 'picking' })}
+          {...(onAiCompose ? { onAiCompose: () => runAiCompose() } : {})}
+          aiBusy={aiBusy}
+          aiNote={aiNote}
+          aiErr={aiErr}
+          onDeleteAttempt={(a) => setPendingDelete(a)}
         />
       ) : null}
 
@@ -271,6 +459,67 @@ export function ExamPage({ exam, decks, sourceService, onOpenDecks, onAiGrade }:
           }}
         />
       ) : null}
+
+      {/*
+        回看历史试卷（2026-11-17 用户要求）。
+        与 result 分开：这里**不给评分入口** —— 那次考试已经结束，
+        事后改分没有意义（要改就再考一次）。
+        只如实显示当时的答案与判定。
+      */}
+      {phase.kind === 'history' ? (
+        <HistoryView
+          attempt={phase.attempt}
+          questions={phase.questions}
+          onBack={() => setPhase({ kind: 'setup' })}
+          onDelete={() => {
+            setPendingDelete(phase.attempt);
+            setPhase({ kind: 'setup' });
+          }}
+        />
+      ) : null}
+
+      {/* 跨题组选题组卷（2026-11-17 用户要求） */}
+      {phase.kind === 'picking' ? (
+        <QuestionPicker
+          groups={deckGroups}
+          selected={pickedIds}
+          onChange={setPickedIds}
+          onCancel={() => setPhase({ kind: 'setup' })}
+          onConfirm={() => {
+            const picked = deckGroups
+              .flatMap((g) => g.questions)
+              .filter((q) => pickedIds.has(q.id));
+            if (picked.length === 0) return;
+            /*
+             * 自己挑的题**不打乱顺序** —— 用户是按一定思路挑的
+             * （先单选后计算之类），打乱会破坏那个意图。
+             * buildPaper 是「随机抽 N 道」，这里直接给全套。
+             */
+            setPhase({
+              kind: 'taking',
+              paper: picked,
+              title: `自选卷 · ${picked.length} 题`,
+              limitSec: limitMin * 60,
+            });
+          }}
+        />
+      ) : null}
+
+      {/* 删除历史记录：二次确认（2026-11-17） */}
+      {pendingDelete ? (
+        <ConfirmDialog
+          title="删除这条考试记录？"
+          description={
+            `「${pendingDelete.title}」（${formatWhen(pendingDelete.finishedAt)}）` +
+            '删除后不能恢复 —— 考试记录不进回收站。' +
+            '题组与题目本身不受影响。'
+          }
+          confirmLabel="删除"
+          tone="danger"
+          onClose={() => setPendingDelete(null)}
+          onConfirm={() => void confirmDelete()}
+        />
+      ) : null}
     </div>
   );
 }
@@ -291,6 +540,13 @@ function SetupView({
   err,
   onStart,
   onOpenDecks,
+  onOpenAttempt,
+  onOpenPicker,
+  onAiCompose,
+  aiBusy = false,
+  aiNote = null,
+  aiErr = null,
+  onDeleteAttempt,
 }: {
   pools: { id: string; label: string; questions: Question[] }[];
   poolId: string;
@@ -306,6 +562,26 @@ function SetupView({
   err: string | null;
   onStart: () => void;
   onOpenDecks: () => void;
+  /** 打开某一次考试的试卷详情（2026-11-17 用户要求） */
+  onOpenAttempt: (id: string) => void;
+  /** 打开跨题组选题（2026-11-17 用户要求） */
+  onOpenPicker: () => void;
+  /**
+   * 触发 AI 组卷（2026-11-17 用户要求）。
+   *
+   * SetupView 只负责「按一下」—— 真正的组卷逻辑在 ExamPage 里
+   * （它拿得到 pool、count、limitMin）。所以这里是个无参回调，
+   * 不传 = 没有可用后端，不显示按钮。
+   */
+  onAiCompose?: () => void;
+  /** AI 组卷进行中（按钮显示「组卷中…」并禁用） */
+  aiBusy?: boolean;
+  /** AI 组卷的结果说明（「配了 10 题：单选 6 / 计算 2 …」） */
+  aiNote?: string | null;
+  /** AI 组卷失败原因 */
+  aiErr?: string | null;
+  /** 删除一条历史记录（2026-11-17 用户要求） */
+  onDeleteAttempt: (attempt: ExamAttempt) => void;
 }) {
   const usableCount = Math.min(count, available);
 
@@ -332,6 +608,41 @@ function SetupView({
             ))}
           </select>
         </label>
+
+        {/*
+          自定义组卷入口（2026-11-17 用户要求）。
+          用户原话：「建议增加一个可以从浏览题库并从不同题组里组卷出题的功能」。
+          做成一条独立的路，而不是塞进上面的下拉 ——
+          下拉是「选范围」，这个是「逐题挑」，两种心智模型不该混。
+        */}
+        <div className="ex-field">
+          <span className="ex-field__label">或者自己挑题</span>
+          <div className="ex-field__row">
+            <button type="button" className="btn-ghost" onClick={onOpenPicker}>
+              从题库选题组卷（跨题组）
+            </button>
+            {/*
+              AI 组卷（2026-11-17 用户要求）。
+              让模型从当前范围内的题里**挑**一套，而不是新生成题 ——
+              新生成的题没有原文出处、点不回原页，那是这个项目的支点。
+              不传回调 = 这个环境没有后端，不显示（不摆假按钮）。
+            */}
+            {onAiCompose ? (
+              <button
+                type="button"
+                className="btn-ghost"
+                disabled={aiBusy}
+                onClick={() => void onAiCompose()}
+                title="让 AI 从当前范围内的题里配一套，题型分布像正常考试的卷子"
+              >
+                {aiBusy ? 'AI 组卷中…' : '让 AI 组卷'}
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        {aiNote ? <p className="ex-note">{aiNote}</p> : null}
+        {aiErr ? <p className="ex-note ex-note--bad">{aiErr}</p> : null}
 
         <div className="ex-field">
           <span className="ex-field__label">题目数</span>
@@ -418,16 +729,43 @@ function SetupView({
               const rate = gradedTotal > 0 ? a.correct / gradedTotal : 0;
               return (
                 <li key={a.id} className="ex-history__item">
-                  <span className="ex-history__score">
-                    {a.correct}/{gradedTotal}
-                    {pending > 0 ? <em className="ex-history__pending">+{pending} 待评</em> : null}
-                  </span>
-                  <span className="ex-history__rate">
-                    {gradedTotal > 0 ? `${Math.round(rate * 100)}%` : '待评'}
-                  </span>
-                  <span className="ex-history__title">{a.title}</span>
-                  <span className="ex-history__time">{formatWhen(a.finishedAt)}</span>
-                  {a.timedOut ? <span className="ex-history__flag">超时交卷</span> : null}
+                  {/*
+                    整行可点 → 打开那一次的试卷（2026-11-17 用户要求）。
+                    用 button 而不是给 li 加 onClick：可聚焦、能回车、
+                    屏幕阅读器认得出来。
+                  */}
+                  <button
+                    type="button"
+                    className="ex-history__open"
+                    onClick={() => onOpenAttempt(a.id)}
+                    title="查看这份试卷的每一道题"
+                  >
+                    <span className="ex-history__score">
+                      {a.correct}/{gradedTotal}
+                      {pending > 0 ? (
+                        <em className="ex-history__pending">+{pending} 待评</em>
+                      ) : null}
+                    </span>
+                    <span className="ex-history__rate">
+                      {gradedTotal > 0 ? `${Math.round(rate * 100)}%` : '待评'}
+                    </span>
+                    <span className="ex-history__title">{a.title}</span>
+                    <span className="ex-history__time">{formatWhen(a.finishedAt)}</span>
+                    {a.timedOut ? <span className="ex-history__flag">超时交卷</span> : null}
+                  </button>
+                  {/*
+                    删除这一条记录（2026-11-17 用户要求）。
+                    用户原话：「试卷的历史纪录要能删除，以免后期出卷太多
+                    不好查询历史记录」。
+                  */}
+                  <button
+                    type="button"
+                    className="ex-history__del"
+                    onClick={() => onDeleteAttempt(a)}
+                    title="删除这条考试记录（不能恢复）"
+                  >
+                    删除
+                  </button>
                 </li>
               );
             })}
