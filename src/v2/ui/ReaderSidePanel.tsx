@@ -580,7 +580,8 @@ export function ReaderSidePanel({
         </div>
       ) : (
         <div className="rside__body">
-          <section className="rside__sec">
+          {/* 2026-11-18：三按钮固定贴顶，不随标记列表滚动 */}
+          <section className="rside__sec rside__sec--sticky">
             <h3 className="rside__h">加标记</h3>
             <p className="rside__lead">
               {hasSelection

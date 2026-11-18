@@ -849,7 +849,8 @@ export function ReaderPage({
     (kind: TextMarkKind) => {
       if (!annotations || !sourceId || !seg || !selectionText) return;
       const sel = window.getSelection();
-      const exact = selectionText;
+      /* 2026-11-18：exact 用 let —— 公式选区会在下面改成原文源码切片（与还原同源） */
+      let exact = selectionText;
       /*
        * 算这条标记在**这一页正文**里的字符偏移。
        *
@@ -877,21 +878,61 @@ export function ReaderPage({
              * 而 data-raw 是渲染时按原文逐片段写下的，不存在这个问题。
              */
             {
-              const s = domPointToRaw(el, range.startContainer, range.startOffset);
-              const e = domPointToRaw(el, range.endContainer, range.endOffset);
-              if (s >= 0 && e > s) {
-                /*
-                 * 校验：切出来的文字要与选区一致（忽略空白）。
-                 * 公式处会吸附到整块，所以允许「切出的更长但仍以选区开头」。
-                 */
-                const norm = (x: string) => x.replace(/\s+/g, '');
-                const sliced = seg.text.slice(s, e);
-                if (
-                  norm(sliced) === norm(exact) ||
-                  norm(sliced).startsWith(norm(exact)) ||
-                  norm(exact).includes(norm(sliced))
-                ) {
+              /*
+               * 2026-11-18 第二次修（用户实测仍不渲染）：
+               * 上一版只判断「选区是否触及公式」，但仍用 domPointToRaw 的
+               * 返回值当原文坐标 —— 而它对公式片段的【起点和终点都返回
+               * 同一个 rawFrom】（dom-text-map.ts:232 整体吸附到起点）。
+               * 用户真实拖选一整行公式时，起终点都落在同一个 KaTeX 片段
+               * 内部，于是 s === e，「e > s」不成立，治本分支根本没进，
+               * exact 仍是渲染文本 → 还原判 lost → 不渲染。
+               *
+               * 正解：公式片段按【整段】吸附 —— 起点取片段 rawFrom，
+               * 终点取 rawFrom + data-raw-len（原文里的完整 LaTeX 长度）。
+               * 这样纯公式选区（起终点都在同一片段）也能得到 s < e。
+               */
+              const mathSpanAt = (node: Node): { from: number; to: number } | null => {
+                let m: HTMLElement | null =
+                  node.nodeType === 1 ? (node as HTMLElement) : node.parentElement;
+                while (m && m !== el && !m.hasAttribute('data-raw')) m = m.parentElement;
+                if (m && m !== el && m.hasAttribute('data-raw-math')) {
+                  const from = Number(m.getAttribute('data-raw'));
+                  const len = Number(m.getAttribute('data-raw-len') || '0');
+                  if (Number.isFinite(from) && Number.isFinite(len)) {
+                    return { from, to: from + len };
+                  }
+                }
+                return null;
+              };
+              const startMath = mathSpanAt(range.startContainer);
+              const endMath = mathSpanAt(range.endContainer);
+              const mathTouched = startMath !== null || endMath !== null;
+              let s = domPointToRaw(el, range.startContainer, range.startOffset);
+              let e = domPointToRaw(el, range.endContainer, range.endOffset);
+              /* 公式端点吸附到整段（纯公式选区因此得到 s < e） */
+              if (startMath) s = startMath.from;
+              if (endMath) e = endMath.to;
+              if (s >= 0 && e > s && e <= seg.text.length) {
+                if (mathTouched) {
+                  /*
+                   * 公式选区：s/e 是原文源码坐标（math 片段整体吸附到起点）。
+                   * exact 必须存 seg.text 的原文切片——存 DOM 选区文本
+                   * （含零宽字符/下标变形）会让还原时 resolveTextAnchor 永远
+                   * 判 lost，标记不渲染。这是 2026-11-18 第36页 bug 的治本点。
+                   */
+                  exact = seg.text.slice(s, e);
                   start = s;
+                } else {
+                  /* 纯文本：原有校验（切出的文字要与选区一致，忽略空白） */
+                  const norm = (x: string) => x.replace(/\s+/g, '');
+                  const sliced = seg.text.slice(s, e);
+                  if (
+                    norm(sliced) === norm(exact) ||
+                    norm(sliced).startsWith(norm(exact)) ||
+                    norm(exact).includes(norm(sliced))
+                  ) {
+                    start = s;
+                  }
                 }
               }
             }

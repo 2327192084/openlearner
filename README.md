@@ -7,7 +7,7 @@
 不需要注册账号，也不上传任何东西到别人的服务器。
 Windows 桌面版（Electron）与浏览器版共用同一份代码。
 
-**当前版本 0.3.0** · [下载安装包](https://github.com/2327192084/openlearner/releases/latest) · [开发文档](DEVELOPMENT.md)
+**当前版本 0.3.1** · [下载安装包](https://github.com/2327192084/openlearner/releases/latest) · [开发文档](DEVELOPMENT.md)
 
 ---
 

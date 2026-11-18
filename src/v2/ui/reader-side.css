@@ -126,7 +126,8 @@
 
 ::highlight(leaner-mark-underline) {
   text-decoration: underline;
-  text-decoration-color: rgba(234, 179, 8, 0.95);
+  /* 2026-11-18 用户要求：批注下划线改蓝（与 MARK_COLORS.underline / 右栏标记点同色） */
+  text-decoration-color: rgba(37, 99, 235, 0.95);
   text-decoration-thickness: 2px;
 }
 
@@ -141,11 +142,30 @@
     display: flex;
     flex-direction: column;
     width: 260px;
-    flex: 0 0 260px;
-    align-self: stretch;
+    /*
+     * 2026-11-18 第三次修：改用 fixed 钉在视口，不再用 sticky。
+     * 之前 sticky 的包含块是 .reader-split（高度=整页正文），而页面由
+     * document 滚动（.app 是 min-height:100vh 随内容长高），滚到底时
+     * .reader-split 的底边把 sticky 的 .rside 顶出视口 48px
+     * （.tmp/diag-scroll.cjs 实测 top 变 -48）。fixed 相对视口定位，
+     * 不依赖包含块，document 怎么滚都钉在原地。
+     * right:0 贴视口右边；top 避开 sticky topbar（--topbar-h，51px）。
+     * 正文让出 260px 见 reader-page.css 的 .reader-split padding-right。
+     */
+    position: fixed;
+    right: 0;
+    top: var(--topbar-h, 51px);
+    height: calc(100vh - var(--topbar-h, 51px));
+    z-index: 4;
     border-left: 1px solid var(--line);
     background: var(--surface, #1a1714);
-    overflow-y: auto;
+    /*
+     * 2026-11-18 第二次修：右栏自身不滚动。
+     * 之前 overflow-y:auto 让右栏在内容超高时自己滚 —— tabs 和
+     * 「加标记」三按钮一起滚出视口，用户每次都要滚回顶才能切换功能。
+     * 改为：tabs + 加标记按钮固定在顶部，只有下面的标记列表滚。
+     */
+    overflow: hidden;
   }
 
   .rside__tabs {
@@ -153,10 +173,10 @@
     gap: 4px;
     padding: 8px;
     border-bottom: 1px solid var(--line);
-    position: sticky;
-    top: 0;
+    /* flex 项不收缩：tabs 永远占顶部，不被 body 挤压 */
+    flex: 0 0 auto;
     background: var(--surface, #1a1714);
-    z-index: 1;
+    z-index: 2;
   }
 
   .rside__count {
@@ -174,12 +194,36 @@
     display: flex;
     flex-direction: column;
     gap: 14px;
+    /*
+     * 2026-11-18 第二次修：右栏本身不滚（见 .rside 的 overflow:hidden），
+     * 把滚动收窄到这里 —— 这样「加标记」区能贴在滚动容器顶部不动，
+     * 只有下面的标记列表滚。
+     */
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
   }
 
   .rside__sec {
     display: flex;
     flex-direction: column;
     gap: 6px;
+  }
+
+  /*
+   * 批注页的「加标记」三按钮（高亮/下划线/删除线）固定贴顶。
+   * 它是 .rside__body（滚动容器）的第一个 flex 子项，sticky top:0
+   * 让它在标记列表滚动时始终留在顶部。背景必须不透明，
+   * 否则下面的列表会透过来。
+   */
+  .rside__sec--sticky {
+    position: sticky;
+    top: -10px; /* 抵消 .rside__body 的 padding-top */
+    z-index: 1;
+    padding: 10px 0 8px;
+    margin-bottom: -4px;
+    background: var(--surface, #1a1714);
+    border-bottom: 1px solid var(--line);
   }
 
   .rside__h {
@@ -509,4 +553,21 @@
   font-size: 12px;
   line-height: 1.5;
   color: #d98324;
+}
+
+/*
+ * 窄屏（≤560px）：fixed 的 260px 右栏会盖住几乎整个视口，
+ * 这里退回普通文档流（跟着正文往下排），符合窄屏侧栏变抽屉的整体约定。
+ * reader-page.css 同步撤掉 .reader-split 的 260px 留白。
+ */
+@media (max-width: 560px) {
+  .rside {
+    position: static;
+    right: auto;
+    top: auto;
+    height: auto;
+    max-height: none;
+    width: auto;
+    flex: 1 1 auto;
+  }
 }
