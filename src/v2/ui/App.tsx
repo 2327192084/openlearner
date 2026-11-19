@@ -1511,23 +1511,111 @@ export function App({
     [resolveBackend],
   );
 
-  /** 让 AI 判定用户的回答 */
+  /**
+   * 让 AI 判定用户的回答（2026-11-19 换成三层证据锚点）。
+   *
+   * ## 为什么换
+   *
+   * 旧做法让模型直接给 `correct / memory / understanding`。
+   * `oral-review.ts` 的头注释自己就承认：「同一段错误回答，模型可能这次判记错、
+   * 下次判理解偏。这是模型能力的边界，靠 prompt 调不到 100%。」
+   *
+   * 新做法：模型只填 **13 项布尔/计数证据**（「有没有举反例」「有没有识别隐含假设」），
+   * 分数与标签由程序算（`mastery-evidence.ts`）。同一段回答两次跑，
+   * 布尔证据比三分类标签稳定得多；就算漂，漂的是一两个布尔，
+   * 不会把「理解偏差」翻成「记忆错误」。
+   *
+   * ## 为什么仍然产出 verdict
+   *
+   * 已有的 `oralReviews` 记录、答疑记录页、统计都按三分类走。
+   * 换代不能把那些弄坏，所以证据分数会映射回旧的标签
+   * （映射规则写在 `mastery-evidence.ts` 的 toVerdict）。
+   *
+   * ## 失败时退回旧路径
+   *
+   * 证据判定要模型输出一个更大更严格的 JSON，比旧格式更容易被截断。
+   * 解析失败时**不报错、不退化成空结果**，而是再走一次旧的判定 ——
+   * 用户不该因为「我们换了实现」而拿不到判定。
+   */
   const handleOralJudge = useCallback(
     async (m: OralMaterial, q: string, a: string): Promise<OralJudgement> => {
       const b = await resolveBackend();
       const { chatCompletion } = await import('@/core/ai/deepseek-client.ts');
-      const res = await chatCompletion({
-        apiKey: b.apiKey,
-        model: b.model,
-        ...(b.baseUrl ? { baseUrl: b.baseUrl } : {}),
-        provider: b.provider,
-        systemPrompt: buildOralSystemPrompt(),
-        userPrompt: buildJudgePrompt(m, q, a),
-        /* 判定要稳，不要发挥 */
-        temperature: 0.1,
-        maxTokens: 1200,
-      });
-      return parseJudgement(res.content, m);
+
+      const legacy = async (): Promise<OralJudgement> => {
+        const res = await chatCompletion({
+          apiKey: b.apiKey,
+          model: b.model,
+          ...(b.baseUrl ? { baseUrl: b.baseUrl } : {}),
+          provider: b.provider,
+          systemPrompt: buildOralSystemPrompt(),
+          userPrompt: buildJudgePrompt(m, q, a),
+          temperature: 0.1,
+          maxTokens: 1200,
+        });
+        return parseJudgement(res.content, m);
+      };
+
+      try {
+        const {
+          buildCorrection,
+          buildEvidenceSystemPrompt,
+          buildEvidenceUserPrompt,
+          parseEvidence,
+          scoreEvidence,
+        } = await import('@/core/ai/mastery-evidence.ts');
+
+        const res = await chatCompletion({
+          apiKey: b.apiKey,
+          model: b.model,
+          ...(b.baseUrl ? { baseUrl: b.baseUrl } : {}),
+          provider: b.provider,
+          systemPrompt: buildEvidenceSystemPrompt(),
+          userPrompt: buildEvidenceUserPrompt({
+            statement: m.label,
+            question: q,
+            answer: a,
+            material: m.text,
+          }),
+          /* 证据判定要稳：温度压到 0.1，与旧判定一致 */
+          temperature: 0.1,
+          /* 要填三层十几个字段，比旧格式长 */
+          maxTokens: 1600,
+        });
+
+        const ev = parseEvidence(res.content);
+        const score = scoreEvidence(ev);
+
+        /*
+         * 把证据折回旧的 OralJudgement 形状（界面与存储都不用改）。
+         *
+         * - verdict：由证据算出的标签
+         * - quotedFromSource：证据判定不再要求逐字引文，这里留空 ——
+         *   界面会显示「它没给出原文依据」，这是**如实**的：
+         *   新链路确实没有引文。硬编一段反而会造假。
+         * - explanation：用 score.summary + 三层分数，让用户看到凭什么这么判
+         */
+        return {
+          verdict: score.verdict,
+          quotedFromSource: '',
+          /*
+           * 如实标 false：新链路确实没有逐字引文。
+           *
+           * 界面会在「没给出原文依据」时提示用户 —— 那是**正确**的显示，
+           * 因为证据判定确实不引用原文。硬编一段引文来让这个字段变 true
+           * 才是造假（那会让用户以为模型核对过原话）。
+           */
+          quoteVerified: false,
+          explanation:
+            `${score.summary}（概念 ${Math.round(score.concept * 100)}` +
+            ` · 判断 ${Math.round(score.judgment * 100)}` +
+            ` · 推理 ${Math.round(score.reasoning * 100)}）`,
+          correction: buildCorrection(ev),
+        };
+      } catch {
+        /* 证据链路失败：退回旧判定，别让用户拿不到结果 */
+        return legacy();
+      }
     },
     [resolveBackend],
   );
