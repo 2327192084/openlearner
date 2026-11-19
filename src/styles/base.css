@@ -59,6 +59,37 @@ textarea {
   color: inherit;
 }
 
+/*
+ * 实心主按钮的文字色（2026-11-19 修）。
+ *
+ * ## 为什么必须写在层外、而且不能压 specificity
+ *
+ * 上面那条 `button { color: inherit }` **不在任何 @layer 里**。
+ * CSS 层叠里「层外规则优先于层内规则」——这一条**比 specificity 还优先**，
+ * 所以它压过了 `paper.css` 的 `@layer study.components` 内
+ * `.btn-fill { color: var(--accent-ink) }`。
+ *
+ * 结果：主按钮吃到父级继承色 `--text`（#efe9df），
+ * 而设计本意是 `--accent-ink`（#fff8f2）。压在朱砂底 #c93d22 上：
+ *   --text        → 4.17:1  ❌ 低于 WCAG AA 4.5
+ *   --accent-ink  → 4.78:1  ✅
+ * 全库 CDP 实测（scripts/check-contrast.cjs）在 7 个页面各命中一个主按钮。
+ *
+ * ## 踩过的坑：第一版用了 :where()，没生效
+ *
+ * 我先写的是 `:where(.btn-fill){color:var(--accent-ink)}`，以为压住 specificity
+ * 更安全。但 `:where()` 的 specificity 是 **0**，而 `button` 是 (0,0,1) ——
+ * 层外规则之间照样比 specificity，于是**又输给了 button**。
+ * 实测仍是 4.17:1，靠 CDP 读 computedColor 才发现的。
+ *
+ * 现在用 `.app .btn-fill`（0,2,0）：高于 `button`(0,0,1)，
+ * 但仍是层外 —— 层内外这条边界必须守住，否则会被 study.components 里的
+ * 同名声明按层序覆盖回来。
+ */
+.app .btn-fill {
+  color: var(--accent-ink);
+}
+
 button {
   cursor: pointer;
 }

@@ -106,6 +106,90 @@
       'Hiragino Sans GB', 'Source Han Sans SC', sans-serif;
     --font-display: var(--font-ui);
 
+    /*
+     * ===================================================================
+     * 兼容别名（2026-11-19 补）
+     * ===================================================================
+     *
+     * ## 为什么会有这一块
+     *
+     * 全库扫描发现 **189 处** `var()` 引用了一个**从来没定义过**的变量名：
+     *   `--text-1/2/3`、`--surface-1/2/card/raised/sunken`、`--surface`、
+     *   `--font-sm/xs/md/2xl`、`--radius-2/3`、`--line-subtle`、`--c-warn`…
+     *
+     * 它们全都带硬编码 fallback，所以**不报错、看起来正常** ——
+     * 但那意味着这些位置的颜色/字号/圆角**根本不跟随设计系统**，
+     * 而是各自写死了一份。同一个界面里文字色来自三个来源，永远调不到一起。
+     *
+     * `scripts/check-css-vars.cjs` 其实早就扫到了，但它把「有 fallback」
+     * 判成「不坏，可能是拼错」而**放行**（退出码 0）—— 于是一直没人管。
+     *
+     * ## 为什么用别名而不是逐处改 CSS
+     *
+     * 189 处分布在 16 个文件里。逐个替换既容易漏，也会把 diff 弄得无法审阅。
+     * 定义成「指向真实 token 的别名」有两个好处：
+     *  1. 一次修好全部 189 处；
+     *  2. 以后有人再写 `--text-2` 也能落到正确的值上，而不是回退到写死的色。
+     *
+     * ## 命名映射的依据
+     *
+     * 按**回退值本身**反推它当时想指什么，而不是按名字猜：
+     *   `--text-1` 的回退是 `#efe9df` = 深色主题的 `--text`    → 正文主色
+     *   `--text-2` 的回退是 `#b9b2a8`                         → `--text-dim`
+     *   `--text-3` 的回退是 `#8d857b`                         → `--text-muted`
+     *   `--surface-2` 的回退是 `rgba(255,255,255,.02)`         → `--bg-surface`
+     *   `--font-sm` 的回退是 `13px` = `--fs-sm`               → 字阶
+     *   `--radius-2` 的回退是 `6px`；现有 `--radius-xs:4px`/`--radius-sm:8px`
+     *                 6px 介于两者之间，取 `--radius-xs` 会明显偏小，
+     *                 取 `--radius-sm` 偏大一档 → 见下方单独的 `--radius-2`
+     *
+     * ⚠️ 这些别名只在本文件（深色，默认主题）里定义。`.app` 上永远不切
+     * `data-theme`，所以下面的浅色块是死代码 —— 别名不跟随它是有意为之：
+     * 真要做浅色主题时，必须**同时**给这一块一份浅色版，否则会深色字压浅底。
+     */
+    --text-1: var(--text);
+    --text-2: var(--text-dim);
+    --text-3: var(--text-muted);
+    --text-4: var(--text-faint);
+
+    --surface-1: var(--bg-surface);
+    --surface-2: var(--bg-raised);
+    --surface: var(--bg-surface);
+    --surface-card: var(--bg-surface);
+    --surface-raised: var(--bg-raised);
+    --surface-sunken: var(--bg-sunken);
+
+    --line-subtle: var(--line-soft);
+
+    --font-2xs: 11px;
+    --font-xs: var(--fs-xs);
+    --font-sm: var(--fs-sm);
+    --font-md: var(--fs-md);
+    --font-lg: var(--fs-lg);
+    --font-xl: var(--fs-xl);
+    --font-2xl: var(--fs-2xl);
+
+    /*
+     * 6px 不在现有圆角阶梯里（xs=4 / sm=8）。
+     * 直接指向 xs 会让那 20 处小控件明显变小（视觉回归），
+     * 所以新加一档而不是硬套 —— 阶梯多一档不算破坏体系。
+     */
+    --radius-2: 6px;
+    --radius-3: 10px;
+
+    /* `--c-*` 是 v1 体系（已废弃），但仍有 8 处在用；给 warn 一个映射 */
+    --c-warn: var(--warn);
+
+    /*
+     * `--accent-strong`（book-selftest.css 1 处）与 `--border-strong`
+     * （settings.css 2 处）同样从没定义过。
+     * 前者回退 #dd8f4d 比 --accent(#c93d22) 更亮一档，语义是「强调但不刺眼」，
+     * 就近映射到 --accent-soft；后者回退是 --text-faint，语义是「强一点的描边」，
+     * 对应 --line-strong。
+     */
+    --accent-strong: var(--accent-soft);
+    --border-strong: var(--line-strong);
+
     color-scheme: dark;
   }
 

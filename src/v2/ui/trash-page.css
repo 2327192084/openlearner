@@ -510,12 +510,38 @@
   color: var(--c-danger, #d9534f);
 }
 
-/* 「为什么」那一段：比选项正文淡一档，作为补充说明 */
+/*
+ * 「为什么」那一段：比选项正文淡一档，作为补充说明。
+ *
+ * ## 2026-11-19 修：原来用了一个不存在的 token
+ *
+ * 原来写的是 `color: var(--text-2, #b9b2a8)`。
+ * 但 `tokens.css` 里**没有 `--text-2`** —— 真实存在的是
+ * `--text` / `--text-dim` / `--text-muted` / `--text-faint`。
+ * 于是这里永远走回退值 `#b9b2a8`：那是**深色主题**的次要文字色，
+ * 而这一段实际落在浅色的纸张卡（`question-card paper`，实测底色
+ * `rgb(236,228,214)`）上 —— CDP 实测对比度只有 **1.66:1**，
+ * WCAG AA 要求 4.5:1，等于几乎看不清。
+ *
+ * ## 为什么用 --paper-dim 而不是 --text-*
+ *
+ * 这一段在纸张卡内部，正确的一组 token 是 paper 系
+ * （`--paper-ink` / `--paper-dim`），它们不随深/浅主题翻转 ——
+ * 纸张永远是浅色，用主题的 `--text-*` 会在深色主题下又变回浅色字压在浅纸上。
+ * `--paper-dim` 实测对比度 **5.88:1**，达 AA，语义就是「纸上的次要文字」。
+ *
+ * ## 这个缺陷为什么以前没被发现
+ *
+ * 逐选项解析（`option.why`）在 2026-11-19 之前**从来没渲染过** ——
+ * 模型的 why 在解析阶段就被丢掉了（见 `normalizeQuestion` 的注释），
+ * `hasOptionWhys()` 恒 false，整块 `<ul class="reveal__options">` 不出现。
+ * 换句话说：这个对比度问题一直是隐藏的，修好 why 的链路之后它才第一次显形。
+ */
 .reveal__option-why {
   margin: 4px 0 0 26px;
   font-size: var(--font-xs, 12px);
   line-height: 1.7;
-  color: var(--text-2, #b9b2a8);
+  color: var(--paper-dim, #5d5448);
 }
 
 /* ---------- 做题页：「为什么是 N 天？」（2026-11-08） ---------- */

@@ -16,10 +16,22 @@
   --c-text: #1b1f26;
   --c-text-2: #5b6472;
   --c-text-3: #8b94a3;
+  /*
+   * 2026-11-19 补：`src/pages/sources/reader.css` 有 4 处用了
+   * `var(--c-text-muted, #6b7280)`，而这个变量从来没定义过 ——
+   * 于是一直用回退值。按回退值 #6b7280 的深浅，它介于 text-2 与 text-3 之间，
+   * 语义就是「次要说明文字」。这里补成显式定义，让这 4 处跟随体系。
+   */
+  --c-text-muted: #6b7280;
 
   --c-primary: #2f5fd0;
   --c-primary-hover: #2650b4;
   --c-primary-soft: #eaf0fd;
+  /*
+   * 同上：reader.css 有 2 处 `var(--c-primary-weak, rgb(37 99 235 / 12%))`。
+   * 按回退值补一个「主色的淡底」，供高亮/选中态使用。
+   */
+  --c-primary-weak: rgb(37 99 235 / 12%);
 
   --c-success: #1f8a5b;
   --c-success-soft: #e8f6ef;

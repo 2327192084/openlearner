@@ -105,10 +105,35 @@ if (hard.length > 0) {
 }
 
 if (soft.length > 0) {
-  console.log(`\n⚠️  ${soft.length} 处引用了不存在的变量，但有 fallback（不会坏，但可能是拼错）：\n`);
+  /*
+   * 2026-11-19 改：这一档**不再放行**。
+   *
+   * ## 为什么要收紧
+   *
+   * 原来这里只打印「⚠️ 不会坏，但可能是拼错」，退出码仍看 hard —— 于是
+   * 189 处失效变量在扫描里存活了很久，没人管。
+   *
+   * 但「有 fallback 所以不坏」是个错觉：
+   *  - 那条声明**不跟随设计系统**，颜色/字号/圆角各自写死一份；
+   *  - 同一个界面里文字色来自三四个来源，永远调不到一起；
+   *  - 真调色/换主题时，这些位置不会跟着变，而**没有任何报错**。
+   *
+   * 实例：`.reveal__option-why` 用 `var(--text-2, #b9b2a8)`，
+   * 那个深色次要文字色压在浅色纸张卡上，实测对比度只有 **1.66:1**
+   * （WCAG AA 要 4.5）—— 扫描当时只给了个 ⚠️。
+   *
+   * 所以现在：**引用了不存在的变量就是失败**，不管有没有 fallback。
+   * 确实需要一个「本次不想进 token 的局部值」，就直接写死值、别写 var() ——
+   * 让代码诚实表达「这里是硬编码」。
+   */
+  console.log(`\n❌ ${soft.length} 处引用了不存在的变量（带 fallback，但不会跟随设计系统）：\n`);
   for (const p of soft) {
-    console.log(`  ${p.file}:${p.line}  ${p.name}   ${p.snippet}`);
+    console.log(`  ${p.file}:${p.line}  ${p.name}`);
+    console.log(`    ${p.snippet}`);
   }
+  console.log(
+    '\n  修法：在 tokens.css / styles/tokens.css 里补定义，或直接写死值（别留一个假变量名）。',
+  );
 }
 
 /* 猜一下是不是拼写错误：有相近的已定义变量就提示 */
@@ -134,4 +159,4 @@ if (hinted.length > 0) {
   }
 }
 
-process.exit(hard.length > 0 ? 1 : 0);
+process.exit(problems.length > 0 ? 1 : 0);
