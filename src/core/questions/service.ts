@@ -5,6 +5,7 @@ import type {
   GenerationRun,
   KnowledgePoint,
   Question,
+  ExplainNote,
   QuestionIssue,
   QuestionKind,
   SourceLocation,
@@ -60,6 +61,65 @@ export interface GenerateProgress {
   pointTotal: number;
 }
 
+/**
+ * 按认知层级筛选出题素材（2026-11-19）。
+ *
+ * ## 为什么要在这一层做，而不是交给后端或提示词
+ *
+ * 原来 `levels` 只有 `mock-backend` 读（`mock-backend.ts:136`），
+ * 真实模型后端**完全不看**：`service.generate` 不筛素材，
+ * `buildQuestionUserPrompt` 也不提层级。
+ *
+ * 后果是一个完整的假开关：`QuotaPicker` 上有四个复选框、
+ * 还写着「只会从这一层的知识点里出题」，而勾了没有任何作用。
+ * 更要紧的是它骗人 —— 用户以为限了难度，其实拿到的题散在各个层级。
+ *
+ * 放在 service 层有三个好处：
+ *  1. 真实后端与 mock 后端走**同一条**筛选路径，不会各写一遍再漂移；
+ *  2. 素材（`QuestionMaterial`）本来就带着 `cognitiveLevel`，
+ *     不用改后端契约、不用改提示词；
+ *  3. 能在筛完之后如实回报「有没有退回」，界面才有话可说。
+ *
+ * ## 为什么筛空了要退回全部
+ *
+ * 这与 `mock-backend` 的既有约定一致（那里有单测：
+ * 「levels 过滤后为空 → 退回全部，不会一道都出不来」）。
+ * 一道题都出不来比出了难度不对的题更糟 —— 用户会以为功能坏了。
+ * 但退回**必须回报**，见 `GenerateQuestionsOutput.levelFilter`。
+ *
+ * ## 已知局限（写在这里免得下一个人以为是 bug）
+ *
+ * 「从资料原文出题」的素材层级统一是 `understand`（见 `materials.ts`
+ * 的 `segmentsToMaterials`：原文段落没有难度概念，统一给 understand
+ * 比随机猜一个诚实）。所以在那个入口勾 apply/analyze 会**必然退回**，
+ * 界面会说明这件事。要真正支持，得给段落估难度 —— 那是另一件事。
+ */
+export function filterMaterialsByLevel(
+  materials: readonly QuestionMaterial[],
+  levels: KnowledgePoint['cognitiveLevel'][] | null | undefined,
+): {
+  materials: QuestionMaterial[];
+  levelFilter: GenerateQuestionsOutput['levelFilter'];
+} {
+  if (!levels || levels.length === 0) {
+    return { materials: [...materials], levelFilter: null };
+  }
+
+  const matched = materials.filter((m) => levels.includes(m.cognitiveLevel));
+  const fellBack = matched.length === 0;
+  const used = fellBack ? [...materials] : matched;
+
+  return {
+    materials: used,
+    levelFilter: {
+      requested: [...levels],
+      used: used.length,
+      matched: matched.length,
+      fellBack,
+    },
+  };
+}
+
 export interface GenerateQuestionsInput {
   /** 出题依据的知识点（由调用方从 KnowledgeService 取） */
   points: KnowledgePoint[];
@@ -97,6 +157,29 @@ export interface GenerateQuestionsOutput {
   questions: Question[];
   stopped: boolean;
   actualTokens: number | null;
+  /**
+   * 认知层级筛选的实际结果（2026-11-19 新增）。
+   *
+   * ## 为什么要把这件事报出来
+   *
+   * 用户勾了「只出 apply 层的」，而这一层一条素材都没有时，
+   * 我们按 mock 后端既有的约定**退回全部素材**（宁可出题也别一道都出不来）。
+   * 但「退回」如果不告诉用户，就成了另一种假开关：
+   * 他以为勾选生效了，实际拿到的是别的层级。
+   *
+   * 所以这里如实回报，界面据此显示一行说明。
+   * 没勾层级（`levels` 为空）时整块为 null，界面不显示任何东西。
+   */
+  levelFilter: {
+    /** 用户勾选的层级 */
+    requested: KnowledgePoint['cognitiveLevel'][];
+    /** 实际用于出题的素材条数 */
+    used: number;
+    /** 勾选的层级能覆盖的素材条数（退回前） */
+    matched: number;
+    /** 是否退回了全部素材 */
+    fellBack: boolean;
+  } | null;
 }
 
 export class DeckService {
@@ -207,7 +290,20 @@ export class DeckService {
       );
     }
 
-    const sourcePoints: QuestionSourcePoint[] = materials.map(toSourcePoint);
+    /*
+     * 认知层级筛选（2026-11-19）。
+     *
+     * 必须在 `materials.length === 0` 的检查**之后**做：
+     * 先判断「到底有没有素材」，再判断「勾选的层级有没有素材」。
+     * 反过来会把「原文太短」错报成「这一层没内容」。
+     *
+     * `levels` 为 null / 空数组时这一步是空操作（levelFilter 也是 null），
+     * 老调用方与旧测试的行为一个字节都不变。
+     */
+    const levelFiltered = filterMaterialsByLevel(materials, input.options.levels);
+    const selected = levelFiltered.materials;
+
+    const sourcePoints: QuestionSourcePoint[] = selected.map(toSourcePoint);
     const estimated = input.backend.estimateTokens(sourcePoints, input.options);
 
     const ts = nowIso();
@@ -240,8 +336,15 @@ export class DeckService {
     await this.storage.put('decks', deck);
 
     const questions: Question[] = [];
-    // 知识点 id → 原对象，用于继承 anchors
-    const materialById = new Map(materials.map((m) => [m.id, m]));
+    /*
+     * 素材 id → 原对象，用于继承 anchors。
+     *
+     * ⚠️ 必须用**筛选后**的 `selected`，不能用 `materials`（2026-11-19）。
+     * 用全量的话，模型若指了一条被层级筛掉的素材，我们照样能把题落库 ——
+     * 那就等于层级筛选形同虚设（题目引用的正是"不该出这一层"的知识点）。
+     * 用 selected 时它会落空、那道题被丢弃，与「模型指了不存在的素材」同一条路径。
+     */
+    const materialById = new Map(selected.map((m) => [m.id, m]));
 
     /**
      * 出题失败（含用户中途停止）时，**草稿已经建好了**，不能就这么丢掉引用。
@@ -302,7 +405,7 @@ export class DeckService {
           input.onProgress?.({
             produced: questions.length,
             estimatedTotal: Math.max(input.options.count, 1),
-            pointTotal: materials.length,
+            pointTotal: selected.length,
           });
         },
       });
@@ -386,6 +489,7 @@ export class DeckService {
       questions,
       stopped: result.stopped,
       actualTokens: result.actualTokens,
+      levelFilter: levelFiltered.levelFilter,
     };
   }
 
@@ -672,6 +776,79 @@ export class DeckService {
     // 改了题就重跑校验，让 blockingIssues 立即反映真实状态
     await this.revalidate(existing.deckId);
     return next;
+  }
+
+  /**
+   * 追加一条「针对错误生成的补充讲解」（2026-11-19）。
+   *
+   * ## 为什么不复用 updateQuestion
+   *
+   * `updateQuestion` 的 patch 是白名单（prompt/answer/explanation/options/kind），
+   * 那是**题目编辑器**改内容的通道。把 explainNotes 加进那个白名单，
+   * 等于让「改题干」的路径也能顺手改讲解，两个语义混在一起。
+   *
+   * 这里是**追加**语义而不是覆盖：同一个错误用不同方式讲两次
+   * （先「直接讲」不满意再「讲故事」）应该都留着 —— 用户回看时能对比。
+   * 覆盖会让他换个策略就把上一次的讲解弄丢。
+   *
+   * ## 为什么不做成「每题只留一条」
+   *
+   * 讲解按「针对哪次错误 + 哪种讲法」区分才有价值。
+   * 只留最新一条的话，「上次那种讲法我看懂了，再翻回去」就不可能了。
+   */
+  async addExplainNote(
+    questionId: string,
+    note: Omit<ExplainNote, 'id' | 'createdAt'>,
+  ): Promise<Question | null> {
+    const existing = await this.storage.get('questions', questionId);
+    if (!existing) return null;
+
+    const record: ExplainNote = {
+      id: newId('exp'),
+      given: note.given,
+      styleId: note.styleId,
+      crux: note.crux,
+      body: note.body,
+      nextStep: note.nextStep,
+      createdAt: nowIso(),
+    };
+
+    const next: Question = {
+      ...existing,
+      explainNotes: [...(existing.explainNotes ?? []), record],
+      updatedAt: record.createdAt,
+    };
+    await this.storage.put('questions', next);
+
+    /*
+     * 不调用 revalidate：讲解不参与发布校验（它不影响题目能不能发）。
+     * 调了反而会让「答错一次」触发一次全组重校验，白跑一遍。
+     */
+    return next;
+  }
+
+  /**
+   * 一次读出所有「已有补充讲解」的题目，返回 `[questionId, notes][]`。
+   *
+   * ## 为什么是批量而不是逐题查
+   *
+   * 做题页需要按 cardId **同步**取值（异步查询会让面板先渲染空、再补上，
+   * 视觉上闪一下）。批量读一次、塞进内存镜像，之后渲染就是纯 Map 查找。
+   *
+   * ## 为什么只返回有讲解的
+   *
+   * 大多数题没有讲解。把全部题目都带上会让这份镜像大部分是空数组，
+   * 白白占内存，也让「有讲解」这个判断在很多地方要多写一次过滤。
+   */
+  async listQuestionsWithExplainNotes(): Promise<[string, ExplainNote[]][]> {
+    const all = await this.storage.getAll('questions');
+    const out: [string, ExplainNote[]][] = [];
+    for (const q of all) {
+      if (Array.isArray(q.explainNotes) && q.explainNotes.length > 0) {
+        out.push([q.id, q.explainNotes]);
+      }
+    }
+    return out;
   }
 
   async removeQuestion(id: string): Promise<void> {

@@ -482,6 +482,8 @@ export function GeneratePage({
         deckId: out.deck.id,
         questions: out.questions.length,
         kinds: kindCount,
+        /* 层级筛选是否退回过，如实报给用户（见 GenDone.levelFilter） */
+        levelFilter: out.levelFilter,
       });
       onGenerated();
     } catch (err) {

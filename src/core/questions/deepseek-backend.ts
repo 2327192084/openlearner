@@ -487,17 +487,31 @@ function normalizeQuestion(raw: unknown): QuestionDraft | null {
   const kind = kindRaw as QuestionDraft['kind'];
 
   // 选项
-  let options: { key: string; text: string }[] = [];
+  /*
+   * `why`（逐选项解析）在这里保留（2026-11-19 修）。
+   *
+   * 原来这里只映射 key/text，模型的 `why` 被丢掉；而提示词第 6 条
+   * 明确要求「每个选项都要写为什么，这是学生答错后最需要看到的东西」。
+   * 也就是说：**我们一直在付 token 让它写，然后在解析时扔掉**。
+   *
+   * 保留规则与 `QuestionOption.why` 一致：可选、空串当没有
+   * （空串会让 `hasOptionWhys()` 判成「有解析」却渲染出一行空白）。
+   */
+  let options: { key: string; text: string; why?: string }[] = [];
   if (Array.isArray(q.options)) {
     options = q.options
       .filter(
-        (o): o is { key: unknown; text: unknown } =>
+        (o): o is { key: unknown; text: unknown; why?: unknown } =>
           typeof o === 'object' && o !== null && 'key' in o && 'text' in o,
       )
-      .map((o) => ({
-        key: String(o.key).trim().toUpperCase(),
-        text: String(o.text).trim(),
-      }))
+      .map((o) => {
+        const why = typeof o.why === 'string' ? o.why.trim() : '';
+        return {
+          key: String(o.key).trim().toUpperCase(),
+          text: String(o.text).trim(),
+          ...(why ? { why } : {}),
+        };
+      })
       .filter((o) => o.key && o.text);
   }
 

@@ -120,6 +120,146 @@ describe('解析模型输出', () => {
     expect(parseQuestionDrafts(content)).toHaveLength(1);
   });
 
+  /*
+   * 逐选项解析（why）：2026-11-19 修的一条断链。
+   *
+   * 提示词第 6 条要求「每个选项都要写为什么」，输出格式里也给了 why 字段，
+   * `QuestionOption.why` / `cards-loader` / `ReviewPage` 三处都写好了，
+   * 但 `normalizeQuestion` 的选项映射原来只取 key/text —— 模型的 why
+   * 在解析阶段就被丢掉，界面里的逐选项解析**永远不显示**。
+   *
+   * ⚠️ 这几条断言对修复前的实现**必须失败**（那时 options 里没有 why），
+   * 否则它们什么也没验到。
+   */
+  it('**保留每个选项的 why**（逐选项解析的整条链就断在这里）', () => {
+    const content = JSON.stringify({
+      questions: [
+        {
+          knowledgePointId: 'kp_1',
+          kind: 'single',
+          prompt: '线性表的定义是？',
+          options: [
+            { key: 'A', text: '有限序列', why: '符合定义：n 个元素的有限序列' },
+            { key: 'B', text: '无限序列', why: '把「有限」记成了「无限」，常见误解' },
+            { key: 'C', text: '树结构', why: '混淆了线性结构与树形结构' },
+            { key: 'D', text: '图结构', why: '图可以有环，线性表不行' },
+          ],
+          answer: 'A',
+          explanation: '线性表是有限序列。',
+        },
+      ],
+    });
+
+    const drafts = parseQuestionDrafts(content);
+    expect(drafts).toHaveLength(1);
+    const opts = drafts[0].options;
+    expect(opts.map((o) => o.why)).toEqual([
+      '符合定义：n 个元素的有限序列',
+      '把「有限」记成了「无限」，常见误解',
+      '混淆了线性结构与树形结构',
+      '图可以有环，线性表不行',
+    ]);
+    /* 正确项与干扰项都要有 —— 用户答错时最需要看到的是「我选的那个为什么错」 */
+    expect(opts.find((o) => o.key === 'B')?.why).toContain('误解');
+  });
+
+  it('why 为空串 / 空白 / 非字符串 → 不写这个字段，但有内容的必须写', () => {
+    const content = JSON.stringify({
+      questions: [
+        {
+          knowledgePointId: 'kp_1',
+          kind: 'single',
+          prompt: 'p',
+          options: [
+            { key: 'A', text: '对', why: '   ' },
+            { key: 'B', text: '错', why: 123 },
+            /* ⚠️ 这四个里必须有一个是正常 why ——
+             * 只断言「空串不写」的话，修复前（根本不写 why）的实现也照样通过，
+             * 那条断言就等于没验任何东西。 */
+            { key: 'C', text: '另一个错项', why: '这条有真实解析' },
+          ],
+          answer: 'A',
+          explanation: 'e',
+        },
+      ],
+    });
+
+    const opts = parseQuestionDrafts(content)[0].options;
+    /*
+     * 必须是「字段不存在」而不是空串：`hasOptionWhys()` 用 `!!o.why?.trim()`
+     * 判有没有，但 `ReviewPage` 里还有一层 `o.why ? <p>…</p>` ——
+     * 空串在那里会渲染出一个空段落（看得见的一行空白）。
+     */
+    expect(opts[0]).not.toHaveProperty('why');
+    expect(opts[1]).not.toHaveProperty('why');
+    /* 这一条才是让本用例对「坏实现」不成立的锚点 */
+    expect(opts[2].why).toBe('这条有真实解析');
+  });
+
+  it('why 前后空白被裁掉', () => {
+    const content = JSON.stringify({
+      questions: [
+        {
+          knowledgePointId: 'kp_1',
+          kind: 'single',
+          prompt: 'p',
+          options: [
+            { key: 'A', text: '对', why: '  \n  因为符合定义  \n' },
+            { key: 'B', text: '错' },
+          ],
+          answer: 'A',
+          explanation: 'e',
+        },
+      ],
+    });
+
+    expect(parseQuestionDrafts(content)[0].options[0].why).toBe('因为符合定义');
+  });
+
+  it('判断题的选项由程序固定，不带 why（模型写了也不采信）', () => {
+    const content = JSON.stringify({
+      questions: [
+        {
+          knowledgePointId: 'kp_1',
+          kind: 'truefalse',
+          prompt: '线性表是有限序列。',
+          options: [
+            { key: 'T', text: '对', why: '模型想塞进来的解析' },
+            { key: 'F', text: '错', why: '模型想塞进来的解析' },
+          ],
+          answer: 'T',
+          explanation: 'e',
+        },
+        /*
+         * 同一次输出里再放一道单选，带合法 why。
+         *
+         * 为什么需要这一条：只断言「判断题没有 why」的话，
+         * 修复前那个「所有题都不写 why」的实现照样通过 ——
+         * 那就不是在验「判断题被特殊处理」，只是在验「全局都丢了」。
+         * 有了这道对照题，本用例才只对「按题型分别处理」的实现成立。
+         */
+        {
+          knowledgePointId: 'kp_1',
+          kind: 'single',
+          prompt: '这是单选题',
+          options: [
+            { key: 'A', text: '对', why: '正确项解析' },
+            { key: 'B', text: '错', why: '干扰项解析' },
+          ],
+          answer: 'A',
+          explanation: 'e',
+        },
+      ],
+    });
+
+    const drafts = parseQuestionDrafts(content);
+    expect(drafts[0].options).toEqual([
+      { key: 'T', text: '对' },
+      { key: 'F', text: '错' },
+    ]);
+    expect(drafts[1].options[0].why).toBe('正确项解析');
+  });
+
   /**
    * 以下几条是「宁可丢弃也不修」的规则。
    *

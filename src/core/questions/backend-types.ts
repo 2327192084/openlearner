@@ -109,8 +109,27 @@ export interface GenerateQuestionsRuntime {
 export interface QuestionDraft {
   kind: QuestionKind;
   prompt: string;
-  /** 选项（单选/多选必填） */
-  options: { key: string; text: string }[];
+  /**
+   * 选项（单选/多选必填）。
+   *
+   * ## `why` 必须在这里（2026-11-19 修）
+   *
+   * 出题提示词第 6 条一直在要求「每个选项都要写为什么」，
+   * 输出格式里也给了 `why` 字段 —— 但**这个类型里没有它**，
+   * 于是 `normalizeQuestion` 的选项映射只取了 key/text，模型的 why
+   * 在解析阶段就被静默丢掉。
+   *
+   * 后果是一条完整的断链（三处都写好了，只差这一根）：
+   *   `QuestionOption.why`（model.ts）→ 有注释、有语义
+   *   `cards-loader.ts` → 透传
+   *   `ReviewPage.tsx` → `hasOptionWhys()` 决定渲不渲染
+   * 而 `hasOptionWhys()` 恒为 false，用户答错后**永远看不到**
+   * 「你选的那个为什么错」—— 那恰恰是逐选项解析存在的全部理由。
+   *
+   * 与 `QuestionOption.why` 同为可选：旧题库没有这个字段，
+   * 界面按「有就显示，没有就不显示」处理，不编造。
+   */
+  options: { key: string; text: string; why?: string }[];
   /** 答案 */
   answer: string;
   explanation: string;

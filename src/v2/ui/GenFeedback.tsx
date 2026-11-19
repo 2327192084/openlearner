@@ -1,5 +1,7 @@
 import type { QuestionKind } from '@/core/model.ts';
 import { kindLabel } from '@/core/questions/kinds.ts';
+import { COGNITIVE_LEVEL_LABEL } from '@/core/cognitive-levels.ts';
+import type { GenerateQuestionsOutput } from '@/core/questions/service.ts';
 
 /**
  * 出题反馈条：进行中 / 失败 / 成功。
@@ -35,6 +37,16 @@ export interface GenDone {
   questions: number;
   /** 实际出了哪些题型（用于如实告知「你勾的里有几种没出成」） */
   kinds: Record<string, number>;
+  /**
+   * 认知层级筛选的实际结果（2026-11-19）。
+   *
+   * 勾了层级、而那一层没有素材时，服务层会退回全部素材并把这件事报上来。
+   * 不显示的话，用户会以为「只出 apply 层」生效了，实际拿到的题散在各层 ——
+   * 那是和「勾了没反应」一样的假开关，只是更难发现。
+   *
+   * null（没勾层级）时不显示任何东西。
+   */
+  levelFilter?: GenerateQuestionsOutput['levelFilter'];
 }
 
 export interface GenFeedbackProps {
@@ -116,6 +128,24 @@ export function GenFeedback({
               );
             })()}
           </p>
+          {/*
+            认知层级筛选的结果（2026-11-19）。
+            与上面「实际题型」同一个理由：勾了什么、实际用了什么，必须对得上。
+          */}
+          {done.levelFilter?.fellBack ? (
+            <p className="gen-done__missing">
+              你只勾了
+              {done.levelFilter.requested.map((l) => COGNITIVE_LEVEL_LABEL[l]).join('、')}
+              层，但这次的素材里一条都不属于这一层 —— 已退回用全部素材出题，
+              所以这次的题可能包含其他层级。想只要这一层，得先整理出这一层的知识点。
+            </p>
+          ) : done.levelFilter ? (
+            <p className="gen-done__hint">
+              已按认知层级筛选：只用了
+              {done.levelFilter.requested.map((l) => COGNITIVE_LEVEL_LABEL[l]).join('、')}
+              层的 {done.levelFilter.used} 条素材。
+            </p>
+          ) : null}
           {/*
             说清「待审核 vs 已发布」——生成出来是待审核，要先检查再发布才进复习。
             原来只写「可以去复习里做了」，而当时题组是待审核、界面又没有题组列表，
