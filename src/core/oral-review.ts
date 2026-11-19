@@ -57,6 +57,31 @@ export interface OralMaterial {
   id: string;
   /** 给用户看的来源说明，如「第 9 页 · 1.2 离散时间信号」 */
   label: string;
+  /**
+   * 这一条要考的是什么（知识点原话，2026-11-19 晚加）。
+   *
+   * ## 为什么不能复用 `label`
+   *
+   * 三层证据判定的提示词要问模型「这个回答有没有说对这个概念」，
+   * 那时必须告诉它**概念本身是什么**。原来那版接的是 `m.label`，
+   * 而 `label` 的语义是**位置说明**：
+   *   - 知识点素材：「第一章 线性表」（章节名）
+   *   - 段落素材：「信号与系统 · 1.2 · 第 9 页」（资料 + 章节 + 页码）
+   *
+   * 于是模型收到的「## 知识点」一栏写着「第一章 线性表」——
+   * 它根本不知道要判的概念是什么，只能从原文里猜。
+   *
+   * 这个错误在单测与旧验证脚本里都看不见，因为那两处都把
+   * statement 直接硬编码成了一句知识点原话，绕过了真实接线。
+   * 是走真实 UI 抓请求体才发现的（scripts/verify-mastery-evidence-ui.cjs）。
+   *
+   * ## 为什么是可选
+   *
+   * 段落 / 划选素材没有「提炼后的一句话」这个概念，只有原文。
+   * 那种情况留空，判定时退回 `label`（位置说明）——
+   * 至少告诉模型这段文字出自哪里。不编造一句陈述。
+   */
+  statement?: string;
   /** 原文正文（模型据此提问，也是判定的依据） */
   text: string;
   /** 出处：资料 + 页码 + 字符偏移（判定后跳回原文用） */
@@ -106,6 +131,11 @@ export function pointsToMaterials(points: readonly KnowledgePoint[]): OralMateri
     .map((p) => ({
       id: p.id,
       label: p.chapter ? `${p.chapter}` : '未归章',
+      /*
+       * 知识点原话，供三层证据判定知道「要判的概念是什么」。
+       * 与 `label`（章节名）是两件事 —— 见 OralMaterial.statement 的注释。
+       */
+      statement: p.statement.trim(),
       text: (p.quotes.length > 0 ? p.quotes.join('\n\n') : p.statement).trim(),
       sourceId: p.sourceId ?? '',
       page: p.anchors[0]?.page ?? null,

@@ -112,6 +112,57 @@ describe('pointsToMaterials', () => {
   it('statement 为空的知识点被跳过', () => {
     expect(pointsToMaterials([point({ statement: '  ' })])).toHaveLength(0);
   });
+
+  /**
+   * `statement` 与 `label` 是两件事（2026-11-19 晚）。
+   *
+   * 这条测试锁住一个**已经发生过的真 bug**：
+   * 三层证据判定要告诉模型「要判的概念是什么」，原来接的是 `label`，
+   * 而知识点素材的 `label` 是**章节名**。请求体里「## 知识点」一栏
+   * 于是写着「第1章」，模型不知道要判哪个概念，只能从原文里猜。
+   *
+   * 这个 bug 单测与旧验证脚本都抓不到 —— 它们把 statement 硬编码成
+   * 一句知识点原话，绕过了真实接线。是走真实 UI 抓请求体才发现的。
+   *
+   * 所以这里断言的是**语义不能混**：statement 是那句话本身，
+   * label 仍是章节名（用户可见的位置说明）。
+   */
+  it('**statement 是知识点原话，label 才是章节名**（两者不能混）', () => {
+    const out = pointsToMaterials([point()]);
+    expect(out[0]!.statement).toBe('提炼后的一句话');
+    expect(out[0]!.label).toBe('第1章');
+    expect(out[0]!.statement).not.toBe(out[0]!.label);
+  });
+
+  it('statement 去掉首尾空白', () => {
+    const out = pointsToMaterials([point({ statement: '  一句话  ' })]);
+    expect(out[0]!.statement).toBe('一句话');
+  });
+
+  /**
+   * 段落素材没有「提炼后的一句话」，statement 必须是 undefined。
+   * 留空 → 判定时退回 label（至少给出处）。不能编造一句陈述。
+   *
+   * 注意正文要 ≥80 字 —— segmentsToMaterials 会跳过太短的段落
+   * （页眉、孤行提不出值得回答的问题）。
+   */
+  it('段落素材的 statement 是 undefined（不编造）', () => {
+    const segs = segmentsToMaterials(
+      [
+        {
+          id: 'seg1',
+          sourceId: 's1',
+          index: 1,
+          page: 9,
+          chapter: '1.2',
+          text: '连续时间信号用圆括号把自变量括起来并以 t 表示连续时间变量；离散时间信号用方括号表示，且仅在自变量的整数值上有定义。两者的记号不同正是为了提醒读者：自变量取值的连续性不一样。',
+        } as SourceSegment,
+      ],
+      '信号与系统',
+    );
+    expect(segs[0]!.statement).toBeUndefined();
+    expect(segs[0]!.label).toContain('信号与系统');
+  });
 });
 
 describe('pickMaterial', () => {

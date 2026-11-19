@@ -1572,7 +1572,20 @@ export function App({
           provider: b.provider,
           systemPrompt: buildEvidenceSystemPrompt(),
           userPrompt: buildEvidenceUserPrompt({
-            statement: m.label,
+            /*
+             * ⚠️ 这里原来传的是 `m.label`（2026-11-19 晚修）。
+             *
+             * `label` 是**位置说明**：知识点素材的 label 是章节名
+             * （「第一章 线性表」），段落素材的 label 是「资料 · 章节 · 第 N 页」。
+             * 拿它当「## 知识点」传给模型，模型不知道要判的概念是什么。
+             *
+             * 实测抓到的请求体：
+             *   ## 知识点
+             *   第一章 线性表          ← 应该是一句知识点原话
+             *
+             * 段落 / 划选素材没有提炼句，退回 label 至少给出处，不编造。
+             */
+            statement: (m.statement ?? '').trim() || m.label,
             question: q,
             answer: a,
             material: m.text,
