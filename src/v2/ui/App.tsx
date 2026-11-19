@@ -79,6 +79,7 @@ import type { SourceService } from '@/core/sources.ts';
 import type { Card } from '@/v2/core/cards.ts';
 import type { ExplainNote } from '@/core/model.ts';
 import type { ExplainResult } from '@/core/ai/explain-wrong.ts';
+import type { HintLevel, HintResult } from '@/core/ai/hint-ladder.ts';
 
 /**
  * 空数组常量。
@@ -1632,6 +1633,61 @@ export function App({
   );
 
   /**
+   * 生成一级提示（2026-11-19）。
+   *
+   * ## 为什么在这层做
+   *
+   * 拼提示词需要题目原文（选项、答案、解析），而做题页拿到的是 `Card`
+   * —— 它没有 `explanation`、`options[].why` 之外的完整形状。
+   * 按 id 回查一次题目最干净（与「答错补充讲解」同一个做法）。
+   *
+   * ## 温度与长度
+   *
+   * 提示要准、要短。温度压到 0.2（比讲解还低）：提示里的一句错话
+   * 会把学生直接带偏。maxTokens 给 900 —— 第 4 级要举例子，比其它级长。
+   */
+  const handleAskHint = useCallback(
+    async (
+      card: Card,
+      given: string,
+      level: Exclude<HintLevel, 0>,
+      previous: readonly HintResult[],
+    ): Promise<HintResult> => {
+      const question = await decks.getQuestion(card.id);
+      if (!question) throw new Error('这道题已经不在了（可能被删了），刷新一下再试。');
+
+      const b = await resolveBackend();
+      const { chatCompletion } = await import('@/core/ai/deepseek-client.ts');
+      const { buildHintPrompt, parseHint } = await import('@/core/ai/hint-ladder.ts');
+
+      const prompt = buildHintPrompt({
+        prompt: question.prompt,
+        kind: question.kind,
+        options: question.options,
+        answer: question.answer,
+        explanation: question.explanation,
+        given,
+        level,
+        previousHints: previous,
+      });
+
+      const res = await chatCompletion({
+        apiKey: b.apiKey,
+        model: b.model,
+        ...(b.baseUrl ? { baseUrl: b.baseUrl } : {}),
+        provider: b.provider,
+        systemPrompt: prompt.system,
+        userPrompt: prompt.user,
+        temperature: 0.2,
+        maxTokens: 900,
+      });
+
+      return parseHint(res.content, level);
+    },
+    [decks, resolveBackend],
+  );
+
+  /**
    * 阅读器里划选了一段 → 拿它提问（2026-11-10）。
    *
    * ## 为什么池子里只放这一条
@@ -2527,6 +2583,7 @@ export function App({
             notes={notesService}
             onGradeShort={handleShortGrade}
             onExplainWrong={handleExplainWrong}
+            onAskHint={handleAskHint}
             explainNotesOf={(id) => explainNotes.get(id) ?? EMPTY_NOTES}
             /*
              * 这一轮做完了（2026-11-13 下午；傍晚改成 dropPage）。

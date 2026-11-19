@@ -52,6 +52,22 @@ export interface ReviewLog {
   prevIntervalDays: number;
   newIntervalDays: number;
   at: string;
+  /**
+   * 这一次作答用了第几级提示（2026-11-19）。
+   *
+   * 0 或缺失 = 没用提示。旧数据没有这个字段，读出来是 undefined，
+   * 按 0 处理 —— 可选字段，零迁移。
+   *
+   * ## 为什么要记
+   *
+   * 「用了强提示（3–4 级）才答对」不能当作真会：它会推进间隔、
+   * 往「很熟」走，而用户其实还不会。但不记下来就无从判断 ——
+   * 事后看 reviewLogs 只知道「答对了」。
+   *
+   * 记下来之后：错题归集、统计口径、以及以后要不要做「提示依赖度」
+   * 分析，都有依据。
+   */
+  hintLevel?: number;
 }
 
 /** 今日概览：面板直接渲染这个 */
@@ -119,6 +135,12 @@ export class ReviewService {
     kind: 'question' | 'point',
     grade: ReviewGrade,
     now: Date = new Date(),
+    /**
+     * 这次作答用过第几级提示（2026-11-19）。不传 = 没用。
+     *
+     * 放在最后一个可选参数，是为了不让既有调用点全部改签名。
+     */
+    hintLevel: number = 0,
   ): Promise<ReviewRecord> {
     const today = todayLocal(now);
     const existing = await this.getRecord(cardId);
@@ -154,6 +176,7 @@ export class ReviewService {
       prevIntervalDays: prev.intervalDays,
       newIntervalDays: next.intervalDays,
       at: now.toISOString(),
+      ...(hintLevel > 0 ? { hintLevel } : {}),
     };
     await this.storage.put('reviewLogs', log);
 

@@ -18,6 +18,9 @@ import { NoteBox } from './NoteBox.tsx';
 import { pickOption } from './option-pick.ts';
 import { MathText } from './MathText.tsx';
 import { ExplainPanel } from './ExplainPanel.tsx';
+import { HintPanel } from './HintPanel.tsx';
+import type { HintLevel, HintResult } from '@/core/ai/hint-ladder.ts';
+import './hint-panel.css';
 import type { ExplainResult } from '@/core/ai/explain-wrong.ts';
 import './explain-panel.css';
 import { SelfGradePanel } from './SelfGradePanel.tsx';
@@ -241,6 +244,17 @@ export interface ReviewPageProps {
    * 不如让宿主只提供这一小块。返回空数组表示还没有讲解。
    */
   explainNotesOf?: (cardId: string) => readonly ExplainNote[];
+  /**
+   * 生成一级提示（2026-11-19）。
+   *
+   * 可选：不传就不显示提示面板（组件单独跑测试时不需要接 AI）。
+   */
+  onAskHint?: (
+    card: Card,
+    given: string,
+    level: Exclude<HintLevel, 0>,
+    previous: readonly HintResult[],
+  ) => Promise<HintResult>;
   onFinish: () => void;
   onExit: () => void;
 }
@@ -257,6 +271,7 @@ export function ReviewPage({
   onGradeShort,
   onExplainWrong,
   explainNotesOf,
+  onAskHint,
   onFinish,
   onExit,
 }: ReviewPageProps) {
@@ -264,6 +279,19 @@ export function ReviewPage({
   const [picked, setPicked] = useState<string[]>([]);
   const [textInput, setTextInput] = useState('');
   const [revealed, setRevealed] = useState(false);
+  /**
+   * 这一题最高用到第几级提示（2026-11-19）。
+   *
+   * ## 为什么必须记
+   *
+   * 用了 3–4 级强提示才答对的题**不能算真会** —— 否则它会推进间隔、
+   * 往「很熟」走，而用户其实还不会。提示就成了安慰剂，
+   * 让调度器系统性地误判。
+   *
+   * 判定规则在 `hint-ladder.ts` 的 judgeMasteryWithHints，有单测。
+   * 这里只负责把它带进评分调用与界面说明。
+   */
+  const [maxHintLevel, setMaxHintLevel] = useState<0 | 1 | 2 | 3 | 4>(0);
   const [graded, setGraded] = useState<{ correct: boolean | null } | null>(null);
   const [done, setDone] = useState(0);
   const [correctCount, setCorrectCount] = useState(0);
@@ -343,6 +371,7 @@ export function ReviewPage({
     setPicked([]);
     setTextInput('');
     setRevealed(false);
+    setMaxHintLevel(0);
     setGraded(null);
     setFrozenElapsedMs(null);
     /* AI 结果只属于上一道题，换卡必须清 —— 否则下一题会显示上一题的要点 */
@@ -432,7 +461,18 @@ export function ReviewPage({
      */
     void (async () => {
       try {
-        await service.review(card.id, card.kind === 'point' ? 'point' : 'question', 'again');
+        /*
+         * 带上 hintLevel：答错本身必然是 again，
+         * 但「用了强提示还是答错」与「自己独立答错」在统计上不该混为一谈
+         * （前者完全没学会，后者可能只是记岔了）。
+         */
+        await service.review(
+          card.id,
+          card.kind === 'point' ? 'point' : 'question',
+          'again',
+          new Date(),
+          maxHintLevel,
+        );
         const r = await service.getRecord(card.id);
         setRecord(r);
         setMasteryNow(r ? mastery(r.state) : 0);
@@ -445,13 +485,19 @@ export function ReviewPage({
          */
       }
     })();
-  }, [card, picked, textInput, timer, service]);
+  }, [card, picked, textInput, timer, service, maxHintLevel]);
 
   /** 提交评分（自评档，用于知识点或答完后确认） */
   const submitGrade = useCallback(
     async (g: ReviewGrade) => {
       if (!card) return;
-      await service.review(card.id, card.kind === 'point' ? 'point' : 'question', g);
+      await service.review(
+        card.id,
+        card.kind === 'point' ? 'point' : 'question',
+        g,
+        new Date(),
+        maxHintLevel,
+      );
       const r = await service.getRecord(card.id);
       setRecord(r);
       setMasteryNow(r ? mastery(r.state) : 0);
@@ -462,7 +508,7 @@ export function ReviewPage({
         setIndex((i) => i + 1);
       }
     },
-    [card, service, index, total, onFinish],
+    [card, service, index, total, onFinish, maxHintLevel],
   );
 
   /**
@@ -999,6 +1045,32 @@ export function ReviewPage({
           ) : null}
         </div>
       </article>
+
+      {/*
+        提示阶梯（2026-11-19）。
+
+        ## 为什么在「作答前」而不是答完之后
+
+        用户的「卡住」发生在交卷之前 —— 答完之后已经能看到答案，
+        再给提示就没意义了。
+
+        ## 为什么在卡片之外
+
+        提示要能一边看题一边看，所以放在题目卡下方、不被纸卡的
+        内边距挤窄。同时它不属于「这道题的答案」，混进解析区会分不清。
+
+        ## 不传 onAskHint 时整块不渲染
+
+        组件单独跑测试、或没配 AI 后端时不显示，而不是显示一个点了报错的按钮。
+      */}
+      {onAskHint && !revealed ? (
+        <HintPanel
+          onAsk={(level, previous) =>
+            onAskHint(card, picked.length > 0 ? picked.join(',') : textInput, level, previous)
+          }
+          onLevelUsed={(lv) => setMaxHintLevel((m) => (lv > m ? lv : m))}
+        />
+      ) : null}
 
       {/*
         记一笔：挂在当前这道题上。

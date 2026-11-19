@@ -1,0 +1,169 @@
+/*
+ * 提示阶梯面板（2026-11-19）。
+ *
+ * ## ⚠️ 这个面板在**纸卡外面**，必须用深色主题的颜色
+ *
+ * 第一版我按「它在做题页、做题页是纸卡」的直觉，用了 `--paper-ink` /
+ * `--paper-dim`（纸上的深色字）。截图一看全是深色字压在深色画布上，
+ * **几乎完全看不见** —— 断言 10/10 全绿时完全没暴露。
+ *
+ * 实际位置：`ReviewPage` 的结构是
+ *   .review-wrap（深色画布）
+ *     .question-card.paper（浅色纸卡）
+ *     .hint-panel            ← 在这里，纸卡**外面**
+ *
+ * 所以这里必须用 `--text*` / `--line-*` / `--accent*`（跟随深色主题），
+ * 而不是 paper 系。这个区别上一轮在「答错补充讲解」上已经踩过一次
+ * （那个在纸卡**里面**，所以要 paper 系）—— 两个面板位置相反，
+ * 用的 token 也就相反。写在这里免得下一个人再猜。
+ *
+ * ## 按钮颜色写在层外
+ *
+ * 硬约束 11：`base.css` 有不在任何 @layer 里的
+ * `button, input, select, textarea { color: inherit }`。
+ * 层外优先于层内，所以 @layer 里给按钮写的 color 一律无效。
+ * 见文件末尾。
+ */
+
+@layer study.components {
+  .hint-panel {
+    margin-top: var(--space-4);
+    padding: var(--space-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+  }
+
+  .hint-panel__intro {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+
+  .hint-panel__lead {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+  }
+
+  .hint-panel__ask {
+    padding: 6px var(--space-3);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-pill);
+    background: transparent;
+    font: inherit;
+    font-size: var(--fs-sm);
+    cursor: pointer;
+    transition: border-color 0.14s, background 0.14s;
+  }
+
+  .hint-panel__ask:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+
+  .hint-panel__ask:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .hint-panel__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .hint-item {
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--line-strong);
+  }
+
+  /*
+   * 强提示用朱砂色的左边线 —— 视觉上就能看出「这一档不一样」。
+   * 不用整块红底：那会让提示本身变刺眼，而它仍然是帮助。
+   */
+  .hint-item--strong {
+    border-left-color: color-mix(in srgb, var(--accent) 80%, transparent);
+  }
+
+  .hint-item__head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    margin-bottom: 4px;
+  }
+
+  .hint-item__lv {
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .hint-item__label {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+  }
+
+  .hint-item__text {
+    margin: 0;
+    font-size: var(--fs-sm);
+    line-height: 1.75;
+    color: var(--text-dim);
+  }
+
+  /* 强提示的警告用语义色 —— 它是「后果提示」，不是正文 */
+  .hint-item__warn {
+    margin: 6px 0 0;
+    font-size: var(--fs-xs);
+    color: var(--warn);
+  }
+
+  .hint-panel__more {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin-top: var(--space-3);
+  }
+
+  .hint-panel__cost {
+    font-size: var(--fs-xs);
+    color: var(--warn);
+  }
+
+  .hint-panel__end {
+    margin: var(--space-3) 0 0;
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+  }
+
+  .hint-panel__err {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+    font-size: var(--fs-sm);
+    color: var(--bad);
+  }
+}
+
+/*
+ * ===========================================================================
+ * 层外：原生按钮的文字色（硬约束 11）
+ * ===========================================================================
+ *
+ * `.app .hint-panel__ask`（0,2,0）压过 `button`（0,0,1），同时保持在层外。
+ * 不写这条的话，按钮会继承父级颜色 —— 而这个面板在深色画布上，
+ * 继承到的是深色主题的正文色，那是**碰巧**对的；hover 要变朱砂色
+ * 就必须显式写。
+ */
+.app .hint-panel__ask {
+  color: var(--text-dim);
+}
+
+.app .hint-panel__ask:hover:not(:disabled) {
+  color: var(--accent-text);
+}
