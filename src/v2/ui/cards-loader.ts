@@ -93,8 +93,14 @@ function toCardKind(k: Question['kind']): CardKind {
   }
 }
 
-/** 题目 → 卡片 */
-function questionToCard(q: Question, sourceId: string | null): Card {
+/**
+ * 题目 → 卡片。
+ *
+ * 2026-11-19 导出：从笔记页「回到那道题」需要把一张题单独变成卡片。
+ * 不导出的话，那边只能自己拼一个 Card —— 而 `kind` 的映射
+ * （essay→short 那套）一旦复制就会漂移，出现「从笔记打开做不了题」。
+ */
+export function questionToCard(q: Question, sourceId: string | null): Card {
   return {
     id: q.id,
     sourceId: sourceId ?? '',

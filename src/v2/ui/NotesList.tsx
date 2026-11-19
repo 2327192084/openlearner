@@ -45,6 +45,33 @@ export interface UnifiedRow {
   sourceId: string | null;
   /** 分组标题：资料标题，或「题目：xxx」这类归属描述 */
   groupTitle: string;
+  /**
+   * 这条笔记**具体挂在什么上**（2026-11-19 加）。
+   *
+   * ## 为什么必须和 groupTitle 分开
+   *
+   * 用户报过一个真 bug：在**做题时**写的笔记，到学习笔记页看时
+   * 只显示资料名（「高等数学 第7版…」），完全看不出它是挂在哪道题上的。
+   *
+   * 根因就是这两个语义被混用了：
+   *  - `groupTitle` 是**分组名** —— 按资料分组时它必须是资料标题，
+   *    否则同一条笔记不会落到那本书的组里；
+   *  - 但「这条笔记挂在哪」是另一件事 —— 挂的是**某道题**。
+   *
+   * 原来只有一个字段，按资料分组时它只能二选一，于是选了资料名，
+   * 「题目：下列各组函数中…」这层信息就丢了（`NotesPage` 里其实算出来了，
+   * 只是被三元表达式跳过）。
+   *
+   * null 表示没有更具体的归属（例如标注类，它本来就属于资料的那一页）。
+   */
+  ownerLabel: string | null;
+  /**
+   * 这条手写笔记挂在哪张卡上（题目 id 或知识点 id）；其他类别为 null。
+   *
+   * 点击行为要用它判断「应该回那道题，还是回原文」——
+   * 只有 `ownerLabel` 是一段给人看的文字，不能拿来当 id 用。
+   */
+  noteCardId?: string | null;
   /** 页码（收藏的知识点可能没有） */
   page: number | null;
   /** 主文字 */
@@ -209,8 +236,28 @@ export function NotesList({
                 ? (MARK_KIND_LABEL[r.markKind] ?? CATEGORY_LABEL.mark)
                 : CATEGORY_LABEL[r.category]}
             </span>
-            {/* 不分组时要把归属说出来，否则不知道这条属于哪份资料 */}
-            {!grouped ? <span className="nl-item__belong">{r.groupTitle}</span> : null}
+            {/*
+              归属（2026-11-19 修，第二次才对）。
+
+              ## 这个 bug 是什么
+              用户做题时写的笔记，到学习笔记页只显示**资料名**
+              （「高等数学 第7版…」），看不出它挂在哪道题上。
+
+              ## 第一次修错了
+              我改成「分组时显示 ownerLabel，不分组时显示 groupTitle」。
+              实测仍然只显示资料名 —— 因为**当前默认是不分组**
+              （`按资料分组` 的 aria-pressed 是 false），走到了 else 分支，
+              而 `groupTitle` 在有资料时本来就会被资料标题覆盖。
+
+              真正的问题是：`groupTitle` 这个字段在「有资料」时**一定**是资料名
+              （那是分组用的），所以拿它当「归属」显示，无论分不分组都丢题目信息。
+
+              ## 现在的规则
+              `ownerLabel`（「题目：…」/「知识点：…」）**永远优先**，
+              它才是「这条笔记挂在哪」的准确说法；
+              只有它为空（标注/备注这类本来就属于资料某页的）才退回 groupTitle。
+            */}
+            <span className="nl-item__belong">{r.ownerLabel ?? r.groupTitle}</span>
             {r.page !== null ? <span className="nl-item__page">第 {r.page} 页</span> : null}
             <span className="nl-item__time">{formatWhen(r.at)}</span>
           </span>

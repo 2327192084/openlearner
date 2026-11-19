@@ -52,6 +52,15 @@ export interface NotesPageProps {
   onOpenSourceAt?: (sourceId: string, page: number, quote?: string) => void;
   /** 去知识库 */
   onOpenKnowledge: () => void;
+  /**
+   * 回到**那道题**去做（2026-11-19）。
+   *
+   * 用户报：做题时写的笔记，点进去跳到的是原文那一页，
+   * 而他真正想回看的是题目本身。挂在题目上的手写笔记应该落到那道题。
+   *
+   * 可选：不传就退回旧行为（去原文/知识库）。
+   */
+  onOpenQuestion?: (cardId: string) => void;
 }
 
 /** 一条展示用的笔记（带解析出来的归属标题） */
@@ -78,6 +87,7 @@ export function NotesPage({
   annotations,
   onOpenSourceAt,
   onOpenKnowledge,
+  onOpenQuestion,
 }: NotesPageProps) {
   const [state, setState] = useState<Load>({ kind: 'loading' });
   const [keyword, setKeyword] = useState('');
@@ -249,6 +259,20 @@ export function NotesPage({
               ? (state.sources.find((s) => s.id === r.sourceId)?.title ?? r.belongsTo)
               : r.belongsTo)
           : r.belongsTo,
+        /*
+         * 归属内容（2026-11-19 加）。
+         *
+         * `belongsTo` 本来就区分了「题目：…」「知识点：…」「资料：…」
+         * （见上面 load() 里的分支），但原来只被当成 groupTitle 的**备选**，
+         * 有资料时就被资料标题盖掉 —— 用户做题时写的笔记，
+         * 到学习笔记页就只剩一个资料名，看不出挂在哪道题上。
+         *
+         * 这里原样透传：它就是「这条笔记挂在哪」的准确说法。
+         * 标注/备注类没有更具体的归属（它们本来就属于资料的某一页），传 null。
+         */
+        ownerLabel: r.belongsTo,
+        /* 点击时要据此判断「回那道题」还是「回原文」 */
+        noteCardId: r.note.cardId,
         page: null,
         text: r.note.body,
         quote: null,
@@ -280,6 +304,11 @@ export function NotesPage({
           charEnd: m.anchor.end,
           markKind: m.kind,
           at: m.createdAt,
+          /*
+           * 标注/备注本来就挂在「资料的某一页」上，没有更具体的归属
+           * —— 页码那一栏已经说清楚位置了。传 null，让列表在分组时不重复。
+           */
+          ownerLabel: null,
         });
       }
     }
@@ -299,6 +328,8 @@ export function NotesPage({
         ...(first?.charStart !== undefined ? { charStart: first.charStart } : {}),
         ...(first?.charEnd !== undefined ? { charEnd: first.charEnd } : {}),
         at: kp.updatedAt,
+        /* 收藏的是一条知识点 —— 分组时应该显示「知识点：xxx」而不是只看到书名 */
+        ownerLabel: `知识点：${firstLine(kp.statement)}`,
       });
     }
 
@@ -456,6 +487,20 @@ export function NotesPage({
           }
           onDelete={(id) => void removeNote(id)}
           onOpen={(row) => {
+            /*
+             * 优先级（2026-11-19 修）：
+             *  1. 手写笔记挂在**题目**上 → 回那道题（这才是用户要的）
+             *  2. 其余（标注/备注/收藏）→ 回原文那一页
+             *  3. 都没有 → 知识库
+             *
+             * 原来 1 和 2 的顺序是反的：只要有 sourceId 就先跳原文，
+             * 于是做题时写的笔记永远只能跳到书上，回不到题目。
+             */
+            const qid = row.noteCardId ?? null;
+            if (row.category === 'written' && qid && onOpenQuestion) {
+              onOpenQuestion(qid);
+              return;
+            }
             if (row.sourceId) {
               onOpenSourceAt?.(row.sourceId, row.page ?? 1, row.quote ?? undefined);
             } else if (row.page !== null) {
