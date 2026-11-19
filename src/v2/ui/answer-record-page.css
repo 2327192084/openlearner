@@ -207,3 +207,19 @@
 .app .ansrec-tab--on {
   color: var(--accent-text);
 }
+
+/*
+ * 计数为 0 的分类（2026-11-19 晚）。
+ *
+ * 页签现在常驻（只要有任何记录），所以「这一类是空的」会常态出现。
+ * 要让它看起来**可用但还没内容**，不是禁用：
+ * 仍然可点（点进去会说明这一类还没有记录）。
+ *
+ * 为什么写在层外：`.ansrec-tab` 的文字色在层外定义（见上），
+ * 层内写 `color` 会被层外的 `.app .ansrec-tab` 覆盖。
+ * 这里用 `.app .ansrec-tab--empty` —— 同等 specificity (0,2,0)，
+ * 在后面声明，按源序胜出（硬约束：层外规则之间照样比 specificity）。
+ */
+.app .ansrec-tab--empty {
+  color: var(--text-faint);
+}

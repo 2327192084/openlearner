@@ -135,6 +135,57 @@
     margin-bottom: var(--space-4);
   }
 
+  /*
+   * 收起 / 展开这一卷（2026-11-19 晚）。
+   *
+   * ## 为什么按钮自己写色，不复用 .btn-text
+   *
+   * `.btn-text` 是按「次要动作」调的（偏小、偏淡）。
+   * 这个按钮是卷的**结构性控件**，与标题同一层级出现，
+   * 太淡会让人找不到「怎么收起」。
+   *
+   * ## 为什么 align-self 不跟 baseline
+   *
+   * 父级 `align-items: baseline` 是为了让标题、道数、按钮文字基线对齐。
+   * 本按钮自带图标 + 文字，基线对齐会让图标浮起来 —— 改成居中。
+   *
+   * ## 为什么写在这里而不是层外
+   *
+   * 硬约束：`base.css` 层外有 `button { color: inherit }` 压过层内规则。
+   * 但那条只管 `color`，不管 padding / border / background。
+   * 本按钮需要自定义的是后者，所以在层内写是安全的；
+   * `color` 特意**不写**，让它继承（深浅主题都自动对）。
+   */
+  .bk-volume__fold {
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 2px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xs);
+    background: transparent;
+    font-size: var(--fs-xs);
+    cursor: pointer;
+    flex: 0 0 auto;
+  }
+
+  .bk-volume__fold:hover {
+    background: var(--surface-2);
+    border-color: var(--line-strong);
+  }
+
+  /* 三角随展开/收起换向（内容由 JSX 决定，这里只管排布） */
+  .bk-volume__caret {
+    font-size: 0.9em;
+    line-height: 1;
+    color: var(--text-muted);
+  }
+
+  .bk-volume__fold-text {
+    color: var(--text-dim);
+  }
+
   .bk-volume__title {
     font-size: var(--fs-lg);
     font-weight: 650;
@@ -284,4 +335,61 @@
     color: var(--text-faint);
     font-variant-numeric: tabular-nums;
   }
+
+  /*
+   * 「定位回原文」按钮（2026-11-19 晚）。
+   *
+   * 原来这一行是纯文字「出处：第 16 页」，只告知不可达。
+   * 改成按钮后它**依然要低调** —— 每题一个，抢眼就把正文压住了。
+   * 所以保留 xs 字号，只加下划线暗示可点、hover 时才提亮。
+   *
+   * ⚠️ `color` 不在这里写 —— 见文件末尾层外的 `.app .bk-q__locate`。
+   * 这一条**我犯过**（2026-11-19 晚）：起初把 color 写在本块里，
+   * 结果界面上是灰的。原因是层外的 `button { color: inherit }`
+   * 会无条件胜过层内规则（层序优先于 specificity，硬约束 3.2）。
+   * 断言当时也没抓到 —— 「颜色不是纯黑」对亮灰同样成立，
+   * 是截图肉眼复核看出来的。**断言写得够宽 = 没在验**。
+   */
+  .book-page .bk-q__locate {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-size: var(--fs-xs);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+
+  .book-page .bk-q__locate:hover {
+    /*
+     * hover 不要用 `--accent-strong`：它在这个项目里是 `--accent-soft` 的别名
+     * （语义是「强调但不刺眼」，给 selftest 用的），比 --accent 更淡。
+     * hover 要的是「更明显」，所以往正文色的方向走一档。
+     * 这条写在层内没问题：它是 :hover，层外没有同名选择器跟它抢。
+     */
+    color: var(--text);
+  }
+}
+
+/*
+ * 「定位回原文」的文字色 —— **必须在层外**（2026-11-19 晚）。
+ *
+ * `src/styles/base.css` 有一条不在任何 @layer 里的
+ * `button { color: inherit }`。层外规则优先于层内，**比 specificity 还优先**，
+ * 所以层内写 `color` 一律无效（硬约束 3.2、交接文档 3.2 都记过）。
+ *
+ * 第一次写成 `.book-page .bk-q__locate` 放在 `@layer study.features` 里，
+ * 界面实际显示为灰色（继承自 `.bk-q__from` 的 `--text-faint`）。
+ *
+ * 层外这里用 `.app .book-page .bk-q__locate`（0,3,0）：
+ * 高于 `button`(0,0,1)，也高于 base.css 里 `.app .btn-fill`(0,2,0)。
+ * 不用 `:where()` —— 它的 specificity 是 0，会输（这个坑也踩过）。
+ */
+.app .book-page .bk-q__locate {
+  color: var(--accent);
+}
+
+.app .book-page .bk-q__locate:hover {
+  color: var(--text);
 }

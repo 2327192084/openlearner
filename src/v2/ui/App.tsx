@@ -1158,15 +1158,23 @@ export function App({
   // ---------------------------------------------------------------------------
 
   /**
-   * 是否正「从闪卡来知识库挑知识点」。
+   * 是否正从别处来知识库挑知识点，以及挑来干什么。
    *
    * 用户原话：「记忆闪卡制作闪卡直接让用户跳转到知识库选择好一点，
    * 按知识骨架那四个类型分类后用户也好选择需要加入闪卡的知识点」。
+   * 后来（2026-11-19 晚）「提问式复习」也要能挑知识点提问，
+   * 于是从布尔改成枚举：
    *
-   * 白名单式的一个标记：只有它为真时知识库才进入挑选模式。
-   * 平时从侧栏进知识库，看到的仍是纯浏览页（不多一行控件）。
+   * ## 为什么不用两个布尔
+   *
+   * `pickingForFlashcards` + `pickingForOral` 两个布尔会出现
+   * 「两个都为真」的非法状态，而这时的行为取决于判断顺序 ——
+   * 改一行代码就可能从「加进闪卡」变成「去提问」。
+   * 枚举只有一个值，非法状态根本表达不出来。
+   *
+   * `null` = 不在挑选模式（从侧栏进知识库看到的是纯浏览页）。
    */
-  const [pickingForFlashcards, setPickingForFlashcards] = useState(false);
+  const [pickingFor, setPickingFor] = useState<'flashcards' | 'oral' | null>(null);
   /**
    * 挑完回闪卡时自动展开闪卡视图。
    *
@@ -1188,7 +1196,24 @@ export function App({
     } catch {
       /* 读不到也照样进页面：知识库自己还会读一次并显示错误 */
     }
-    setPickingForFlashcards(true);
+    setPickingFor('flashcards');
+    setPage('knowledge');
+  }, [knowledgeService]);
+
+  /**
+   * 从「提问式复习」两级入口走「挑知识点提问」（2026-11-19 晚）。
+   *
+   * 与 handleGoPickKnowledge 同一套（进知识库的挑选模式），
+   * 区别只在挑完之后干什么：那边是加闪卡，这边是拿这几条去出题。
+   */
+  const handleGoPickPointsForOral = useCallback(async () => {
+    try {
+      const points = await knowledgeService.listAll();
+      setFlashcardPoints(points);
+    } catch {
+      /* 读不到也照样进页面：知识库自己还会读一次并显示错误 */
+    }
+    setPickingFor('oral');
     setPage('knowledge');
   }, [knowledgeService]);
 
@@ -1219,6 +1244,23 @@ export function App({
    * 简言之：state 版会被 setAutoOral(false) 连带复位，守卫失效。
    */
   const selectionOralRef = useRef(false);
+
+  /**
+   * `selectionOralRef` 的**渲染用镜像**（2026-11-19 晚）。
+   *
+   * ## 为什么不能直接用 ref
+   *
+   * 界面要根据「素材是不是显式选定的」决定显不显示范围下拉。
+   * ref 变了**不会触发重渲染** —— 只读 ref 的话，下拉会停在旧状态
+   * （表现为「点了挑知识点，进去还看到知识点随机的下拉」）。
+   *
+   * ## 为什么两份都留
+   *
+   * ref 承担的是「effect 里的守卫」（不能被 setState 的异步时序影响，
+   * 见那个长注释）。state 只负责渲染。两者在**同一处**一起设置，
+   * 不存在只改一个的情况 —— 下面三处赋值点都成对写。
+   */
+  const [oralScopeLocked, setOralScopeLocked] = useState(false);
 
   /* 进复习巩固页时读一次；换页不必重读（闪卡不常变） */
   useEffect(() => {
@@ -1281,6 +1323,7 @@ export function App({
   useEffect(() => {
     if (page === 'book') return;
     selectionOralRef.current = false;
+    setOralScopeLocked(false);
   }, [page]);
 
   /*
@@ -1840,6 +1883,7 @@ export function App({
       setOralScopeLabel('划选片段提问');
       /* 守卫必须在 setAutoOral 之前挂上，且整个「留在这一页」期间都不清 */
       selectionOralRef.current = true;
+      setOralScopeLocked(true);
       setAutoOral(true);
       goPage('book');
     },
@@ -1957,6 +2001,7 @@ export function App({
         }
         /* 用户主动换范围 → 划选那条路的守卫不再适用 */
         selectionOralRef.current = false;
+        setOralScopeLocked(false);
         setOralPool(pool);
         setOralMaterial(pickMaterial(pool));
         setOralScopeLabel(opt.label);
@@ -2465,6 +2510,22 @@ export function App({
           onOralScopeChange={(id) => void handleOralScopeChange(id)}
           oralScopeLoading={oralScopeLoading}
           oralScopeError={oralScopeError}
+          /*
+           * 知识点条数要如实显示 —— 0 条时那两条路都不能走，
+           * 按钮置灰并说明原因（不做假开关）。
+           *
+           * 用 `flashcardPoints`：名字是历史遗留（最早只服务闪卡），
+           * 但它装的本来就是 `knowledgeService.listAll()` 的全量知识点。
+           * 这里只读不写，不引入第二份真相。
+           */
+          onPickPointsForOral={() => void handleGoPickPointsForOral()}
+          oralPointCount={pointsToMaterials(flashcardPoints).length}
+          /*
+           * 「素材是显式选定的」→ 不给换范围下拉（2026-11-19 晚）。
+           * 否则顶部写「选定的 1 条知识点」、下拉写「知识点随机」，
+           * 两套信息打架，点一下还会把挑好的覆盖掉。
+           */
+          oralScopeLocked={oralScopeLocked}
         />
       ) : page === 'guide' ? (
         <GuidePage onNavigate={(id) => setPage(id)} />
@@ -2657,12 +2718,13 @@ export function App({
             void refreshShellState();
           }}
           /*
-            从闪卡跳过来挑知识点（2026-11-10）。
-            只有 pickingForFlashcards 为真时才进挑选模式 ——
-            平时进知识库仍是纯浏览，不多任何控件。
+            从别处跳过来挑知识点。
+            「加进闪卡」（2026-11-10）与「挑来提问」（2026-11-19 晚）
+            共用同一个挑选模式，靠 pickingFor 区分挑完做什么。
+            不在挑选模式时是 undefined —— 平时进知识库是纯浏览，不多任何控件。
           */
           onPickPoints={
-            pickingForFlashcards
+            pickingFor === 'flashcards'
               ? async (ids) => {
                   await handleAddFlashcards(ids);
                   /*
@@ -2672,14 +2734,54 @@ export function App({
                    * 留在原地会让他怀疑「到底加进去了没有」
                    * （交接文档记过同类 bug：建完卡停在挑卡页）。
                    */
-                  setPickingForFlashcards(false);
+                  setPickingFor(null);
                   setShowFlashcardsFromKnowledge(true);
                   setPage('book');
                 }
-              : undefined
+              : pickingFor === 'oral'
+                ? async (ids) => {
+                    /*
+                     * 挑来提问：把选中的知识点做成素材池，直接进提问面板。
+                     *
+                     * 不过滤空池 —— 用户勾了就一定有内容（知识点列表本身
+                     * 只列 statement 非空的）。真为空时面板会显示
+                     * 「这个范围没有可提问的内容」，比在这里静默拦住好。
+                     */
+                    const all = flashcardPoints;
+                    const wanted = new Set(ids);
+                    const picked = pointsToMaterials(all.filter((p) => wanted.has(p.id)));
+                    setPickingFor(null);
+                    setOralPool(picked);
+                    setOralMaterial(pickMaterial(picked));
+                    setOralScopeLabel(`选定的 ${picked.length} 条知识点`);
+                    /*
+                     * 挂守卫：进复习巩固页的那个 effect 会把素材池
+                     * 重置成「知识点随机」，不拦会把刚挑的覆盖掉。
+                     * 与划选提问同一条守卫（selectionOralRef），
+                     * 因为它表达的就是「这一轮素材是显式指定的」。
+                     */
+                    selectionOralRef.current = true;
+                    setOralScopeLocked(true);
+                    setAutoOral(true);
+                    setPage('book');
+                  }
+                : undefined
           }
-          pickTitle="挑要加进闪卡的知识点"
-          onCancelPick={() => setPickingForFlashcards(false)}
+          pickTitle={pickingFor === 'oral' ? '挑要提问的知识点' : '挑要加进闪卡的知识点'}
+          pickHintText={
+            pickingFor === 'oral' ? '勾选要拿去提问的知识点。' : '勾选要加进闪卡的知识点。'
+          }
+          onCancelPick={() => setPickingFor(null)}
+          /*
+           * ⚠️ 「已在闪卡里」只在挑闪卡时置灰（2026-11-19 晚）。
+           *
+           * 挑来提问时它必须为 false：做过闪卡的知识点一样可以问，
+           * 原来无条件置灰会让大部分知识点勾不动 —— 那不是设计，
+           * 是复用挑选模式时漏掉的一条耦合。
+           */
+          pickDisablesPicked={pickingFor === 'flashcards'}
+          pickActionLabel={pickingFor === 'oral' ? '用这些提问（{n}）' : '加入闪卡（{n}）'}
+          pickBusyLabel={pickingFor === 'oral' ? '正在准备…' : '正在加入…'}
           /*
            * 「已经做成闪卡的」知识点 id（界面据此显示「已加入」）。
            *

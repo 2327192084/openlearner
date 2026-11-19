@@ -66,8 +66,27 @@ export function AnswerRecordPage({
         </p>
       </header>
 
-      {/* 来源筛选：只有一个来源时不出这一排（那是噪音） */}
-      {counts.oral > 0 && counts['wrong-explain'] > 0 ? (
+      {/*
+        来源分类页签（2026-11-19 晚改）。
+
+        ## 原来哪里不对
+
+        原来条件是 `counts.oral > 0 && counts['wrong-explain'] > 0` ——
+        两个来源**都有记录**时才显示。用户真实库 `oralReviews` 是 0 条，
+        所以他从未见过这排页签，看到的就是一份没有分类的平铺记录。
+        用户原话：「答疑记录应该继续分类，一个是提问式复习的记录，
+        一个是错题答疑的记录」。
+
+        ## 现在怎么改
+
+        只要**有任何一条记录**就显示页签，两个来源各一个固定入口。
+        计数为 0 的那个仍然可点（点进去说明这一类还没有记录），
+        因为「这里应该有第二类，只是我还没用过」本身就是有用信息 ——
+        藏起来反而让人以为功能不存在。
+
+        一条记录都没有时不出页签（整页都是空态，页签点了也没内容）。
+      */}
+      {counts.all > 0 ? (
         <div className="ansrec-tabs" role="tablist" aria-label="来源">
           {(['all', 'oral', 'wrong-explain'] as AnswerFilter[]).map((f) => (
             <button
@@ -75,7 +94,9 @@ export function AnswerRecordPage({
               type="button"
               role="tab"
               aria-selected={filter === f}
-              className={`ansrec-tab${filter === f ? ' ansrec-tab--on' : ''}`}
+              className={`ansrec-tab${filter === f ? ' ansrec-tab--on' : ''}${
+                counts[f] === 0 ? ' ansrec-tab--empty' : ''
+              }`}
               onClick={() => setFilter(f)}
             >
               {SOURCE_LABEL[f]}
@@ -87,11 +108,24 @@ export function AnswerRecordPage({
 
       {visible.length === 0 ? (
         <div className="ansrec-empty">
-          <p>还没有答疑记录。</p>
+          {/*
+            空态要说清「这一类没有」还是「一条都没有」——
+            用户点了「提问复习」看到「还没有答疑记录」会以为整页坏了。
+          */}
+          <p>
+            {counts.all === 0
+              ? '还没有答疑记录。'
+              : `「${SOURCE_LABEL[filter]}」这一类还没有记录。`}
+          </p>
           <p className="ansrec-hint">
             两种方式会产生记录：在做题页答错后点「针对这个错误讲一遍」；
             或在「复习巩固」里用提问式复习问我一段材料。
           </p>
+          {counts.all > 0 && filter !== 'all' ? (
+            <button type="button" className="btn-text" onClick={() => setFilter('all')}>
+              看全部记录（{counts.all}）→
+            </button>
+          ) : null}
         </div>
       ) : (
         <ul className="ansrec-list">

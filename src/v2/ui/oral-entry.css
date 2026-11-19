@@ -1,0 +1,172 @@
+/**
+ * 「提问式复习」两级入口的样式（2026-11-19 晚）。
+ *
+ * ## 取向
+ *
+ * 它展开在复习巩固页的工具条下面，属于**临时的选择区** ——
+ * 用户选完就走，要能一眼看出「这是个岔路口」，但不该压过正文。
+ * 所以：细描边 + 轻微底色，不用大面积强调色。
+ *
+ * ## token
+ *
+ * 这一块在**深色画布上**（不在纸卡里），所以用 v2 的
+ * `--text*` / `--surface-*` / `--line-*`，**不是** `--paper-*`。
+ * 交接文档 3.1 记过这个坑：两个面板位置相反、token 也用反，
+ * 结果深色字压深色底，截图一看几乎看不见。
+ */
+
+@layer study.features {
+  .oral-entry {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface-1);
+    padding: var(--space-4);
+    margin-bottom: var(--space-5);
+  }
+
+  .oral-entry__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+  }
+
+  .oral-entry__title {
+    flex: 1 1 auto;
+    font-size: var(--fs-sm);
+    font-weight: 650;
+    color: var(--text);
+  }
+
+  .oral-entry__cancel {
+    flex: 0 0 auto;
+    padding: 2px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xs);
+    background: transparent;
+    font-size: var(--fs-xs);
+    cursor: pointer;
+  }
+
+  .oral-entry__cancel:hover {
+    background: var(--surface-2);
+    border-color: var(--line-strong);
+  }
+
+  /* ---- 两栏 ---- */
+  .oral-entry__cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-4);
+  }
+
+  /* 窄屏堆成一列 —— 两栏在 560px 下会把句子挤成竖条 */
+  @media (max-width: 720px) {
+    .oral-entry__cols {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .oral-entry__col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xs);
+    background: var(--bg-canvas);
+  }
+
+  /* 第二条路是「指路」，视觉上压一档，不要和主路线抢 */
+  .oral-entry__col--hint {
+    background: transparent;
+    border-style: dashed;
+  }
+
+  .oral-entry__lead {
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--text);
+    margin: 0;
+  }
+
+  .oral-entry__desc {
+    font-size: var(--fs-xs);
+    line-height: 1.7;
+    color: var(--text-muted);
+    margin: 0;
+  }
+
+  .oral-entry__btns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-top: var(--space-1);
+  }
+
+  /*
+   * 这两个按钮是**层内的自定义按钮**，需要自己写边框与底色。
+   *
+   * ⚠️ `color` 会被层外的 `button { color: inherit }` 压掉
+   * （硬约束：层外规则优先于层内，比 specificity 还优先）。
+   * 所以这里**不写 color**，让它继承父级 `--text` ——
+   * 深色主题下 inherit 出来的就是浅色字，正好对。
+   *
+   * 主按钮要强调，所以用 `.oral-entry .oral-entry__btn--primary`
+   * 提高 specificity 把颜色压回来（层外那条是 (0,0,1)，这里 (0,2,0)）。
+   */
+  .oral-entry__btn {
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-xs);
+    background: var(--surface-2);
+    font-size: var(--fs-sm);
+    cursor: pointer;
+  }
+
+  .oral-entry__btn:hover:not(:disabled) {
+    border-color: var(--accent);
+  }
+
+  .oral-entry__btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .oral-entry .oral-entry__btn--primary {
+    /*
+     * ⚠️ 这里刻意**不写 color**。
+     *
+     * 主按钮的字色 `--accent-ink` 由 `src/styles/base.css` 的
+     * `.app .btn-fill` 提供（层外，硬约束 3.2）。那条规则靠 specificity
+     * (0,2,0) 压过层外的 `button { color: inherit }`。
+     * 本组件若在层内写 `color`，会被层外那条 `color:inherit` 压掉 ——
+     * 白写，还会让人以为"配过色了"。
+     *
+     * 所以：主按钮同时挂 `btn-fill` 类（见 OralEntryChooser.tsx），
+     * 颜色交给既有的那一条规则，这里只管底色与边框。
+     */
+    background: var(--accent);
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+
+  .oral-entry .oral-entry__btn--primary:hover:not(:disabled) {
+    filter: brightness(1.08);
+  }
+
+  .oral-entry__meta {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    margin: 0;
+  }
+
+  /* ---- 指路的三步 ---- */
+  .oral-entry__steps {
+    margin: 0;
+    padding-left: 1.2em;
+    font-size: var(--fs-xs);
+    line-height: 1.8;
+    color: var(--text-dim);
+  }
+}

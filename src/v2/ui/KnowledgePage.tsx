@@ -113,10 +113,41 @@ export interface KnowledgePageProps {
   onPickPoints?: (ids: string[]) => Promise<void> | void;
   /** 挑选模式的标题（比如「挑要加进闪卡的知识点」） */
   pickTitle?: string;
+  /**
+   * 挑选模式顶部那句说明的后半段（2026-11-19 晚）。
+   *
+   * 用途不同话也不同：加进闪卡 vs 拿去提问。默认沿用闪卡那句，
+   * 保持 2026-11-10 的行为不变。
+   */
+  pickHintText?: string;
   /** 取消挑选（回到调用方） */
   onCancelPick?: () => void;
   /** 已经在闪卡里、不该再被挑中的知识点 id */
   alreadyPickedIds?: readonly string[];
+  /**
+   * 是否把 `alreadyPickedIds` 里的知识点置灰不可勾（2026-11-19 晚）。
+   *
+   * ## 为什么需要这个开关
+   *
+   * 挑选模式现在有两个用途：
+   *  - **加进闪卡**（2026-11-10）：已在闪卡里的再勾一次没意义，要置灰
+   *  - **挑来提问**（2026-11-19 晚）：做过闪卡**完全不影响**能不能问它
+   *
+   * 原来无条件置灰，于是「挑来提问」时凡是做过闪卡的知识点全都勾不动 ——
+   * 是个真 bug（两件事无关，却被一条规则挡住）。
+   *
+   * 默认 `true` 保持闪卡那边原有行为不变。
+   */
+  pickDisablesPicked?: boolean;
+  /**
+   * 挑选模式确认按钮的文案模板（2026-11-19 晚）。
+   *
+   * 原来写死「加入闪卡（N）」。挑来提问时那句话是错的 ——
+   * 用户点下去不是加闪卡。用 `{n}` 占位，调用方给完整句子。
+   */
+  pickActionLabel?: string;
+  /** 正在执行挑选动作时的文案（比如「正在加入…」） */
+  pickBusyLabel?: string;
 }
 
 interface SourceGroup {
@@ -144,8 +175,12 @@ export function KnowledgePage({
   onToggleFavorite,
   onPickPoints,
   pickTitle,
+  pickHintText,
   onCancelPick,
   alreadyPickedIds,
+  pickDisablesPicked = true,
+  pickActionLabel,
+  pickBusyLabel,
 }: KnowledgePageProps) {
   const [points, setPoints] = useState<KnowledgePoint[] | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
@@ -458,7 +493,13 @@ export function KnowledgePage({
           <p className="kb-lead">
             {picking ? (
               <>
-                用下面的「按类型」和文件分组收窄范围，勾选要加进闪卡的知识点。
+                用下面的「按类型」和文件分组收窄范围，
+                {/*
+                  文案跟着用途走（2026-11-19 晚）。
+                  原来写死「勾选要加进闪卡的知识点」——挑来提问时那句话是错的，
+                  用户会以为自己点错了地方。
+                */}
+                {pickHintText ?? '勾选要加进闪卡的知识点。'}
                 已选中 {chosen.size} 条。
               </>
             ) : (
@@ -649,7 +690,21 @@ export function KnowledgePage({
                         <ul className="kb-points">
                           {chapter.points.map((p) => {
                             const anchor = p.anchors[0];
-                            const inFlashcards = alreadyPicked.has(p.id);
+                            /*
+                             * ⚠️ 「已在闪卡里」只在**挑闪卡**这个用途下才置灰
+                             * （2026-11-19 晚修）。
+                             *
+                             * 挑选模式现在有两个用途：加进闪卡、挑来提问。
+                             * 原来无条件按 `alreadyPicked` 置灰，于是
+                             * 「挑来提问」时，凡是已经做过闪卡的知识点全都勾不动 ——
+                             * 而这两件事毫无关系：做过闪卡不等于不能问它。
+                             *
+                             * 置灰只在 `alreadyPickedIds` 真有值时才有意义
+                             * （调用方只为闪卡传这个 prop），但为了不让
+                             * 语义依赖「调用方恰好没传」，这里用
+                             * `pickDisablesPicked` 显式表达。
+                             */
+                            const inFlashcards = pickDisablesPicked && alreadyPicked.has(p.id);
                             const isChosen = chosen.has(p.id);
                             return (
                               <li
@@ -855,7 +910,14 @@ export function KnowledgePage({
             disabled={chosen.size === 0 || pickSaving}
             onClick={() => void doPick()}
           >
-            {pickSaving ? '正在加入…' : `加入闪卡（${chosen.size}）`}
+            {pickSaving
+              ? (pickBusyLabel ?? '正在加入…')
+              : /*
+                 * 文案由调用方给（2026-11-19 晚）。
+                 * 挑来提问时「加入闪卡」是错的 —— 用户点下去不是加闪卡。
+                 * `{n}` 换成已选条数，保留原来「数字跟着勾选变」的行为。
+                 */
+                (pickActionLabel ?? '加入闪卡（{n}）').replace('{n}', String(chosen.size))}
           </button>
           {onCancelPick ? (
             <button

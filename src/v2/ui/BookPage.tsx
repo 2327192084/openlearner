@@ -29,6 +29,7 @@ import { ReviewToday } from './ReviewToday.tsx';
 import { FlashcardsPanel } from './FlashcardsPanel.tsx';
 import { OralReviewPanel } from './OralReviewPanel.tsx';
 import { OralScopePicker } from './OralScopePicker.tsx';
+import { OralEntryChooser } from './OralEntryChooser.tsx';
 import type { OralScopeOption } from '@/core/oral-scope-service.ts';
 import type { FlashcardView } from '@/core/flashcards.ts';
 import type { FlashcardCandidate } from '@/core/ai/pick-flashcards.ts';
@@ -143,6 +144,24 @@ export interface BookPageProps {
   /** 消费掉 autoStartOral 标记 */
   onAutoStartOralConsumed?: () => void;
   /**
+   * 从「提问式复习」的两级入口走「挑知识点提问」（2026-11-19 晚）。
+   *
+   * 用户要求知识库的知识点「应该能选中进行提问」。
+   * 宿主负责跳知识库、开挑选模式，挑完再把选中的 id 送回来
+   * （送回来的方式见 onPickPointsForOral）。
+   */
+  onPickPointsForOral?: () => void;
+  /** 库里可提问的知识点条数（给两级入口如实显示 / 判断禁用） */
+  oralPointCount?: number;
+  /**
+   * 这一轮素材是**显式选定**的，不要给「换范围」下拉（2026-11-19 晚）。
+   *
+   * 两种情况：用户在原文里划选了一段、或在知识库挑定了知识点。
+   * 给了下拉会出现两套矛盾信息（顶部说"选定的1条"，下拉说"知识点随机"），
+   * 而且点下拉会把挑好的素材覆盖掉。
+   */
+  oralScopeLocked?: boolean;
+  /**
    * 从资料中提问：可选范围（2026-11-10）。
    *
    * 由 App 读好传下来（读它要过每份资料的段落表，不该由本页重复查）。
@@ -210,6 +229,9 @@ export function BookPage({
   onOralScopeChange,
   oralScopeLoading = false,
   oralScopeError = null,
+  onPickPointsForOral,
+  oralPointCount = 0,
+  oralScopeLocked = false,
 }: BookPageProps) {
   const [state, setState] = useState<Load>({ kind: 'loading' });
   /** 当前显示的筛选：只看某一份资料 */
@@ -217,6 +239,28 @@ export function BookPage({
   /** 是否显示答案与解析（默认显示，考前复习要看得见） */
   const [showAnswers, setShowAnswers] = useState(true);
   const [busy, setBusy] = useState(false);
+
+  /**
+   * 收起了哪几卷（2026-11-19 晚，用户要求「资料加个收起按钮」）。
+   *
+   * ## 为什么记「收起的」而不是「展开的」
+   *
+   * 默认全展开（用户打开这一页就是想看题）。记展开集合的话，
+   * 新出现的一卷默认是收起的 —— 他得先找到它再点开。记收起的集合，
+   * 任何新内容默认可见，只在用户明确收起后才隐藏。
+   *
+   * 用 sourceId 当键（`__none__` 给未关联资料那卷），与卷的 key 一致。
+   */
+  const [collapsedVolumes, setCollapsedVolumes] = useState<Set<string>>(new Set());
+
+  const toggleVolumeCollapsed = useCallback((key: string) => {
+    setCollapsedVolumes((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   /**
    * 正在自测的那一卷（2026-11-09）。
@@ -253,10 +297,18 @@ export function BookPage({
    * 用户看到的是上一题的判定结果，而问题已经换了。
    */
   const [oralKey, setOralKey] = useState<number | null>(null);
+  /**
+   * 两级入口是否展开（2026-11-19 晚）。
+   *
+   * 用户要求点「提问式复习」后先看到两条路，而不是直接进面板。
+   * 默认收起：工具条上仍是那一个按钮，不占版面。
+   */
+  const [oralChooserOpen, setOralChooserOpen] = useState(false);
   const enterOral = useCallback(() => {
     setReviewSession(null);
     setSelfTestVolume(null);
     setShowFlashcards(false);
+    setOralChooserOpen(false);
     setOralKey((k) => (k ?? 0) + 1);
   }, []);
   /* 进任一子视图时把另外两个清掉 —— 互斥的约束集中在一处，不靠调用方记得 */
@@ -529,9 +581,15 @@ export function BookPage({
            * 「就这段」，再给一个下拉会让用户以为划选没生效。
            * 判断依据是 onOralScopeChange 有没有传 ——
            * 宿主不传就是不支持按资料换范围。
+           *
+           * ⚠️ 「挑定的知识点」这条路也不给下拉（2026-11-19 晚）。
+           * 截图抓到过矛盾：顶部写着「选定的 1 条知识点」，
+           * 下面下拉却显示「知识点随机（2）」—— 两套信息打架，
+           * 而且用户真去点那个下拉，刚挑的素材会被覆盖成随机的。
+           * 这种情况和划选同性质：素材是**显式选定**的，不该给「换范围」的入口。
            */
           scopePicker={
-            onOralScopeChange ? (
+            onOralScopeChange && !oralScopeLocked ? (
               <OralScopePicker
                 options={oralScopes}
                 value={oralScopeId}
@@ -688,7 +746,7 @@ export function BookPage({
           <button
             type="button"
             className="btn-ghost btn-ghost--sm"
-            onClick={enterOral}
+            onClick={() => setOralChooserOpen(true)}
             title="就一段材料向你提问，你回答后由模型判断是记错还是理解偏了"
           >
             提问式复习
@@ -730,94 +788,177 @@ export function BookPage({
         </button>
       </div>
 
+      {/*
+        「提问式复习」的两级入口（2026-11-19 晚）。
+        展开在工具条下方，两条路并排 —— 见 OralEntryChooser 的注释。
+      */}
+      {oralChooserOpen ? (
+        <OralEntryChooser
+          pointCount={oralPointCount}
+          onPickFromKnowledge={() => {
+            setOralChooserOpen(false);
+            if (onPickPointsForOral) onPickPointsForOral();
+            else enterOral();
+          }}
+          onRandomFromKnowledge={() => {
+            /* 随机一条 = 原来的行为：进面板，用宿主备好的「知识点随机」池 */
+            enterOral();
+          }}
+          onCancel={() => setOralChooserOpen(false)}
+        />
+      ) : null}
+
       {/* ---- 正文 ---- */}
-      {visible.map((vol) => (
-        <section key={vol.sourceId ?? '__none__'} className="bk-volume">
-          <div className="bk-volume__head">
-            <h2 className="bk-volume__title">{vol.title}</h2>
-            <span className="bk-volume__meta">{vol.total} 道</span>
-            {/*
-              自测这一卷（2026-11-09）。
-              放在卷标题旁而不是页顶：自测的单位是「一组题」，
-              用户在这一卷上点，明确知道要测的是哪些题。
-            */}
-            <button
-              type="button"
-              className="btn-fill btn-fill--sm"
-              onClick={() => {
-                setSelfTestVolume(vol);
-                setShowAnswers(false);
-              }}
-            >
-              自测这一卷（{vol.total} 道）
-            </button>
-            {vol.sourceId ? (
-              <button type="button" className="btn-text" onClick={() => onOpenSource(vol.sourceId!)}>
-                看原文
+      {visible.map((vol) => {
+        const volKey = vol.sourceId ?? '__none__';
+        const isCollapsed = collapsedVolumes.has(volKey);
+        return (
+          <section key={volKey} className="bk-volume">
+            <div className="bk-volume__head">
+              {/*
+                收起 / 展开这一卷（2026-11-19 晚，用户要求）。
+                放在标题最左边：它是「这一卷」的属性，
+                与右边的操作（自测、看原文）分开，不会误点。
+              */}
+              <button
+                type="button"
+                className="bk-volume__fold"
+                aria-expanded={!isCollapsed}
+                onClick={() => toggleVolumeCollapsed(volKey)}
+                title={isCollapsed ? '展开这一卷' : '收起这一卷'}
+              >
+                <span className="bk-volume__caret" aria-hidden="true">
+                  {isCollapsed ? '▸' : '▾'}
+                </span>
+                <span className="bk-volume__fold-text">{isCollapsed ? '展开' : '收起'}</span>
               </button>
-            ) : null}
-          </div>
-
-          {vol.decks.map((bd) => (
-            <div key={bd.deck.id} className="bk-deck">
-              <h3 className="bk-deck__title">
-                {bd.deck.title}
-                <span className="bk-deck__meta">{bd.questions.length} 道</span>
-                {bd.deck.kinds && bd.deck.kinds.length > 0 ? (
-                  <span className="bk-deck__kind">{bd.deck.kinds.map(kindLabel).join(' / ')}</span>
-                ) : null}
-              </h3>
-
-              <ol className="bk-questions">
-                {bd.questions.map((q, i) => (
-                  <li key={q.id} className="bk-q">
-                    <div className="bk-q__head">
-                      <span className="bk-q__no">{i + 1}</span>
-                      <span className="bk-q__kind">{kindLabel(q.kind)}</span>
-                    </div>
-                    <p className="bk-q__prompt"><MathText text={q.prompt} /></p>
-
-                    {q.options.length > 0 ? (
-                      <ul className="bk-q__options">
-                        {q.options.map((o) => (
-                          <li
-                            key={o.key}
-                            className={`bk-q__option${
-                              showAnswers && isAnswerKey(q, o.key) ? ' bk-q__option--right' : ''
-                            }`}
-                          >
-                            <span className="bk-q__key">{o.key}</span>
-                            <span><MathText text={o.text} /></span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-
-                    {showAnswers ? (
-                      <>
-                        {q.options.length === 0 ? (
-                          <p className="bk-q__answer">参考答案：<MathText text={q.answer} /></p>
-                        ) : (
-                          <p className="bk-q__answer">正确答案：<MathText text={q.answer} /></p>
-                        )}
-                        {q.explanation ? (
-                          <p className="bk-q__explain"><MathText text={q.explanation} /></p>
-                        ) : null}
-                      </>
-                    ) : null}
-
-                    {q.anchors.length > 0 && q.anchors[0] ? (
-                      <p className="bk-q__from">
-                        出处：第 {q.anchors[0].page} 页
-                      </p>
-                    ) : null}
-                  </li>
-                ))}
-              </ol>
+              <h2 className="bk-volume__title">{vol.title}</h2>
+              <span className="bk-volume__meta">{vol.total} 道</span>
+              {/*
+                自测这一卷（2026-11-09）。
+                放在卷标题旁而不是页顶：自测的单位是「一组题」，
+                用户在这一卷上点，明确知道要测的是哪些题。
+              */}
+              <button
+                type="button"
+                className="btn-fill btn-fill--sm"
+                onClick={() => {
+                  setSelfTestVolume(vol);
+                  setShowAnswers(false);
+                }}
+              >
+                自测这一卷（{vol.total} 道）
+              </button>
+              {vol.sourceId ? (
+                <button type="button" className="btn-text" onClick={() => onOpenSource(vol.sourceId!)}>
+                  看原文
+                </button>
+              ) : null}
             </div>
-          ))}
-        </section>
-      ))}
+
+            {/* 收起时整块不渲染 —— 只是视觉收起，数据仍在内存里，展开无需重读库 */}
+            {isCollapsed ? null : vol.decks.map((bd) => (
+              <div key={bd.deck.id} className="bk-deck">
+                <h3 className="bk-deck__title">
+                  {bd.deck.title}
+                  <span className="bk-deck__meta">{bd.questions.length} 道</span>
+                  {bd.deck.kinds && bd.deck.kinds.length > 0 ? (
+                    <span className="bk-deck__kind">{bd.deck.kinds.map(kindLabel).join(' / ')}</span>
+                  ) : null}
+                </h3>
+
+                <ol className="bk-questions">
+                  {bd.questions.map((q, i) => (
+                    <li key={q.id} className="bk-q">
+                      <div className="bk-q__head">
+                        <span className="bk-q__no">{i + 1}</span>
+                        <span className="bk-q__kind">{kindLabel(q.kind)}</span>
+                      </div>
+                      <p className="bk-q__prompt"><MathText text={q.prompt} /></p>
+
+                      {q.options.length > 0 ? (
+                        <ul className="bk-q__options">
+                          {q.options.map((o) => (
+                            <li
+                              key={o.key}
+                              className={`bk-q__option${
+                                showAnswers && isAnswerKey(q, o.key) ? ' bk-q__option--right' : ''
+                              }`}
+                            >
+                              <span className="bk-q__key">{o.key}</span>
+                              <span><MathText text={o.text} /></span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+
+                      {showAnswers ? (
+                        <>
+                          {q.options.length === 0 ? (
+                            <p className="bk-q__answer">参考答案：<MathText text={q.answer} /></p>
+                          ) : (
+                            <p className="bk-q__answer">正确答案：<MathText text={q.answer} /></p>
+                          )}
+                          {q.explanation ? (
+                            <p className="bk-q__explain"><MathText text={q.explanation} /></p>
+                          ) : null}
+                        </>
+                      ) : null}
+
+                      {/*
+                        「定位回原文」（2026-11-19 晚，用户要求）。
+
+                        原来这里只有一行纯文字「出处：第 16 页」——
+                        知道在第 16 页，却没法跳过去。用户原话：
+                        「每一题都要有一个定位回原文的功能，单挂一个出处不够」。
+
+                        所以改成按钮，点了直接打开阅读器那一页。
+                        `quote` 传题干首段：让阅读器能把那句话高亮出来，
+                        用户落地就知道「是这一段」。不带 quote 会跳到页首，
+                        一页里好几个知识点时还得自己找。
+                      */}
+                      {q.anchors.length > 0 && q.anchors[0] && onOpenSourceAt ? (
+                        (() => {
+                          const a = q.anchors[0]!;
+                          const srcId = a.sourceId ?? vol.sourceId;
+                          /* page 在 SourceLocation 里是可选的（旧数据可能没页码） */
+                          const pg = a.page;
+                          if (!srcId || pg === undefined) {
+                            /* 没资料 id 或没页码就无从跳转 —— 如实显示，不摆假按钮 */
+                            return (
+                              <p className="bk-q__from">
+                                {pg === undefined ? '出处：页码未记录' : `出处：第 ${pg} 页`}
+                              </p>
+                            );
+                          }
+                          return (
+                            <p className="bk-q__from">
+                              <button
+                                type="button"
+                                className="bk-q__locate"
+                                onClick={() => onOpenSourceAt(srcId, pg, locateQuote(q))}
+                                title="打开原文那一页，并把这句话标出来"
+                              >
+                                定位回原文（第 {pg} 页）→
+                              </button>
+                            </p>
+                          );
+                        })()
+                      ) : q.anchors.length > 0 && q.anchors[0] ? (
+                        <p className="bk-q__from">
+                          {q.anchors[0].page === undefined
+                            ? '出处：页码未记录'
+                            : `出处：第 ${q.anchors[0].page} 页`}
+                        </p>
+                      ) : null}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            ))}
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -847,6 +988,30 @@ function kindLabel(k: string): string {
   if (k === 'point') return '知识点';
   /* 真的不认识：原样返回，至少能看出是哪个值 */
   return k;
+}
+
+/**
+ * 从题干里取一段用来在原文里高亮的引文（2026-11-19 晚）。
+ *
+ * ## 为什么要传 quote 而不是只传页码
+ *
+ * 阅读器打开某一页后，如果只有页码，用户落地看到的是整页文字，
+ * 得自己找到「这题考的是哪一句」。带一句引文过去，阅读器能高亮它，
+ * 落地即定位。
+ *
+ * ## 为什么取题干而不是取 anchors
+ *
+ * `SourceLocation` 有 `charStart/charEnd`（字符偏移），但没有存原文片段
+ * —— 拿它去切原文得先把整页正文读出来，页面这边没有。
+ * 题干本身通常就包含被考的那句话（出题时按知识点写的），
+ * 拿来当高亮锚最顺手；匹配不到时阅读器只是不高亮，不会出错。
+ *
+ * 取第一行、限长 40：太长的引文在阅读器里匹配不到（它是逐字匹配）。
+ */
+function locateQuote(q: Question): string | undefined {
+  const line = (q.prompt ?? '').split('\n')[0]?.trim() ?? '';
+  if (line.length < 4) return undefined;
+  return line.length > 40 ? line.slice(0, 40) : line;
 }
 
 /** 某个选项是不是正确答案 */
