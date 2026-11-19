@@ -28,6 +28,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { ExplainNote } from '@/core/model.ts';
 import { EXPLAIN_STYLES, type ExplainResult } from '@/core/ai/explain-wrong.ts';
+import { explainError } from '@/v2/core/explain-error.ts';
 import { MathText } from './MathText.tsx';
 
 export interface ExplainPanelProps {
@@ -39,7 +40,14 @@ export interface ExplainPanelProps {
 
 export function ExplainPanel({ notes, onGenerate }: ExplainPanelProps) {
   const [busy, setBusy] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  /**
+   * 错误用「标题 + 建议」两个字段。
+   *
+   * 原来只存 `e.message`，于是用户看到
+   * 「网络请求失败：连不上该地址（fetch failed） (network)」——
+   * 他截图报的就是这个。现在过一层 explainError 说成人话。
+   */
+  const [err, setErr] = useState<{ title: string; hint: string | null } | null>(null);
   const [custom, setCustom] = useState('');
   const [showCustom, setShowCustom] = useState(false);
   /** 整块是否展开（答完题后如果已经懂了，这块占着位置没用） */
@@ -112,7 +120,7 @@ export function ExplainPanel({ notes, onGenerate }: ExplainPanelProps) {
          */
         setActiveId(null);   /* 回到"自动取最新" */
       } catch (e) {
-        setErr(e instanceof Error ? e.message : '讲解生成失败');
+        setErr(explainError(e, '讲解生成失败'));
       } finally {
         setBusy(null);
       }
@@ -192,7 +200,8 @@ export function ExplainPanel({ notes, onGenerate }: ExplainPanelProps) {
 
       {err ? (
         <div className="explain-panel__err">
-          <span>{err}</span>
+          <span className="explain-panel__err-title">{err.title}</span>
+          {err.hint ? <span className="explain-panel__err-hint">{err.hint}</span> : null}
           <button type="button" className="btn-text" onClick={() => setErr(null)}>
             知道了
           </button>
@@ -201,10 +210,25 @@ export function ExplainPanel({ notes, onGenerate }: ExplainPanelProps) {
 
       {/*
         按讲法分类的切换条（2026-11-19）。
-        只在「有两条以上、且不止一种讲法」时出现 —— 只有一条时这排按钮是噪音。
+
+        ## 为什么必须和上面的讲法按钮视觉上分开
+
+        用户反馈（截图）：上下两排都是同样的胶囊，完全分不清。
+        但它们性质完全不同：
+          - 上面那排是**动作**：「再讲一遍，换这种方式」
+          - 这排是**切换视图**：「已经有的几条，我想看哪条」
+
+        分开的三个手段：
+          1. 形状：动作=胶囊，分类=**下划线页签**（与主流 Tab 一致）
+          2. 文字：加一行「已有的讲解」说明这一排是在看什么
+          3. 位置：分类条在动作条下方，靠一条细分割线隔开
+
+        只在「有两条以上、且不止一种讲法」时出现 —— 只有一条时这排是噪音。
       */}
       {groups.length > 1 ? (
-        <div className="explain-panel__tabs" role="tablist" aria-label="讲解方式">
+        <div className="explain-panel__tabs-wrap">
+          <span className="explain-panel__tabs-label">已有的讲解</span>
+          <div className="explain-panel__tabs" role="tablist" aria-label="已有的讲解">
           {groups.map((g) => {
             const isShown = shown !== null && shown.styleId === g.styleId;
             return (
@@ -227,6 +251,7 @@ export function ExplainPanel({ notes, onGenerate }: ExplainPanelProps) {
               </button>
             );
           })}
+          </div>
         </div>
       ) : null}
 

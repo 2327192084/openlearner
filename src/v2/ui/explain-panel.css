@@ -108,33 +108,72 @@
     border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   }
 
-  /* 按讲法分类的切换条 */
+  /*
+   * 「已有的讲解」切换条（2026-11-19 重做）。
+   *
+   * ## 为什么要和上面那排彻底分开
+   *
+   * 原来两排都是透明胶囊、字号相近 —— 用户原话「没有任何区分度」。
+   * 它们性质不同：上面是**动作**（再讲一遍），这里是**切换视图**（看哪一条）。
+   *
+   * 这里改用**下划线页签**：无边框、无底色、选中项下方一条朱砂线。
+   * 这是 Tab 的通行形状，与「按钮」的胶囊形状天然可区分。
+   *
+   * 再配一行「已有的讲解」小标签，说明这一排是在看而不是再做。
+   */
+  .explain-panel__tabs-wrap {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin: var(--space-4) 0 var(--space-2);
+    /* 一条极细的分割线：把「动作」与「查看」两组从视觉上隔开 */
+    padding-top: var(--space-3);
+    border-top: 1px solid color-mix(in srgb, var(--paper-ink) 10%, transparent);
+  }
+
+  .explain-panel__tabs-label {
+    flex: 0 0 auto;
+    font-size: var(--fs-xs);
+    color: color-mix(in srgb, var(--paper-ink) 42%, transparent);
+  }
+
   .explain-panel__tabs {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-2);
-    margin: var(--space-3) 0 var(--space-2);
+    gap: var(--space-4);
+    flex: 1;
   }
 
+  /*
+   * 页签本体：无边框、无底色、下划线选中。
+   * 底部留 2px 空间给那条线，避免选中时文字跳动。
+   */
   .explain-tab {
-    padding: 4px var(--space-3);
-    border: 1px solid color-mix(in srgb, var(--paper-ink) 20%, transparent);
-    border-radius: var(--radius-pill);
+    padding: 2px 0 4px;
+    border: none;
+    border-bottom: 2px solid transparent;
     background: transparent;
     font: inherit;
-    font-size: var(--fs-xs);
+    font-size: var(--fs-sm);
     cursor: pointer;
-    transition: border-color 0.14s, background 0.14s;
+    transition: border-color 0.14s;
+  }
+
+  .explain-tab:hover {
+    border-bottom-color: color-mix(in srgb, var(--paper-ink) 25%, transparent);
   }
 
   .explain-tab--on {
-    border-color: color-mix(in srgb, var(--accent) 60%, transparent);
-    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
   }
 
   .explain-tab__n {
     margin-left: 4px;
+    font-size: var(--fs-xs);
     opacity: 0.6;
+    font-variant-numeric: tabular-nums;
   }
 
   /* 同一讲法下有多条时的翻页 */
@@ -186,13 +225,24 @@
    * 颜色**不在这里写** —— 会被层外的 `button{color:inherit}` 盖掉，
    * 见文件末尾。这里只管形状与底色。
    */
+  /*
+   * 「再讲一遍」的动作按钮（2026-11-19 重做）。
+   *
+   * 与下面「已有的讲解」页签必须一眼分开 —— 用户反馈它们长得一样。
+   *
+   * 这里用**实心淡底 + 胶囊**：实心表示「可以按下去做一件事」，
+   * 而下面的页签用**下划线**（主流 Tab 的形状，表示切换视图）。
+   * 形状本身就是语义：胶囊=动作，下划线=切页。
+   */
   .explain-panel__style {
-    padding: 6px var(--space-3);
-    border: 1px solid color-mix(in srgb, var(--paper-ink) 26%, transparent);
+    padding: 7px var(--space-3);
+    border: 1px solid color-mix(in srgb, var(--paper-ink) 18%, transparent);
     border-radius: var(--radius-pill);
-    background: transparent;
+    /* 实心淡底：与页签的透明底形成对比 */
+    background: color-mix(in srgb, var(--paper-ink) 5%, transparent);
     font: inherit;
     font-size: var(--fs-sm);
+    font-weight: 500;
     cursor: pointer;
     transition: border-color 0.14s, background 0.14s;
   }
@@ -213,13 +263,37 @@
     color: var(--paper-dim);
   }
 
+  /*
+   * 错误提示（2026-11-19 重做）。
+   *
+   * 分成「标题 + 建议」两行：标题一句人话（连不上 AI 服务），
+   * 建议告诉用户下一步做什么。原来只有一行原始技术串，
+   * 用户看完不知道该干什么。
+   */
   .explain-panel__err {
     display: flex;
     align-items: baseline;
+    flex-wrap: wrap;
     gap: var(--space-2);
-    margin-top: var(--space-2);
+    margin-top: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border-left: 2px solid color-mix(in srgb, var(--bad) 60%, transparent);
+    background: color-mix(in srgb, var(--bad) 6%, transparent);
+    border-radius: var(--radius-xs);
     font-size: var(--fs-sm);
+  }
+
+  .explain-panel__err-title {
+    font-weight: 600;
     color: var(--bad);
+  }
+
+  .explain-panel__err-hint {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--fs-xs);
+    line-height: 1.7;
+    color: var(--paper-dim);
   }
 
   .explain-panel__notes {
@@ -321,4 +395,16 @@
 
 .app .explain-panel__custom-toggle {
   color: var(--accent-text);
+}
+
+/*
+ * 页签的文字色也写在层外 —— 同样被 button{color:inherit} 管着。
+ * 未选中偏淡（它是「可选查看」），选中加重（它现在是当前视图）。
+ */
+.app .explain-tab {
+  color: color-mix(in srgb, var(--paper-ink) 60%, transparent);
+}
+
+.app .explain-tab--on {
+  color: var(--paper-ink);
 }

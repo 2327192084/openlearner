@@ -34,6 +34,7 @@ import {
   type HintLevel,
   type HintResult,
 } from '@/core/ai/hint-ladder.ts';
+import { explainError } from '@/v2/core/explain-error.ts';
 import { MathText } from './MathText.tsx';
 
 export interface HintPanelProps {
@@ -52,7 +53,7 @@ export interface HintPanelProps {
 export function HintPanel({ onAsk, onLevelUsed }: HintPanelProps) {
   const [hints, setHints] = useState<HintResult[]>([]);
   const [busy, setBusy] = useState<Exclude<HintLevel, 0> | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<{ title: string; hint: string | null } | null>(null);
 
   const maxUsed = hints.reduce<HintLevel>((m, h) => (h.level > m ? h.level : m), 0);
   const next = (maxUsed + 1) as Exclude<HintLevel, 0>;
@@ -68,7 +69,7 @@ export function HintPanel({ onAsk, onLevelUsed }: HintPanelProps) {
         setHints((prev) => [...prev, result]);
         onLevelUsed(level);
       } catch (e) {
-        setErr(e instanceof Error ? e.message : '提示生成失败');
+        setErr(explainError(e, '提示生成失败'));
       } finally {
         setBusy(null);
       }
@@ -121,7 +122,8 @@ export function HintPanel({ onAsk, onLevelUsed }: HintPanelProps) {
 
       {err ? (
         <div className="hint-panel__err">
-          <span>{err}</span>
+          <span className="hint-panel__err-title">{err.title}</span>
+          {err.hint ? <span className="hint-panel__err-hint">{err.hint}</span> : null}
           <button type="button" className="btn-text" onClick={() => setErr(null)}>
             知道了
           </button>
