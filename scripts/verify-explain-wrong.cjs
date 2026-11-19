@@ -325,6 +325,72 @@ const rec = (n, ok, x = '') => {
       !!(stored.sample && stored.sample.given === 'B' && stored.sample.styleId === 'story' && stored.sample.body),
       JSON.stringify(stored.sample).slice(0, 160));
 
+    /* ---------- ②③ 分类 / 不重复 / 收起（2026-11-19 第二轮） ---------- */
+    /*
+     * 再点一次不同讲法，然后检查：
+     *  - 屏幕上只渲染**一条**（不是把全部铺开）
+     *  - 出现按讲法分类的页签
+     *  - 同一条内容不重复出现
+     */
+    await evalJs(`(()=>{const b=[...document.querySelectorAll('.explain-panel__style')].find(x=>x.textContent.trim()==='对比着讲');if(b){b.click();return true}return false})()`); 
+    await SLEEP(9000);
+
+    const layout = await evalJs(`(()=>{
+      const notes=[...document.querySelectorAll('.explain-note')];
+      const tabs=[...document.querySelectorAll('.explain-tab')].map(t=>t.textContent.trim());
+      return {
+        renderedNotes: notes.length,
+        tabs,
+        bodies: notes.map(n=>n.querySelector('.explain-note__body')?.innerText?.trim().slice(0,40) ?? ''),
+        hasCollapse: !!document.querySelector('.explain-panel__collapse'),
+        hasCount: !!document.querySelector('.explain-panel__count'),
+      };
+    })()`);
+    console.log('  布局 =', JSON.stringify(layout));
+
+    rec('**只渲染一条讲解**（不再全铺开）', layout.renderedNotes === 1, 'count=' + layout.renderedNotes);
+    rec('**出现按讲法分类的页签**', Array.isArray(layout.tabs) && layout.tabs.length >= 2, JSON.stringify(layout.tabs));
+    rec('**正文不重复**（同一段内容只出现一次）',
+      new Set(layout.bodies).size === layout.bodies.length, JSON.stringify(layout.bodies));
+    rec('有「收起」按钮', layout.hasCollapse === true);
+    rec('标题带条数徽标', layout.hasCount === true);
+    await shot('04-grouped.png');
+
+    /* 点另一个页签，看内容是否切换 */
+    const switched = await evalJs(`(()=>{
+      const tabs=[...document.querySelectorAll('.explain-tab')];
+      const other=tabs.find(t=>t.getAttribute('aria-selected')!=='true');
+      if(other){other.click();return other.textContent.trim()}
+      return null})()`);
+    await SLEEP(1200);
+    const afterSwitch = await evalJs(`(()=>({
+      rendered: document.querySelectorAll('.explain-note').length,
+      style: document.querySelector('.explain-note__style')?.textContent?.trim() ?? null,
+    }))()`);
+    rec('**切页签只换内容、仍只渲染一条**',
+      afterSwitch.rendered === 1, JSON.stringify({ switched, ...afterSwitch }));
+
+    /* 收起 */
+    const collapsed = await evalJs(`(()=>{
+      const b=document.querySelector('.explain-panel__collapse');
+      if(b){b.click();return true}return false})()`);
+    await SLEEP(800);
+    const collapsedState = await evalJs(`(()=>({
+      panelGone: !document.querySelector('.explain-panel'),
+      entry: document.querySelector('.explain-panel__collapsed')?.innerText?.trim() ?? null,
+    }))()`);
+    rec('**点「收起」后变成一行入口**',
+      collapsed === true && collapsedState.panelGone === true, JSON.stringify(collapsedState));
+    await shot('05-collapsed.png');
+
+    /* 再展开 */
+    const reopened = await evalJs(`(()=>{
+      const b=document.querySelector('.explain-panel__collapsed');
+      if(b){b.click();return true}return false})()`);
+    await SLEEP(800);
+    const reopenedState = await evalJs(`(()=>document.querySelectorAll('.explain-note').length)()`);
+    rec('能再展开', reopened === true && reopenedState === 1, 'notes=' + reopenedState);
+
     /* ---------- 重新进入，讲解还在（证明是持久化） ---------- */
     await evalJs(`location.reload()`);
     await SLEEP(6000);

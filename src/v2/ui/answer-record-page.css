@@ -1,0 +1,209 @@
+/*
+ * 「答疑记录」页（2026-11-19）。
+ *
+ * 与其它 v2 页面一致：深色主题 token（--bg-* / --text-* / --line-*）。
+ * 这一页不在纸张卡里，所以**不要**用 --paper-* ——
+ * 「答错补充讲解」面板在纸卡内用 paper 系，这里不在，
+ * 两处混用会让深色字压在深色底上（那个坑已经踩过两次）。
+ */
+
+@layer study.components {
+  .ansrec-page {
+    max-width: var(--page-max);
+    margin: 0 auto;
+    padding: var(--space-6) var(--space-5) var(--space-9);
+  }
+
+  .ansrec-head {
+    margin-bottom: var(--space-5);
+  }
+
+  .ansrec-title {
+    margin: 0 0 var(--space-2);
+    font-size: var(--fs-2xl);
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .ansrec-lead {
+    margin: 0;
+    font-size: var(--fs-sm);
+    line-height: 1.7;
+    color: var(--text-muted);
+    max-width: 62ch;
+  }
+
+  /* ---------- 来源筛选 ---------- */
+  .ansrec-tabs {
+    display: flex;
+    gap: var(--space-2);
+    margin-bottom: var(--space-4);
+  }
+
+  .ansrec-tab {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 6px var(--space-3);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-pill);
+    background: transparent;
+    font: inherit;
+    font-size: var(--fs-sm);
+    cursor: pointer;
+    transition: border-color 0.14s, background 0.14s;
+  }
+
+  .ansrec-tab--on {
+    border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+
+  .ansrec-tab__n {
+    font-size: var(--fs-xs);
+    opacity: 0.65;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- 空态 ---------- */
+  .ansrec-empty {
+    padding: var(--space-6);
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
+    text-align: center;
+    color: var(--text-muted);
+    font-size: var(--fs-sm);
+    line-height: 1.8;
+  }
+
+  .ansrec-hint {
+    margin: var(--space-2) 0 0;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+  }
+
+  /* ---------- 列表 ---------- */
+  .ansrec-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  /*
+   * 一条记录用左侧竖线区分来源（提问=中性灰，讲解=朱砂）——
+   * 比整块不同底色更安静，一屏能扫十几条。
+   */
+  .ansrec-item {
+    padding: var(--space-4);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+  }
+
+  .ansrec-item--wrong-explain {
+    border-left-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  }
+
+  .ansrec-item__head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+  }
+
+  .ansrec-badge {
+    padding: 1px 8px;
+    border-radius: var(--radius-pill);
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+  }
+
+  .ansrec-badge--oral {
+    background: color-mix(in srgb, var(--info) 18%, transparent);
+    color: var(--info);
+  }
+
+  .ansrec-badge--wrong-explain {
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    color: var(--accent-text);
+  }
+
+  .ansrec-item__title {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .ansrec-item__time {
+    flex: 0 0 auto;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ansrec-item__asked {
+    margin: 0 0 var(--space-2);
+    font-size: var(--fs-sm);
+    line-height: 1.7;
+    color: var(--text-dim);
+  }
+
+  .ansrec-item__k {
+    display: inline-block;
+    margin-right: var(--space-2);
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+  }
+
+  .ansrec-item__answered {
+    font-size: var(--fs-sm);
+    line-height: 1.75;
+    color: var(--text-dim);
+  }
+
+  .ansrec-item__answered p {
+    margin: 0 0 var(--space-2);
+  }
+
+  .ansrec-item__answered p:last-child {
+    margin-bottom: 0;
+  }
+
+  .ansrec-item__extra {
+    margin: var(--space-2) 0 0;
+    padding-left: var(--space-3);
+    border-left: 2px solid color-mix(in srgb, var(--info) 45%, transparent);
+    font-size: var(--fs-xs);
+    line-height: 1.7;
+    color: var(--text-muted);
+  }
+
+  .ansrec-item__acts {
+    display: flex;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+  }
+
+  .ansrec-item__del {
+    color: var(--bad);
+  }
+}
+
+/*
+ * 层外：原生按钮的文字色（硬约束 11）。
+ * `.app` 前缀把 specificity 抬到 (0,2,0)，压过 base.css 的 button{color:inherit}。
+ */
+.app .ansrec-tab {
+  color: var(--text-dim);
+}
+
+.app .ansrec-tab--on {
+  color: var(--accent-text);
+}

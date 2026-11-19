@@ -70,7 +70,8 @@ import { DEFAULT_WIDGETS, widgetsFromSettings, type HomeWidget } from './home-wi
 import { fetchDailyQuote } from './daily-quote.ts';
 import type { KnowledgePoint, Todo } from '@/core/model.ts';
 import { StatsPage } from './StatsPage.tsx';
-import { OralReviewArchive } from './OralReviewArchive.tsx';
+import { AnswerRecordPage } from './AnswerRecordPage.tsx';
+import './answer-record-page.css';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { AnnotationService } from '@/core/annotation-service.ts';
@@ -80,6 +81,12 @@ import type { Card } from '@/v2/core/cards.ts';
 import type { ExplainNote } from '@/core/model.ts';
 import type { ExplainResult } from '@/core/ai/explain-wrong.ts';
 import type { HintLevel, HintResult } from '@/core/ai/hint-ladder.ts';
+import {
+  explainToRows,
+  mergeAnswerRows,
+  oralToRows,
+  type AnswerRecordRow,
+} from '@/v2/core/answer-record.ts';
 
 /**
  * 空数组常量。
@@ -453,6 +460,16 @@ export function App({
    *  - 换卡片时按 id 取，互不干扰
    */
   const [explainNotes, setExplainNotes] = useState<Map<string, ExplainNote[]>>(new Map());
+
+  /**
+   * 「答疑记录」的统一视图（2026-11-19）。
+   *
+   * 把「提问式复习」与「答错补充讲解」合成一处：
+   * 对用户来说是同一件事 —— 我不懂 → 问 → 得到解释。
+   *
+   * 只在展示层合并，两份数据保持原样（见 `answer-record.ts` 头注释）。
+   */
+  const [answerRows, setAnswerRows] = useState<AnswerRecordRow[]>([]);
   /**
    * 今日到期的卡（供选题页显示与「今日题组」模式使用）。
    *
@@ -888,6 +905,13 @@ export function App({
    */
   useEffect(() => {
     if (page === 'today') void refreshData();
+    /*
+     * 进「答疑记录」页时读一次（2026-11-19）。
+     *
+     * 不读的话这一页永远是空的 —— 数据在库里，但没人去取。
+     * 这类「服务层有方法、界面没调用」是这个项目的老毛病。
+     */
+    if (page === 'oral') void loadAnswerRows();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
@@ -1611,21 +1635,24 @@ export function App({
         nextStep: parsed.nextStep,
       });
 
-      /* 让做题页下次渲染能读到这条（宿主自己维护一份缓存） */
-      setExplainNotes((prev) => {
-        const next = new Map(prev);
-        const list = [...(next.get(card.id) ?? []), {
-          id: `local-${Date.now()}`,
-          given,
-          styleId,
-          crux: parsed.crux,
-          body: parsed.body,
-          nextStep: parsed.nextStep,
-          createdAt: new Date().toISOString(),
-        }];
-        next.set(card.id, list);
-        return next;
-      });
+      /*
+       * 用库里**真实的这条**刷新缓存（2026-11-19 第二轮改）。
+       *
+       * 原来这里是自己拼一条 `id: local-...` 塞进缓存 —— 那会造出
+       * 两个不同 id 指向同一段内容：本地这条、库里那条。
+       * 于是面板上同一条讲解显示两遍（用户截图报的正是这个）。
+       *
+       * 现在 addExplainNote 已经把内容写进库并返回更新后的题目，
+       * 直接用它的 explainNotes 覆盖缓存即可 —— 只有一份真相。
+       */
+      const saved = await decks.getQuestion(question.id);
+      if (saved?.explainNotes) {
+        setExplainNotes((prev) => {
+          const next = new Map(prev);
+          next.set(card.id, saved.explainNotes!);
+          return next;
+        });
+      }
 
       return parsed;
     },
@@ -1973,6 +2000,42 @@ export function App({
     [decks, startPractice],
   );
 
+
+  /**
+   * 装配「答疑记录」（2026-11-19）。
+   *
+   * 读两个来源、归一、合并排序：
+   *  - `oralReviews`：提问式复习的问答
+   *  - `questions.explainNotes`：答错后要的讲解
+   *
+   * 只在展示层合并，两份数据原样保留（见 answer-record.ts）。
+   */
+  const loadAnswerRows = useCallback(async () => {
+    try {
+      const [oralRecords, withNotes] = await Promise.all([
+        oralReviewService.list(),
+        decks.listQuestionsWithExplainNotes(),
+      ]);
+      /*
+       * `listQuestionsWithExplainNotes` 返回 [questionId, notes][]，
+       * 但归一需要题干。逐题取一次（通常只有几道题有讲解，
+       * 不会成为 N+1 的负担）。
+       */
+      const questions = await Promise.all(
+        withNotes.map(async ([qid, notes]) => {
+          const q = await decks.getQuestion(qid);
+          return q ? { question: { id: q.id, prompt: q.prompt }, notes } : null;
+        }),
+      );
+      const rows = mergeAnswerRows(
+        oralToRows(oralRecords),
+        explainToRows(questions.filter((x): x is NonNullable<typeof x> => x !== null)),
+      );
+      setAnswerRows(rows);
+    } catch {
+      /* 读不到就保持现有列表，不清空 —— 避免界面突然变空 */
+    }
+  }, [decks, oralReviewService]);
 
   // 卡片池是数组，每次渲染都可能是新引用 —— 用内容做 key 避免无谓重算
   const poolKey = useMemo(() => pool.join(','), [pool]);
@@ -2756,20 +2819,25 @@ export function App({
         />
       ) : page === 'oral' ? (
         /*
-         * 提问式复习的记录回看（2026-11-13）。
+         * 答疑记录（2026-11-19 合并两处记录）。
          *
-         * 这套记录一直能存不能看：服务层的 list()/recentStats() 都在、
-         * 也有单测，但没有任何界面调用它们。这里补上入口。
+         * 原来这里只有「提问式复习」的记录。而「答错补充讲解」也有记录，
+         * 却存在题目里、没有入口 —— 用户找不到「我之前问过什么」。
+         *
+         * 两者对用户来说是同一件事：我不懂 → 问 → 得到解释。
+         * 现在合成一处，用来源筛选区分。数据没合并（见 answer-record.ts）。
          *
          * 只读页面：不写 reviewLogs / reviewRecords，不改任何复习进度。
          */
-        <OralReviewArchive
-          service={oralReviewService}
-          onOpenSource={(sourceId, page) =>
-            openReader(sourceId, { sourceId, ...(typeof page === 'number' ? { page } : {}) })
+        <AnswerRecordPage
+          rows={answerRows}
+          onOpenSourceAt={(sourceId, pageNum) =>
+            openReader(sourceId, { sourceId, page: pageNum })
           }
-          onRemove={async (id) => {
+          onOpenQuestion={(questionId) => void openSingleQuestion(questionId)}
+          onRemoveOral={async (id) => {
             await oralReviewService.remove(id);
+            await loadAnswerRows();
           }}
         />
       ) : page === 'settings' ? (

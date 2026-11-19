@@ -53,10 +53,102 @@
     color: var(--paper-dim);
   }
 
-  .explain-panel__custom-toggle {
+  /*
+   * 标题右侧的两个动作（提要求 / 收起，2026-11-19）。
+   * 靠右排一行，别让它们把标题挤换行。
+   */
+  .explain-panel__head-acts {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    flex: 0 0 auto;
+  }
+
+  .explain-panel__custom-toggle,
+  .explain-panel__collapse {
     flex: 0 0 auto;
     font-size: var(--fs-xs);
     color: var(--accent-text);
+  }
+
+  /* 已有讲解的条数徽标 —— 收起时也能看出"攒了几条" */
+  .explain-panel__count {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 0 6px;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--paper-ink) 12%, transparent);
+    color: var(--paper-dim);
+    font-size: var(--fs-xs);
+  }
+
+  /*
+   * 收起态：一整行按钮。
+   *
+   * 为什么做成按钮而不是 <details>：收起后这一行本身就是入口，
+   * 点一下就该展开，不需要再找那个小三角。
+   */
+  .explain-panel__collapsed {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-4);
+    padding: var(--space-3);
+    border: 1px solid color-mix(in srgb, var(--paper-ink) 16%, transparent);
+    border-radius: var(--radius);
+    background: transparent;
+    font: inherit;
+    font-size: var(--fs-sm);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .explain-panel__collapsed:hover {
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+
+  /* 按讲法分类的切换条 */
+  .explain-panel__tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: var(--space-3) 0 var(--space-2);
+  }
+
+  .explain-tab {
+    padding: 4px var(--space-3);
+    border: 1px solid color-mix(in srgb, var(--paper-ink) 20%, transparent);
+    border-radius: var(--radius-pill);
+    background: transparent;
+    font: inherit;
+    font-size: var(--fs-xs);
+    cursor: pointer;
+    transition: border-color 0.14s, background 0.14s;
+  }
+
+  .explain-tab--on {
+    border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+
+  .explain-tab__n {
+    margin-left: 4px;
+    opacity: 0.6;
+  }
+
+  /* 同一讲法下有多条时的翻页 */
+  .explain-note__pager {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    margin-left: auto;
+    font-size: var(--fs-xs);
+    color: color-mix(in srgb, var(--paper-ink) 45%, transparent);
+  }
+
+  .explain-note__pager-n {
+    font-variant-numeric: tabular-nums;
   }
 
   .explain-panel__custom {
