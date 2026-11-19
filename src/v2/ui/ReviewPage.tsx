@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Card } from '@/v2/core/cards.ts';
+import type { ExplainNote } from '@/core/model.ts';
 import { isCorrect, needsSelfGrade, CARD_KIND_LABEL } from '@/v2/core/cards.ts';
 import type { ReviewGrade } from '@/v2/core/srs.ts';
 import { mastery, todayLocal } from '@/v2/core/srs.ts';
@@ -16,6 +17,9 @@ import type { NoteService } from '@/core/notes.ts';
 import { NoteBox } from './NoteBox.tsx';
 import { pickOption } from './option-pick.ts';
 import { MathText } from './MathText.tsx';
+import { ExplainPanel } from './ExplainPanel.tsx';
+import type { ExplainResult } from '@/core/ai/explain-wrong.ts';
+import './explain-panel.css';
 import { SelfGradePanel } from './SelfGradePanel.tsx';
 import type { ShortGradeResult, ShortGradeInput } from '@/core/ai/grade-short.ts';
 
@@ -217,6 +221,26 @@ export interface ReviewPageProps {
    * 最终判分仍然由用户点「我答对了 / 我答错了」。
    */
   onGradeShort?: (material: ShortGradeInput) => Promise<ShortGradeResult>;
+  /**
+   * 「针对这个错误讲一遍」（2026-11-19）。
+   *
+   * 可选：不传就不显示那块面板（组件单独跑测试时不需要接 AI）。
+   * 与 onGradeShort 一样，接后端的事交给外层，这一页只负责渲染。
+   */
+  onExplainWrong?: (
+    card: Card,
+    given: string,
+    styleId: string,
+    customStyle: string,
+  ) => Promise<ExplainResult>;
+  /**
+   * 已经有了的讲解（按时间顺序）。
+   *
+   * 这一页拿到的卡片（`Card`）不含 `explainNotes` —— 那个字段在 `Question` 上。
+   * 与其把整张 `Question` 塞进来（这一页其余部分完全用不到它），
+   * 不如让宿主只提供这一小块。返回空数组表示还没有讲解。
+   */
+  explainNotesOf?: (cardId: string) => readonly ExplainNote[];
   onFinish: () => void;
   onExit: () => void;
 }
@@ -231,6 +255,8 @@ export function ReviewPage({
   modeLabel,
   notes,
   onGradeShort,
+  onExplainWrong,
+  explainNotesOf,
   onFinish,
   onExit,
 }: ReviewPageProps) {
@@ -935,6 +961,39 @@ export function ReviewPage({
 
               {card.explanation ? (
                 <div className="reveal__explain"><MathText text={card.explanation} /></div>
+              ) : null}
+
+              {/*
+                「针对这个错误讲一遍」（2026-11-19）。
+                来源：LogiNote v1.1.3「针对答错的部分补充讲解」（作者视频 04:07）。
+
+                ## 位置
+                在解析区**末尾**、`revealed` 区块**内部**：
+                用户先作答 → 看到「正确答案 + 每个选项为什么」→ 还不懂才需要更深的讲解。
+                放到作答前或放到整页底部都不是这个节奏。
+
+                ## 什么条件显示
+                只看「宿主有没有给 onExplainWrong」。答对答错都给入口 ——
+                答对了也可能想听更深的讲解；而且……
+                第一版我写的是 `!isAnswerKey(card, picked.join(','))`，两处都错：
+                 1. `isAnswerKey` 判「单个 key 在不在答案里」，传 `'A,B'` 永远 false
+                    （多选题选了 A、B 时，答案里没有 'A,B' 这个整体）；
+                 2. 用「答对」来隐藏本身就不对。
+                现在把「答没答对」交给提示词处理（buildExplainPrompt 会据此切换话术：
+                答对了讲「围绕关键概念深入」，答错了讲「你从哪一步偏的」）。
+              */}
+              {onExplainWrong ? (
+                <ExplainPanel
+                  notes={explainNotesOf?.(card.id) ?? []}
+                  onGenerate={(styleId, customStyle) =>
+                    onExplainWrong(
+                      card,
+                      picked.length > 0 ? picked.join(',') : textInput,
+                      styleId,
+                      customStyle,
+                    )
+                  }
+                />
               ) : null}
             </div>
           ) : null}

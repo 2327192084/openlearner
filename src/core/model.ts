@@ -548,8 +548,58 @@ export interface Question {
   topic: string | null;
   /** 排序序号，保证题目顺序稳定 */
   order: number;
+  /**
+   * 针对具体错误的补充讲解（2026-11-19）。
+   *
+   * ## 为什么挂在题目上，而不是新开一张表
+   *
+   * 讲解是针对**这道题的某个具体错误**生成的（「你选了 B，因为……所以错」），
+   * 生命周期与题目一致：题目删了，讲解就该一起没。
+   *
+   * 新开分区要做迁移三件套（storage/types 四处 + DB_VERSION + migrations），
+   * 而它只是题目上的一段附属内容 —— 用可选字段零成本。
+   * 与 `KnowledgePoint.favorite?` 是同一个判断。
+   *
+   * ## 为什么不复用 `explanation`
+   *
+   * `explanation` 是**出题时写死的**，讲的是「正确答案为什么对」，
+   * 对所有用户都一样。这里是**针对这次作答**生成的，内容取决于他选了什么。
+   * 混在一起会毁掉出题时写的那份（那是要审核的）。
+   *
+   * ## 可选字段的兼容性
+   *
+   * 旧数据没有这个字段 → 读出来 `undefined` → 界面按「还没有讲解」处理，
+   * 不触发任何迁移。数组按时间顺序追加，同一个错误讲两次会有两条。
+   */
+  explainNotes?: ExplainNote[];
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * 一条针对具体错误的补充讲解。
+ *
+ * 存在 `Question.explainNotes` 里（数组），不单独占分区。
+ */
+export interface ExplainNote {
+  /** `exp_<uuid>` */
+  id: string;
+  /**
+   * 这次讲解是针对什么错误生成的。
+   *
+   * 存下来是为了让用户回看时知道「这条讲的是我当时选 B 那次」，
+   * 而不是一段脱离上下文的文字。空串表示「没有具体作答就点了讲解」。
+   */
+  given: string;
+  /** 讲解策略 id（见 core/ai/explain-wrong.ts 的 EXPLAIN_STYLES） */
+  styleId: string;
+  /** 一句话点出错在哪 */
+  crux: string;
+  /** 讲解正文 */
+  body: string;
+  /** 建议的下一步，没有则 null */
+  nextStep: string | null;
+  createdAt: string;
 }
 
 /**

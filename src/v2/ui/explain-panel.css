@@ -1,0 +1,232 @@
+/*
+ * 「针对错误讲一遍」面板（2026-11-19）。
+ *
+ * ## 这个面板住在纸张卡片里 —— 所以它必须用 paper 系颜色
+ *
+ * 它插在 `.question-card.paper` 的解析区末尾（见 ReviewPage 的注释）。
+ * `paper.css` 给这张卡设了 `background: var(--paper)` + `color: var(--paper-ink)`，
+ * 也就是**永远是浅色纸**，与深色主题无关。
+ *
+ * 第一版我用了 `--bg-surface` / `--text-dim`（深色主题的 token），结果：
+ *   - 面板在浅色纸卡里挖出一块深色，视觉上像另一个应用
+ *   - 更糟的是按钮文字**完全看不见**（见下面「层外」那段）
+ *
+ * CDP 实测：`.explain-panel__style` 的 computed color 是 `rgb(32,27,21)`
+ * （= `--paper-ink`，从纸卡继承来的深色字），而按钮底色是深色面板 ——
+ * 深墨压深底，文字就消失了。**截图才看出来，断言全绿时完全没暴露。**
+ *
+ * ## 为什么按钮颜色必须写在层外
+ *
+ * `src/styles/base.css` 有一条**不在任何 @layer 里**的
+ * `button, input, select, textarea { color: inherit }`。
+ * 层外规则优先于层内规则（这比 specificity 还优先），所以这里的
+ * `color: var(--paper-dim)` 会被它盖掉。
+ *
+ * 硬约束 11 就是这条：原生控件样式一律写层外。
+ * 所以 `.explain-panel__style` 的文字色放在本文件末尾的层外块里。
+ */
+
+@layer study.components {
+  /*
+   * 面板本体：不用实心背景，只加一条左侧竖线和一点内缩。
+   *
+   * 为什么不做成一块卡片：它挂在「解析区」下面，再来一块带边框的卡片
+   * 会让「这次答错」的视觉权重超过题目本身 —— 而题目才是主角。
+   */
+  .explain-panel {
+    margin-top: var(--space-4);
+    padding-left: var(--space-3);
+    border-left: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+
+  .explain-panel__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: var(--space-2);
+  }
+
+  .explain-panel__title {
+    font-size: var(--fs-sm);
+    /* 纸上的次要文字 */
+    color: var(--paper-dim);
+  }
+
+  .explain-panel__custom-toggle {
+    flex: 0 0 auto;
+    font-size: var(--fs-xs);
+    color: var(--accent-text);
+  }
+
+  .explain-panel__custom {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid color-mix(in srgb, var(--paper-ink) 22%, transparent);
+    border-radius: var(--radius-xs);
+    /*
+     * 输入框底：纸上再叠一层更浅的纸，而不是挖一个深色洞。
+     * `--paper` 在深浅主题下都是浅色，用 color-mix 压暗一点点即可。
+     */
+    background: color-mix(in srgb, var(--paper-ink) 4%, transparent);
+    color: var(--paper-ink);
+    font: inherit;
+    font-size: var(--fs-sm);
+    line-height: 1.6;
+    resize: vertical;
+  }
+
+  .explain-panel__custom::placeholder {
+    color: color-mix(in srgb, var(--paper-ink) 40%, transparent);
+  }
+
+  .explain-panel__styles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  /*
+   * 讲法按钮。
+   *
+   * 颜色**不在这里写** —— 会被层外的 `button{color:inherit}` 盖掉，
+   * 见文件末尾。这里只管形状与底色。
+   */
+  .explain-panel__style {
+    padding: 6px var(--space-3);
+    border: 1px solid color-mix(in srgb, var(--paper-ink) 26%, transparent);
+    border-radius: var(--radius-pill);
+    background: transparent;
+    font: inherit;
+    font-size: var(--fs-sm);
+    cursor: pointer;
+    transition: border-color 0.14s, background 0.14s;
+  }
+
+  .explain-panel__style:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+
+  .explain-panel__style:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .explain-panel__busy {
+    margin-top: var(--space-2);
+    font-size: var(--fs-sm);
+    color: var(--paper-dim);
+  }
+
+  .explain-panel__err {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+    font-size: var(--fs-sm);
+    color: var(--bad);
+  }
+
+  .explain-panel__notes {
+    list-style: none;
+    margin: var(--space-3) 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  /* 一条讲解：再来一层更细的竖线，表示「这是对上面那条的补充」 */
+  .explain-note {
+    padding-left: var(--space-3);
+    border-left: 1px solid color-mix(in srgb, var(--paper-ink) 18%, transparent);
+  }
+
+  .explain-note__head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+  }
+
+  .explain-note__style {
+    padding: 1px 8px;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    color: var(--accent-text);
+    font-size: var(--fs-xs);
+  }
+
+  .explain-note__given {
+    font-size: var(--fs-xs);
+    color: color-mix(in srgb, var(--paper-ink) 45%, transparent);
+  }
+
+  .explain-note__crux {
+    margin: 0 0 var(--space-2);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    line-height: 1.6;
+    color: var(--paper-ink);
+  }
+
+  .explain-note__body {
+    font-size: var(--fs-sm);
+    line-height: 1.75;
+    color: var(--paper-dim);
+  }
+
+  .explain-note__body p {
+    margin: 0 0 var(--space-2);
+  }
+
+  .explain-note__body p:last-child {
+    margin-bottom: 0;
+  }
+
+  .explain-note__next {
+    margin: var(--space-2) 0 0;
+    font-size: var(--fs-xs);
+    color: color-mix(in srgb, var(--paper-ink) 48%, transparent);
+  }
+
+  /* 窄屏：讲法按钮允许换行不挤压 */
+  @media (max-width: 560px) {
+    .explain-panel__head {
+      flex-wrap: wrap;
+    }
+  }
+}
+
+/*
+ * ===========================================================================
+ * 层外：原生控件的文字色（硬约束 11）
+ * ===========================================================================
+ *
+ * `src/styles/base.css` 有一条**不在任何 @layer 里**的
+ * `button, input, select, textarea { color: inherit }`。
+ * 层外优先于层内，所以上面 @layer 里给按钮写的 color 一律无效。
+ *
+ * 这里用 `.app .explain-panel__style`（0,2,0）压过 `button`（0,0,1），
+ * 同时保持在层外 —— 层内外那条边界必须守住，否则会被
+ * study.components 里的同名声明按层序覆盖回来。
+ *
+ * 顺带修一个可观测量：不写这条时，按钮继承的是纸卡的 `--paper-ink`（深色），
+ * 而按钮在纸上是浅底 —— 深墨压浅底其实还算能看；但第一版面板是深色底，
+ * 于是变成深墨压深底，按钮文字**完全消失**（截图才发现）。
+ */
+.app .explain-panel__style {
+  color: var(--paper-ink);
+}
+
+.app .explain-panel__style:hover:not(:disabled) {
+  color: var(--accent-text);
+}
+
+.app .explain-panel__custom-toggle {
+  color: var(--accent-text);
+}

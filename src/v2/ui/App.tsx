@@ -77,6 +77,18 @@ import type { AnnotationService } from '@/core/annotation-service.ts';
 import type { BackendService } from '@/core/backends.ts';
 import type { SourceService } from '@/core/sources.ts';
 import type { Card } from '@/v2/core/cards.ts';
+import type { ExplainNote } from '@/core/model.ts';
+import type { ExplainResult } from '@/core/ai/explain-wrong.ts';
+
+/**
+ * 空数组常量。
+ *
+ * 为什么不在渲染处写 `[]`：`explainNotesOf` 每次渲染都会调用，
+ * 返回一个新数组会让 `ExplainPanel` 的 props 每次都不相等
+ * （浅比较下等同于「变了」），白白重渲染。
+ * 同一个常量引用则可以稳定跳过。
+ */
+const EMPTY_NOTES: readonly ExplainNote[] = [];
 import type { PageId } from './pages.ts';
 import { SettingsPage } from './SettingsPage.tsx';
 import { OrganizePage } from './OrganizePage.tsx';
@@ -426,6 +438,20 @@ export function App({
    * 而不是缓存一份（用户可能中途答完几张又回来）。
    */
   const [queue, setQueue] = useState<Card[] | null>(null);
+
+  /**
+   * 「针对错误讲一遍」的本地缓存（2026-11-19）。
+   *
+   * ## 为什么要一份本地缓存，而不是每次去库里查
+   *
+   * 做题页每渲染一次就要 `explainNotesOf(card.id)`；直接查库是异步的，
+   * 拿不到「这一帧就有」的值。讲解的真相在 `questions.explainNotes`，
+   * 这里是它的内存镜像：
+   *  - 进入做题时不必预读（大多数题没有讲解）
+   *  - 生成成功后立刻放进来，界面当帧就能显示
+   *  - 换卡片时按 id 取，互不干扰
+   */
+  const [explainNotes, setExplainNotes] = useState<Map<string, ExplainNote[]>>(new Map());
   /**
    * 今日到期的卡（供选题页显示与「今日题组」模式使用）。
    *
@@ -958,8 +984,32 @@ export function App({
       /* 读不到就保持原数字 */
     }
 
+    /*
+     * 把已有的「针对错误的补充讲解」读进内存镜像（2026-11-19）。
+     *
+     * ## 为什么必须在这里读
+     *
+     * 第一版只在「生成成功」时往 `explainNotes` 里放数据 —— 于是
+     * **重启/重进这道题时讲解就没了**（端到端验证抓到的：落库有、
+     * 界面 count=0）。那正是这个项目反复踩的「做了没接上」。
+     *
+     * 讲解的真相在 `questions.explainNotes`，这里在每次刷新数据时
+     * 一并读出来，做题页按 id 取即可（同步、不闪）。
+     *
+     * 为什么不做成「做题时按需异步查」：做题页那一帧需要值，
+     * 异步查询必然先渲染空再补上，面板会闪一下。
+     */
+    void (async () => {
+      try {
+        const all = await decks.listQuestionsWithExplainNotes();
+        setExplainNotes(new Map(all));
+      } catch {
+        /* 读不到就保持现有镜像（不清空，避免面板突然消失） */
+      }
+    })();
+
     void refreshSuggestions();
-  }, [loadCards, pool, reviewService, sourceService, refreshSuggestions]);
+  }, [loadCards, pool, reviewService, sourceService, refreshSuggestions, decks]);
 
 
   /**
@@ -1493,6 +1543,95 @@ export function App({
   );
 
   /**
+   * 针对这次答错，让 AI 专门讲一遍（2026-11-19）。
+   *
+   * ## 为什么生成完就落库
+   *
+   * 讲解要能回看 —— 用户下次打开这道题，应该还能看到他上次没懂的那段讲解。
+   * 只放在组件 state 里，离开这一页就没了。
+   *
+   * 落库走 `decks.addExplainNote`（追加语义，见那里的注释）。
+   *
+   * ## 为什么把 question 从 card id 回查
+   *
+   * 做题页拿到的是 `Card`（不含 `options[].why` 之外的题目字段），
+   * 而提示词需要 `question.knowledgePointId` 之类的原始形状。
+   * 按 id 回查一次比把整张题塞进卡片更干净。
+   */
+  const handleExplainWrong = useCallback(
+    async (
+      card: Card,
+      given: string,
+      styleId: string,
+      customStyle: string,
+    ): Promise<ExplainResult> => {
+      const question = await decks.getQuestion(card.id);
+      if (!question) throw new Error('这道题已经不在了（可能被删了），刷新一下再试。');
+
+      const b = await resolveBackend();
+      const { chatCompletion } = await import('@/core/ai/deepseek-client.ts');
+      const { buildExplainPrompt, parseExplain } = await import('@/core/ai/explain-wrong.ts');
+
+      const prompt = buildExplainPrompt({
+        prompt: question.prompt,
+        kind: question.kind,
+        options: question.options,
+        answer: question.answer,
+        explanation: question.explanation,
+        given,
+        styleId,
+        customStyle,
+      });
+
+      const res = await chatCompletion({
+        apiKey: b.apiKey,
+        model: b.model,
+        ...(b.baseUrl ? { baseUrl: b.baseUrl } : {}),
+        provider: b.provider,
+        systemPrompt: prompt.system,
+        userPrompt: prompt.user,
+        /*
+         * 讲解要准，不要发挥 —— 与逐要点比对同一档温度。
+         * 讲错了比不讲更糟：用户会把错误的解释当成正确答案记下来。
+         */
+        temperature: 0.3,
+        /* 讲解比比对长，留够输出空间（推理模型还要吃掉一部分） */
+        maxTokens: 2000,
+      });
+
+      const parsed = parseExplain(res.content);
+
+      /* 落库：追加一条，不覆盖之前的 */
+      await decks.addExplainNote(question.id, {
+        given,
+        styleId,
+        crux: parsed.crux,
+        body: parsed.body,
+        nextStep: parsed.nextStep,
+      });
+
+      /* 让做题页下次渲染能读到这条（宿主自己维护一份缓存） */
+      setExplainNotes((prev) => {
+        const next = new Map(prev);
+        const list = [...(next.get(card.id) ?? []), {
+          id: `local-${Date.now()}`,
+          given,
+          styleId,
+          crux: parsed.crux,
+          body: parsed.body,
+          nextStep: parsed.nextStep,
+          createdAt: new Date().toISOString(),
+        }];
+        next.set(card.id, list);
+        return next;
+      });
+
+      return parsed;
+    },
+    [decks, resolveBackend],
+  );
+
+  /**
    * 阅读器里划选了一段 → 拿它提问（2026-11-10）。
    *
    * ## 为什么池子里只放这一条
@@ -1724,6 +1863,60 @@ export function App({
     },
     [bumpLayer],
   );
+
+  /**
+   * 打开**指定的一道题**来做（2026-11-19）。
+   *
+   * ## 为什么需要
+   *
+   * 用户报：做题时写的笔记，到学习笔记页看时只显示资料名，
+   * 点进去跳的是**原文**而不是那道题。他真正想回看的是题目本身
+   * （「我当时为什么写这句」）。
+   *
+   * 展示侧已经把归属说清了（见 NotesPage 的 ownerLabel），
+   * 点击也应该落到那道题上 —— 否则等于还是只能去原文。
+   *
+   * ## 复用 startPractice 而不是另写一套
+   *
+   * 做题页的队列、计时、上报都挂在 startPractice 上。
+   * 这里只把「一张卡」包成队列，其余一律走原路 ——
+   * 另写一套必然漏掉「强制重挂做题层」那类保活细节。
+   */
+  const openSingleQuestion = useCallback(
+    async (cardId: string) => {
+      /*
+       * 按 id 从题目表取，而不是从内存池里翻。
+       *
+       * 为什么：笔记可能是很久以前写的，那道题所在的题组可能已
+       * 重新发布/调整过，内存池里不一定有它。按 id 取最准。
+       */
+      const q = await decks.getQuestion(cardId);
+      if (!q) {
+        setQueueError('这道题已经不在了（可能被删掉或进了回收站）。');
+        return;
+      }
+      /*
+       * 未发布的草稿题不进做题队列 —— 与 cards-loader 的口径一致
+       * （那里只取已发布题组的题）。如实告诉用户原因，不假装打开。
+       */
+      const deckList = await decks.list();
+      const deck = deckList.find((d) => d.id === q.deckId);
+      if (!deck || deck.status !== 'published') {
+        setQueueError('这道题所在的题组还没发布，所以在做题页打不开。可以到「我的题组」里发布它。');
+        return;
+      }
+      const { questionToCard } = await import('./cards-loader.ts');
+      const card = questionToCard(q, deck.sourceId ?? null);
+      startPractice({
+        cards: [card],
+        mode: 'free',
+        label: '从笔记回看',
+        dueTotal: 1,
+      });
+    },
+    [decks, startPractice],
+  );
+
 
   // 卡片池是数组，每次渲染都可能是新引用 —— 用内容做 key 避免无谓重算
   const poolKey = useMemo(() => pool.join(','), [pool]);
@@ -2007,6 +2200,12 @@ export function App({
             })
           }
           onOpenKnowledge={() => setPage('knowledge')}
+          /*
+            挂在**题目**上的手写笔记，点击回到那道题（2026-11-19）。
+            用户报的原问题是「点击跳到了原文而不是题目」——
+            他要回看的是「我当时为什么在这道题下写这句」。
+          */
+          onOpenQuestion={(cardId) => void openSingleQuestion(cardId)}
         />
       ) : page === 'book' ? (
         <BookPage
@@ -2327,6 +2526,8 @@ export function App({
             modeLabel={practiceLabel}
             notes={notesService}
             onGradeShort={handleShortGrade}
+            onExplainWrong={handleExplainWrong}
+            explainNotesOf={(id) => explainNotes.get(id) ?? EMPTY_NOTES}
             /*
              * 这一轮做完了（2026-11-13 下午；傍晚改成 dropPage）。
              *
