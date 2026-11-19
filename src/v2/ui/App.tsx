@@ -2476,6 +2476,11 @@ export function App({
         <BookPage
           decks={decks}
           sourceService={sourceService}
+          /*
+           * 知识点表：定位到句子要用（2026-11-20）。
+           * 题目 → knowledgePointId → 知识点的精确字符偏移。
+           */
+          knowledge={knowledgeService}
           onOpenSource={(sourceId) => openReader(sourceId, null)}
           /*
            * 自测答错后跳回原文那一页（2026-11-09）。
@@ -2484,6 +2489,15 @@ export function App({
           onOpenSourceAt={(sourceId, page, quote) =>
             openReader(sourceId, { sourceId, page, quote })
           }
+          /*
+           * 精确定位到句子（2026-11-20）。
+           *
+           * 与上面那个的区别：这个把完整位置（charStart/charEnd/segmentId）
+           * 一起带过去，阅读器能圈到具体那一句并标橙光。
+           * 只有页码时阅读器只能跳到页首 —— 那就是用户说的
+           * 「只能定位到页面，不能具体到句子」。
+           */
+          onLocateSource={(target) => openReader(target.sourceId, target)}
           onOpenDecks={() => setPage('decks')}
           autoStartReview={autoReview}
           onAutoStartConsumed={() => setAutoReview(false)}

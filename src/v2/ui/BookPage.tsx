@@ -18,7 +18,10 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Deck, KnowledgePoint, Question, Source } from '@/core/model.ts';
+import type { Deck, KnowledgePoint, Question, Source, SourceSegment } from '@/core/model.ts';
+import type { KnowledgeService } from '@/core/knowledge/service.ts';
+import type { ReaderTarget } from './ReaderPage.tsx';
+import { locateQuestion, locateLabel } from '@/v2/core/locate-sentence.ts';
 import type { DeckService } from '@/core/questions/service.ts';
 import { kindSpec } from '@/core/questions/kinds.ts';
 import type { SourceService } from '@/core/sources.ts';
@@ -44,6 +47,16 @@ import type { ReviewGrade } from '@/v2/core/srs.ts';
 export interface BookPageProps {
   decks: DeckService;
   sourceService: SourceService;
+  /**
+   * 知识点服务（2026-11-20，可选）。
+   *
+   * 用于「定位到句子」：题目 → knowledgePointId → 知识点的精确字符偏移。
+   * 用户的真实库里题目都没有这个字段（都是自选改造题），所以这条路径
+   * 对他的现有数据不命中 —— 但「从知识点出题」产生的题会带上它。
+   *
+   * 不传则只靠题目自己的 anchors，定位精度退化成「整段范围」。
+   */
+  knowledge?: KnowledgeService;
   /** 去阅读器看原文 */
   onOpenSource: (sourceId: string) => void;
   /**
@@ -53,6 +66,18 @@ export interface BookPageProps {
    * 只给 sourceId 会让阅读器打开第一页 —— 那等于没定位。
    */
   onOpenSourceAt?: (sourceId: string, page: number, quote?: string) => void;
+  /**
+   * 精确定位到原文档（2026-11-20）。
+   *
+   * 与 `onOpenSourceAt` 的区别：这个把**完整位置**（字符偏移 + 段 id）
+   * 传给阅读器，能圈到具体那一句；那个只有页码。
+   *
+   * 用户要求：「定位功能不够，现在只能定位到页面，不能具体到句子。」
+   *
+   * 不传则退回 `onOpenSourceAt`（只有页码）——
+   * 不摆假开关：做不到精确定位时按钮文案会如实变成「跳到原文（第 N 页）」。
+   */
+  onLocateSource?: (target: ReaderTarget) => void;
   /** 去我的题组 */
   onOpenDecks: () => void;
   /**
@@ -201,8 +226,10 @@ type Load =
 export function BookPage({
   decks,
   sourceService,
+  knowledge,
   onOpenSource,
   onOpenSourceAt,
+  onLocateSource,
   onOpenDecks,
   autoStartReview = false,
   onAutoStartConsumed,
@@ -252,6 +279,16 @@ export function BookPage({
    * 用 sourceId 当键（`__none__` 给未关联资料那卷），与卷的 key 一致。
    */
   const [collapsedVolumes, setCollapsedVolumes] = useState<Set<string>>(new Set());
+  /**
+   * 定位用的两张表（2026-11-20）。
+   *
+   * 与题册数据分开存：这两张表只在点「定位回原文」时用，
+   * 塞进 `state.volumes` 会让题册结构带上无关字段。
+   */
+  const [locateData, setLocateData] = useState<{
+    points: KnowledgePoint[];
+    segments: SourceSegment[];
+  }>({ points: [], segments: [] });
 
   const toggleVolumeCollapsed = useCallback((key: string) => {
     setCollapsedVolumes((prev) => {
@@ -392,6 +429,36 @@ export function BookPage({
       );
 
       /*
+       * 定位到句子需要两张表（2026-11-20）。
+       *
+       * - `knowledgePoints`：题目 → knowledgePointId → 知识点的精确句子偏移
+       * - `sourceSegments`：判断某个锚点是「句子」还是「整段」，
+       *   并从正文里切出那句原文当 quote
+       *
+       * 为什么要在这里读、而不是点按钮时再读：用户点「定位回原文」
+       * 要立刻跳走，中途读库会有一拍延迟（而且失败时按钮点了没反应）。
+       * 这一页本来就要读题库，顺带读这两张表成本很低。
+       *
+       * 读失败不阻塞整页：定位退化到「只到页」，题册照常可读。
+       */
+      let locPoints: KnowledgePoint[] = [];
+      let locSegments: SourceSegment[] = [];
+      if (knowledge && sourceService) {
+        try {
+          const srcIds = srcs.map((s: Source) => s.id);
+          const [pts, segLists] = await Promise.all([
+            knowledge.listAll(),
+            Promise.all(srcIds.map((id) => sourceService.getSegments(id))),
+          ]);
+          locPoints = pts;
+          locSegments = segLists.flat();
+        } catch {
+          /* 定位是增强功能，读不到就退化成「只到页」，不挡住整个题册 */
+        }
+      }
+      setLocateData({ points: locPoints, segments: locSegments });
+
+      /*
        * 按资料分卷。
        *
        * 为什么不按题组平铺：一份资料常常出了好几组题（不同批次、不同题型），
@@ -429,7 +496,7 @@ export function BookPage({
         message: err instanceof Error ? err.message : '读不出题库',
       });
     }
-  }, [decks, sourceService]);
+  }, [decks, sourceService, knowledge]);
 
   useEffect(() => {
     void load();
@@ -906,51 +973,101 @@ export function BookPage({
                       ) : null}
 
                       {/*
-                        「定位回原文」（2026-11-19 晚，用户要求）。
+                        「定位回原文」（2026-11-19 晚加，2026-11-20 改精确到句）。
 
-                        原来这里只有一行纯文字「出处：第 16 页」——
-                        知道在第 16 页，却没法跳过去。用户原话：
-                        「每一题都要有一个定位回原文的功能，单挂一个出处不够」。
+                        第一版只跳页 + 传题干当 quote —— 题干通常不在原文里，
+                        所以阅读器匹配不上，落地只高亮了页首。用户反馈：
+                        「定位功能不够，现在只能定位到页面，不能具体到句子」。
 
-                        所以改成按钮，点了直接打开阅读器那一页。
-                        `quote` 传题干首段：让阅读器能把那句话高亮出来，
-                        用户落地就知道「是这一段」。不带 quote 会跳到页首，
-                        一页里好几个知识点时还得自己找。
+                        现在由 `locateQuestion` 算三种情况（见 locate-sentence.ts）：
+                        - **sentence** 有句子级偏移 → 跳到那句并标橙光（临时）
+                        - **page**     只有整段锚点 → 跳页，明说为什么不高亮
+                        - **none**     自改题没有出处 → 不跳，如实说明
                       */}
-                      {q.anchors.length > 0 && q.anchors[0] && onOpenSourceAt ? (
-                        (() => {
-                          const a = q.anchors[0]!;
-                          const srcId = a.sourceId ?? vol.sourceId;
-                          /* page 在 SourceLocation 里是可选的（旧数据可能没页码） */
-                          const pg = a.page;
-                          if (!srcId || pg === undefined) {
-                            /* 没资料 id 或没页码就无从跳转 —— 如实显示，不摆假按钮 */
-                            return (
-                              <p className="bk-q__from">
-                                {pg === undefined ? '出处：页码未记录' : `出处：第 ${pg} 页`}
-                              </p>
-                            );
-                          }
+                      {(() => {
+                        const loc = locateQuestion(q, locateData.points, locateData.segments);
+                        if (loc.kind === 'sentence') {
+                          const t = loc.target;
                           return (
                             <p className="bk-q__from">
                               <button
                                 type="button"
                                 className="bk-q__locate"
-                                onClick={() => onOpenSourceAt(srcId, pg, locateQuote(q))}
-                                title="打开原文那一页，并把这句话标出来"
+                                onClick={() => {
+                                  /*
+                                   * 优先走精确入口；宿主没接就退回旧的「只给页码」。
+                                   * 不静默失效 —— 那样点了没反应最难排查。
+                                   */
+                                  if (onLocateSource) {
+                                    onLocateSource({
+                                      sourceId: t.sourceId,
+                                      page: t.page,
+                                      charStart: t.charStart,
+                                      charEnd: t.charEnd,
+                                      ...(t.segmentId ? { segmentId: t.segmentId } : {}),
+                                      quote: t.quote,
+                                    });
+                                  } else if (onOpenSourceAt) {
+                                    onOpenSourceAt(t.sourceId, t.page, t.quote);
+                                  }
+                                }}
+                                title="打开原文，把那句话用橙光标出来（临时，离开就消失）"
                               >
-                                定位回原文（第 {pg} 页）→
+                                {locateLabel(loc)}
                               </button>
+                              {loc.from === 'knowledge-point' ? (
+                                <span className="bk-q__locate-note">
+                                  {' '}
+                                  （位置来自关联知识点）
+                                </span>
+                              ) : null}
                             </p>
                           );
-                        })()
-                      ) : q.anchors.length > 0 && q.anchors[0] ? (
-                        <p className="bk-q__from">
-                          {q.anchors[0].page === undefined
-                            ? '出处：页码未记录'
-                            : `出处：第 ${q.anchors[0].page} 页`}
-                        </p>
-                      ) : null}
+                        }
+                        if (loc.kind === 'page') {
+                          return (
+                            <p className="bk-q__from">
+                              <button
+                                type="button"
+                                className="bk-q__locate"
+                                onClick={() => {
+                                  /*
+                                   * 整段级也要把 charStart/charEnd 带上（2026-11-20 修）。
+                                   * 阅读器靠这两个值判断「这是整段锚点」，
+                                   * 不传的话它会落进「什么都没找到」分支，
+                                   * 连一句解释都不显示。
+                                   */
+                                  const target = {
+                                    sourceId: loc.sourceId,
+                                    page: loc.page,
+                                    ...(loc.charStart !== undefined ? { charStart: loc.charStart } : {}),
+                                    ...(loc.charEnd !== undefined ? { charEnd: loc.charEnd } : {}),
+                                    ...(loc.segmentId ? { segmentId: loc.segmentId } : {}),
+                                  };
+                                  if (onLocateSource) {
+                                    onLocateSource(target);
+                                  } else if (onOpenSourceAt) {
+                                    onOpenSourceAt(loc.sourceId, loc.page);
+                                  }
+                                }}
+                                title={loc.reason}
+                              >
+                                {locateLabel(loc)}
+                              </button>
+                              <span className="bk-q__locate-note"> {loc.reason}</span>
+                            </p>
+                          );
+                        }
+                        /*
+                         * none：自改题没有出处。
+                         * 用户明确说过「自改题可以没有定位功能，给用户个提示就行」，
+                         * 所以这里**不摆按钮**，只给一句说明 —— 摆一个点了没用的
+                         * 按钮比没有按钮更糟（硬约束：不做假开关）。
+                         */
+                        return (
+                          <p className="bk-q__from bk-q__from--none">{loc.reason}</p>
+                        );
+                      })()}
                     </li>
                   ))}
                 </ol>
@@ -988,30 +1105,6 @@ function kindLabel(k: string): string {
   if (k === 'point') return '知识点';
   /* 真的不认识：原样返回，至少能看出是哪个值 */
   return k;
-}
-
-/**
- * 从题干里取一段用来在原文里高亮的引文（2026-11-19 晚）。
- *
- * ## 为什么要传 quote 而不是只传页码
- *
- * 阅读器打开某一页后，如果只有页码，用户落地看到的是整页文字，
- * 得自己找到「这题考的是哪一句」。带一句引文过去，阅读器能高亮它，
- * 落地即定位。
- *
- * ## 为什么取题干而不是取 anchors
- *
- * `SourceLocation` 有 `charStart/charEnd`（字符偏移），但没有存原文片段
- * —— 拿它去切原文得先把整页正文读出来，页面这边没有。
- * 题干本身通常就包含被考的那句话（出题时按知识点写的），
- * 拿来当高亮锚最顺手；匹配不到时阅读器只是不高亮，不会出错。
- *
- * 取第一行、限长 40：太长的引文在阅读器里匹配不到（它是逐字匹配）。
- */
-function locateQuote(q: Question): string | undefined {
-  const line = (q.prompt ?? '').split('\n')[0]?.trim() ?? '';
-  if (line.length < 4) return undefined;
-  return line.length > 40 ? line.slice(0, 40) : line;
 }
 
 /** 某个选项是不是正确答案 */

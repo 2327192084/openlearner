@@ -57,6 +57,17 @@ import { escapeHtml, renderMath, splitMath } from './render-math.ts';
 export interface MarkRange {
   start: number;
   end: number;
+  /**
+   * 临时定位高亮（2026-11-20）。
+   *
+   * 用户要求：「定位到句子时应该和标注的高亮效果一样，只不过换成橙光，
+   * 用来与高亮和备注区分开来。该橙光是临时的，当用户转到其他页面/界面时就会消失。」
+   *
+   * 与普通 `marks` 的区别**只在颜色**（渲染形状完全一样：同样是给文字套底色，
+   * 同样的圆角与描边），所以用同一个渲染分支、只换 class。
+   * 「临时」这一层由 ReaderPage 负责 —— 它不写库，翻页/返回即清。
+   */
+  transient?: boolean;
 }
 
 export interface MarkdownBodyMarkedProps {
@@ -170,9 +181,16 @@ export function MarkdownBodyMarked({
     const a0 = piece.from; /* 片段原文起点 */
     const a1 = piece.to;
 
-    const markHit = marks
-      .map((m) => intersect(a0, a1, m.start, m.end))
-      .find((x) => x !== null);
+    /*
+     * 命中哪个 mark 区间，以及**那个区间是不是临时定位**（2026-11-20）。
+     *
+     * `intersect` 只回 {start,end}（它只关心几何），transient 这类
+     * 展示属性要从原始 mark 上取 —— 取交集丢字段是这里最容易漏的一处：
+     * 漏了的话橙光永远不出现（因为 transient 永远是 undefined）。
+     */
+    const markIdx = marks.findIndex((m) => intersect(a0, a1, m.start, m.end) !== null);
+    const markHit = markIdx >= 0 ? intersect(a0, a1, marks[markIdx]!.start, marks[markIdx]!.end) : null;
+    const markTransient = markIdx >= 0 ? marks[markIdx]!.transient === true : false;
     const noteHit = notes
       .map((m) => intersect(a0, a1, m.start, m.end))
       .find((x) => x !== null);
@@ -192,7 +210,12 @@ export function MarkdownBodyMarked({
         <>
           {before}
           <mark
-            className="reader-mark"
+            /*
+             * 临时定位高亮换成橙色（2026-11-20）。
+             * 形状与普通定位高亮**完全一致**（同样的底色块、圆角、描边），
+             * 只换颜色 —— 用户要的是「一眼分得清，但看得出是同一类东西」。
+             */
+            className={`reader-mark${markTransient ? ' reader-mark--transient' : ''}`}
             ref={(el) => {
               if (el && markRef && !markRef.current) markRef.current = el;
             }}

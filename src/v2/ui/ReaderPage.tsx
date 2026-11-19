@@ -19,6 +19,7 @@ import { IconSources } from './icons.tsx';
 import { ReaderFigure } from './ReaderFigure.tsx';
 import { ReaderSidePanel } from './ReaderSidePanel.tsx';
 import { MarkdownBodyMarked } from './MarkdownBodyMarked.tsx';
+import type { MarkRange } from './MarkdownBodyMarked.tsx';
 import { paintTextMarks, clearTextMarks } from './paint-marks.ts';
 import { domPointToRaw } from './dom-text-map.ts';
 import { SelectionActionBar, measureSelectionRect } from './SelectionActionBar.tsx';
@@ -162,6 +163,23 @@ interface Highlight {
    *  - 'none'     没找到，只有页码
    */
   via: 'anchor' | 'quote' | 'none';
+  /**
+   * 这是不是「临时定位高亮」（2026-11-20）。
+   *
+   * ## 为什么要有这个区分
+   *
+   * 用户要求：「定位到句子时应该和标注的高亮效果一样，只不过换成橙光，
+   * 用来与高亮和备注区分开来。该橙光是临时的，当用户转到其他页面/界面时就会消失。」
+   *
+   * 所以它必须满足两条：
+   *  1. **视觉上与标注高亮同形**（同样是给文字套底色），只是颜色改橙
+   *  2. **不持久**：翻页、返回、换页签就没了，也**绝不写库**
+   *
+   * 为什么用字段而不是另开一套 highlight 状态：定位逻辑（偏移校验、
+   * 引文兜底、整段锚点判定）全在同一个 effect 里算，另开一套会让那套
+   * 判定写两遍 —— 而它们必须完全一致，否则「定位准不准」会因入口而异。
+   */
+  transient?: boolean;
 }
 
 export function ReaderPage({
@@ -546,7 +564,7 @@ export function ReaderPage({
       const quoteOk =
         !target.quote || normalizeForCompare(sliced) === normalizeForCompare(target.quote);
       if (quoteOk) {
-        setHighlight({ start: cs, end: ce, via: 'anchor' });
+        setHighlight({ start: cs, end: ce, via: 'anchor', transient: true });
         return;
       }
       // 偏移越界对不上 → 落到下面的引文搜索
@@ -562,7 +580,7 @@ export function ReaderPage({
             setPageNo(s.index);
             setJumpNote(`引文实际在第 ${s.page} 页，已跳过去。`);
           }
-          setHighlight({ start: idx, end: idx + quote.length, via: 'quote' });
+          setHighlight({ start: idx, end: idx + quote.length, via: 'quote', transient: true });
           return;
         }
       }
@@ -2249,11 +2267,18 @@ function normalizeForCompare(s: string): string {
  * 那是「定位可不可信」的信息，只给界面提示用；渲染只关心区间。
  * 分开后渲染组件不必知道定位细节。
  */
-function highlightMarks(highlight: Highlight | null): { start: number; end: number }[] {
+function highlightMarks(highlight: Highlight | null): MarkRange[] {
   if (!highlight) return [];
   if (highlight.via === 'none') return [];
   if (highlight.end <= highlight.start) return [];
-  return [{ start: highlight.start, end: highlight.end }];
+  return [
+    {
+      start: highlight.start,
+      end: highlight.end,
+      /* 橙光：从别处跳过来定位到句子时用，与标注高亮区分（2026-11-20） */
+      ...(highlight.transient ? { transient: true } : {}),
+    },
+  ];
 }
 
 /**
