@@ -3206,6 +3206,27 @@ export function App({
       trashBadge={trashBadge}
       resumeTask={resumeTask}
       onResumeTask={resumeTask ? () => goPage(resumeTask.page) : undefined}
+      /*
+       * 顶栏全局搜索（2026-11-20）。
+       *
+       * `loadIndex` 一次取回全部资料 + 全部段落：搜索要扫全库正文，
+       * 循环 getSegments(sourceId) 会全表读 N 遍（N = 资料份数），
+       * 那是 O(N × 全表)。
+       *
+       * `onOpenHit` 走 openReader 并带上 charStart/charEnd/segmentId，
+       * 阅读器会圈出那句话并标橙光 —— 与「定位精确到句子」同一条链路。
+       * 只跳页会丢掉搜索的意义（用户要找的就是那一句）。
+       */
+      search={{
+        loadIndex: async () => {
+          const [sources, segments] = await Promise.all([
+            sourceService.list(),
+            sourceService.getAllSegments(),
+          ]);
+          return { sources, segments };
+        },
+        onOpenHit: (target) => openReader(target.sourceId, target),
+      }}
       onBack={
         page === 'reader'
           ? () => {

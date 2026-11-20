@@ -71,6 +71,24 @@ export interface ReaderTarget {
   charEnd?: number;
   /** 原文引用。偏移失效时用它兜底搜索 */
   quote?: string;
+  /**
+   * 目标所在段的 id（2026-11-20 加）。
+   *
+   * ## 为什么必须加这个字段
+   *
+   * 它**以前就不存在**，而 `SourceLocation` 与搜索结果里都有 segmentId ——
+   * 于是调用方传了也没人读（TypeScript 不会报错，因为对象字面量多传字段
+   * 在跨 props 传时会被忽略或宽化）。阅读器只能按 `page` 猜段，
+   * 而 **page 在一份资料里不唯一**（按章节切分时 page = index；
+   * OCR 资料也可能多段共用页码）。
+   *
+   * 实测后果：跨资料搜索结果点进去，页码对了、顶部显示
+   * 「已定位到第 9 页的原文位置」，但**正文里没有任何高亮** ——
+   * 选中的那段不是偏移所在的那段，偏移越界后被静默丢弃。
+   *
+   * 有它就精确匹配；没有（旧数据）退回按页码，不编造。
+   */
+  segmentId?: string;
 }
 
 export interface ReaderPageProps {
@@ -506,9 +524,36 @@ export function ReaderPage({
       return;
     }
 
-    // 目标页码：找不到就退回第 1 页，并如实说明
+    /*
+     * 选哪一段（2026-11-20 修：优先用 segmentId）。
+     *
+     * ## 原来的问题
+     *
+     * 只按 `page` 找：`segments.find(s => s.page === wantPage)`。
+     * 而 **page 在一份资料里不唯一** —— 按章节切分的资料里
+     * `page = index`，一个章节跨多页时会有重复；OCR 出来的资料也可能
+     * 多段共用同一页码。命中第一个就可能是错的那段。
+     *
+     * 更糟的是 `ReaderTarget.segmentId` 这个字段**此前从未被读取**
+     * （全文件只有搜索命中那一处用 segmentId，不是 target 的）。
+     * 也就是说所有带 segmentId 的跳转——错题、知识点、搜索结果——
+     * 都只按页码猜段，偏移再精确也会落到错的段上。
+     *
+     * 实测现象：跨资料搜索结果点进去，页码对了、顶部也显示
+     * 「已定位到第 9 页的原文位置」，但正文里**没有任何高亮** ——
+     * 因为选中的那一段不是偏移所在的那段，偏移越界后被丢弃。
+     *
+     * ## 修法
+     *
+     * 有 segmentId 就精确匹配；没有（旧数据）才退回按页码，
+     * 与 `SourceLocation.segmentId` 的注释里写的读取口径一致：
+     * 「有就精确匹配，没有退回 page，不编造」。
+     */
     const wantPage = target.page ?? 1;
-    const seg = segments.find((s) => s.page === wantPage) ?? segments[0];
+    const seg =
+      (target.segmentId ? segments.find((s) => s.id === target.segmentId) : undefined) ??
+      segments.find((s) => s.page === wantPage) ??
+      segments[0];
     if (!seg) {
       setHighlight(null);
       setJumpNote('这份资料没有可显示的正文。');

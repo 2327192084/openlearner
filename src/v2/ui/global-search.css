@@ -1,0 +1,281 @@
+/**
+ * 顶栏全局搜索（2026-11-20）。
+ *
+ * ## 位置
+ *
+ * 放在顶栏中间的空档（`topbar__spacer` 的位置）。两侧都靠 `.gsearch`
+ * 自己的 flex 撑开，不与「工作库 / 连接状态 / 信封」抢位置。
+ *
+ * ## token
+ *
+ * 顶栏是深色画布，用 v2 的 `--text*` / `--surface-*` / `--line-*`。
+ * **不是** `--paper-*`（那是纸张卡内部的，用反了会深色字压深色底 ——
+ * 交接文档 3.1 记过这个坑踩了两次）。
+ *
+ * ## ⚠️ 按钮颜色必须写在层外
+ *
+ * `base.css` 有一条不在任何 `@layer` 里的 `button { color: inherit }`。
+ * 层外规则优先于层内，**比 specificity 还优先** ——
+ * 层内写 `color` 一律无效（硬约束 3.2；11-19 那轮我在定位按钮上又踩了一次，
+ * 界面显示成灰色才发现）。
+ *
+ * 所以本文件里：
+ *  - 层内只管布局、背景、边框
+ *  - 需要**指定字体色**的按钮（搜索键、收起键）颜色写在文件末尾层外，
+ *    并用 `.app .` 前缀把 specificity 抬到 (0,2,0)
+ */
+
+@layer study.components {
+  .gsearch {
+    position: relative;
+    flex: 1 1 260px;
+    max-width: 380px;
+    /* 结果面板要盖住正文，给一个明确的层级（顶栏本身就是高层） */
+    z-index: 30;
+  }
+
+  .gsearch__bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .gsearch__input {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 4px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xs);
+    background: var(--surface-1);
+    font-size: var(--fs-xs);
+  }
+
+  .gsearch__input::placeholder {
+    color: var(--text-faint);
+  }
+
+  .gsearch__input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /*
+   * 搜索键：层内只管形状。
+   * 颜色（含禁用态）写在文件末尾层外，见那几个 `.app .gsearch__*`。
+   */
+  .gsearch__go {
+    flex: 0 0 auto;
+    padding: 4px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xs);
+    background: var(--surface-2);
+    font-size: var(--fs-xs);
+    cursor: pointer;
+  }
+
+  .gsearch__go:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .gsearch__error {
+    margin: var(--space-1) 0 0;
+    font-size: var(--fs-xs);
+    color: var(--bad);
+  }
+
+  /* ---------- 结果面板 ---------- */
+  .gsearch__panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    /*
+     * 面板比输入框宽（输入框 380 上限，面板最窄 420）。
+     *
+     * 为什么：摘要那句「共 N 处，分布在 M 份资料（另有 K 份资料没有正文…）」
+     * 在 380px 里要折三行、还会把「收起」挤得没位置（实测截图）。
+     * 结果条目里的正文片段也需要宽度 —— 太窄时一行只放得下十几个字，
+     * 用户看不出上下文。
+     *
+     * 用 left:0 + min-width 而不是 right:0，是为了让面板向右扩展，
+     * 不至于在顶栏左侧溢出窗口。
+     */
+    left: 0;
+    min-width: 420px;
+    max-width: min(560px, calc(100vw - 40px));
+    /* 结果可能很多：限高 + 内部滚动，不要撑破窗口 */
+    max-height: min(70vh, 620px);
+    overflow-y: auto;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    background: var(--bg-canvas);
+    box-shadow: 0 12px 32px rgb(0 0 0 / 45%);
+    padding: var(--space-2);
+  }
+
+  .gsearch__head {
+    display: flex;
+    /*
+     * 顶部摘要可能是两行（「共 2 处，分布在 1 份资料（另有 1 份资料没有正文，
+     * 未参与搜索）」在面板里会折行）。
+     * align-items: baseline 在折行时会按最后一行基线对齐，
+     * 「收起」会跑到面板中间；用 flex-start 让按钮始终贴顶。
+     */
+    align-items: flex-start;
+    /*
+     * 间距给足一点：实测两行摘要时，第一行末尾会紧贴「收起」按钮
+     * （截图里「…未」和按钮几乎连在一起）。
+     */
+    gap: var(--space-3);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--line);
+    margin-bottom: var(--space-2);
+  }
+
+  .gsearch__summary {
+    flex: 1 1 auto;
+    /*
+     * min-width: 0 是关键：flex 子项默认 min-width:auto 不会缩到内容以下，
+     * 摘要文字会把「收起」挤出面板（实测截图里摘要右侧被截断）。
+     */
+    min-width: 0;
+    font-size: var(--fs-xs);
+    line-height: 1.6;
+    color: var(--text-dim);
+    overflow-wrap: anywhere;
+  }
+
+  .gsearch__close {
+    flex: 0 0 auto;
+    padding: 1px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xs);
+    background: transparent;
+    font-size: var(--fs-xs);
+    cursor: pointer;
+  }
+
+  .gsearch__empty {
+    margin: var(--space-3) 0;
+    padding: 0 var(--space-2);
+    font-size: var(--fs-xs);
+    line-height: 1.7;
+    color: var(--text-muted);
+  }
+
+  .gsearch__groups {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .gsearch__group-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-1);
+    padding: 0 var(--space-1);
+  }
+
+  .gsearch__source {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: var(--fs-xs);
+    font-weight: 650;
+    color: var(--text);
+    overflow-wrap: anywhere;
+  }
+
+  .gsearch__count {
+    flex: 0 0 auto;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .gsearch__hits {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .gsearch__hit {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: var(--space-2);
+    border: 1px solid transparent;
+    border-radius: var(--radius-xs);
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .gsearch__hit:hover {
+    background: var(--surface-1);
+    border-color: var(--line);
+  }
+
+  .gsearch__where {
+    display: block;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .gsearch__chapter {
+    margin-left: var(--space-2);
+    color: var(--text-muted);
+  }
+
+  .gsearch__snippet {
+    display: block;
+    margin-top: 2px;
+    font-size: var(--fs-sm);
+    line-height: 1.65;
+    color: var(--text-dim);
+    overflow-wrap: anywhere;
+  }
+
+  /* 片段里的关键词 */
+  .gsearch__kw {
+    background: #d9a44159;
+    color: inherit;
+    border-radius: 2px;
+    padding: 0 1px;
+  }
+}
+
+/*
+ * ===== 层外：按钮与输入框的字体色 =====
+ *
+ * 原因见文件头。这几个 `.app .` 前缀把 specificity 抬到 (0,2,0)，
+ * 高于 `base.css` 的 `button { color: inherit }`（0,0,1）。
+ *
+ * 不要用 `:where()` —— 它的 specificity 是 0，会输（硬约束 3.2，
+ * 这个坑项目里踩过两次）。
+ */
+.app .gsearch__go {
+  color: var(--text);
+}
+
+.app .gsearch__go:disabled {
+  color: var(--text-faint);
+}
+
+.app .gsearch__close {
+  color: var(--text-dim);
+}
+
+.app .gsearch__close:hover {
+  color: var(--text);
+}
+
+.app .gsearch__hit {
+  color: var(--text-dim);
+}
+
+.app .gsearch__input {
+  color: var(--text);
+}

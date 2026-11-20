@@ -1,5 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { LibraryLocationRow } from './LibraryLocationRow.tsx';
+import { GlobalSearchBox } from './GlobalSearchBox.tsx';
+import type { Source, SourceSegment } from '@/core/model.ts';
+import type { ReaderTarget } from './ReaderPage.tsx';
 import {
   GROUPS,
   pagesInGroup,
@@ -77,6 +80,27 @@ export interface AppShellProps {
   resumeTask?: { page: PageId; label: string; detail?: string | null } | null;
   /** 点「继续」回到那个任务 */
   onResumeTask?: () => void;
+  /**
+   * 顶栏全局搜索（2026-11-20）。
+   *
+   * 交付文档把它列为建议的下一项：`sourceService.search()` 只收单个
+   * sourceId，只能在某一本书里搜；真实场景是「我记得在哪本书看过这个概念」。
+   *
+   * 把「怎么读数据」和「点了跳哪」当 props 传进来，而不是在外壳里
+   * import 服务：外壳只负责摆位置，搜索怎么实现由 App 层决定 ——
+   * 与 `onOpenSettings` / `onResumeTask` 是同一套做法。
+   *
+   * **不传就不渲染搜索框**（项目一贯：不摆假控件）。
+   */
+  search?: {
+    /** 读索引（一次取回全部段落，见 GlobalSearchBox 里对性能的说明） */
+    loadIndex: () => Promise<{
+      sources: readonly Source[];
+      segments: readonly SourceSegment[];
+    }>;
+    /** 点某条结果：跳到那句话 */
+    onOpenHit: (target: ReaderTarget) => void;
+  };
   children: ReactNode;
 }
 
@@ -94,6 +118,7 @@ export function AppShell({
   backToLabel,
   resumeTask,
   onResumeTask,
+  search,
   children,
 }: AppShellProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -358,6 +383,18 @@ export function AppShell({
             Open Learner <span className="topbar__crumb-sep">›</span>
           </span>
           <span className="topbar__title">{page.title}</span>
+
+          {/*
+            顶栏全局搜索（2026-11-20）。
+            放在标题与右侧状态区之间的空档 —— 这是顶栏唯一有横向余量的位置。
+            不传 search 就不渲染（不摆假控件）。
+          */}
+          {search ? (
+            <GlobalSearchBox
+              loadIndex={search.loadIndex}
+              onOpenHit={search.onOpenHit}
+            />
+          ) : null}
 
           <span className="topbar__spacer" />
 
