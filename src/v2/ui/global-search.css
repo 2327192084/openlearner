@@ -138,6 +138,11 @@
      * 摘要文字会把「收起」挤出面板（实测截图里摘要右侧被截断）。
      */
     min-width: 0;
+    /*
+     * 右侧留一点内边距：两行摘要时第一行末尾会顶到按钮的左边框
+     * （截图里「…未」紧贴「收起」）。加 4px 让它有呼吸。
+     */
+    padding-right: var(--space-1);
     font-size: var(--fs-xs);
     line-height: 1.6;
     color: var(--text-dim);
