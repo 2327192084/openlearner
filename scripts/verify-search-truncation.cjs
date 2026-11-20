@@ -11,7 +11,7 @@
  * 1. 搜高频词时，摘要显示**真实总数**（2365 级别），不是 500
  * 2. 摘要明确说「只列前 500 处」
  * 3. 组头上的数字是**真实命中数**，且标出「列前 N 处」
- * 4. 组末尾说「还有 X 处没列出」
+ * 4. 组末尾说「还有 X 处没显示」（文案 2026-11-20 从「没列出」改成「没显示」）
  * 5. 搜普通词时**不出现**这些截断提示（不能没事就吓人）
  *
  * 用法：node scripts/verify-search-truncation.cjs
@@ -183,8 +183,8 @@ const rec = (n, ok, x) => {
     JSON.stringify(defreq.groups.map((g) => g.count)),
   );
   rec(
-    '**组末尾说「还有 X 处没列出」**',
-    defreq.groups.some((g) => /还有 \d+ 处没列出/.test(g.more)),
+    '**组末尾说「还有 X 处没显示」**',
+    defreq.groups.some((g) => /还有 [0-9]+ 处没显示/.test(g.more)),
     JSON.stringify(defreq.groups.map((g) => g.more).filter(Boolean).slice(0, 2)),
   );
 
@@ -196,7 +196,7 @@ const rec = (n, ok, x) => {
   const rareTotal = Number((rare.summary.match(/共 (\d+) 处/) || [])[1] ?? 0);
   rec('普通词能正常搜到', rareTotal > 0, String(rareTotal));
   rec('**普通词不出现「只列前」**（不能没事就吓人）', !/只列前/.test(rare.summary), rare.summary);
-  rec('普通词不出现「没列出」提示', rare.groups.every((g) => !/没列出/.test(g.more)), JSON.stringify(rare.groups.map((g) => g.more)));
+  rec('普通词不出现「没显示」提示', rare.groups.every((g) => !/没显示/.test(g.more)), JSON.stringify(rare.groups.map((g) => g.more)));
 
   /* ---------- 3. 点结果仍能跳到句子 ---------- */
   await ev(`(() => {
