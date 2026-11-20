@@ -21,6 +21,7 @@ import { WrongBookPage } from './WrongBookPage.tsx';
 import type { WrongBookView } from './WrongBookPage.tsx';
 import { TasksPage } from './TasksPage.tsx';
 import { SkeletonPage } from './SkeletonPage.tsx';
+import { SearchPage } from './SearchPage.tsx';
 import { GuidePage } from './GuidePage.tsx';
 import { BookPage } from './BookPage.tsx';
 import { buildReviewQueue, type ReviewQueue } from './review-session.ts';
@@ -2578,6 +2579,24 @@ export function App({
             void refreshTrashBadge();
           }}
         />
+      ) : page === 'search' ? (
+        /*
+         * 搜索页（2026-11-20）。
+         *
+         * 从顶栏挪出来独立成页 —— 窄的顶栏输入框（329px）
+         * 盛不下「好几本书各有多少命中」这个信息。
+         * 命中概览的分布条只有整页宽度才看得清。
+         */
+        <SearchPage
+          loadIndex={async () => {
+            const [sources, segments] = await Promise.all([
+              sourceService.list(),
+              sourceService.getAllSegments(),
+            ]);
+            return { sources, segments };
+          }}
+          onOpenHit={(target) => openReader(target.sourceId, target)}
+        />
       ) : page === 'skeleton' ? (
         <SkeletonPage
           knowledge={knowledge}
@@ -3207,26 +3226,16 @@ export function App({
       resumeTask={resumeTask}
       onResumeTask={resumeTask ? () => goPage(resumeTask.page) : undefined}
       /*
-       * 顶栏全局搜索（2026-11-20）。
+       * 顶栏搜索框已撤（2026-11-20）。
        *
-       * `loadIndex` 一次取回全部资料 + 全部段落：搜索要扫全库正文，
-       * 循环 getSegments(sourceId) 会全表读 N 遍（N = 资料份数），
-       * 那是 O(N × 全表)。
+       * 用户要求把它改成独立页面（侧栏「课程准备与管理 → 搜索」），
+       * 界面参考 Google/Bing。理由：顶栏输入框只有 329px 宽，
+       * 结果挤在 380px 的下拉面板里 —— 而「好几本书各有多少命中」
+       * 这个信息窄面板根本盛不下。
        *
-       * `onOpenHit` 走 openReader 并带上 charStart/charEnd/segmentId，
-       * 阅读器会圈出那句话并标橙光 —— 与「定位精确到句子」同一条链路。
-       * 只跳页会丢掉搜索的意义（用户要找的就是那一句）。
+       * 这里不传 `search`，AppShell 就不渲染搜索框
+       * （它的实现是「不传就不显示」，不留空占位）。
        */
-      search={{
-        loadIndex: async () => {
-          const [sources, segments] = await Promise.all([
-            sourceService.list(),
-            sourceService.getAllSegments(),
-          ]);
-          return { sources, segments };
-        },
-        onOpenHit: (target) => openReader(target.sourceId, target),
-      }}
       onBack={
         page === 'reader'
           ? () => {
@@ -3359,6 +3368,7 @@ function Placeholder({ page, onBack }: { page: PageId; onBack: () => void }) {
     reader: '阅读原文',
     practice: '做题中',
     guide: '功能导览',
+    search: '搜索资料',
     trash: '回收站',
     settings: '设置',
   };

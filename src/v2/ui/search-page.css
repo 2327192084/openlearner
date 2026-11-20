@@ -1,0 +1,377 @@
+/**
+ * 搜索页样式（2026-11-20）。
+ *
+ * ## 取向：参考搜索引擎，但只借「版式」不借「气质」
+ *
+ * 用户要求「界面参考 Google 或是 bing 类似的搜索引擎」。真正有用的三样：
+ *  1. **居中大搜索框** —— 一进页面就知道这是搜索页，焦点明确
+ *  2. **命中概览** —— 「共 N 处，分布在这几本书」先给全局
+ *  3. **结果三段式** —— 路径 / 位置 / 片段，扫读效率高
+ *
+ * 不搬 Google 的配色与留白：这是深色主题的学习软件，
+ * 大块白底与宽松留白会显得像嵌了个网页。
+ *
+ * ## token
+ *
+ * 页面在深色画布上，用 v2 的 `--text*` / `--surface-*` / `--line-*`。
+ * **不是** `--paper-*`（那是纸张卡内部用的）。
+ *
+ * ## ⚠️ 按钮颜色写在层外
+ *
+ * `base.css` 有不在任何 `@layer` 里的 `button { color: inherit }`，
+ * 层外优先于层内（比 specificity 还优先）。需要指定字色的按钮
+ * 一律在文件末尾用 `.app .` 前缀写。
+ */
+
+@layer study.features {
+  .spage {
+    /*
+     * ⚠️ `width: 100%` 必须写（2026-11-20 实测踩到）。
+     *
+     * `.page` 是 flex 容器（`display: flex`），子项默认按**内容**收缩
+     * 而不是撑满。不写 width 时 `.spage` 只有 383px 宽 ——
+     * 于是 620px 的搜索框被压成 279px，比顶栏那个（329px）还窄，
+     * 「独立成页才有横向空间」这个初衷完全落空。
+     *
+     * 别的页面没暴露这个问题，是因为它们的内容本身够宽
+     * （表格、卡片列表把宽度顶开了）；搜索页内容轻，收缩最明显。
+     */
+    width: 100%;
+    max-width: 860px;
+    margin: var(--space-7) auto var(--space-9);
+    padding: 0 var(--space-4);
+  }
+
+  /* ---------- 顶部：居中大搜索框 ---------- */
+  /*
+   * ⚠️ `width: 100%` 这里的用意（2026-11-20 实测踩到）。
+   *
+   * `.spage` 本身虽然在父 flex 里撑满了（见上面的注释），
+   * 但 `.spage__hero` 若不加 width，作为 block 子元素本应撑满父宽 ——
+   * 实测却只有 351px。原因是 `.spage__bar` 有 `margin: 0 auto` +
+   * `max-width: 620px`，而 hero 的宽度由内容（bar）决定，
+   * 于是「标题偏右、说明被挤成两行窄条」。
+   *
+   * 显式给 100%，让 hero 撑满 `.spage`，标题与说明才真的居中。
+   */
+  .spage__hero {
+    width: 100%;
+    text-align: center;
+    padding: var(--space-6) 0 var(--space-5);
+  }
+
+  .spage__title {
+    margin: 0 0 var(--space-2);
+    font-size: var(--fs-xl);
+    font-weight: 650;
+    color: var(--text);
+    letter-spacing: 0.01em;
+  }
+
+  .spage__lead {
+    margin: 0 auto var(--space-5);
+    /*
+     * 说明文字的最大宽度。
+     *
+     * `ch` 是「0 的宽度」，中文的一个字约等于 2ch —— 46ch ≈ 23 个汉字，
+     * 实测截图里被挤成两行窄条（「在全部资料里搜一句话或一个词，结果按书分组」
+     * 换行到「点一条跳到原文那一句」），读起来断开。
+     *
+     * 改成 px 更可控：560px 在 14px 字号下能放约 34 个汉字，
+     * 这句 41 字的说明会换成两行但每行更完整。
+     */
+    max-width: 560px;
+    font-size: var(--fs-sm);
+    line-height: 1.7;
+    color: var(--text-muted);
+  }
+
+  .spage__bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    /*
+     * `width: 100%` + `max-width` 一起写：
+     * 只写 max-width 时，flex 容器在 block 父级里会收缩到内容宽度，
+     * 搜索框跟着变窄（第一版实测只有 279px，比顶栏那个还窄）。
+     */
+    width: 100%;
+    max-width: 620px;
+    margin: 0 auto;
+  }
+
+  /*
+   * 大搜索框：比顶栏那个宽一倍多（620 vs 329）。
+   * 圆角用 pill —— 这是「输入框」在搜索引擎语境下的默认形态，
+   * 也与侧栏其它方角控件区分开（让人一眼看出这是页面主控件）。
+   */
+  .spage__input {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 10px var(--space-4);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-pill);
+    background: var(--surface-1);
+    font-size: var(--fs-md);
+  }
+
+  .spage__input::placeholder {
+    color: var(--text-faint);
+  }
+
+  .spage__input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+
+  .spage__go {
+    flex: 0 0 auto;
+    padding: 10px var(--space-4);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-pill);
+    background: var(--accent);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .spage__go:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .spage__error {
+    margin: var(--space-3) 0 0;
+    font-size: var(--fs-sm);
+    color: var(--bad);
+  }
+
+  /* ---------- 命中概览 ---------- */
+  .spage__overview {
+    margin: var(--space-5) 0 var(--space-6);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface-1);
+  }
+
+  .spage__summary {
+    margin: 0 0 var(--space-3);
+    font-size: var(--fs-sm);
+    line-height: 1.6;
+    color: var(--text-dim);
+  }
+
+  .spage__dist {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  /*
+   * 分布条：每份资料一行「书名 —— 条形 —— 数量」。
+   *
+   * 这是窄面板做不到的事：一眼看出「哪本书里这个词最多」。
+   * 条形按各组命中数相对最大值缩放（2%~100%），
+   * 最少也给 2% 保证「有命中但很少」也看得见。
+   */
+  .spage__dist-row {
+    display: grid;
+    grid-template-columns: minmax(80px, 34%) 1fr 56px;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--fs-xs);
+  }
+
+  .spage__dist-name {
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .spage__dist-track {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--surface-2);
+    overflow: hidden;
+  }
+
+  .spage__dist-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--accent);
+    opacity: 0.85;
+  }
+
+  .spage__dist-num {
+    text-align: right;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- 空态 ---------- */
+  .spage__empty {
+    margin: var(--space-6) auto;
+    max-width: 46ch;
+    text-align: center;
+  }
+
+  .spage__empty-title {
+    margin: 0 0 var(--space-2);
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: 1.7;
+  }
+
+  .spage__empty-hint {
+    margin: 0;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    line-height: 1.7;
+  }
+
+  /* ---------- 结果列表 ---------- */
+  .spage__groups {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+  }
+
+  .spage__group-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    padding-bottom: var(--space-1);
+    border-bottom: 1px solid var(--line);
+    margin-bottom: var(--space-2);
+  }
+
+  .spage__source {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: var(--fs-sm);
+    font-weight: 650;
+    color: var(--text);
+    overflow-wrap: anywhere;
+  }
+
+  .spage__count {
+    flex: 0 0 auto;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .spage__count-sub {
+    color: var(--text-muted);
+  }
+
+  .spage__toggle {
+    flex: 0 0 auto;
+    padding: 1px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xs);
+    background: transparent;
+    font-size: var(--fs-xs);
+    cursor: pointer;
+  }
+
+  .spage__toggle:hover {
+    border-color: var(--accent);
+  }
+
+  .spage__hits {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* 结果条目：hover 给一条左侧强调线，比整块变色更克制 */
+  .spage__hit {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: var(--space-2) var(--space-3);
+    border: 0;
+    border-left: 2px solid transparent;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .spage__hit:hover {
+    border-left-color: var(--accent);
+    background: var(--surface-1);
+  }
+
+  .spage__where {
+    display: block;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .spage__chapter {
+    margin-left: var(--space-2);
+    color: var(--text-muted);
+  }
+
+  .spage__snippet {
+    display: block;
+    margin-top: 2px;
+    font-size: var(--fs-sm);
+    line-height: 1.7;
+    color: var(--text-dim);
+    overflow-wrap: anywhere;
+  }
+
+  .spage__kw {
+    background: #d9a44159;
+    color: inherit;
+    border-radius: 2px;
+    padding: 0 1px;
+  }
+
+  .spage__more {
+    margin: var(--space-2) 0 0;
+    padding-left: var(--space-3);
+    font-size: var(--fs-xs);
+    line-height: 1.6;
+    color: var(--text-faint);
+  }
+}
+
+/*
+ * ===== 层外：按钮与输入框字色 =====
+ * 原因见文件头。`.app .` 把 specificity 抬到 (0,2,0)，
+ * 高于 base.css 的 `button { color: inherit }`（0,0,1）。
+ * 不要用 `:where()` —— 它的 specificity 是 0，会输。
+ */
+.app .spage__input {
+  color: var(--text);
+}
+
+.app .spage__go {
+  /* 强调底色上必须用对比够的字色（与主按钮同一条规矩） */
+  color: var(--accent-ink);
+}
+
+.app .spage__toggle {
+  color: var(--text-dim);
+}
+
+.app .spage__toggle:hover {
+  color: var(--text);
+}
+
+.app .spage__hit {
+  color: var(--text-dim);
+}
