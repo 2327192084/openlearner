@@ -125,8 +125,14 @@ describe('locateQuestion · 整段锚点只能到页', () => {
     expect(r.kind).toBe('page');
     if (r.kind !== 'page') return;
     expect(r.page).toBe(16);
-    /* 必须说清为什么不高亮 —— 静默只跳页会让用户以为定位失败 */
+    /*
+     * 说明文字要提到「整段」，而且**不能再宣称不高亮**（2026-11-20 改）——
+     * 用户要求「具体不到某一句，就把那一段标出来」，
+     * 所以这句说明现在是解释「为什么只到整段」，不是解释「为什么什么都没有」。
+     */
     expect(r.reason).toContain('整段');
+    expect(r.reason).toContain('标出来');
+    expect(r.reason).not.toContain('不高亮');
   });
 
   it(`阈值与 ReaderPage 同口径（${WHOLE_SEGMENT_RATIO}）`, () => {
