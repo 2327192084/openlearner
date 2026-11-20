@@ -126,13 +126,16 @@ describe('locateQuestion · 整段锚点只能到页', () => {
     if (r.kind !== 'page') return;
     expect(r.page).toBe(16);
     /*
-     * 说明文字要提到「整段」，而且**不能再宣称不高亮**（2026-11-20 改）——
-     * 用户要求「具体不到某一句，就把那一段标出来」，
-     * 所以这句说明现在是解释「为什么只到整段」，不是解释「为什么什么都没有」。
+     * 说明文字要提到「整段」，并说清「不标注」（2026-11-20 最终定）——
+     * 用户看过段落级高亮的实测截图后指出：
+     * 「我看都是一整个页面被标注了，如果是整页标注的话那就不能称作段落，
+     *  那就不需要标注。」
+     *
+     * 他的资料一页就是一段（avgSegmentsPerPage = 1.00），
+     * 所以「标出这一段」等于「标出整页」。
      */
     expect(r.reason).toContain('整段');
-    expect(r.reason).toContain('标出来');
-    expect(r.reason).not.toContain('不高亮');
+    expect(r.reason).toContain('不标注');
   });
 
   it(`阈值与 ReaderPage 同口径（${WHOLE_SEGMENT_RATIO}）`, () => {

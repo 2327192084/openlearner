@@ -68,26 +68,6 @@ export interface MarkRange {
    * 「临时」这一层由 ReaderPage 负责 —— 它不写库，翻页/返回即清。
    */
   transient?: boolean;
-  /**
-   * 段落级定位高亮（2026-11-20）。
-   *
-   * ## 为什么需要第三种
-   *
-   * 用户实测反馈：「复习库中所有题都标注了不能跳转到某一句子」——
-   * 因为那些题的锚点是**整段**（`charStart:0, charEnd:整段`），
-   * 而 2026-11-09 定下的规则是「整段锚点不画高亮，只给文字说明」。
-   * 结果每道题点过去都是**一片没有标记的正文**，看起来像功能坏了。
-   *
-   * 用户要求退而求其次：具体不到句子，**至少把那一段标出来**。
-   *
-   * ## 为什么不能直接用句子那个等级
-   *
-   * 2026-11-09 用户明确说过「整个页面都是高光，这有点抽象」——
-   * 整段用句子的等级画（实底 + 描边）确实像界面坏了。
-   * 所以段落级要**明显更淡**：只一层很浅的底色，不描边、不加字重，
-   * 读起来像「这一段被圈定了」，而不是「这一段被选中了」。
-   */
-  block?: boolean;
 }
 
 export interface MarkdownBodyMarkedProps {
@@ -211,7 +191,6 @@ export function MarkdownBodyMarked({
     const markIdx = marks.findIndex((m) => intersect(a0, a1, m.start, m.end) !== null);
     const markHit = markIdx >= 0 ? intersect(a0, a1, marks[markIdx]!.start, marks[markIdx]!.end) : null;
     const markTransient = markIdx >= 0 ? marks[markIdx]!.transient === true : false;
-    const markBlock = markIdx >= 0 ? marks[markIdx]!.block === true : false;
     const noteHit = notes
       .map((m) => intersect(a0, a1, m.start, m.end))
       .find((x) => x !== null);
@@ -232,20 +211,11 @@ export function MarkdownBodyMarked({
           {before}
           <mark
             /*
-             * 两种临时定位高亮（2026-11-20）：
-             *  - 句子级 `--transient`：橙底，形状与标注高亮完全一致
-             *  - 段落级 `--block`：**更淡的橙底**，不描边 ——
-             *    整段用句子的等级画会像「满屏高光」（2026-11-09 用户反馈过）
-             *
-             * 两者互斥：block 优先（整段的跨度本来也覆盖不了句子判定）。
+             * 临时定位高亮换成橙色（2026-11-20）。
+             * 形状与普通定位高亮**完全一致**（同样的底色块、圆角、描边），
+             * 只换颜色 —— 用户要的是「一眼分得清，但看得出是同一类东西」。
              */
-            className={`reader-mark${
-              markBlock
-                ? ' reader-mark--transient reader-mark--block'
-                : markTransient
-                  ? ' reader-mark--transient'
-                  : ''
-            }`}
+            className={`reader-mark${markTransient ? ' reader-mark--transient' : ''}`}
             ref={(el) => {
               if (el && markRef && !markRef.current) markRef.current = el;
             }}
