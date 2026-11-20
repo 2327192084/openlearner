@@ -200,6 +200,48 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /*
+   * 「（列前 N 处）」与「还有 X 处没列出」（2026-11-20）。
+   *
+   * 用户搜「的」这类高频词时，全库 2365 处而列表只列 500 处。
+   * 这两个提示负责把「没全列出来」说清楚 —— 不说的话
+   * 用户会以为搜遍了全库。用 faint 色，它是注解不是告警。
+   */
+  .gsearch__count-shown {
+    color: var(--text-muted);
+  }
+
+  .gsearch__more {
+    margin: var(--space-2) 0 0;
+    padding: 0 var(--space-2);
+    font-size: var(--fs-xs);
+    line-height: 1.6;
+    color: var(--text-faint);
+  }
+
+  /*
+   * 「展开全部 N 条 / 收起」（2026-11-20）。
+   *
+   * 命中很多时（实测搜「的」2365 处）默认每组只列 3 条，
+   * 让用户一眼看到「有哪些书命中、各多少」，想看哪本再展开。
+   *
+   * 颜色写在层外（见文件末尾）——`base.css` 的 `button{color:inherit}`
+   * 会压掉层内规则。
+   */
+  .gsearch__toggle {
+    flex: 0 0 auto;
+    padding: 0 var(--space-1);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xs);
+    background: transparent;
+    font-size: var(--fs-xs);
+    cursor: pointer;
+  }
+
+  .gsearch__toggle:hover {
+    border-color: var(--accent);
+  }
+
   .gsearch__hits {
     list-style: none;
     margin: 0;
@@ -274,6 +316,14 @@
 }
 
 .app .gsearch__close:hover {
+  color: var(--text);
+}
+
+.app .gsearch__toggle {
+  color: var(--text-dim);
+}
+
+.app .gsearch__toggle:hover {
   color: var(--text);
 }
 

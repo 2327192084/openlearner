@@ -57,6 +57,25 @@ export interface GlobalSearchBoxProps {
   onOpenHit: (target: ReaderTarget) => void;
 }
 
+/**
+ * 超过这个总数就把资料组默认折起来（2026-11-20）。
+ *
+ * ## 为什么需要折叠
+ *
+ * 实测搜「的」有 2365 处，列表列 500 条，而面板限高 620px ——
+ * 用户要滚很久才能看到第二、第三份资料。而「哪几本书里有这个词」
+ * 恰恰是跨资料搜索要回答的第一个问题。
+ *
+ * 所以命中很多时：**每份资料只默认展开前几条**，
+ * 用户点一下就能展开那一份看他关心的书。
+ *
+ * 为什么以 80 为界：普通词（实测「极限」48 处）折叠反而添乱 ——
+ * 一次能看完的东西不该多一次点击。
+ */
+const COLLAPSE_THRESHOLD = 80;
+/** 折叠状态下每组先显示几条 */
+const COLLAPSED_PER_GROUP = 3;
+
 /** 把片段里出现的所有关键词包成 <mark>（不区分大小写） */
 function renderSnippet(snippet: string, keyword: string) {
   const kw = keyword.trim();
@@ -90,6 +109,14 @@ export function GlobalSearchBox({ loadIndex, onOpenHit }: GlobalSearchBoxProps) 
   const [result, setResult] = useState<GlobalSearchResult | null>(null);
   /** 这次结果是搜哪个词得到的（结果里的关键词高亮要用它，不是输入框的实时值） */
   const [searchedFor, setSearchedFor] = useState('');
+  /**
+   * 哪些资料组是**用户主动展开**的（2026-11-20）。
+   *
+   * 命中很多时默认折叠（每组只显示 3 条），点「展开」才全列。
+   * 记「展开的」而不是「折叠的」：每次新搜索都是全新结果，
+   * 记折叠的会让上一次的折叠状态污染这一次。
+   */
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const boxRef = useRef<HTMLDivElement | null>(null);
 
   /**
@@ -122,6 +149,8 @@ export function GlobalSearchBox({ loadIndex, onOpenHit }: GlobalSearchBoxProps) 
       const { sources, segments } = await loadIndex();
       setResult(searchAllSources(sources, segments, q));
       setSearchedFor(q);
+      /* 新一次搜索：上一轮的展开状态作废（结果是全新的） */
+      setExpanded(new Set());
     } catch (e) {
       setError(e instanceof Error ? e.message : '搜索失败');
       setResult(null);
@@ -180,45 +209,141 @@ export function GlobalSearchBox({ loadIndex, onOpenHit }: GlobalSearchBoxProps) 
             </button>
           </div>
 
-          {result.total === 0 ? (
+          {/*
+            空态判断用 `matchCount`（真实命中数），**不是** `total`（展示条数）。
+            两者在截断时可能不同：若 limit 被前面的资料占满，
+            后面资料的 hits 是空的但 matchCount 不为 0 ——
+            用 total 判断会把「找到了、只是没列出」说成「没找到」。
+          */}
+          {result.matchCount === 0 ? (
             <p className="gsearch__empty">
               换个词试试，或者先确认资料已经解析出正文（「资料」页能看到段数）。
             </p>
           ) : (
             <ul className="gsearch__groups">
-              {result.groups.map((g) => (
-                <li key={g.sourceId} className="gsearch__group">
-                  {/*
-                    按资料分组（组头是书名）。
-                    不分组的话 500 条结果平铺，用户分不清哪条来自哪本书 ——
-                    而「在哪本书里」正是这次搜索要回答的问题。
-                  */}
-                  <p className="gsearch__group-head">
-                    <span className="gsearch__source">{g.sourceTitle}</span>
-                    <span className="gsearch__count">{g.count} 处</span>
-                  </p>
-                  <ul className="gsearch__hits">
-                    {g.hits.map((h, i) => (
-                      <li key={`${h.segmentId}:${h.charStart}:${i}`}>
+              {result.groups.map((g) => {
+                /*
+                 * 命中很多时默认每组只显示 3 条（2026-11-20）。
+                 *
+                 * 实测搜「的」列 500 条、面板限高 620px ——
+                 * 用户要滚很久才能看到第二本书，而「哪几本书里有」
+                 * 正是跨资料搜索要回答的第一个问题。
+                 *
+                 * 折叠后一眼能看到所有资料各自的命中数，
+                 * 想看哪本就展开哪本。
+                 */
+                const collapsible = result.matchCount > COLLAPSE_THRESHOLD;
+                const isOpen = expanded.has(g.sourceId);
+                const shownHits =
+                  collapsible && !isOpen ? g.hits.slice(0, COLLAPSED_PER_GROUP) : g.hits;
+                const hiddenByCollapse = g.hits.length - shownHits.length;
+
+                return (
+                  <li key={g.sourceId} className="gsearch__group">
+                    {/*
+                      按资料分组（组头是书名）。
+                      不分组的话 500 条结果平铺，用户分不清哪条来自哪本书 ——
+                      而「在哪本书里」正是这次搜索要回答的问题。
+                    */}
+                    <p className="gsearch__group-head">
+                      <span className="gsearch__source">{g.sourceTitle}</span>
+                      {/*
+                        组头上的数字是**真实命中数**，不是列表长度（2026-11-20）。
+                        两者可能不同：触到 limit 时列表被截断。
+                        只显示列表长度会让用户以为「这本书只有 12 处」，
+                        而其实它有 800 处 —— 那是在骗人。
+                      */}
+                      <span className="gsearch__count">
+                        {g.count} 处
+                        {g.hits.length < g.count ? (
+                          <span className="gsearch__count-shown">
+                            （列前 {g.hits.length} 处）
+                          </span>
+                        ) : null}
+                      </span>
+                      {/*
+                        折叠开关只在「本组真被折叠了」时出现 ——
+                        不能给一个点了没变化的按钮（不做假开关）。
+                      */}
+                      {hiddenByCollapse > 0 ? (
                         <button
                           type="button"
-                          className="gsearch__hit"
-                          onClick={() => pick(h)}
-                          title="跳到这一句"
+                          className="gsearch__toggle"
+                          onClick={() =>
+                            setExpanded((prev) => {
+                              const next = new Set(prev);
+                              next.add(g.sourceId);
+                              return next;
+                            })
+                          }
                         >
-                          <span className="gsearch__where">
-                            第 {h.page} 页
-                            {h.chapter ? <span className="gsearch__chapter">{h.chapter}</span> : null}
-                          </span>
-                          <span className="gsearch__snippet">
-                            {renderSnippet(h.snippet, searchedFor)}
-                          </span>
+                          展开全部 {g.hits.length} 条
                         </button>
-                      </li>
-                    ))}
-                  </ul>
-                </li>
-              ))}
+                      ) : collapsible && isOpen && g.hits.length > COLLAPSED_PER_GROUP ? (
+                        <button
+                          type="button"
+                          className="gsearch__toggle"
+                          onClick={() =>
+                            setExpanded((prev) => {
+                              const next = new Set(prev);
+                              next.delete(g.sourceId);
+                              return next;
+                            })
+                          }
+                        >
+                          收起
+                        </button>
+                      ) : null}
+                    </p>
+                    <ul className="gsearch__hits">
+                      {shownHits.map((h, i) => (
+                        <li key={`${h.segmentId}:${h.charStart}:${i}`}>
+                          <button
+                            type="button"
+                            className="gsearch__hit"
+                            onClick={() => pick(h)}
+                            title="跳到这一句"
+                          >
+                            <span className="gsearch__where">
+                              第 {h.page} 页
+                              {h.chapter ? (
+                                <span className="gsearch__chapter">{h.chapter}</span>
+                              ) : null}
+                            </span>
+                            <span className="gsearch__snippet">
+                              {renderSnippet(h.snippet, searchedFor)}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    {/*
+                      底部提示：**把「折叠」与「截断」合成一句**，不要两条并列
+                      （2026-11-20）。两条并列时会出现
+                      「这份资料还有 348 处没列出」+「已折叠 164 条」
+                      —— 用户要自己相减才知道总共还有多少，纯属添乱。
+                    */}
+                    {g.hits.length < g.count || hiddenByCollapse > 0 ? (
+                      <p className="gsearch__more">
+                        {(() => {
+                          /* 相对「这次搜索全部命中数」还差多少没展示 */
+                          const notShown = g.count - shownHits.length;
+                          if (notShown <= 0) return null;
+                          /*
+                           * 两种原因可能同时存在：
+                           *  - 列表本身被 limit 截断（g.hits 就不全）
+                           *  - 折叠了（g.hits 有，但默认没显示）
+                           */
+                          if (hiddenByCollapse > 0) {
+                            return `还有 ${notShown} 处没显示（默认只列 3 条，点「展开全部」看）`;
+                          }
+                          return `还有 ${notShown} 处没显示（结果太多，只列前 ${g.hits.length} 处；换个更具体的词能缩小范围）`;
+                        })()}
+                      </p>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

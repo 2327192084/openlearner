@@ -55,15 +55,26 @@ export interface GlobalSearchHit {
 export interface SourceHitGroup {
   sourceId: string;
   sourceTitle: string;
+  /**
+   * 实际展示的命中（可能少于 `count` —— 触到 limit 时被截断）。
+   *
+   * 界面必须能分辨这两个数：`hits.length` 是「列出来的」，
+   * `count` 是「这本书里真有的」。只显示前者会让用户以为
+   * 一本有 800 处命中的书只有 12 处。
+   */
   hits: GlobalSearchHit[];
-  /** 这份资料里有多少处命中 */
+  /**
+   * 这份资料里**真实**有多少处命中（不受 limit 影响）。
+   *
+   * 与 `hits.length` 可能不同 —— 见上面。
+   */
   count: number;
 }
 
 /** 搜索总结果 */
 export interface GlobalSearchResult {
   groups: SourceHitGroup[];
-  /** 总命中数 */
+  /** **实际返回**的命中数（受 limit 限制） */
   total: number;
   /** 涉及的资料份数 */
   sourceCount: number;
@@ -74,6 +85,22 @@ export interface GlobalSearchResult {
    * 「这几份资料还没解析出正文」。静默跳过会让人以为搜遍了全库。
    */
   skippedSources: number;
+  /**
+   * 库里**一共有多少处**命中（不受 limit 限制）—— 2026-11-20 加。
+   *
+   * ## 为什么必须有这个字段
+   *
+   * 实测用户库里搜「的」有 **2365 处**，而 limit 是 500。
+   * 原来只返回 500 条、`total` 也写 500，界面显示「共 500 处」——
+   * **那是假话**：用户以为搜遍了全库，其实漏掉 1865 处。
+   *
+   * 项目一贯的规矩是「说出来就要是真的」。
+   * 所以现在：**计数算全（便宜）**，展示截断（贵的是 DOM），
+   * 界面可以说「共 2365 处，显示前 500 处」。
+   */
+  matchCount: number;
+  /** 是否被 limit 截断（方便界面直接判断） */
+  truncated: boolean;
 }
 
 /** 片段上下文长度（前后各这么多字符） */
@@ -113,6 +140,8 @@ export function searchAllSources(
     total: 0,
     sourceCount: 0,
     skippedSources: 0,
+    matchCount: 0,
+    truncated: false,
   };
   if (!needle) return empty;
 
@@ -134,54 +163,148 @@ export function searchAllSources(
 
   const groups: SourceHitGroup[] = [];
   let skipped = 0;
-  let total = 0;
+  let shown = 0;
+  /*
+   * `matchCount` 与 `shown` 必须分开（2026-11-20 修）。
+   *
+   * `findAllFolded` 的结果本来就在手上 —— 数它「有几个」是零成本的，
+   * 贵的只是为命中构建 DOM 与 snippet。所以：
+   *   - **计数算全**（哪怕 2365 处）
+   *   - **构建截断**（到 limit 就停止构建）
+   *
+   * 第一版把两者混成一个 `total`，于是搜「的」时界面显示
+   * 「共 500 处」—— 那是假话，实有 2365 处。
+   */
+  let matchCount = 0;
 
+  /*
+   * 每份资料的展示配额（2026-11-20）。
+   *
+   * ## 为什么不是「先到先得、吃完为止」
+   *
+   * 第一版就是那样：按资料标题排序，第一份（高数，515 处）
+   * 把 500 条额度吃光，后面两份命中几百处的资料**一条都不列**。
+   * 实测截图：搜「的」只看到一份资料，另两份显示「列前 0 处」——
+   * 读起来像坏掉了，而且违背「跨资料搜索」的意义
+   * （用户就想知道「哪几本书里有」）。
+   *
+   * ## 现在：先给每份资料一个保底配额
+   *
+   * 有 N 份有命中的资料时，每份先分 `floor(limit / N)` 条，
+   * 剩下的额度再按顺序补给前面的资料。这样每份资料至少能看到几处，
+   * 「哪本书里有」这个信息不会被截断吃掉。
+   *
+   * 先数一遍「有几份资料有命中」—— 这需要多扫一遍，
+   * 但只是字符串匹配，比让用户看不到资料强。
+   */
+  const hasHit: { src: Source; segs: SourceSegment[]; groupCount: number }[] = [];
   for (const src of ordered) {
-    if (total >= limit) break;
     const segs = segsBySource.get(src.id);
     if (!segs || segs.length === 0) {
       /* 没有正文的资料如实计入跳过数 —— 用户要知道「这几份搜不了」 */
       skipped += 1;
       continue;
     }
-
-    /* 段内按页序，保证结果从上到下 */
     const sorted = [...segs].sort((a, b) => a.index - b.index);
-    const hits: GlobalSearchHit[] = [];
+    let c = 0;
+    for (const seg of sorted) c += findAllFolded(seg.text, needle).length;
+    matchCount += c;
+    if (c > 0) hasHit.push({ src, segs: sorted, groupCount: c });
+  }
 
-    for (const seg of sorted) {
-      if (total + hits.length >= limit) break;
-      const occurrences = findAllFolded(seg.text, needle);
-      for (const { start, end } of occurrences) {
-        hits.push({
-          sourceId: src.id,
-          sourceTitle: src.title,
-          segmentId: seg.id,
-          page: seg.page,
-          chapter: seg.chapter,
-          charStart: start,
-          charEnd: end,
-          snippet: makeSnippet(seg.text, start, end),
-        });
+  /** 每份资料的保底配额（至少 1 条，让用户看到「这本书里有」） */
+  const perSourceQuota =
+    hasHit.length > 0 ? Math.max(1, Math.floor(limit / hasHit.length)) : limit;
+
+  for (const { src, segs, groupCount } of hasHit) {
+    /*
+     * 这份能展示多少：保底配额，或剩余额度（谁先来谁用剩下的）。
+     * 用 `Math.max` 保证即使配额为 0 也至少给 1 条 ——
+     * 「有命中但一条都不列」是最糟糕的呈现。
+     */
+    const remain = limit - shown;
+    const allowance = Math.max(0, Math.min(Math.max(perSourceQuota, 1), remain));
+
+    const hits: GlobalSearchHit[] = [];
+    if (allowance > 0) {
+      for (const seg of segs) {
+        if (hits.length >= allowance) break;
+        const occurrences = findAllFolded(seg.text, needle);
+        for (const { start, end } of occurrences) {
+          if (hits.length >= allowance) break;
+          hits.push({
+            sourceId: src.id,
+            sourceTitle: src.title,
+            segmentId: seg.id,
+            page: seg.page,
+            chapter: seg.chapter,
+            charStart: start,
+            charEnd: end,
+            snippet: makeSnippet(seg.text, start, end),
+          });
+        }
       }
     }
 
-    if (hits.length > 0) {
-      groups.push({
-        sourceId: src.id,
-        sourceTitle: src.title,
-        hits,
-        count: hits.length,
-      });
-      total += hits.length;
+    groups.push({
+      sourceId: src.id,
+      sourceTitle: src.title,
+      hits,
+      count: groupCount,
+    });
+    shown += hits.length;
+  }
+
+  /*
+   * 还剩额度就按顺序补给前面的资料（配额可能没被用满，
+   * 比如某份资料只有 3 处命中但配额是 166）。
+   *
+   * 简化实现：每轮给还没列满且额度仍有剩余的组补一条，直到额度用尽。
+   * 不追求「填得最满」，只保证列表不至于因为配额偏低而显得空。
+   */
+  if (shown < limit) {
+    const byId = new Map(hasHit.map((h) => [h.src.id, h.segs]));
+    let progressed = true;
+    while (shown < limit && progressed) {
+      progressed = false;
+      for (const g of groups) {
+        if (shown >= limit) break;
+        if (g.hits.length >= g.count) continue;
+        const segs = byId.get(g.sourceId);
+        if (!segs) continue;
+        const seen = new Set(g.hits.map((h) => `${h.segmentId}:${h.charStart}`));
+        let added = false;
+        for (const seg of segs) {
+          if (added) break;
+          for (const { start, end } of findAllFolded(seg.text, needle)) {
+            if (seen.has(`${seg.id}:${start}`)) continue;
+            g.hits.push({
+              sourceId: g.sourceId,
+              sourceTitle: g.sourceTitle,
+              segmentId: seg.id,
+              page: seg.page,
+              chapter: seg.chapter,
+              charStart: start,
+              charEnd: end,
+              snippet: makeSnippet(seg.text, start, end),
+            });
+            shown += 1;
+            added = true;
+            break;
+          }
+        }
+        if (added) progressed = true;
+      }
     }
   }
 
   return {
     groups,
-    total,
+    total: shown,
     sourceCount: groups.length,
     skippedSources: skipped,
+    matchCount,
+    truncated: matchCount > shown,
   };
 }
 
@@ -214,16 +337,34 @@ export function hitToReaderTarget(hit: GlobalSearchHit): {
  * 结果摘要文案（给界面顶部用）。
  *
  * 单独抽出来是为了可测 —— 文案里这几个数字的语义容易被写错：
- * 「几处 / 几份资料 / 几份搜不了」是三件事。
+ * 「几处 / 显示几处 / 几份资料 / 几份搜不了」是四件事。
+ *
+ * ## 为什么要专门说「显示前 N 处」（2026-11-20）
+ *
+ * 实测用户库里搜「的」有 2365 处，而 limit 是 500。
+ * 第一版摘要写的是「共 500 处」—— 那是假话，用户以为搜遍了全库。
+ *
+ * 项目一贯的规矩：**说出来就要是真的**。宁可承认「没全列出来」，
+ * 也不能让用户以为搜全了。
  */
 export function summarizeResult(r: GlobalSearchResult, query: string): string {
-  if (!query.trim()) return '';
-  if (r.total === 0) {
+  const q = query.trim();
+  if (!q) return '';
+
+  if (r.matchCount === 0) {
     return r.skippedSources > 0
-      ? `没有找到「${query.trim()}」。另外有 ${r.skippedSources} 份资料还没有正文，不在搜索范围内。`
-      : `没有找到「${query.trim()}」。`;
+      ? `没有找到「${q}」。另外有 ${r.skippedSources} 份资料还没有正文，不在搜索范围内。`
+      : `没有找到「${q}」。`;
   }
-  const base = `「${query.trim()}」共 ${r.total} 处，分布在 ${r.sourceCount} 份资料`;
+
+  /*
+   * 截断时的说法：「共 2365 处（列表只列前 500 处）」——
+   * 总数在前、列表数在后，因为用户最想知道的是「到底有多少」。
+   */
+  const base = r.truncated
+    ? `「${q}」共 ${r.matchCount} 处，分布在 ${r.sourceCount} 份资料（列表只列前 ${r.total} 处，换个更具体的词能缩小范围）`
+    : `「${q}」共 ${r.matchCount} 处，分布在 ${r.sourceCount} 份资料`;
+
   return r.skippedSources > 0
     ? `${base}（另有 ${r.skippedSources} 份资料没有正文，未参与搜索）`
     : base;

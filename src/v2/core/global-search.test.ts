@@ -216,6 +216,100 @@ describe('summarizeResult', () => {
   });
 
   it('空搜索词返回空串（不显示「共 0 处」这种噪音）', () => {
-    expect(summarizeResult({ groups: [], total: 0, sourceCount: 0, skippedSources: 0 }, '  ')).toBe('');
+    expect(
+      summarizeResult(
+        { groups: [], total: 0, sourceCount: 0, skippedSources: 0, matchCount: 0, truncated: false },
+        '  ',
+      ),
+    ).toBe('');
+  });
+});
+
+describe('截断必须如实告知（2026-11-20）', () => {
+  /**
+   * 用户库里搜「的」实有 2365 处，而 limit 是 500。
+   *
+   * 第一版把「展示条数」当成「总命中数」，界面显示「共 500 处」——
+   * **那是假话**，用户以为搜遍了全库。这组测试守的就是这条。
+   */
+  function manyHits(text: string, n: number): SourceSegment[] {
+    /* 一段里塞 n 个「的」 */
+    return [seg({ id: 'a', sourceId: 's1', text: text.repeat(n) })];
+  }
+
+  it('**matchCount 是真实命中数，不受 limit 影响**', () => {
+    const s = [src('s1', '书')];
+    const sg = manyHits('的', 80);
+    const r = searchAllSources(s, sg, '的', 20);
+    expect(r.matchCount).toBe(80);
+    expect(r.total).toBeLessThanOrEqual(20);
+    expect(r.truncated).toBe(true);
+  });
+
+  it('**组里的 count 是真实数，不是列表长度**', () => {
+    const s = [src('s1', '书')];
+    const sg = manyHits('的', 80);
+    const r = searchAllSources(s, sg, '的', 20);
+    expect(r.groups[0]!.count).toBe(80);
+    expect(r.groups[0]!.hits.length).toBeLessThanOrEqual(20);
+  });
+
+  it('**摘要说清「只列前 N 处」**，不能只说「共 N 处」', () => {
+    const s = [src('s1', '书')];
+    const sg = manyHits('的', 80);
+    const r = searchAllSources(s, sg, '的', 20);
+    const msg = summarizeResult(r, '的');
+    expect(msg).toContain('80 处'); // 真实总数
+    expect(msg).toContain('只列前'); // 承认截断
+  });
+
+  it('没截断时摘要不提「只列前」', () => {
+    const s = [src('s1', '书')];
+    const sg = [seg({ id: 'a', sourceId: 's1', text: '映射就是对应关系' })];
+    const r = searchAllSources(s, sg, '映射', 500);
+    expect(r.truncated).toBe(false);
+    expect(summarizeResult(r, '映射')).not.toContain('只列前');
+  });
+
+  /**
+   * 边界：额度不够分给所有命中时，**每份资料都要分到一些**。
+   *
+   * 第一版是「先到先得、吃完为止」：第一份资料（515 处）把额度吃光，
+   * 后面两份命中几百处的资料一条都不列 —— 实测截图里
+   * 「（列前 0 处）」「还有 566 处没列出（只列前 0 处）」。
+   * 读起来像坏了，而且违背跨资料搜索的意义（用户就想知道哪几本书里有）。
+   *
+   * 现在按 `floor(limit / 有命中的资料数)` 给每份保底配额。
+   */
+  it('**额度不够时每份资料都能分到几条**（不是第一份吃光）', () => {
+    const s = [src('sA', '甲'), src('sZ', '乙')];
+    const sg = [
+      seg({ id: 'a1', sourceId: 'sA', text: '的'.repeat(30) }),
+      seg({ id: 'b1', sourceId: 'sZ', text: '的'.repeat(30) }),
+    ];
+    const r = searchAllSources(s, sg, '的', 10);
+    expect(r.matchCount).toBe(60);
+    /* 两份资料都要在 groups 里 */
+    expect(r.sourceCount).toBe(2);
+    /* 而且**两边的列表都不能为空** —— 空列表 = 用户以为这本书里没有 */
+    for (const g of r.groups) {
+      expect(g.hits.length).toBeGreaterThan(0);
+      expect(g.count).toBe(30);
+    }
+    /* 总展示数不超过 limit */
+    expect(r.total).toBeLessThanOrEqual(10);
+  });
+
+  it('每份资料的展示条数之和不超过 limit', () => {
+    const s = [src('a', '甲'), src('b', '乙'), src('c', '丙')];
+    const sg = [
+      seg({ id: 'x1', sourceId: 'a', text: '的'.repeat(50) }),
+      seg({ id: 'x2', sourceId: 'b', text: '的'.repeat(50) }),
+      seg({ id: 'x3', sourceId: 'c', text: '的'.repeat(50) }),
+    ];
+    const r = searchAllSources(s, sg, '的', 12);
+    expect(r.matchCount).toBe(150);
+    expect(r.total).toBeLessThanOrEqual(12);
+    expect(r.groups.every((g) => g.hits.length > 0)).toBe(true);
   });
 });
