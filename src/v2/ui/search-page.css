@@ -147,6 +147,117 @@
     color: var(--bad);
   }
 
+  /* ---------- 搜索历史（2026-11-21） ---------- */
+  /*
+   * 参考用户给的浏览器截图：一行「搜索历史」+ 右侧「清空」，
+   * 底下一排胶囊标签。左右分明、整体低调 —— 它是辅助，
+   * 不该和搜索框抢注意力。
+   *
+   * 宽度与搜索框对齐（620px），让它读起来是「搜索框的一部分」，
+   * 而不是浮在页面中间另一块东西。
+   */
+  .spage__history {
+    width: 100%;
+    max-width: 620px;
+    margin: var(--space-4) auto 0;
+    text-align: left;
+  }
+
+  .spage__history-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+  }
+
+  .spage__history-title {
+    flex: 1 1 auto;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    letter-spacing: 0.02em;
+  }
+
+  .spage__history-clear {
+    flex: 0 0 auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font-size: var(--fs-xs);
+    cursor: pointer;
+  }
+
+  .spage__history-clear:hover {
+    text-decoration: underline;
+  }
+
+  .spage__history-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  /*
+   * 每条 = 胶囊 + 一个默认隐藏的「×」。
+   *
+   * 为什么 × 放在胶囊**外面**而不是里面：放进胶囊会让点击区域重叠，
+   * 点胶囊边缘时容易误删（删了没法撤销）。分开两个按钮，各管一件事。
+   */
+  .spage__history-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .spage__history-chip {
+    padding: 4px var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-pill);
+    background: var(--surface-1);
+    font-size: var(--fs-xs);
+    cursor: pointer;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .spage__history-chip:hover {
+    border-color: var(--accent);
+    background: var(--surface-2);
+  }
+
+  /*
+   * 单条删除：默认几乎不可见（opacity 0），hover 整条时浮现。
+   *
+   * 为什么不用 display:none 切换：那会让鼠标移到 × 的位置时
+   * 元素突然出现、光标位置算错，点击容易落空。
+   * 用 opacity + 保留占位更稳（它本来就在那儿，只是淡）。
+   */
+  .spage__history-del {
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    font-size: var(--fs-xs);
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0;
+  }
+
+  .spage__history-item:hover .spage__history-del,
+  .spage__history-del:focus-visible {
+    opacity: 1;
+  }
+
+  .spage__history-del:hover {
+    background: var(--surface-2);
+  }
+
   /* ---------- 命中概览 ---------- */
   .spage__overview {
     margin: var(--space-5) 0 var(--space-6);
@@ -374,4 +485,29 @@
 
 .app .spage__hit {
   color: var(--text-dim);
+}
+
+/* ---- 搜索历史的按钮（2026-11-21）---- */
+.app .spage__history-clear {
+  color: var(--text-muted);
+}
+
+.app .spage__history-clear:hover {
+  color: var(--text);
+}
+
+.app .spage__history-chip {
+  color: var(--text-dim);
+}
+
+.app .spage__history-chip:hover {
+  color: var(--text);
+}
+
+.app .spage__history-del {
+  color: var(--text-faint);
+}
+
+.app .spage__history-del:hover {
+  color: var(--bad);
 }

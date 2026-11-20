@@ -35,7 +35,7 @@
  * 硬约束：大文件里不要插代码，新增 UI 一律独立文件。
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Source, SourceSegment } from '@/core/model.ts';
 import type { GlobalSearchResult } from '@/v2/core/global-search.ts';
 import {
@@ -43,6 +43,13 @@ import {
   searchAllSources,
   summarizeResult,
 } from '@/v2/core/global-search.ts';
+import {
+  clearHistory,
+  loadHistory,
+  pushHistory,
+  removeHistory,
+  saveHistory,
+} from './search-history.ts';
 import type { ReaderTarget } from './ReaderPage.tsx';
 import './search-page.css';
 
@@ -95,25 +102,77 @@ export function SearchPage({ loadIndex, onOpenHit }: SearchPageProps) {
   const [searchedFor, setSearchedFor] = useState('');
   /** 用户主动展开的资料组 */
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  /**
+   * 搜索历史（2026-11-21）。
+   *
+   * 初次挂载时从 localStorage 读（不能放进 useState 的惰性初始化里
+   * 直接调 —— SSR 环境下没有 localStorage，虽然这项目是纯客户端，
+   * 但 effect 里读更保险，也让「读到什么」是一次明确的动作）。
+   */
+  const [history, setHistory] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const runSearch = useCallback(async () => {
-    const q = query.trim();
-    if (!q || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const { sources, segments } = await loadIndex();
-      setResult(searchAllSources(sources, segments, q));
-      setSearchedFor(q);
-      setExpanded(new Set());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '搜索失败');
-      setResult(null);
-    } finally {
-      setBusy(false);
-    }
-  }, [query, busy, loadIndex]);
+  useEffect(() => {
+    setHistory(loadHistory());
+  }, []);
+
+  /**
+   * 真正执行搜索。
+   *
+   * 单独抽出来是因为它有**两个入口**：输入框回车、点历史标签。
+   * 第一版把逻辑写在 `runSearch` 里读 `query`，点历史标签时
+   * `setQuery` 还没生效就会搜到旧词 —— 典型的状态时序坑。
+   * 现在由调用方直接把词传进来。
+   */
+  const doSearch = useCallback(
+    async (rawTerm: string) => {
+      const q = rawTerm.trim();
+      if (!q || busy) return;
+      setBusy(true);
+      setError(null);
+      try {
+        const { sources, segments } = await loadIndex();
+        const r = searchAllSources(sources, segments, q);
+        setResult(r);
+        setSearchedFor(q);
+        setExpanded(new Set());
+        /*
+         * 只在**搜出东西**时才记历史（2026-11-21 实测修）。
+         *
+         * 第一版把记录放在这里但没判断 `r.matchCount`，于是
+         * 「绝不存在的词组zzz」也进了历史，而真有用的词反而因为
+         * 后面测试顺序没进来。历史里堆一堆错别字/试探词，会把
+         * 真正常用的挤掉 —— 用户点历史是想要「上次那个有结果的东西」。
+         */
+        if (r.matchCount > 0) {
+          setHistory((prev) => {
+            const next = pushHistory(prev, q);
+            saveHistory(next);
+            return next;
+          });
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '搜索失败');
+        setResult(null);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, loadIndex],
+  );
+
+  const runSearch = useCallback(() => {
+    void doSearch(query);
+  }, [doSearch, query]);
+
+  /** 点历史标签：填进输入框并立刻搜（少一次回车） */
+  const useHistory = useCallback(
+    (term: string) => {
+      setQuery(term);
+      void doSearch(term);
+    },
+    [doSearch],
+  );
 
   const pick = useCallback(
     (hit: Parameters<typeof hitToReaderTarget>[0]) => {
@@ -173,6 +232,69 @@ export function SearchPage({ loadIndex, onOpenHit }: SearchPageProps) {
         </div>
 
         {error ? <p className="spage__error">{error}</p> : null}
+
+        {/*
+          搜索历史（2026-11-21，用户要求）。
+          参考浏览器那种：一行「搜索历史」+ 右侧「清空」+ 底下一排胶囊标签。
+
+          ## 为什么放在搜索框底下而不是侧栏
+          用户点历史是「接着刚才那个搜」，眼睛还在搜索框附近；
+          挪到别处会多一次目光转移。参考图也是这个位置。
+
+          ## 为什么历史为空时整块不渲染
+          空标题 + 空行只是噪音。没有历史时这一片就是干净的。
+        */}
+        {history.length > 0 ? (
+          <div className="spage__history">
+            <div className="spage__history-head">
+              <span className="spage__history-title">搜索历史</span>
+              <button
+                type="button"
+                className="spage__history-clear"
+                onClick={() => {
+                  clearHistory();
+                  setHistory([]);
+                }}
+                title="清空全部搜索历史"
+              >
+                清空
+              </button>
+            </div>
+            <ul className="spage__history-list">
+              {history.map((term) => (
+                <li key={term} className="spage__history-item">
+                  <button
+                    type="button"
+                    className="spage__history-chip"
+                    onClick={() => useHistory(term)}
+                    title={`再搜一次「${term}」`}
+                  >
+                    {term}
+                  </button>
+                  {/*
+                    单条删除：hover 时才显眼（鼠标移上去出现「×」）。
+                    不做成常驻小叉 —— 一排胶囊每个带个叉会很吵。
+                  */}
+                  <button
+                    type="button"
+                    className="spage__history-del"
+                    aria-label={`删掉「${term}」`}
+                    title={`删掉「${term}」`}
+                    onClick={() => {
+                      setHistory((prev) => {
+                        const next = removeHistory(prev, term);
+                        saveHistory(next);
+                        return next;
+                      });
+                    }}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </div>
 
       {result ? (
