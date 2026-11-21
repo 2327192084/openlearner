@@ -40,7 +40,7 @@ const path = require('node:path');
 const ROOT = path.resolve(__dirname, '..');
 const APPDATA = path.resolve(ROOT, '.tmp/route-board-appdata');
 const DATA = path.join(APPDATA, 'OpenLeaner');
-const SHOTS = path.join(ROOT, '.verify-shots/route-board');
+const SHOTS = path.join(ROOT, '.verify-shots/route-board' + (process.argv.includes('--desktop') ? '-desktop' : ''));
 const PORT = Number(process.argv[2] || 9960);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -62,7 +62,17 @@ const rec = (n, ok, x) => {
   );
   console.log('已复制真实库副本（含用户那条已确认路线）');
 
-  const exe = path.join(ROOT, '.tmp/cloud-fullonly-app/electron.exe');
+  /*
+   * --desktop：验**桌面安装版**而不是开发构建。
+   *
+   * 打包 → 替换安装目录是另一条路径，换的过程可能出错
+   * （asar 没打进去、exe 与 asar 不配对）。所以交付前要对安装版单独验一次。
+   */
+  const USE_DESKTOP = process.argv.includes('--desktop');
+  const exe = USE_DESKTOP
+    ? path.join(process.env.LOCALAPPDATA || '', 'Programs', 'OpenLeaner', 'OpenLeaner.exe')
+    : path.join(ROOT, '.tmp/cloud-fullonly-app/electron.exe');
+  const APP_DIR = USE_DESKTOP ? path.dirname(exe) : ROOT;
   if (fs.existsSync(path.join(path.dirname(exe), 'openleaner-data'))) {
     console.error('❌ app 目录旁有 openleaner-data');
     process.exit(2);
@@ -70,24 +80,36 @@ const rec = (n, ok, x) => {
 
   const app = spawn(
     exe,
-    [ROOT, '--user-data-dir=' + DATA, '--no-sandbox', '--remote-debugging-port=' + PORT, '--window-size=1600,1100'],
-    { cwd: ROOT, env: { ...process.env, APPDATA }, stdio: ['ignore', 'pipe', 'pipe'] },
+    [...(USE_DESKTOP ? [] : [ROOT]), '--user-data-dir=' + DATA, '--no-sandbox', '--remote-debugging-port=' + PORT, '--window-size=1600,1100'],
+    { cwd: APP_DIR, env: { ...process.env, APPDATA }, stdio: ['ignore', 'pipe', 'pipe'] },
   );
   let log = '';
   app.stdout.on('data', (d) => (log += d.toString()));
   app.stderr.on('data', (d) => (log += d.toString()));
 
+  /*
+   * ⚠️ 桌面安装版的启动参数可能被它自己改写端口（实测出现 9041）。
+   * 所以这里**从 stderr 里读出真实端口**，而不是死等我们指定的那个。
+   * 这也是"别信任你传的参数，要读回实际状态"的又一例。
+   */
   let target = null;
+  let actualPort = PORT;
   for (let i = 0; i < 240; i++) {
+    /* 每轮都试着从日志里抓端口（DevTools listening on ws://127.0.0.1:NNNN/） */
+    const m = /DevTools listening on ws:\/\/127\.0\.0\.1:(\d+)/.exec(log);
+    if (m && Number(m[1]) !== actualPort) {
+      actualPort = Number(m[1]);
+      console.log('（从日志读到实际调试端口：' + actualPort + '）');
+    }
     try {
-      const l = await (await fetch('http://127.0.0.1:' + PORT + '/json/list')).json();
+      const l = await (await fetch('http://127.0.0.1:' + actualPort + '/json/list')).json();
       target = l.find((t) => t.type === 'page' && String(t.url).indexOf('file://') === 0);
       if (target) break;
     } catch {}
     await sleep(250);
   }
   if (!target) {
-    console.error('起不来：' + log.slice(-1200));
+    console.error('起不来（试过端口 ' + actualPort + '）：' + log.slice(-1200));
     process.exit(2);
   }
 
