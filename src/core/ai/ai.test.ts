@@ -580,6 +580,40 @@ describe('提示词：几条硬规则必须在场', () => {
     expect(user).toContain('verbatim');
     expect(user).not.toContain('再次提醒');
   });
+
+  /*
+   * ⚠️ 2026-11-21 深夜：章节/标签只能来自本次材料。
+   *
+   * ## 为什么加这条
+   *
+   * 实测踩到：用户库有三份资料，重跑「信号与系统」那份后，
+   * 产出的知识点里有几条章节写成了「第一章 函数与极限」——
+   * 那是**高等数学**的章名，根本不在本次材料里。
+   *
+   * 模型在长上下文里会「顺手」用上它见过的其它结构，
+   * 尤其同一批任务里刚整理过别的资料时。这类串味很难发现
+   * （章节看起来像个正常章名），但会让知识骨架按错误的章聚合。
+   */
+  it('**章节与标签只能来自本次材料**（防止串用别的资料的章名）', () => {
+    const system = buildSystemPrompt('zh');
+    expect(system).toContain('只能来自本次给出的材料');
+    expect(system).toContain('不要使用你在别处见过的章节名');
+    /* 反例要写清：同批任务里整理过的另一本书 */
+    expect(system).toContain('另一本书');
+  });
+
+  it('这条约束排在 tags 规则里（不是随便挂在某处）', () => {
+    /*
+     * 断言「在 tags 规则区」而不是「系统提示词里出现过」——
+     * 后者太宽：任何位置出现一次都能过。而模型是按区块读的，
+     * 规则挂错地方等于没写。
+     */
+    const system = buildSystemPrompt('zh');
+    const tagsIdx = system.indexOf('tags 是');
+    const ruleIdx = system.indexOf('只能来自本次给出的材料');
+    expect(tagsIdx).toBeGreaterThan(0);
+    expect(ruleIdx).toBeGreaterThan(tagsIdx);
+  });
 });
 
 /**
