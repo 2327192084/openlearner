@@ -770,6 +770,163 @@ function registerChatProxy() {
 }
 
 // --------------------------------------------------------------------------
+// 网上检索代理（2026-11-21 深夜）
+// --------------------------------------------------------------------------
+//
+// ## 为什么需要新开一条出口
+//
+// 用户要求「学习路线依据资料本体 + 配合网上检索」。而现有的
+// `openleaner:chat-completion` 通道**只允许 /chat/completions 与 /models**
+// （那是模型服务商的形状），搜索 API 的路径完全不同。
+//
+// ## 为什么不能顺手把它扩成「通用代理」
+//
+// 那段代码上面的注释已经把理由写清楚了：通用代理 = 给渲染进程开了
+// 无限制出网能力，一旦有 XSS 就能扫内网 / 读云元数据（169.254.169.254）。
+// 所以这里**单独一条通道**，而不是放宽 chat 通道的白名单。
+//
+// ## 这条通道的白名单口径
+//
+// - **只允许一个主机**：`api.tavily.com`
+// - **只允许 POST**，且路径必须恰好是 `/search`
+// - **仍然校验**：https、非内网、响应体上限更小（搜索结果 JSON 很小）
+// - **Key 单独传**，与 chat 通道一样只在这个函数的栈里出现，不写日志
+//
+// 严格到「只认一个域名」是刻意的：检索这件事没有「通用」需求，
+// 多开一个域就是多一条被利用的路。
+
+/** 允许的检索服务主机（精确匹配，不做子域通配） */
+const SEARCH_ALLOWED_HOSTS = ['api.tavily.com'];
+
+/** 检索接口的路径 */
+const SEARCH_ALLOWED_PATH = '/search';
+
+/** 检索响应体上限：搜索结果 JSON 通常几十 KB，1MB 已很宽松 */
+const MAX_SEARCH_BYTES = 1024 * 1024;
+
+/** 检索超时：比模型调用短，搜索该很快返回 */
+const SEARCH_TIMEOUT_MS = 20_000;
+
+/**
+ * 判断一个检索地址能不能被转发。
+ *
+ * 与 `checkProxyTarget` 分开写而不是复用它，因为**口径完全不同**：
+ * 那个是「任意合规的模型服务地址」，这个是「就那一个搜索服务」。
+ * 复用会让两边都变复杂，而且改一边容易误伤另一边。
+ *
+ * 抽成独立函数是为了能被脚本直接验证（同 `checkProxyTarget` 的理由）。
+ *
+ * @param {string} url
+ * @returns {{ ok: true } | { ok: false, kind: string, message: string }}
+ */
+function checkSearchTarget(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { ok: false, kind: 'invalid-url', message: '检索地址不是合法的 URL' };
+  }
+
+  /*
+   * 只允许 https。搜索 Key 在请求头里，明文 http 等于把 Key 送出去。
+   * 这里**不给回环地址开例外** —— 本地没有「搜索服务」这种东西，
+   * 留一个例外只是多一条被利用的路。
+   */
+  if (parsed.protocol !== 'https:') {
+    return { ok: false, kind: 'invalid-url', message: '检索地址必须用 https' };
+  }
+
+  /* 内网一律拒绝 */
+  if (isPrivateHost(parsed.hostname)) {
+    return { ok: false, kind: 'forbidden-host', message: '不允许访问内网地址' };
+  }
+
+  /* 主机必须精确命中白名单 */
+  const host = parsed.hostname.toLowerCase();
+  if (!SEARCH_ALLOWED_HOSTS.includes(host)) {
+    return {
+      ok: false,
+      kind: 'forbidden-host',
+      message: `只允许检索服务 ${SEARCH_ALLOWED_HOSTS.join(' / ')}（收到 ${host}）`,
+    };
+  }
+
+  /* 路径必须恰好是 /search（不接受前缀匹配） */
+  if (parsed.pathname !== SEARCH_ALLOWED_PATH) {
+    return {
+      ok: false,
+      kind: 'invalid-path',
+      message: `检索接口路径必须是 ${SEARCH_ALLOWED_PATH}`,
+    };
+  }
+
+  return { ok: true };
+}
+
+function registerSearchProxy() {
+  ipcMain.handle('openleaner:web-search', async (_event, payload) => {
+    const body = payload && typeof payload === 'object' ? payload : {};
+    const url = typeof body.url === 'string' ? body.url : '';
+    const apiKey = typeof body.apiKey === 'string' ? body.apiKey : '';
+    const requestBody = typeof body.body === 'string' ? body.body : '';
+
+    const target = checkSearchTarget(url);
+    if (!target.ok) return target;
+
+    if (!apiKey) {
+      return { ok: false, kind: 'invalid-request', message: '检索需要 API Key' };
+    }
+    if (!requestBody) {
+      return { ok: false, kind: 'invalid-request', message: '请求缺少请求体' };
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          /* Tavily 用 Bearer。换服务时改这一处，不要两处各写一份 */
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: requestBody,
+        signal: controller.signal,
+        redirect: 'error',
+      });
+
+      const reader = response.body?.getReader();
+      const chunks = [];
+      let size = 0;
+      if (reader) {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > MAX_SEARCH_BYTES) {
+            await reader.cancel().catch(() => {});
+            return { ok: false, kind: 'too-large', message: '检索结果过大，已中断' };
+          }
+          chunks.push(value);
+        }
+      }
+
+      const text = Buffer.concat(chunks.map((c) => Buffer.from(c))).toString('utf8');
+      return { ok: true, status: response.status, text };
+    } catch (err) {
+      if (controller.signal.aborted) {
+        return { ok: false, kind: 'timeout', message: '检索超时' };
+      }
+      const raw = err instanceof Error ? err.message : String(err);
+      return { ok: false, kind: 'network', message: `连不上检索服务（${raw.slice(0, 120)}）` };
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+}
+
+// --------------------------------------------------------------------------
 // 建窗
 // --------------------------------------------------------------------------
 
@@ -1677,6 +1834,7 @@ if (!gotTheLock) {
 
     buildMenu();
     registerChatProxy();
+    registerSearchProxy();
     registerMineru();
     registerMineruFigureIpc();
     createWindow();

@@ -59,6 +59,10 @@ import { ExamPage } from './ExamPage.tsx';
 import { MapPage } from './MapPage.tsx';
 import { normalizeStudyPlan, planToSteps, type StudyPlan } from '@/v2/core/study-plan-store.ts';
 import { loadPlanInputs } from '@/v2/core/plan-inputs.ts';
+import { normalizeSourceRoute } from '@/v2/core/source-route-store.ts';
+import type { SourceRoute } from '@/core/ai/source-route.ts';
+import type { SearchResult } from '@/core/ai/web-search.ts';
+import type { SourcePlanPrep } from '@/v2/core/source-plan-inputs.ts';
 import { RoutePreviewDialog } from './RoutePreviewDialog.tsx';
 import type { PlanOrder, PlanPointInput } from '@/core/ai/plan-order.ts';
 import type { ChapterPreview } from '@/core/ai/chapter-backfill.ts';
@@ -138,6 +142,7 @@ import './notes-page.css';
 import './exam-page.css';
 import './map-page.css';
 import './route-map.css';
+import './route-planner.css';
 import './route-preview.css';
 import './focus-page.css';
 import './board-page.css';
@@ -2324,11 +2329,11 @@ interface PlanDraft {
    *
    * 所以这里只提供服务端接线，UI 在 `MapPage` 的横板路线里。
    *
-   * ## 与独立页面的差别：确认步骤放到 MapPage 里
+   * ## 2026-11-21 深夜：换成资料级路线
    *
-   * 用户确认过「AI 给、我勾，勾完才存」。原来独立页面有一大段勾选预览。
-   * 整合进地图后，勾选流程保留在 `RoutePreviewDialog`（下面），
-   * 因为横板图太小，塞不下 105 条勾选框。
+   * 用户改了口径（见下面 `sourceRoute` 那一段的注释）。
+   * 下面这套知识点级接线**保留但不再上地图** —— 地图上的路线改用
+   * `SourceRoute`（依据资料本体）。`RoutePreviewDialog` 也还留着。
    */
   const [planRoute, setPlanRoute] = useState<StudyPlan | null>(null);
   const [planRoutePoints, setPlanRoutePoints] = useState<PlanPointInput[]>([]);
@@ -2463,6 +2468,194 @@ interface PlanDraft {
     [knowledgeService, startPractice],
   );
 
+  /* ==================== 学习路线：资料级（2026-11-21 深夜） ==================== */
+
+  /**
+   * ## 为什么这一套取代了上面那套（知识点级）
+   *
+   * 用户原话：
+   * > 这个规划路线的规划方法需要修改一下，当前是依据知识库里的知识点进行规划，
+   * > 我觉得应该依据资料本体进行构建。
+   *
+   * 所以地图上的「学习路线」现在读 `settings.sourceRoute`（资料级），
+   * 不再读 `settings.studyPlan`（知识点级）。
+   *
+   * ## 为什么存在 settings 里而不是新分区
+   *
+   * 与 `studyPlan` 同一个理由（见 `study-plan-store.ts` 文件头）：
+   * 路线是一个整体，一次写入天然原子；新分区要动迁移四件套。
+   * 而 settings 的恢复白名单 bug 今天已经修掉且有 4 条回归测试守着。
+   */
+  const [sourceRoute, setSourceRoute] = useState<SourceRoute | null>(null);
+
+  const loadSourceRoute = useCallback(async () => {
+    try {
+      const s = await library.getSettings();
+      const raw = (s as unknown as { sourceRoute?: unknown }).sourceRoute;
+      setSourceRoute(normalizeSourceRoute(raw));
+    } catch {
+      /* 读不到就当作没有路线：这是地图的附加一块，不该影响上半部分 */
+    }
+  }, [library]);
+
+  useEffect(() => {
+    if (page !== 'flow') return;
+    void loadSourceRoute();
+  }, [page, loadSourceRoute]);
+
+  /**
+   * 让 AI 排资料级路线。
+   *
+   * ## 错误原样抛上去
+   *
+   * 「没有可用模型 / 读不到 Key / 网络失败 / JSON 残缺 / 全部越界被丢」
+   * 是五种完全不同的原因。全吞成一句「AI 没给出结果」会让人没法判断
+   * （交接文档记过：AI 组卷原来就这么吞，五种原因变成一个，
+   * 只能另写诊断脚本来查真因）。
+   */
+  const orderSourceRoute = useCallback(
+    async ({
+      prep,
+      subjectName,
+      search,
+    }: {
+      prep: SourcePlanPrep;
+      subjectName: string;
+      search: SearchResult | null;
+    }): Promise<SourceRoute> => {
+      const list = await backends.list();
+      const readyList = list.filter((b) => b.status === 'ready');
+      if (readyList.length === 0) {
+        throw new Error('还没有可用的模型。先到「设置」里添加一个后端。');
+      }
+      const b = readyList[0]!;
+      const apiKey = await backends.readCredential(b.id);
+      if (!apiKey) throw new Error('读不到这个后端的 API Key，请到设置页重新填一次。');
+
+      const { buildRoutePrompt, parseSourceRoute, attachSegments } = await import(
+        '@/core/ai/source-route.ts'
+      );
+      const { toScopeInfo, loadSourceSegments } = await import(
+        '@/v2/core/source-plan-inputs.ts'
+      );
+
+      const segments = await loadSourceSegments(sourceService, prep.source.id);
+      const scope = toScopeInfo(prep, segments);
+
+      /* 科目名用**用户确认过的**（他可能改过推定值）；edition 用推定值 */
+      const subjectWithName = { ...prep.subject, name: subjectName };
+
+      const { system, user } = buildRoutePrompt({
+        subject: subjectWithName,
+        outline: prep.outline,
+        scope,
+        search,
+      });
+
+      const { chatCompletion } = await import('@/core/ai/deepseek-client.ts');
+      const res = await chatCompletion({
+        apiKey,
+        model: b.model,
+        ...(b.baseUrl ? { baseUrl: b.baseUrl } : {}),
+        provider: b.provider,
+        systemPrompt: system,
+        userPrompt: user,
+        temperature: 0.2,
+        /*
+         * 路线只有几块、每块几步，输出不长；但给足预算 ——
+         * 截断的 JSON 按设计整轮拒绝，用户会看到「排失败了」，
+         * 而那其实只是预算不够。
+         */
+        maxTokens: 8000,
+      });
+
+      if (res.finishReason === 'length') {
+        throw new Error('这次调用的输出被长度上限截断了。请重试。');
+      }
+
+      const parsed = parseSourceRoute(
+        res.content,
+        scope,
+        { name: subjectName, edition: prep.subject.edition },
+        !!search?.searched,
+      );
+      if (!parsed.ok) throw new Error(parsed.reason);
+
+      /* 回填「这一步对应资料里的哪些段」—— 让「依据资料本体」可验证 */
+      return attachSegments(parsed.route, scope);
+    },
+    [backends, sourceService],
+  );
+
+  const saveSourceRoute = useCallback(
+    async (route: SourceRoute) => {
+      await library.saveSettings({ sourceRoute: route } as never);
+      setSourceRoute(route);
+    },
+    [library],
+  );
+
+  const clearSourceRoute = useCallback(async () => {
+    await library.saveSettings({ sourceRoute: null } as never);
+    setSourceRoute(null);
+  }, [library]);
+
+  /**
+   * 读搜索 API Key。
+   *
+   * 存在 `settings.webSearchKey`。⚠️ **必须把它排除在备份导出之外** ——
+   * 它是凭据，与 `backends` 的 Key 同性质（那些存在 `secrets` 分区、
+   * 刻意不进备份）。见 `sanitizeSettingsForExport` 里补的那一行。
+   */
+  const readSearchKey = useCallback(async (): Promise<string | null> => {
+    try {
+      const s = await library.getSettings();
+      const k = (s as unknown as { webSearchKey?: unknown }).webSearchKey;
+      return typeof k === 'string' && k.trim().length > 0 ? k.trim() : null;
+    } catch {
+      return null;
+    }
+  }, [library]);
+
+  const routeAi = useMemo(() => ({ orderRoute: orderSourceRoute }), [orderSourceRoute]);
+
+  /**
+   * ⚠️ 下面这一组是**知识点级路线**（第一版，2026-11-21 白天做的）。
+   *
+   * 用户当天晚上改了口径：路线要「依据资料本体」，于是资料级那套
+   * （`sourceRoute` / `orderSourceRoute` / `RoutePlanner`）接管了地图。
+   *
+   * ## 为什么留着而不删
+   *
+   * 「我有 105 个知识点，先攻哪个」与「整门课按什么顺序学」是两个问题。
+   * 前者要看每条知识点的掌握度与错题，后者要看章节结构与学科先修关系。
+   * 用户只是说**地图上的路线**要按资料本体，没说知识点级排序以后不要。
+   *
+   * 删掉的话，那 83 条测试（`plan-order` / `chapter-backfill` /
+   * `plan-inputs` / `study-plan-store`）与整套接线都要重写一遍 ——
+   * 留着几乎零成本（不渲染就不耗性能），删掉才贵。
+   *
+   * ## 为什么用 void 引用而不是注释掉
+   *
+   * 注释掉会让 tsc 看不见它们、也让以后的人以为它是废弃代码。
+   * `void` 明确表达「这些是有意保留的活代码，只是当前没有渲染入口」，
+   * 同时让 `noUnusedLocals` 不再报错。
+   */
+  void planRoute;
+  void planRoutePoints;
+  void planRoutePointById;
+  void planDraft;
+  void generatePlanRoute;
+  void commitPlanRoute;
+  void clearPlanRoute;
+  void applyPlanChapters;
+  void openPointAsCard;
+  void studyPlanChapters;
+  void studyPlanOrder;
+  void setPlanDraft;
+  void planToSteps;
+  void normalizeStudyPlan;
+
 
 
   /**
@@ -2566,17 +2759,22 @@ interface PlanDraft {
           focusSourceId={mapFocus.sourceId}
           focusToken={mapFocus.token}
           route={
-            /* 学习路线整合进学习地图（2026-11-21 用户要求） */
+            /*
+             * 学习路线整合进学习地图（2026-11-21 用户要求）。
+             *
+             * ⚠️ 2026-11-21 深夜换成**资料级**：用户要求
+             * 「依据资料本体」而不是「依据知识点」。
+             * 知识点级那套（planRoute / generatePlanRoute /
+             * RoutePreviewDialog）保留在代码里但不再上地图。
+             */
             {
-              plan: planRoute,
-              points: planRoutePoints,
-              pointById: planRoutePointById,
-              onGenerate: generatePlanRoute,
-              onClear: clearPlanRoute,
-              onStep: (pointId) => void openPointAsCard(pointId),
-              onSuggestChapters: () => studyPlanChapters(Array.from(planRoutePointById.values())),
-              onApplyChapters: applyPlanChapters,
-              missingChapter: planRoutePoints.filter((p) => !p.chapter).length,
+              sourceRoute,
+              ai: routeAi,
+              sourceService,
+              readSearchKey,
+              onSaved: saveSourceRoute,
+              onClearSaved: clearSourceRoute,
+              onOpenParse: () => setPage('parse'),
             }
           }
         />

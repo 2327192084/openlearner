@@ -138,6 +138,42 @@ describe('备份导出与恢复', () => {
     expect(json).not.toContain('secrets');
   });
 
+  /**
+   * 搜索 API Key 是凭据，不能进备份（2026-11-21 深夜）。
+   *
+   * ## 为什么这条必须单独测
+   *
+   * 模型 Key 存在 `secrets` 分区、靠「不在 BACKUP_STORES 里」就自动不进备份。
+   * 但搜索 Key 为了少开一张表存进了 `settings` —— 而 settings 是**会**进备份的
+   * （`exportBackup` 里 `settings: sanitizeSettingsForExport(settings)`）。
+   *
+   * 所以它必须靠 `sanitizeSettingsForExport` 里显式 `delete` 才安全。
+   * 漏了这一行的后果：用户导出备份发给别人，搜索 Key 跟着出去，
+   * 而他自己完全不会意识到备份文件里有凭据。
+   */
+  it('导出的 JSON 不含搜索 API Key（settings 里的凭据要显式抹掉）', async () => {
+    await service.create('含搜索 Key 的库');
+    await service.saveSettings({
+      webSearchKey: 'tvly-sk-should-never-leak-987654',
+    } as never);
+
+    const json = JSON.stringify(await service.exportBackup());
+    expect(json).not.toContain('tvly-sk-should-never-leak-987654');
+    expect(json).not.toContain('webSearchKey');
+  });
+
+  it('搜索 Key 在库里仍然读得到（抹掉的只是导出副本）', async () => {
+    /*
+     * 这条是上一条的反向守护：证明「抹掉」只发生在导出路径，
+     * 没有把库里的值也弄丢 —— 那会让用户的联网检索莫名其妙失效。
+     */
+    await service.create('含搜索 Key 的库');
+    await service.saveSettings({ webSearchKey: 'tvly-sk-keep-me' } as never);
+
+    const s = await service.getSettings();
+    expect((s as unknown as { webSearchKey?: string }).webSearchKey).toBe('tvly-sk-keep-me');
+  });
+
   it('导出再导入能完整还原库名与记录', async () => {
     await service.create('可还原的库');
     await storage.put('courses', {

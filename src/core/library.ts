@@ -447,6 +447,20 @@ export function sanitizeSettingsForExport(settings: AppSettings): AppSettings {
   const out: AppSettings & Record<string, unknown> = { ...settings };
   /* 已下线功能留下的历史凭据。字段已不在类型里，必须经 Record 访问 */
   delete (out as Record<string, unknown>).maimemoToken;
+  /*
+   * 搜索 API Key（2026-11-21 深夜加）。
+   *
+   * ⚠️ 这是**凭据**，与 `backends` 的模型 Key 同性质。
+   * 那些存在 `secrets` 分区、刻意不进 `BACKUP_STORES`；
+   * 搜索 Key 为了少开一张表存在 settings 里，那就必须在导出时抹掉。
+   *
+   * 不抹的后果：用户导出备份发给别人或传到网盘，
+   * Key 就跟着出去了，而他自己不会意识到备份文件里有凭据。
+   *
+   * 与 maimemoToken 归到同一处处理，是为了让「凭据清单」只有一份 ——
+   * 以后每接一个凭据，往这里补一行。
+   */
+  delete (out as Record<string, unknown>).webSearchKey;
   return out as AppSettings;
 }
 

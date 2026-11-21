@@ -143,6 +143,22 @@ const openleanerApi = Object.freeze({
   chat: (request) => ipcRenderer.invoke('openleaner:chat-completion', request),
 
   /**
+   * 网上检索（2026-11-21 深夜）。
+   *
+   * 学习路线要「配合网上检索」规划，而这条能力必须走主进程 ——
+   * 理由与 `chat` 完全相同：渲染进程从 `file://` 发起的请求会带
+   * `Origin: null`，跨源被挡（`electron-fetch.ts` 的文件头解释过）。
+   *
+   * ⚠️ 这是**独立的一条通道**，不与 chat 合并：
+   * 主进程侧的白名单口径不同（chat 认「任意合规模型地址」，
+   * 检索只认一个搜索服务）。合并会把两套口径混在一起，
+   * 以后改一边容易误伤另一边。
+   *
+   * 参数与返回值同样是纯数据（字符串进、字符串出）。
+   */
+  webSearch: (request) => ipcRenderer.invoke('openleaner:web-search', request),
+
+  /**
    * 学习库位置（2026-11-11）。
    *
    * 目的：让用户**看得见**库存在哪、能改、能在资源管理器里打开。

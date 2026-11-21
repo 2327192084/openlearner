@@ -1,0 +1,284 @@
+/**
+ * 学习路线规划面板（2026-11-21 深夜）。
+ *
+ * ## 类名前缀
+ *
+ * `rsp-`（Route Source Planner）。与横板路线的 `rmap-` 分开 ——
+ * 那块是「已确认路线的可视化」，这块是「规划入口与表单」，
+ * 两者改动频率与职责都不同。
+ *
+ * ## ⚠️ 层序陷阱
+ *
+ * `base.css` 有不在 `@layer` 内的 `button { color: inherit }`。
+ * 层内写 color 一律无效（层外优先于层内，比 specificity 还优先）。
+ * 需要指定字体色的规则写在文件末尾层外，用 `.app .` 抬 specificity。
+ *
+ * ## ⚠️ 必须被 import
+ *
+ * 2026-11-21 踩过一次：`route-map.css` 写完没 import，
+ * 横板渲染成一堆小方块堆在左上角，而「有横板」的断言全绿。
+ * `check-css-vars` 只查变量有没有定义，**不查文件有没有被引用**。
+ */
+
+@layer study.features {
+  /* ---------- 规划面板外壳 ---------- */
+  .rmap--planner {
+    /* 复用了 .rmap 的壳（边框/圆角/底色），这里只加内部间距约束 */
+    min-width: 0;
+  }
+
+  .rsp-section {
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .rsp-h3 {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--fs-md);
+    color: var(--text);
+    margin-bottom: var(--space-2);
+  }
+
+  .rsp-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    border-radius: var(--radius-pill);
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+  }
+
+  .rsp-hint {
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    line-height: var(--lh-body);
+    max-width: 600px;
+    margin-bottom: var(--space-2);
+  }
+
+  /* ---------- 资料列表 ---------- */
+  .rsp-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 320px;
+    overflow-y: auto;
+  }
+
+  .rsp-item {
+    min-width: 0;
+  }
+
+  .rsp-label {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: var(--space-2);
+    border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+    cursor: pointer;
+    min-width: 0;
+  }
+
+  .rsp-label:hover {
+    background: var(--bg-hover);
+  }
+
+  .rsp-label--on {
+    background: var(--bg-selected);
+    border-color: var(--accent);
+  }
+
+  /* 不能排的资料：压暗但仍可点（点了能看到原因与去解析的入口） */
+  .rsp-label--blocked .rsp-title {
+    color: var(--text-muted);
+  }
+
+  .rsp-radio {
+    flex: 0 0 auto;
+    margin-top: 3px;
+  }
+
+  .rsp-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .rsp-title {
+    font-size: var(--fs-sm);
+    color: var(--text);
+    line-height: var(--lh-snug);
+  }
+
+  .rsp-meta {
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    line-height: var(--lh-snug);
+  }
+
+  .rsp-blocked {
+    font-size: var(--fs-xs);
+    color: var(--warn);
+    line-height: var(--lh-body);
+    margin-top: 2px;
+  }
+
+  /* ---------- 科目确认 ---------- */
+  .rsp-guess {
+    margin-bottom: var(--space-3);
+  }
+
+  .rsp-guess__found {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: var(--lh-body);
+    max-width: 640px;
+    margin-bottom: var(--space-2);
+  }
+
+  .rsp-guess__none {
+    font-size: var(--fs-sm);
+    color: var(--warn);
+    line-height: var(--lh-body);
+    max-width: 640px;
+    margin-bottom: var(--space-2);
+  }
+
+  .rsp-guess__why {
+    color: var(--text-muted);
+    font-size: var(--fs-xs);
+  }
+
+  .rsp-guess__weak {
+    font-size: var(--fs-xs);
+    color: var(--warn);
+  }
+
+  .rsp-field {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    max-width: 420px;
+  }
+
+  .rsp-field__label {
+    flex: 0 0 auto;
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    min-width: 36px;
+  }
+
+  .rsp-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: var(--fs-sm);
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-xs);
+  }
+
+  /* ---------- 覆盖范围说明 ---------- */
+  .rsp-scope {
+    margin-top: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    background: var(--bg-raised);
+    border-left: 3px solid var(--info);
+  }
+
+  .rsp-scope p {
+    font-size: var(--fs-xs);
+    color: var(--text-dim);
+    line-height: var(--lh-body);
+    max-width: 640px;
+  }
+
+  .rsp-scope__warn {
+    color: var(--warn);
+  }
+
+  /* ---------- 联网勾选 ---------- */
+  .rsp-check {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    cursor: pointer;
+    min-width: 0;
+  }
+
+  .rsp-check__box {
+    flex: 0 0 auto;
+    margin-top: 2px;
+  }
+
+  .rsp-check__text {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: var(--lh-body);
+    max-width: 640px;
+  }
+
+  .rsp-check__on {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+  }
+
+  .rsp-check__off {
+    font-size: var(--fs-xs);
+    color: var(--warn);
+  }
+
+  /* ---------- 操作区 ---------- */
+  .rsp-actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-top: var(--space-4);
+    align-items: flex-start;
+  }
+
+  /* ---------- 已保存路线的摘要条 ---------- */
+  .rsp-saved {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    margin-bottom: var(--space-3);
+    border-radius: var(--radius-sm);
+    background: var(--bg-raised);
+    border-left: 3px solid var(--ok);
+    flex-wrap: wrap;
+  }
+
+  .rsp-saved__lead {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: var(--lh-snug);
+    min-width: 0;
+  }
+}
+
+/* 层外：需要指定字体色的原生控件（base.css 的 button/input 规则在层外） */
+.app .rsp-input {
+  color: var(--text);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+}
+
+.app .rsp-num {
+  color: var(--accent-ink);
+}

@@ -28,7 +28,26 @@ export interface PromptBuildOptions {
   segments: OrganizeInputSegment[];
   /** 每段最多取多少字符。太长会超出上下文且提高成本。 */
   maxCharsPerSegment?: number;
-  /** 目标知识点条数上限，避免一次生成太多质量下降 */
+  /**
+   * 每段知识点条数上限（2026-11-21 **取消**）。
+   *
+   * ## 为什么取消
+   *
+   * 用户原话：
+   * > 我注意到知识点选取好像硬性要求了每段最多三个。知识点选取的方法
+   * > 需要改进……如果资料里一整段都是重点可以对其进行总结归纳，
+   * > 尽量少的将一大段的知识点拆分成一句一句的内容。
+   *
+   * 原来默认 3 是硬上限，提示词里写「每段最多整理 3 条」。
+   * 后果正是用户说的：一整段重点会被强行切成三条一句话式的碎片，
+   * 每条都读不全意思，而用户真正想要的是**一段归纳成一条**。
+   *
+   * 现在这个参数**只在显式传入时生效**，默认 `undefined` = 不设上限，
+   * 由提示词里的「按内容密度归纳」规则控制质量。
+   *
+   * ⚠️ 保留这个参数而不是删掉，是为了不破坏既有调用方与测试的签名；
+   * 但**新代码不要传它**。
+   */
   maxPointsPerSegment?: number;
   language?: 'zh' | 'en';
 }
@@ -201,7 +220,7 @@ export function buildUserPrompt(options: PromptBuildOptions): string {
     sourceTitle,
     segments,
     maxCharsPerSegment = 4000,
-    maxPointsPerSegment = 3,
+    maxPointsPerSegment,
     language = 'zh',
   } = options;
 
@@ -222,7 +241,23 @@ export function buildUserPrompt(options: PromptBuildOptions): string {
     `下面是资料《${sourceTitle}》的正文，共 ${segments.length} 段。`,
     '',
     '请从中整理出知识点。要求：',
-    `- 每段最多整理 ${maxPointsPerSegment} 条，宁少勿滥；没有值得考查内容的段可以跳过。`,
+    /*
+     * ⚠️ 2026-11-21 深夜改：删掉了「每段最多整理 3 条」这个硬上限。
+     *
+     * 用户原话：
+     * > 我注意到知识点选取好像硬性要求了每段最多三个。知识点选取的方法
+     * > 需要改进，也需要结合网上检索配合自主思考进行选择。如果资料里
+     * > 一整段都是重点可以对其进行总结归纳，尽量少的将一大段的知识点
+     * > 拆分成一句一句的内容。
+     *
+     * 硬上限的真实后果：一整段重点笔记被强行切成 3 条一句话碎片，
+     * 每条都读不全意思 —— 用户要的是「一段归纳成一条」，不是拆句。
+     *
+     * 现在改成**按内容密度**决定条数，并明确禁止「一句话一条」。
+     */
+    maxPointsPerSegment !== undefined
+      ? `- 每段最多整理 ${maxPointsPerSegment} 条。`
+      : '- **条数不设上限，但要按内容密度决定**：一段里讲了几件互不相关的事，就归纳成几条；整段都在讲同一件事，归纳成一条。',
     /*
      * 以下是 2026-11-07 根据用户反馈新增的两条。
      *
@@ -234,6 +269,15 @@ export function buildUserPrompt(options: PromptBuildOptions): string {
     '- **一条知识点应当是一个可以独立提问的概念**，不是一句话一个条目。',
     '- **同一主题下的并列内容合并成一条**（例如「顺序存储与链式存储的区别」写一条，不要拆成两条）。',
     '- 如果两条知识点说的是同一件事的不同侧面，合并它们；只有确实互相独立才分开。',
+    /*
+     * 2026-11-21 深夜新增：用户点名「一整段都是重点时要归纳，不要拆句」。
+     * 这三条与上面两条方向一致（都是「少而完整」），但更明确地
+     * 打击「一句一条」这个具体的坏行为。
+     */
+    '- **一整段都在重点讲同一件事时，把它归纳成 1 条完整的概念表述**，',
+    '  不要把这段话拆成好几条一句话式的碎片 —— 碎片单看没有意义，也没法用来复习。',
+    '- 判断标准是「这条能不能独立成一道题」：能，就是一条；不能，就并进相邻那条。',
+    '- 宁可少而完整，也不要多而零碎。**5 条讲清楚一件事，好过 15 条碎句**。',
     '- 每条知识点的 quotes 必须逐字复制其中某一段的连续原文（15～120 字）。',
     '- 不要输出页码或位置信息。',
     '',
@@ -251,10 +295,14 @@ export function buildUserPrompt(options: PromptBuildOptions): string {
     `Below is the text of "${sourceTitle}", ${segments.length} segment(s) in total.`,
     '',
     'Extract knowledge points from it:',
-    `- At most ${maxPointsPerSegment} points per segment; fewer is better than padding.`,
+    maxPointsPerSegment !== undefined
+      ? `- At most ${maxPointsPerSegment} points per segment.`
+      : '- **No fixed cap — decide by content density**: if a segment covers several unrelated things, split; if it is all about one thing, summarise into one point.',
     '- **One point = one concept that can be asked about on its own**, not one sentence per point.',
     '- **Merge parallel items under the same topic** (e.g. sequential vs linked storage belongs in ONE point).',
     '- If two points describe different sides of the same thing, merge them. Split only when genuinely independent.',
+    '- **When a whole paragraph is all key material, summarise it into ONE complete concept** — do not shred it into one-sentence fragments.',
+    '- Fewer, complete points beat many fragments. **5 points that explain something well beat 15 fragments**.',
     '- Each quote MUST be copied verbatim from one segment (15-120 chars).',
     '- Do NOT output page numbers or positions.',
     '',
