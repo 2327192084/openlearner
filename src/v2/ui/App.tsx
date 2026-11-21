@@ -57,6 +57,11 @@ import { todayLocal, type ReviewGrade } from '@/v2/core/srs.ts';
 import { NotesPage } from './NotesPage.tsx';
 import { ExamPage } from './ExamPage.tsx';
 import { MapPage } from './MapPage.tsx';
+import { normalizeStudyPlan, planToSteps, type StudyPlan } from '@/v2/core/study-plan-store.ts';
+import { loadPlanInputs } from '@/v2/core/plan-inputs.ts';
+import { RoutePreviewDialog } from './RoutePreviewDialog.tsx';
+import type { PlanOrder, PlanPointInput } from '@/core/ai/plan-order.ts';
+import type { ChapterPreview } from '@/core/ai/chapter-backfill.ts';
 import { BoardPage } from './BoardPage.tsx';
 import { FocusPage } from './FocusPage.tsx';
 import { badgeCounts, resolvePool } from './data-sync.ts';
@@ -132,6 +137,8 @@ import './book-page.css';
 import './notes-page.css';
 import './exam-page.css';
 import './map-page.css';
+import './route-map.css';
+import './route-preview.css';
 import './focus-page.css';
 import './board-page.css';
 
@@ -1456,6 +1463,167 @@ export function App({
   }, [flashcardPoints]);
 
   /**
+   * 学习顺序页的 AI 接线（2026-11-21）。
+   *
+   * ## 为什么抽成两个 useCallback 而不是让页面自己调
+   *
+   * 读后端凭据、选后端、发请求都在这里 —— 与上面 `handlePickFlashcards`、
+   * 下面的 AI 组卷、`handleShortGrade` 同一套分工。路线 UI 只管
+   * 「点了、拿到结果、显示」。这样页面本身不需要知道 backends 存在。
+   *
+   * ## 为什么错误要原样抛上去
+   *
+   * 「没有可用模型 / 读不到 Key / 网络失败 / 模型返回的 JSON 残缺」
+   * 是四种完全不同的原因，界面该给的提示完全不同。
+   * 全吞成一句「AI 没给出结果」会让人没法判断
+   * （交接文档记过：AI 组卷原来就这么吞，五种原因变成一个，
+   *  只能另写诊断脚本来查真因）。
+   */
+  const studyPlanOrder = useCallback(
+    async (points: readonly PlanPointInput[]): Promise<PlanOrder> => {
+      if (points.length === 0) throw new Error('知识库里还没有可排序的知识点。');
+
+      const list = await backends.list();
+      const ready = list.filter((b) => b.status === 'ready');
+      if (ready.length === 0) {
+        throw new Error('还没有可用的模型。先到「设置」里添加一个后端。');
+      }
+      const b = ready[0]!;
+      const apiKey = await backends.readCredential(b.id);
+      if (!apiKey) throw new Error('读不到这个后端的 API Key，请到设置页重新填一次。');
+
+      const { buildPlanPrompt, parsePlanOrder } = await import('@/core/ai/plan-order.ts');
+      const { system, user } = buildPlanPrompt(points);
+
+      const { chatCompletion } = await import('@/core/ai/deepseek-client.ts');
+      const res = await chatCompletion({
+        apiKey,
+        model: b.model,
+        ...(b.baseUrl ? { baseUrl: b.baseUrl } : {}),
+        provider: b.provider,
+        systemPrompt: system,
+        userPrompt: user,
+        /*
+         * 温度调低：排序要稳定、可复现，不要每次排得不一样。
+         * 与挑闪卡同一个考量（那里也是 0.2）。
+         */
+        temperature: 0.2,
+        /*
+         * 输出上限给够：105 条 × 每条 reason+basis 约 60 字 ≈ 6000+ token，
+         * 加上块标题。给小了会**被截断**，而截断的 JSON 按设计整轮拒绝 ——
+         * 用户看到的就是「AI 排失败了」，其实只是预算不够。
+         */
+        maxTokens: 12000,
+      });
+
+      /*
+       * finishReason === 'length' 时 content 可能看起来是完整 JSON
+       * （刚好在括号后截断）也可能不是。前者会被正常解析但少了后半段，
+       * 那种「少了一半但看起来成功」最难发现 —— 所以显式查一遍。
+       */
+      if (res.finishReason === 'length') {
+        throw new Error(
+          '这次调用的输出被长度上限截断了（知识点有点多）。请重试，或先在知识库删掉一些不需要的知识点。',
+        );
+      }
+
+      const parsed = parsePlanOrder(res.content, points);
+      if (!parsed.ok) throw new Error(parsed.reason);
+      return parsed.plan;
+    },
+    [backends],
+  );
+
+  const studyPlanChapters = useCallback(
+    async (all: readonly KnowledgePoint[]): Promise<ChapterPreview> => {
+      const { collectKnownChapters, toChapterCandidates, buildChapterPrompt, parseChapterSuggestions, buildChapterPreview } =
+        await import('@/core/ai/chapter-backfill.ts');
+
+      const candidates = toChapterCandidates(all);
+      if (candidates.length === 0) throw new Error('所有知识点都已经有章节了，不需要补。');
+
+      const known = collectKnownChapters(all);
+
+      const list = await backends.list();
+      const ready = list.filter((x) => x.status === 'ready');
+      if (ready.length === 0) {
+        throw new Error('还没有可用的模型。先到「设置」里添加一个后端。');
+      }
+      const b = ready[0]!;
+      const apiKey = await backends.readCredential(b.id);
+      if (!apiKey) throw new Error('读不到这个后端的 API Key，请到设置页重新填一次。');
+
+      const { system, user } = buildChapterPrompt(candidates, known);
+
+      const { chatCompletion } = await import('@/core/ai/deepseek-client.ts');
+      const res = await chatCompletion({
+        apiKey,
+        model: b.model,
+        ...(b.baseUrl ? { baseUrl: b.baseUrl } : {}),
+        provider: b.provider,
+        systemPrompt: system,
+        userPrompt: user,
+        temperature: 0.1,
+        maxTokens: 8000,
+      });
+
+      if (res.finishReason === 'length') {
+        throw new Error('这次调用的输出被长度上限截断了。请重试，或分批补章节。');
+      }
+
+      const parsed = parseChapterSuggestions(res.content, candidates, known);
+      if (!parsed.ok) throw new Error(parsed.reason);
+
+      /*
+       * ⚠️ 这一步**不写库**。返回的是预览，
+       * 用户在页面上逐条勾选并点「写入」之后才会真正改知识点。
+       */
+      return buildChapterPreview(candidates, parsed.suggestions, parsed.dropped);
+    },
+    [backends],
+  );
+
+/**
+ * AI 排出来、等用户确认的路线草稿（2026-11-21）。
+ *
+ * 用户确认过的第③点：「AI 给、我勾，勾完才存」。
+ * 所以 AI 的结果先放这里，由 `RoutePreviewDialog` 逐条勾选后才落库。
+ *
+ * 为什么存 `blocks` 而不是拍平成 steps：
+ * 预览要**按块显示**（用户确认的第①点是「先归成 5–8 块」），
+ * 拍平就丢掉了块归属。落库时才由 `planToSteps` 摊平。
+ */
+interface PlanDraft {
+  blocks: PlanOrder['blocks'];
+  unplaced: number[];
+  dropped: number;
+}
+
+
+  /**
+   * 学习顺序路线的读写。
+   *
+   * 挂在 `settings.studyPlan`（可选字段，零迁移）——
+   * 为什么不是新分区、也不是给 KnowledgePoint 加字段，
+   * 见 `v2/core/study-plan-store.ts` 的文件头。
+   *
+   * ⚠️ 依赖 2026-11-21 修的那处 `importBackup` 白名单 bug，
+   * 否则用户换机器恢复备份后路线会静默消失（已补 4 条回归测试）。
+   */
+  const studyPlanStore = useMemo(
+    () => ({
+      read: async () => {
+        const s = await library.getSettings();
+        return normalizeStudyPlan(s.studyPlan);
+      },
+      write: async (plan: StudyPlan | null) => {
+        await library.saveSettings({ studyPlan: plan });
+      },
+    }),
+    [library],
+  );
+
+  /**
    * 让 AI 帮忙**写**闪卡（2026-11-14，用户要求）。
    *
    * 与上面 handlePickFlashcards 的区别：
@@ -2147,6 +2315,155 @@ export function App({
     [decks, startPractice],
   );
 
+/**
+   * ==================== 学习路线（2026-11-21） ====================
+   *
+   * 用户原话：「不用单独做个学习顺序的栏，可以把它整合进学习地图里。
+   * 可以以杀戮尖塔那种爬塔式的方式做 ui，只不过是横板的，
+   * 这样更符合『地图』的概念。」
+   *
+   * 所以这里只提供服务端接线，UI 在 `MapPage` 的横板路线里。
+   *
+   * ## 与独立页面的差别：确认步骤放到 MapPage 里
+   *
+   * 用户确认过「AI 给、我勾，勾完才存」。原来独立页面有一大段勾选预览。
+   * 整合进地图后，勾选流程保留在 `RoutePreviewDialog`（下面），
+   * 因为横板图太小，塞不下 105 条勾选框。
+   */
+  const [planRoute, setPlanRoute] = useState<StudyPlan | null>(null);
+  const [planRoutePoints, setPlanRoutePoints] = useState<PlanPointInput[]>([]);
+  const [planRoutePointById, setPlanRoutePointById] = useState<Map<string, KnowledgePoint>>(
+    new Map(),
+  );
+  /** AI 排出来、还没确认的结果（null = 没有待确认的） */
+  const [planDraft, setPlanDraft] = useState<PlanDraft | null>(null);
+
+  /** 读路线 + 排路线的输入。进学习地图时跑一次 */
+  const loadPlanRoute = useCallback(async () => {
+    try {
+      const [saved, bundle] = await Promise.all([
+        studyPlanStore.read(),
+        loadPlanInputs({
+          knowledge: knowledgeService,
+          decks,
+          reviewService,
+          today: todayLocal(),
+        }),
+      ]);
+      setPlanRoute(saved);
+      setPlanRoutePoints(bundle.points);
+      setPlanRoutePointById(bundle.pointById);
+    } catch {
+      /*
+       * 读不到就保持现状：这是地图的**附加**一块，
+       * 它坏了不该让「我哪块弱」那半页也打不开。
+       */
+    }
+  }, [studyPlanStore, knowledgeService, decks, reviewService]);
+
+  /**
+   * 进学习地图时读一次路线与排序输入（2026-11-21）。
+   *
+   * 为什么在这里而不在 MapPage 里：`loadPlanInputs` 要读三张表
+   * （知识点 / 题目 / 复习记录），而 App 已经有这些 service。
+   * 让 MapPage 自己拼会重复一遍依赖注入。与 `refreshHomeWidgets`
+   * 同一个分工 —— 数据装配在上层，页面只管显示。
+   */
+  useEffect(() => {
+    if (page !== 'flow') return;
+    void loadPlanRoute();
+  }, [page, loadPlanRoute]);
+
+  /**
+   * 调 AI 排路线 → 进预览态（**不落库**）。
+   *
+   * 用户确认过「勾完才存」。所以这里只把结果放进 planDraft，
+   * 由 dialog 让用户逐条勾选、点确认，才写库。
+   */
+  const generatePlanRoute = useCallback(async () => {
+    const plan = await studyPlanOrder(planRoutePoints);
+    setPlanDraft({
+      blocks: plan.blocks,
+      unplaced: plan.unplaced,
+      dropped: plan.dropped,
+    });
+  }, [studyPlanOrder, planRoutePoints]);
+
+  /** 用户确认 → 落库，同时把预览关掉 */
+  const commitPlanRoute = useCallback(
+    async (picked: { blocks: PlanOrder['blocks']; unplaced: number; dropped: number }) => {
+      const doc: StudyPlan = {
+        steps: planToSteps(picked, (id) => planRoutePointById.get(id)?.statement ?? ''),
+        savedAt: new Date().toISOString(),
+        unplaced: picked.unplaced,
+      };
+      await studyPlanStore.write(doc);
+      setPlanRoute(doc);
+      setPlanDraft(null);
+    },
+    [studyPlanStore, planRoutePointById],
+  );
+
+  const clearPlanRoute = useCallback(async () => {
+    await studyPlanStore.write(null);
+    setPlanRoute(null);
+    setPlanDraft(null);
+  }, [studyPlanStore]);
+
+  /**
+   * 写入用户勾选的章节（用户确认的第②点）。
+   *
+   * ⚠️ 这是**写用户真实数据**：`KnowledgePoint.chapter` 是他自己的知识库内容。
+   * 所以只在用户逐条勾选并点「写入」后才走到这里 ——
+   * `studyPlanChapters` 只返回预览，一个字节都不写库。
+   */
+  const applyPlanChapters = useCallback(
+    async (picks: { pointId: string; chapter: string }[]): Promise<number> => {
+      for (const p of picks) {
+        await knowledgeService.update(p.pointId, { chapter: p.chapter });
+      }
+      /* 写完重读，让「缺章节 N 条」和排序输入都跟着更新 */
+      await loadPlanRoute();
+      return picks.length;
+    },
+    [knowledgeService, loadPlanRoute],
+  );
+
+  /** 点横板上的某一关：去练它 */
+  const openPointAsCard = useCallback(
+    async (pointId: string) => {
+      /*
+       * ⚠️ 不能走 `openSingleQuestion`。
+       *
+       * 那个函数 `decks.getQuestion(cardId)` 查的是**题目表**，
+       * 传知识点 id 进去必然查不到，界面会报「这道题已经不在了」——
+       * 一个假错误，用户会以为知识点被删了。
+       *
+       * 知识点在 v2 里**也是卡**（`cards-loader.ts` 的 `pointToCard`：
+       * id = 知识点 id，kind = 'point'，prompt = statement）。
+       * 所以这里按知识点取、自己构造成卡。
+       */
+      try {
+        const point = await knowledgeService.get(pointId);
+        if (!point) {
+          setQueueError('这条知识点已经不在了（可能被删掉或进了回收站）。');
+          return;
+        }
+        const { pointToCard } = await import('./cards-loader.ts');
+        startPractice({
+          cards: [pointToCard(point)],
+          mode: 'free',
+          label: '从学习路线进入',
+          dueTotal: 1,
+        });
+      } catch (e) {
+        setQueueError(e instanceof Error ? e.message : '打不开这一关');
+      }
+    },
+    [knowledgeService, startPractice],
+  );
+
+
 
   /**
    * 装配「答疑记录」（2026-11-19）。
@@ -2248,6 +2565,20 @@ export function App({
           onOpenDecks={() => setPage('decks')}
           focusSourceId={mapFocus.sourceId}
           focusToken={mapFocus.token}
+          route={
+            /* 学习路线整合进学习地图（2026-11-21 用户要求） */
+            {
+              plan: planRoute,
+              points: planRoutePoints,
+              pointById: planRoutePointById,
+              onGenerate: generatePlanRoute,
+              onClear: clearPlanRoute,
+              onStep: (pointId) => void openPointAsCard(pointId),
+              onSuggestChapters: () => studyPlanChapters(Array.from(planRoutePointById.values())),
+              onApplyChapters: applyPlanChapters,
+              missingChapter: planRoutePoints.filter((p) => !p.chapter).length,
+            }
+          }
         />
       ) : page === 'exam' ? (
         <ExamPage
@@ -3312,6 +3643,16 @@ export function App({
           </PageLayerContext>
         );
       })}
+
+      {/* 学习路线预览确认（2026-11-21）：AI 排完先给用户勾，勾完才存 */}
+      {planDraft ? (
+        <RoutePreviewDialog
+          draft={planDraft}
+          pointById={planRoutePointById}
+          onConfirm={(picked) => void commitPlanRoute(picked)}
+          onCancel={() => setPlanDraft(null)}
+        />
+      ) : null}
     </AppShell>
   );
 }

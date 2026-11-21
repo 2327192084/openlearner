@@ -21,6 +21,7 @@
  * 每天按本地日期轮换。理由写在那里 —— 主要是离线可用、不给首页增加失败点。
  */
 
+import { useMemo } from 'react';
 import type { Todo } from '@/core/model.ts';
 import {
   DEFAULT_WIDGET_TITLE,
@@ -28,7 +29,10 @@ import {
   type HomeWidget,
 } from './home-widgets.ts';
 import type { TodayPlan } from './today-plan.ts';
+import { examCountdown, type ExamCountdown } from '@/v2/core/exam-countdown.ts';
+import { todayLocal } from '@/v2/core/srs.ts';
 import { MathText } from './MathText.tsx';
+import './exam-badge.css';
 
 export interface HomeWidgetsProps {
   widgets: HomeWidget[];
@@ -36,6 +40,20 @@ export interface HomeWidgetsProps {
   todos?: Todo[];
   /** 今日学习小组件用的汇总（到期/薄弱分开） */
   plan?: TodayPlan | null;
+  /**
+   * 最近一场考期（2026-11-21）。
+   *
+   * ## 为什么由上层传，不在这里算
+   *
+   * 这个组件是**纯展示**的（文件头写着理由：展示组件不该有副作用）。
+   * 要自己算就得在这里 `await storage.getAll('todos')` ——
+   * 首页每次重渲染发一次异步读，数字会落在不同快照上。
+   *
+   * 上层已经拿到了 `todos` 全量；不给的话组件就用 `todos` 这个 prop
+   * **同步**算一次（见下面的 `examOf`），仍然是纯计算、不读库。
+   * 显式传 `null` 表示「确定没有考期」，此时不渲染那一行。
+   */
+  exam?: ExamCountdown | null;
   /**
    * 每日一句的远程内容（2026-11-08）。
    *
@@ -60,6 +78,7 @@ export function HomeWidgets({
   todos = [],
   plan = null,
   quote = null,
+  exam,
   onOpenTodos,
   onStartFocus,
   onStartReview,
@@ -67,6 +86,22 @@ export function HomeWidgets({
   onLearnNew,
   onOpenSettings,
 }: HomeWidgetsProps) {
+  /**
+   * 传了 `exam` 就用传的；没传（undefined）就从 `todos` 同步算一次。
+   *
+   * 这里刻意**不是**异步读库：`todos` 是上层已经拿到并传下来的快照，
+   * `examCountdown` 是纯函数（见 exam-countdown.ts）。所以两条路
+   * 都不会让这个组件产生副作用，也不会出现「组件里再开一次读、
+   * 数字落在另一个快照上」的分裂。
+   *
+   * 传 `null` 表示上层明确说了「没有考期」，此时不再从 todos 推 ——
+   * 让调用方能覆盖（比如某天只想显示学习量）。
+   */
+  const examOf = useMemo<ExamCountdown | null>(
+    () => (exam !== undefined ? exam : examCountdown(todos, todayLocal())),
+    [exam, todos],
+  );
+
   return (
     <div className="home-widgets">
       {widgets.map((w) => (
@@ -76,6 +111,7 @@ export function HomeWidgets({
           todos={todos}
           plan={plan}
           quote={quote}
+          exam={examOf}
           onOpenTodos={onOpenTodos}
           onStartFocus={onStartFocus}
           onStartReview={onStartReview}
@@ -103,6 +139,7 @@ function WidgetCard({
   todos,
   plan,
   quote,
+  exam,
   onOpenTodos,
   onStartFocus,
   onStartReview,
@@ -113,6 +150,7 @@ function WidgetCard({
   todos: Todo[];
   plan: TodayPlan | null;
   quote: { text: string; author: string | null } | null;
+  exam: ExamCountdown | null;
   onOpenTodos?: () => void;
   onStartFocus?: () => void;
   onStartReview?: () => void;
@@ -182,6 +220,41 @@ function WidgetCard({
             <li className="home-widget__done">今天的都练熟了</li>
           ) : null}
         </ul>
+        {/*
+          考试倒计时（2026-11-21，用户要求「后续可以通过小组件放在学习库首页」）。
+
+          ## 只在真有未来考期时渲染
+
+          `exam` 为 null 时**整行不出现** —— 不摆「距 -- 天」这类假行。
+          用户没有设考期，这块区域就该只有「今天练多少」，
+          多一行空壳会让人以为功能坏了（项目里「假开关」的教训）。
+
+          ## 为什么放在这一张卡里，而不是新开一个小组件类型
+
+          现在说的是「学什么、学多少」，考期回答的是「为什么现在要学这么多」。
+          两句话在同一张卡里才读得通。新开一种组件类型意味着：
+          `WidgetKind` 加一档、`DEFAULT_WIDGET_TITLE` 加一条、
+          `HomeWidgetsEditor` 加一个可选项、`widgetsFromSettings` 兼容旧配置 ——
+          而用户能得到的只是把这一行搬到另一张卡上。
+
+          ## 话术
+
+          「距 14 天」在纸面上读作副词，所以这里写成完整的一句：
+          距离 + 考试名。今天考时说「今天」，不说「距 0 天」。
+        */}
+        {exam ? (
+          <p
+            className={`home-widget__exam${exam.daysLeft <= 1 ? ' home-widget__exam--soon' : ''}`}
+          >
+            <span className="home-widget__exam-n">
+              {exam.daysLeft === 0 ? '今天' : `${exam.daysLeft} 天后`}
+            </span>
+            <span className="home-widget__exam-title" title={exam.title}>
+              {exam.title}
+            </span>
+            <span>开考</span>
+          </p>
+        ) : null}
         {action ? (
           <button type="button" className="home-widget__go" onClick={action.onClick}>
             {action.label} →

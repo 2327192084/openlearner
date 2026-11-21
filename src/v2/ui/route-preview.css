@@ -1,0 +1,342 @@
+/**
+ * 学习路线：补章节预览 + 确认对话框（2026-11-21）。
+ *
+ * ## 为什么单独一个文件
+ *
+ * 横板路线（RouteMap）的样式在 `route-map.css`；这里是**配合它**的两块：
+ *  - `.rmap__chapter-*`：没排路线时「先补缺失章节」那一段（RouteStarter 里）
+ *  - `.rpd__*`：AI 排完之后的逐条确认对话框（RoutePreviewDialog）
+ *
+ * 三块分开是因为改动频率不同：横板布局调得多，对话框几乎固定。
+ *
+ * ## ⚠️ 层序陷阱
+ *
+ * `base.css` 有不在 `@layer` 内的 `button { color: inherit }`。
+ * 层内写 color 一律无效（层外优先于层内，比 specificity 还优先）。
+ * 需要指定字体色的按钮规则写在文件末尾层外，用 `.app .` 抬 specificity。
+ *
+ * ## 历史
+ *
+ * 这个文件原来叫 `study-plan-page.css`，里面是已删除的「学习顺序」独立页
+ * 的样式（`.spage` / `.sp-*`）。用户 2026-11-21 要求整合进学习地图后，
+ * 那些类名一个都不再有消费者，所以整段删掉、文件改名。
+ */
+
+/*
+ * ============================================================================
+ * 学习路线：整合进学习地图之后新增的部分（2026-11-21 第二轮）
+ *
+ * 用户改主意了：「不用单独做个学习顺序的栏，可以把它整合进学习地图里」。
+ * 所以独立页面的样式大部分不再需要，但下面这些是路线块在**地图里**用的。
+ *
+ * 横板爬塔的样式在 `route-map.css`；这里只放补章节那一段 + 预览对话框。
+ * ============================================================================
+ */
+
+@layer study.features {
+  /* 还没排路线时的入口块 —— 复用 .rmap 的壳 */
+  .rmap--starter .rmap__lead + .rmap__lead {
+    margin-top: var(--space-2);
+  }
+
+  .rmap__prep {
+    margin: var(--space-3) 0;
+  }
+
+  /* ---------- 补章节预览 ---------- */
+  .rmap__chapter-review {
+    margin: var(--space-3) 0;
+    padding: var(--space-3);
+    border-radius: var(--radius-sm);
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    min-width: 0;
+  }
+
+  .rmap__chapter-list {
+    list-style: none;
+    margin: var(--space-2) 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 320px;
+    overflow-y: auto;
+  }
+
+  .rmap__chapter-item {
+    min-width: 0;
+  }
+
+  .rmap__chapter-label {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: var(--space-2);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    min-width: 0;
+  }
+
+  .rmap__chapter-label:hover {
+    background: var(--bg-hover);
+  }
+
+  .rmap__chapter-box {
+    flex: 0 0 auto;
+    margin-top: 2px;
+  }
+
+  .rmap__chapter-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .rmap__chapter-stmt {
+    font-size: var(--fs-sm);
+    color: var(--text);
+    line-height: var(--lh-snug);
+  }
+
+  .rmap__chapter-change {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    font-size: var(--fs-xs);
+  }
+
+  .rmap__chapter-from {
+    color: var(--text-faint);
+  }
+
+  .rmap__chapter-arrow {
+    color: var(--text-faint);
+  }
+
+  .rmap__chapter-to {
+    color: var(--accent-text);
+    font-weight: 600;
+  }
+
+  .rmap__chapter-new {
+    font-size: var(--fs-xs);
+    color: var(--warn);
+    border: 1px solid currentColor;
+    border-radius: var(--radius-xs);
+    padding: 0 4px;
+  }
+
+  /* ==================== 路线预览确认对话框 ==================== */
+
+  .rpd {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-4);
+    background: rgb(0 0 0 / 55%);
+  }
+
+  .rpd__panel {
+    display: flex;
+    flex-direction: column;
+    width: min(860px, 100%);
+    max-height: min(86vh, 900px);
+    border-radius: var(--radius-card);
+    background: var(--bg-surface);
+    border: 1px solid var(--line-strong);
+    min-width: 0;
+  }
+
+  .rpd__head {
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .rpd__title {
+    font-size: var(--fs-lg);
+    margin-bottom: var(--space-2);
+  }
+
+  .rpd__lead {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: var(--lh-body);
+    max-width: 640px;
+  }
+
+  .rpd__warn {
+    font-size: var(--fs-xs);
+    color: var(--warn);
+    line-height: var(--lh-body);
+    margin-top: var(--space-2);
+    max-width: 640px;
+  }
+
+  .rpd__body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: var(--space-3) var(--space-5);
+    min-height: 0;
+  }
+
+  .rpd__block {
+    margin-bottom: var(--space-4);
+  }
+
+  .rpd__block-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding-bottom: var(--space-1);
+    border-bottom: 1px solid var(--line-soft);
+    margin-bottom: var(--space-1);
+  }
+
+  .rpd__block-title {
+    font-size: var(--fs-md);
+    color: var(--text);
+  }
+
+  .rpd__block-toggle {
+    font-size: var(--fs-xs);
+    background: none;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xs);
+    padding: 2px var(--space-2);
+    cursor: pointer;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  .rpd__block-toggle:hover {
+    border-color: var(--line-strong);
+  }
+
+  .rpd__block-why {
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    line-height: var(--lh-snug);
+    margin-bottom: var(--space-2);
+  }
+
+  .rpd__items {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .rpd__item {
+    min-width: 0;
+  }
+
+  .rpd__label {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    min-width: 0;
+  }
+
+  .rpd__label:hover {
+    background: var(--bg-hover);
+  }
+
+  .rpd__box {
+    flex: 0 0 auto;
+    margin-top: 3px;
+  }
+
+  .rpd__order {
+    flex: 0 0 auto;
+    min-width: 20px;
+    text-align: right;
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    padding-top: 2px;
+  }
+
+  .rpd__body-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .rpd__stmt {
+    font-size: var(--fs-sm);
+    color: var(--text);
+    line-height: var(--lh-snug);
+  }
+
+  .rpd__meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .rpd__diff {
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xs);
+    padding: 1px var(--space-2);
+    white-space: nowrap;
+  }
+
+  .rpd__diff--unknown {
+    color: var(--text-faint);
+    border-style: dashed;
+  }
+
+  .rpd__why {
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+  }
+
+  .rpd__basis {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+  }
+
+  .rpd__foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-5);
+    border-top: 1px solid var(--line);
+    flex-wrap: wrap;
+  }
+
+  .rpd__count {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+  }
+
+  .rpd__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+}
+
+/* 层外：对话框里的按钮字体色（base.css 的 button 规则在层外） */
+.app .rpd__block-toggle {
+  color: var(--text-muted);
+}

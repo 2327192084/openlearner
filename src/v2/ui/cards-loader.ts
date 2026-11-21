@@ -19,8 +19,14 @@ import type { Question, KnowledgePoint } from '@/core/model.ts';
 
 export type CardLoader = () => Promise<Card[]>;
 
-/** 知识点没有题型，映射成 point 卡片 */
-function pointToCard(p: KnowledgePoint): Card {
+/**
+ * 知识点没有题型，映射成 point 卡片。
+ *
+ * 导出给「学习路线」用（2026-11-21）：横板上点某一关要直接开练，
+ * 而一关是**知识点**不是题目。走 `decks.getQuestion(pointId)` 必然查不到
+ * （那张表里只有题目），界面会报「这道题已经不在了」—— 一个假错误。
+ */
+export function pointToCard(p: KnowledgePoint): Card {
   return {
     id: p.id,
     sourceId: p.sourceId ?? '',

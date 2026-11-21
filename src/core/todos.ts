@@ -29,6 +29,13 @@ export interface TodoInput {
   dueAt?: string | null;
   priority?: Todo['priority'];
   tags?: string[];
+  /**
+   * 是不是一场考试的考期（2026-11-21）。
+   *
+   * 不传 = 普通待办。界面上的「这是考试」勾选框只在这个位置起作用，
+   * 落库前会过一遍 `normalizeExam`（只有 `true` 算考试）。
+   */
+  isExam?: boolean;
 }
 
 export class TodoService {
@@ -85,14 +92,24 @@ export class TodoService {
       priority: normalizePriority(input.priority),
       tags: normalizeTags(input.tags),
     };
+    /*
+     * 考期标记只在真是考试时才写进记录（2026-11-21）。
+     *
+     * 不写 `false`：缺字段与 `false` 语义相同，都是普通待办。
+     * 少写一个键，旧记录与新记录在库里长得一样 ——
+     * 「这个字段是可选的、零迁移」这句话才站得住。
+     */
+    if (normalizeExam(input.isExam)) todo.isExam = true;
     await this.storage.put('todos', todo);
     return todo;
   }
 
-  /** 改标题 / 备注 / 截止日 / 优先级 / 标签 */
+  /** 改标题 / 备注 / 截止日 / 优先级 / 标签 / 是不是考期 */
   async update(
     id: string,
-    patch: Partial<Pick<Todo, 'title' | 'note' | 'dueAt' | 'priority' | 'tags'>>,
+    patch: Partial<
+      Pick<Todo, 'title' | 'note' | 'dueAt' | 'priority' | 'tags' | 'isExam'>
+    >,
   ): Promise<Todo> {
     const existing = await this.storage.get('todos', id);
     if (!existing) throw new Error('这条待办已经不存在了');
@@ -108,6 +125,18 @@ export class TodoService {
     if (patch.dueAt !== undefined) next.dueAt = normalizeDue(patch.dueAt);
     if (patch.priority !== undefined) next.priority = normalizePriority(patch.priority);
     if (patch.tags !== undefined) next.tags = normalizeTags(patch.tags);
+    /*
+     * 取消「这是考试」时**删掉键**，而不是存 false。
+     *
+     * 库里的形态因此只有两种：有 `isExam: true`，或者根本没有这个键。
+     * 读的地方（`examCountdown`、列表徽标）只需要判断「是不是 true」，
+     * 不用同时处理 undefined / false / 0 三套假值 ——
+     * 这类「同一种含义在库里有多套写法」正是后面最难查的 bug 来源。
+     */
+    if (patch.isExam !== undefined) {
+      if (normalizeExam(patch.isExam)) next.isExam = true;
+      else delete next.isExam;
+    }
 
     await this.storage.put('todos', next);
     return next;
@@ -233,6 +262,21 @@ function compareTodos(a: Todo, b: Todo): number {
   const bo = b.order ?? 0;
   if (ao !== bo) return ao - bo;
   return a.id < b.id ? -1 : 1;
+}
+
+/**
+ * 考期标记规范化（2026-11-21）。
+ *
+ * **只有严格的 `true` 算考试**，其它一切（undefined / null / false /
+ * 'true' 字符串 / 1）都当普通待办。
+ *
+ * 为什么这么严：这个标记会决定首页那块「距考试 N 天」要不要出现。
+ * 一个手改过的备份里写了 `"true"`（字符串）时，如果我们宽判，
+ * 界面上就会冒出一条谁也没想设的考试倒计时 —— 而用户找不到它在哪设的。
+ * 宁可漏判（当普通待办，用户再勾一次就行），也不要误判。
+ */
+export function normalizeExam(v: unknown): boolean {
+  return v === true;
 }
 
 /**

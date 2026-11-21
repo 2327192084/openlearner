@@ -211,6 +211,88 @@ describe('备份导出与恢复', () => {
     expect(() => validateBackup(backup)).not.toThrow();
   });
 
+  /**
+   * 恢复备份不能丢掉「白名单之外」的 settings 字段（2026-11-21 修）。
+   *
+   * ## 这条测试为什么存在
+   *
+   * `importBackup` 原来是逐字段白名单（locale / questionLanguage /
+   * onboarded / gradingRules）。后加的 `homeWidgets` 与
+   * `dailyQuoteEndpoint` 不在里面 —— 用户换机器恢复备份后这两项
+   * **静默丢失**，而备份文件里明明存着。实测（导出→导入往返）：
+   *
+   *   homeWidgets        → undefined
+   *   dailyQuoteEndpoint → undefined
+   *
+   * 修复前这两条断言都会红，所以它们确实在验东西
+   * （反向验证过：把白名单改回去，两条都失败）。
+   */
+  it('恢复备份时保留自定义首页小组件（不在旧白名单里）', async () => {
+    await service.create('源库');
+    const widgets = [
+      { id: 'w_1', kind: 'quote', title: '座右铭', body: '天行健，君子以自强不息' },
+      { id: 'w_2', kind: 'focus', title: '', body: '' },
+    ];
+    await service.saveSettings({ homeWidgets: widgets });
+
+    const backup = await service.exportBackup();
+    /* 备份文件里确实有 —— 否则下面验的是「本来就没存」 */
+    expect(JSON.stringify(backup)).toContain('天行健');
+
+    const target = freshService();
+    await target.service.importBackup(JSON.parse(JSON.stringify(backup)));
+
+    const restored = await target.service.getSettings();
+    expect(restored.homeWidgets).toEqual(widgets);
+  });
+
+  it('恢复备份时保留自定义每日一句端点（不在旧白名单里）', async () => {
+    await service.create('源库');
+    await service.saveSettings({ dailyQuoteEndpoint: 'https://example.com/quote.json' });
+
+    const backup = await service.exportBackup();
+    const target = freshService();
+    await target.service.importBackup(JSON.parse(JSON.stringify(backup)));
+
+    const restored = await target.service.getSettings();
+    expect(restored.dailyQuoteEndpoint).toBe('https://example.com/quote.json');
+  });
+
+  it('恢复备份时凭据类字段仍被清掉（展开 settings 不能把旧凭据带回来）', async () => {
+    /*
+     * 「整体展开 settings」的一个副作用风险：旧备份文件里可能还带着
+     * 已下线功能的凭据（maimemoToken）。直接展开会把它重新写进库。
+     * 所以展开前必须先 sanitize。
+     */
+    await service.create('源库');
+    const backup = await service.exportBackup();
+    /* 手工把一个旧凭据塞进备份的 settings（模拟旧版本导出的文件） */
+    const dirty = JSON.parse(JSON.stringify(backup)) as Record<string, unknown>;
+    (dirty.settings as Record<string, unknown>).maimemoToken = 'old-secret-token-123';
+
+    const target = freshService();
+    await target.service.importBackup(dirty);
+
+    const row = await target.storage.get('settings', 'app');
+    expect(row).not.toBeNull();
+    expect(JSON.stringify(row)).not.toContain('old-secret-token-123');
+  });
+
+  it('旧备份缺 settings 字段时用默认值补齐，不因此导入失败', async () => {
+    await service.create('源库');
+    const backup = await service.exportBackup();
+    const noSettings = JSON.parse(JSON.stringify(backup)) as Record<string, unknown>;
+    delete noSettings.settings;
+
+    const target = freshService();
+    await target.service.importBackup(noSettings);
+
+    const restored = await target.service.getSettings();
+    expect(restored.locale).toBe('zh-CN');
+    expect(restored.onboarded).toBe(false);
+    expect(restored.gradingRules.strictness).toBe('standard');
+  });
+
   it('未建库时导出给出可操作提示，而不是空指针', async () => {
     await expect(service.exportBackup()).rejects.toThrow(LibraryError);
     await expect(service.exportBackup()).rejects.toThrow(/还没有学习库/);

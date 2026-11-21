@@ -32,7 +32,9 @@ import type { Todo } from '@/core/model.ts';
 import type { TodoService } from '@/core/todos.ts';
 import { priorityRank } from '@/core/todos.ts';
 import { todayLocal } from '@/v2/core/srs.ts';
+import { examBadgeFor, examCountdown } from '@/v2/core/exam-countdown.ts';
 import { suggestionsOf, type SuggestionKind } from './study-suggestions.ts';
+import './exam-badge.css';
 
 /** 学习建议的数据来源：由外层用同一个快照算好，避免各页各算一遍 */
 export interface SuggestionInput {
@@ -66,6 +68,8 @@ export function BoardPage({ todos, onSuggestion, suggestionInput }: BoardPagePro
   const [draftDue, setDraftDue] = useState('');
   const [draftPriority, setDraftPriority] = useState<'high' | 'normal' | 'low'>('normal');
   const [draftTags, setDraftTags] = useState('');
+  /** 这一条是不是考期（2026-11-21）。默认不勾 —— 多数待办不是考试 */
+  const [draftExam, setDraftExam] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showDone, setShowDone] = useState(false);
@@ -117,6 +121,19 @@ export function BoardPage({ todos, onSuggestion, suggestionInput }: BoardPagePro
     [pending, today],
   );
 
+  /**
+   * 最近一场考期（2026-11-21）。
+   *
+   * 用**全量** `items` 而不是 `filtered`：标签筛选不该改变
+   * 「下一场考试是哪天」—— 那是个客观事实，不是筛选结果。
+   *
+   * 为什么概览区要显示它：列表里的徽标要一行一行看才知道哪件事最紧。
+   * 概览区说一句「距『高数期末』14 天」，用户打开页面第一眼就知道
+   * 这周该往哪使劲。数字与首页小组件用的是**同一个** `examCountdown`，
+   * 不会出现两处说两个天数（项目里「同一屏两组数字打架」踩过好几次）。
+   */
+  const nearestExam = useMemo(() => examCountdown(items, today), [items, today]);
+
   /** 学习建议：从已有数据推导（不落库，做完自然消失） */
   const suggestions = useMemo(
     () =>
@@ -142,11 +159,17 @@ export function BoardPage({ todos, onSuggestion, suggestionInput }: BoardPagePro
         dueAt: draftDue || null,
         priority: draftPriority,
         tags: parseTags(draftTags),
+        /*
+         * 只有勾了才传 true；没勾就不传 —— 库里不会出现 `isExam: false`。
+         * 库里同一含义只有一种写法，读的地方不用处理三套假值。
+         */
+        ...(draftExam ? { isExam: true } : {}),
       });
       setDraft('');
       setDraftDue('');
       setDraftTags('');
       setDraftPriority('normal');
+      setDraftExam(false);
       await load();
     } catch (e) {
       setErr(e instanceof Error ? e.message : '保存失败');
@@ -180,8 +203,29 @@ export function BoardPage({ todos, onSuggestion, suggestionInput }: BoardPagePro
     }
   }
 
-  async function cyclePriority(t: Todo) {
-    const order: ('high' | 'normal' | 'low')[] = ['high', 'normal', 'low'];
+  /**
+   * 把一条已有的待办改成考试 / 改回普通待办（2026-11-21）。
+   *
+   * 为什么需要这个而不只是「新增时勾」：
+   * 用户往往是先记了「高数期末 12-20」这条待办，过几天才想起来
+   * 「这是考试」。要求他删掉重加一遍，就为了让考期倒计时能出现 ——
+   * 那这个功能只在「一开始就想清楚」的时候有用。
+   *
+   * 取消时 `update` 会把键删掉（见 todos.ts），库里不会留 `isExam: false`。
+   */
+  async function toggleExam(t: Todo) {
+    setBusy(true);
+    try {
+      await todos.update(t.id, { isExam: t.isExam !== true });
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '改考期标记失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cyclePriority(t: Todo) {    const order: ('high' | 'normal' | 'low')[] = ['high', 'normal', 'low'];
     const cur = t.priority ?? 'normal';
     const next = order[(order.indexOf(cur) + 1) % order.length]!;
     setBusy(true);
@@ -304,6 +348,22 @@ export function BoardPage({ todos, onSuggestion, suggestionInput }: BoardPagePro
             />
           </label>
 
+          {/*
+            「这是考试」勾选（2026-11-21）。
+            紧跟在截止日后面，读起来是「截止日 → 这场考试就在那天」。
+            默认不勾：多数待办不是考试，默认勾上会让人每次都得多看一眼。
+          */}
+          <label className={`bd-exam${draftExam ? ' bd-exam--on' : ''}`}>
+            <input
+              className="bd-exam__check"
+              type="checkbox"
+              checked={draftExam}
+              onChange={(e) => setDraftExam(e.target.checked)}
+              disabled={busy}
+            />
+            <span className="bd-exam__label">这是考试</span>
+          </label>
+
           <label className="bd-due">
             <span className="bd-due__label">优先级</span>
             <select
@@ -342,6 +402,19 @@ export function BoardPage({ todos, onSuggestion, suggestionInput }: BoardPagePro
             添加
           </button>
         </div>
+
+        {/*
+          「是考试但没填截止日」的提示（2026-11-21）。
+          不阻止添加 —— 日期可选是这个页面从第一天就定下的取向。
+          但必须在**添加之前**说清楚：没有日期就算不出「距几天」，
+          首页那块倒计时不会出现。让用户加完之后自己发现「没动静」
+          比当场说一句要糟得多。
+        */}
+        {draftExam && !draftDue ? (
+          <p className="bd-exam__warn">
+            考试要填截止日才会出现在倒计时里 —— 没有日期就算不出「距几天」。
+          </p>
+        ) : null}
       </div>
 
       {/* ==================== 标签筛选 ==================== */}
@@ -387,6 +460,25 @@ export function BoardPage({ todos, onSuggestion, suggestionInput }: BoardPagePro
             <span className="bd-stat__label">件高优先级</span>
           </span>
         ) : null}
+        {/*
+          最近一场考期（2026-11-21）。
+
+          只在**真有一场未来的考试**时出现 —— 没有就不渲染这一格，
+          不摆一个「距 -- 天」的假位置。天数与首页小组件的倒计时
+          用的是同一个 `examCountdown`，两处不会打架。
+        */}
+        {nearestExam ? (
+          <span className="bd-stat bd-stat--exam">
+            <span className="bd-stat__n">
+              {nearestExam.daysLeft === 0 ? '今天' : nearestExam.daysLeft}
+            </span>
+            <span className="bd-stat__label">
+              {nearestExam.daysLeft === 0
+                ? `考「${nearestExam.title}」`
+                : `天后考「${nearestExam.title}」`}
+            </span>
+          </span>
+        ) : null}
       </div>
 
       {/* ==================== 未完成 ==================== */}
@@ -404,6 +496,15 @@ export function BoardPage({ todos, onSuggestion, suggestionInput }: BoardPagePro
             const isOverdue = t.dueAt !== null && t.dueAt < today;
             const isToday = t.dueAt === today;
             const prio = t.priority ?? 'normal';
+            const isExam = t.isExam === true;
+            /*
+             * 考期徽标（2026-11-21）。
+             *
+             * 只有**考试 + 有截止日 + 未完成**才给徽标，判定全在
+             * `examBadgeFor` 里（有 6 条单测钉着）。这里不重复写 if ——
+             * 两处各写一遍的话，「今天算 0 天」这种规则迟早会有一处改漏。
+             */
+            const badge = examBadgeFor(t, today);
             return (
               <li
                 key={t.id}
@@ -471,6 +572,27 @@ export function BoardPage({ todos, onSuggestion, suggestionInput }: BoardPagePro
                       {t.title}
                     </span>
 
+                    {/*
+                      考期徽标（2026-11-21）：「今天 / 距 N 天 / 已过期」。
+                      放在标题右边、标签前面 —— 它是这条待办**最该被看到**
+                      的信息，不该被推到最右和「截止日」那一列抢位置。
+                    */}
+                    {badge ? (
+                      <span
+                        className={`bd-exam-badge${
+                          badge.daysLeft === 0
+                            ? ' bd-exam-badge--today'
+                            : badge.daysLeft < 0
+                              ? ' bd-exam-badge--past'
+                              : ''
+                        }`}
+                        /* 徽标本身就是「距 N 天」，不必再读一遍完整日期 */
+                        title={`考期 ${t.dueAt}`}
+                      >
+                        {badge.label}
+                      </span>
+                    ) : null}
+
                     {(t.tags ?? []).length > 0 ? (
                       <span className="bd-item__tags">
                         {(t.tags ?? []).map((tag) => (
@@ -487,13 +609,66 @@ export function BoardPage({ todos, onSuggestion, suggestionInput }: BoardPagePro
                       </span>
                     ) : null}
 
+                    {/*
+                      考期标记开关（2026-11-21）。
+
+                      ## 为什么已有待办也需要能改成考试
+
+                      用户往往是**先记下**「高数期末 12-20」，过几天才想起
+                      「这其实是一场考试」。如果只有新增时能勾，那就得删掉重加
+                      一遍才能让倒计时出现 —— 这个功能就只在不加思索的那一刻有用。
+
+                      ## 为什么它长得很安静
+
+                      第一版把「考期」做成一个带描边的徽标块，截图一看
+                      一行里挤了三样都在说同一件事：
+                        距离徽标「今天」+ 描边块「考期」+ 截止日「今天 · 2026-11-21」
+
+                      真正该显眼的是**距离**（那是用户要的信息），
+                      「这场是考试」由徽标本身的存在就说明了。
+                      所以两种状态共用同一个低调按钮：
+                        - 已是考试 →「考期」（强调色，常驻，点一下改回普通待办）
+                        - 还不是   →「考」（淡灰，悬停整行才明显，点一下标成考试）
+                      转换按钮是低频动作，不该抢标题和距离的注意力。
+                    */}
+                    {isExam ? (
+                      <button
+                        type="button"
+                        className="bd-exam-mark"
+                        onClick={() => void toggleExam(t)}
+                        disabled={busy}
+                        title="这是一场考试，点击改回普通待办"
+                      >
+                        考期
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="bd-item__exam-add"
+                        onClick={() => void toggleExam(t)}
+                        disabled={busy}
+                        title="把这件标成考试（会显示倒计时）"
+                      >
+                        考
+                      </button>
+                    )}
+
                     {t.dueAt ? (
                       <span
                         className={`bd-item__due${isOverdue ? ' bd-item__due--overdue' : ''}${
                           isToday ? ' bd-item__due--today' : ''
                         }`}
                       >
-                        {isOverdue ? '已逾期 · ' : isToday ? '今天 · ' : ''}
+                        {/*
+                          「今天 · / 已逾期 ·」这个前缀在**考期**行上不写（2026-11-21）。
+
+                          截图核对时发现的：一条今天考的考期行会同时出现
+                            [今天] [考期] 今天 · 2026-11-21
+                          三处都在说「就是今天」。徽标已经把「还有几天」说全了，
+                          这一列只需要回答「具体哪一天」。普通待办没有徽标，
+                          所以那里前缀照旧保留 —— 它是那一行唯一的状态来源。
+                        */}
+                        {badge ? '' : isOverdue ? '已逾期 · ' : isToday ? '今天 · ' : ''}
                         {t.dueAt}
                       </span>
                     ) : (

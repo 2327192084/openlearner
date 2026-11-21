@@ -289,19 +289,49 @@ export class LibraryService {
       schemaVersion: LIBRARY_SCHEMA_VERSION,
     };
     await this.storage.put('meta', meta);
-    // 备份里的 settings 是纯设置（不含 id），落库时补上分区主键；
-    // 未知字段不保留，避免旧版本残留字段污染当前结构。
+    // 备份里的 settings 是纯设置（不含 id），落库时补上分区主键。
+    /*
+     * ⚠️ 这里**不再逐字段白名单**（2026-11-21 修）。
+     *
+     * ## 原来错在哪
+     *
+     * 白名单只列 locale / questionLanguage / onboarded / gradingRules，
+     * 后来加的 `homeWidgets`（首页自定义小组件）与 `dailyQuoteEndpoint`
+     * 都不在其中 —— 用户换机器恢复备份后，这两项**静默丢失**，
+     * 而备份文件里明明存着。实测（导出→导入往返）：
+     *
+     *   homeWidgets        → undefined（应为 [{id:'w_1',...}]）
+     *   dailyQuoteEndpoint → undefined（应为 'https://example.com/quote'）
+     *
+     * 讽刺的是下面那段注释早就写对了结论（「漏一个新字段的后果是
+     * 用户恢复备份后…悄悄退回默认，而备份文件里明明存着」），
+     * 但当时只补了 gradingRules 一个字段，白名单本身没拆掉，
+     * 于是下一次加字段又掉进同一个坑。
+     *
+     * ## 现在怎么做的
+     *
+     * 用 `DEFAULT_SETTINGS` 打底，再把备份里的 settings **整体展开**上去，
+     * 最后对必须归一化的字段（locale / questionLanguage / gradingRules）
+     * 显式过一遍。这样以后新增设置字段自动跟着备份走，不用回来改这里。
+     *
+     * ## 为什么先 sanitize 再展开
+     *
+     * 旧备份文件里可能还带着已下线功能的凭据（`maimemoToken`）。
+     * 直接展开会把它重新写进库 —— 所以先过 `sanitizeSettingsForExport`
+     * （它是黑名单思路：删已知凭据，其余原样保留）。
+     */
+    const restored = sanitizeSettingsForExport({
+      ...DEFAULT_SETTINGS,
+      ...((backup.settings ?? {}) as Partial<AppSettings>),
+    });
     await this.storage.put('settings', {
+      ...restored,
       locale: backup.settings?.locale ?? DEFAULT_SETTINGS.locale,
       questionLanguage: backup.settings?.questionLanguage ?? DEFAULT_SETTINGS.questionLanguage,
       onboarded: backup.settings?.onboarded ?? DEFAULT_SETTINGS.onboarded,
       /*
-       * 评分规则要显式带上，不能只列前三个字段。
-       *
-       * 这里原来是「逐字段白名单」，漏一个新字段的后果是：
-       * 用户恢复备份后自定义评分悄悄退回默认，而备份文件里明明存着 ——
-       * 属于「数据在、但没生效」的那类最难发现的问题。
-       * 用 normalize 兜底：旧备份没有这个字段时得到默认值，不会变成 undefined。
+       * 评分规则用 normalize 兜底：旧备份没有这个字段、或被手改坏了，
+       * 都收敛到默认值，不会变成 undefined 把界面搞崩。
        */
       gradingRules: normalizeGradingRules(backup.settings?.gradingRules),
       id: SETTINGS_ID,

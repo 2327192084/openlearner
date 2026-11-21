@@ -36,6 +36,7 @@ import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { SourceService } from '@/core/sources.ts';
 import { mapLabel, weakestChapter, type MapGroup, type MapSource } from '@/v2/core/study-map.ts';
+import { RouteMap } from './RouteMap.tsx';
 import type { CardLoader } from './cards-loader.ts';
 import { buildSnapshot, type StudySnapshot } from './study-snapshot.ts';
 
@@ -65,6 +66,48 @@ export interface MapPageProps {
   focusSourceId?: string | null;
   /** 每次点首页那一行都递增，让「同一份资料再点一次」也能重新定位 */
   focusToken?: number;
+  /**
+   * 学习路线（2026-11-21 整合进来）。
+   *
+   * ## 为什么并进学习地图，不单独一页
+   *
+   * 用户原话：「不用单独做个学习顺序的栏，可以把它整合进学习地图里。
+   * 可以以杀戮尖塔那种爬塔式的方式做 ui，只不过是横板的，
+   * 这样更符合『地图』的概念。」
+   *
+   * 所以这一页现在回答两个问题，上下两块：
+   *  - 上半（原有）：按「资料 → 章节」摊开掌握度 —— 我哪块弱
+   *  - 下半（新增）：横板爬塔路线 —— 我按什么顺序学、推到第几步
+   *
+   * 两块共用同一份 `buildSnapshot` 数据，不重复读库。
+   *
+   * 为 null 且没有 `aiPlan` 时不显示那一块（不摆空占位）。
+   */
+  route?: {
+    /** 已确认的路线；null = 还没排过 */
+    plan: import('../core/study-plan-store.ts').StudyPlan | null;
+    /** 排路线用的输入（App 用同一份快照算好，这里不重算） */
+    points: import('@/core/ai/plan-order.ts').PlanPointInput[];
+    /** 知识点 id → 原始记录（显示陈述、跳转用） */
+    pointById: ReadonlyMap<string, import('@/core/model.ts').KnowledgePoint>;
+    /** 让 AI 排/重排。抛错表示失败（界面显示真实原因） */
+    onGenerate: () => Promise<void>;
+    /** 清除路线 */
+    onClear: () => Promise<void>;
+    /** 点某个关卡：去练它 */
+    onStep: (pointId: string) => void;
+    /**
+     * 让 AI 推断缺失的章节（用户确认的第②点：先补章节再排序）。
+     *
+     * 返回预览（**不写库**）—— 用户逐条勾选后才写。
+     * 没有缺章节时返回 `changes: []`。
+     */
+    onSuggestChapters: () => Promise<import('@/core/ai/chapter-backfill.ts').ChapterPreview>;
+    /** 写入用户勾选的章节 */
+    onApplyChapters: (picks: { pointId: string; chapter: string }[]) => Promise<number>;
+    /** 缺章节的条数（0 = 不显示补章节入口） */
+    missingChapter: number;
+  } | null;
 }
 
 const STORAGE_KEY = 'openleaner.study-map.open';
@@ -101,11 +144,88 @@ export function MapPage({
   onOpenDecks,
   focusSourceId,
   focusToken,
+  route,
 }: MapPageProps) {
   const [snap, setSnap] = useState<StudySnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** 只显示有到期的 */
   const [onlyDue, setOnlyDue] = useState(false);
+
+  /* ---------- 学习路线（2026-11-21 整合进来） ---------- */
+  /** 正在调 AI 排 */
+  const [routeBusy, setRouteBusy] = useState(false);
+  const [routeErr, setRouteErr] = useState<string | null>(null);
+
+  /**
+   * 排路线的入口。
+   *
+   * `route.onGenerate` 负责「调 AI + 落库」（在 App 里，那里有后端凭据）。
+   * 这里只管按钮状态与错误显示 —— 与 `onAiCompose` 同一分工。
+   */
+  const runRouteGenerate = useCallback(async () => {
+    if (!route) return;
+    setRouteBusy(true);
+    setRouteErr(null);
+    try {
+      await route.onGenerate();
+    } catch (e) {
+      /* 真实原因抛上来就原样显示，不吞成一句「AI 没给出结果」 */
+      setRouteErr(e instanceof Error ? e.message : 'AI 没有返回结果');
+    } finally {
+      setRouteBusy(false);
+    }
+  }, [route]);
+
+  const runRouteClear = useCallback(async () => {
+    if (!route) return;
+    setRouteBusy(true);
+    setRouteErr(null);
+    try {
+      await route.onClear();
+    } catch (e) {
+      setRouteErr(e instanceof Error ? e.message : '清除路线失败');
+    } finally {
+      setRouteBusy(false);
+    }
+  }, [route]);
+
+  /* ---------- 补缺失章节（用户确认的第②点） ---------- */
+  const [chapterBusy, setChapterBusy] = useState(false);
+  const [chapterErr, setChapterErr] = useState<string | null>(null);
+  const [chapterPreview, setChapterPreview] = useState<
+    import('@/core/ai/chapter-backfill.ts').ChapterPreview | null
+  >(null);
+
+  const runChapterSuggest = useCallback(async () => {
+    if (!route) return;
+    setChapterBusy(true);
+    setChapterErr(null);
+    try {
+      const preview = await route.onSuggestChapters();
+      setChapterPreview(preview);
+    } catch (e) {
+      setChapterErr(e instanceof Error ? e.message : 'AI 没有返回结果');
+    } finally {
+      setChapterBusy(false);
+    }
+  }, [route]);
+
+  const runChapterApply = useCallback(
+    async (picks: { pointId: string; chapter: string }[]) => {
+      if (!route) return;
+      setChapterBusy(true);
+      setChapterErr(null);
+      try {
+        await route.onApplyChapters(picks);
+        setChapterPreview(null);
+      } catch (e) {
+        setChapterErr(e instanceof Error ? e.message : '写入章节失败');
+      } finally {
+        setChapterBusy(false);
+      }
+    },
+    [route],
+  );
 
   /*
    * 折叠状态。
@@ -229,6 +349,23 @@ export function MapPage({
       .filter((s) => s.chapters.length > 0);
   }, [snap, onlyDue]);
 
+  /**
+   * 知识点 id → 掌握度（横板路线用）。
+   *
+   * 为什么从 `route.points` 取而不是从 `snap`：
+   * `snap` 是按**题目**算的（一道题一条进度），而路线走的是**知识点**。
+   * 一个知识点可能挂着好几道题，`loadPlanInputs` 已经把「这个知识点
+   * 自己作为卡片 + 引用它的题」合成了单一掌握度（取最好的那个）。
+   * 两处各算一遍会出现「地图说熟练、路线说刚起步」。
+   *
+   * 没有 route 时返回空 Map —— 横板那一块不渲染，不影响上半部分。
+   */
+  const masteryByPoint = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of route?.points ?? []) m.set(p.id, p.mastery);
+    return m;
+  }, [route]);
+
   if (error) {
     return (
       <div className="map-page">
@@ -316,6 +453,34 @@ export function MapPage({
           ）
         </p>
       ) : null}
+
+      {/* ==================== 学习路线（横板爬塔，2026-11-21） ==================== */}
+      {route ? (
+        route.plan ? (
+          <RouteMap
+            plan={route.plan}
+            pointById={route.pointById}
+            masteryById={masteryByPoint}
+            onStep={(step) => route.onStep(step.pointId)}
+            onReplan={() => void runRouteGenerate()}
+            onClear={() => void runRouteClear()}
+            busy={routeBusy}
+          />
+        ) : (
+          <RouteStarter
+            pointCount={route.points.length}
+            onGenerate={() => void runRouteGenerate()}
+            busy={routeBusy}
+            missingChapter={route.missingChapter}
+            chapterBusy={chapterBusy}
+            chapterPreview={chapterPreview}
+            chapterErr={chapterErr}
+            onSuggestChapters={() => void runChapterSuggest()}
+            onApplyChapters={(picks) => void runChapterApply(picks)}
+          />
+        )
+      ) : null}
+      {routeErr ? <p className="map-error">{routeErr}</p> : null}
 
       {/* ---------- 工具条 ---------- */}
       <div className="map-toolbar">
@@ -415,6 +580,181 @@ function SourceNode({
         </ul>
       ) : null}
     </li>
+  );
+}
+
+/**
+ * 还没排过路线时的入口（2026-11-21）。
+ *
+ * ## 为什么需要它
+ *
+ * 学习地图原来只回答「我哪块弱」。加上「按什么顺序学」之后，
+ * 用户第一次进来会看到这一块是空的 —— 得有一个明确的地方让他开始。
+ *
+ * ## 为什么不让它自动调 AI
+ *
+ * 打开一页就自动发一次 AI 请求，用户会莫名其妙被扣 token，
+ * 而且他可能只是来瞄一眼掌握度。**必点才调**（与挑闪卡、AI 组卷一致）。
+ *
+ * ## 为什么说明里要写「AI 会看什么」
+ *
+ * 用户不知道 AI 凭什么排。写清「知识点表述 + 章节 + 你的掌握度」
+ * 之后，如果结果不合理，他知道该去补章节而不是怀疑功能坏了。
+ */
+function RouteStarter(props: {
+  pointCount: number;
+  onGenerate: () => void;
+  busy: boolean;
+  missingChapter: number;
+  chapterBusy: boolean;
+  chapterPreview: import('@/core/ai/chapter-backfill.ts').ChapterPreview | null;
+  chapterErr: string | null;
+  onSuggestChapters: () => void;
+  onApplyChapters: (picks: { pointId: string; chapter: string }[]) => void;
+}) {
+  const {
+    pointCount,
+    onGenerate,
+    busy,
+    missingChapter,
+    chapterBusy,
+    chapterPreview,
+    chapterErr,
+    onSuggestChapters,
+    onApplyChapters,
+  } = props;
+
+  /* 补章节的勾选状态（默认只勾「沿用已有章节名」的，见下方说明） */
+  const [picks, setPicks] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!chapterPreview) {
+      setPicks(new Set());
+      return;
+    }
+    /*
+     * 默认只勾「沿用已有章节名」的（fromExisting）。
+     * 新起的名字默认不勾 —— 那要用户自己判断它像不像他教材的章节。
+     */
+    setPicks(new Set(chapterPreview.changes.filter((c) => c.fromExisting).map((c) => c.pointId)));
+  }, [chapterPreview]);
+
+  return (
+    <section className="rmap rmap--starter">
+      <h2 className="rmap__title">学习路线</h2>
+      <p className="rmap__lead">
+        地图上半部分说「哪块弱」，这里回答另一个问题：
+        <b>按什么顺序学、现在推到第几步</b>。
+      </p>
+
+      {/* ---------- 第一步（可选）：补缺失章节 ---------- */}
+      {missingChapter > 0 && !chapterPreview ? (
+        <div className="rmap__prep">
+          <p className="rmap__lead">
+            有 <b>{missingChapter}</b> 条知识点没有章节。补上能让排序更准
+            （AI 要靠章节判断先修关系），但不补也能排 —— 只是它只能看表述。
+          </p>
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={onSuggestChapters}
+            disabled={chapterBusy}
+          >
+            {chapterBusy ? '正在让 AI 推断…' : '先让 AI 补缺失的章节（可选）'}
+          </button>
+          {chapterErr ? <p className="map-error">{chapterErr}</p> : null}
+        </div>
+      ) : null}
+
+      {/* ---------- 补章节的预览（勾完才写库） ---------- */}
+      {chapterPreview ? (
+        <div className="rmap__chapter-review">
+          <p className="rmap__lead">
+            AI 给出 {chapterPreview.changes.length} 条建议，
+            其中 {chapterPreview.changes.filter((c) => c.fromExisting).length} 条沿用了这份资料
+            <b>已有的</b>章节名（更可信），其余是它推断的。
+            {chapterPreview.dropped > 0 ? (
+              <> 另有 {chapterPreview.dropped} 条它给的名字不像章节名，已丢弃。</>
+            ) : null}
+            {chapterPreview.untouched > 0 ? (
+              <> 还有 {chapterPreview.untouched} 条它判不出来（没编，如实留空）。</>
+            ) : null}
+          </p>
+          <ul className="rmap__chapter-list">
+            {chapterPreview.changes.map((c) => (
+              <li key={c.pointId} className="rmap__chapter-item">
+                <label className="rmap__chapter-label">
+                  <input
+                    type="checkbox"
+                    className="rmap__chapter-box"
+                    checked={picks.has(c.pointId)}
+                    onChange={() => {
+                      setPicks((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(c.pointId)) next.delete(c.pointId);
+                        else next.add(c.pointId);
+                        return next;
+                      });
+                    }}
+                    disabled={chapterBusy}
+                  />
+                  <span className="rmap__chapter-body">
+                    <span className="rmap__chapter-stmt">{c.statement}</span>
+                    <span className="rmap__chapter-change">
+                      <span className="rmap__chapter-from">原本没有章节</span>
+                      <span className="rmap__chapter-arrow">→</span>
+                      <span className="rmap__chapter-to">{c.to}</span>
+                      {!c.fromExisting ? (
+                        <span
+                          className="rmap__chapter-new"
+                          title="这个章节名资料里原本没有，是 AI 推断的"
+                        >
+                          新起的名字
+                        </span>
+                      ) : null}
+                    </span>
+                  </span>
+                </label>
+              </li>
+            ))}
+          </ul>
+          <div className="rmap__actions">
+            <button
+              type="button"
+              className="btn-fill btn-fill--sm"
+              onClick={() =>
+                onApplyChapters(
+                  chapterPreview.changes
+                    .filter((c) => picks.has(c.pointId))
+                    .map((c) => ({ pointId: c.pointId, chapter: c.to })),
+                )
+              }
+              disabled={chapterBusy || picks.size === 0}
+            >
+              {chapterBusy ? '正在写入…' : `写入勾选的 ${picks.size} 条章节`}
+            </button>
+          </div>
+          {chapterErr ? <p className="map-error">{chapterErr}</p> : null}
+        </div>
+      ) : null}
+
+      {/* ---------- 第二步：排学习路线 ---------- */}
+      <p className="rmap__lead">
+        排序需要知道「哪个概念是谁的前置」—— 那是学科知识，本地数据里没有，
+        所以要问 AI。它会看这 {pointCount} 条知识点的表述、章节和你的掌握度，
+        归成几块再排出先后，每条都给出难度和理由。排完先给你看，你勾了才存。
+      </p>
+      <button
+        type="button"
+        className="btn-fill btn-fill--sm"
+        onClick={onGenerate}
+        disabled={busy || pointCount === 0}
+      >
+        {busy ? '正在让 AI 排…' : '让 AI 排一条学习路线'}
+      </button>
+      {pointCount === 0 ? (
+        <p className="map-hint">知识库里还没有知识点，先到「知识骨架」整理一批再来。</p>
+      ) : null}
+    </section>
   );
 }
 

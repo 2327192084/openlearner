@@ -240,4 +240,113 @@ describe('TodoService', () => {
       expect(list[0]!.title).toBe('旧待办');
     });
   });
+
+  /**
+   * 考期标记（2026-11-21）。
+   *
+   * ## 这里在钉的是「零迁移」这件事
+   *
+   * `isExam` 是可选的，旧库读出来是 `undefined`。所以这几条断言的重点不是
+   * 「能存 true」——那太容易了 ——而是：
+   *  - 默认**不写**这个键（库里不该出现一片 `isExam: false`）
+   *  - 取消时**删掉键**（同一含义在库里只有一种写法）
+   *  - 没有这个键的旧记录读出来完全正常（不需要迁移脚本）
+   *  - 手改过的备份里写了 `"true"` 字符串时当普通待办（不误判）
+   */
+  describe('考期（2026-11-21 新增）', () => {
+    it('新建时可以标成考试', async () => {
+      const t = await svc.create({ title: '高数期末', dueAt: '2026-12-20', isExam: true });
+      expect(t.isExam).toBe(true);
+      /* 真的落库了 —— 光看返回值不够，重读一遍 */
+      const back = await storage.get('todos', t.id);
+      expect(back?.isExam).toBe(true);
+    });
+
+    it('**默认不写 isExam 字段**（不是写 false）', async () => {
+      const t = await svc.create({ title: '普通待办' });
+      expect(t.isExam).toBeUndefined();
+      /*
+       * 关键：库里连这个键都不该有。
+       * 写成 `isExam: false` 会让每条待办都多一个键，
+       * 等于悄悄给全库加了一列 —— 那就不是「零迁移」了。
+       */
+      expect('isExam' in (t as object)).toBe(false);
+    });
+
+    it('显式传 isExam: false 也不写字段', async () => {
+      const t = await svc.create({ title: '普通待办', isExam: false });
+      expect(t.isExam).toBeUndefined();
+      expect('isExam' in (t as object)).toBe(false);
+    });
+
+    it('手改备份里的 "true" 字符串不算考试（宽判会冒出找不到来源的倒计时）', async () => {
+      const t = await svc.create({ title: 'x', isExam: 'true' as never });
+      expect(t.isExam).toBeUndefined();
+    });
+
+    it('update 能把普通待办改成考试', async () => {
+      const t = await svc.create({ title: '高数期末', dueAt: '2026-12-20' });
+      const u = await svc.update(t.id, { isExam: true });
+      expect(u.isExam).toBe(true);
+      expect((await storage.get('todos', t.id))?.isExam).toBe(true);
+    });
+
+    it('update 取消考试时**删掉键**，不存 false', async () => {
+      const t = await svc.create({ title: 'x', isExam: true });
+      const u = await svc.update(t.id, { isExam: false });
+      expect(u.isExam).toBeUndefined();
+      expect('isExam' in (u as object)).toBe(false);
+    });
+
+    it('update 不传 isExam 时保持原值（不误清）', async () => {
+      const t = await svc.create({ title: 'x', isExam: true });
+      const u = await svc.update(t.id, { title: '改名了' });
+      expect(u.isExam).toBe(true);
+    });
+
+    it('勾选完成不会丢掉考期标记', async () => {
+      const t = await svc.create({ title: 'x', isExam: true, dueAt: '2026-12-20' });
+      const u = await svc.toggle(t.id, '2026-11-21');
+      expect(u.done).toBe(true);
+      expect(u.isExam).toBe(true);
+    });
+
+    it('旧数据没有 isExam 字段时能正常读出，且按普通待办处理', async () => {
+      await storage.put('todos', {
+        id: 'old_noexam',
+        title: '旧待办（没有 isExam）',
+        note: '',
+        dueAt: '2026-12-01',
+        done: false,
+        doneAt: null,
+        createdAt: '2026-11-01T00:00:00Z',
+        updatedAt: '2026-11-01T00:00:00Z',
+        order: 0,
+      } as never);
+
+      const list = await svc.list();
+      expect(list).toHaveLength(1);
+      expect(list[0]!.title).toBe('旧待办（没有 isExam）');
+      expect(list[0]!.isExam).toBeUndefined();
+      /* 无迁移：库里的旧记录不该被改写成有形字段 */
+      expect((await storage.get('todos', 'old_noexam'))?.isExam).toBeUndefined();
+    });
+
+    it('旧数据能被 update 成考试（不需要先补字段）', async () => {
+      await storage.put('todos', {
+        id: 'old_upgrade',
+        title: '老任务',
+        note: '',
+        dueAt: '2026-12-05',
+        done: false,
+        doneAt: null,
+        createdAt: '2026-11-01T00:00:00Z',
+        updatedAt: '2026-11-01T00:00:00Z',
+        order: 0,
+      } as never);
+
+      const u = await svc.update('old_upgrade', { isExam: true });
+      expect(u.isExam).toBe(true);
+    });
+  });
 });

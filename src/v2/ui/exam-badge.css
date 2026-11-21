@@ -1,0 +1,303 @@
+/**
+ * 「考期」相关的样式（2026-11-21）。
+ *
+ * 覆盖两处：
+ *  1. 待办页添加区的「这是考试」勾选框 + 列表里的「距 N 天」徽标
+ *  2. 首页「今日学习」小组件里的考试倒计时行
+ *
+ * ## 为什么独立成一个文件
+ *
+ * `board-page.css` 已经 572 行、`today-dashboard.css` 639 行。
+ * 考期是**跨两页**的一小块功能（待办页加、首页显示），
+ * 塞进任一个文件都会让下一个人以为它只属于那一页。
+ *
+ * ## 为什么 @layer 只套布局、不套颜色
+ *
+ * `base.css` 有一条**不在任何 @layer 里**的
+ * `button, input, select, textarea { font: inherit; color: inherit }`。
+ * 级联里「层级先于特异性」——层内规则无论写多高特异性都赢不了层外那条。
+ * 项目里这条已经踩过六次以上（见 shell.css / paper.css 的注释）。
+ *
+ * 所以：**div / span / ul 这类非原生控件进 @layer**，
+ * 勾选框与任何按钮类的颜色规则写在层外，且 specificity 要高于
+ * `input`(0,0,1) —— 用 `.bd-exam-check`(0,1,0) 这一档。
+ */
+
+@layer study.features {
+  /* ---------- 添加区：这是考试 ---------- */
+  /*
+   * 布局意图：勾选框紧跟在「截止日」那一组后面，读起来是
+   * 「截止日 → 这场考试就在那天」。不要放到最右边 ——
+   * 它改变的是这一条待办的**性质**，不是可选的附加信息。
+   */
+  .bd-exam {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    /* 与相邻 label 的 nowrap 一致，避免被挤成竖排（见 board-page.css 注释） */
+    white-space: nowrap;
+  }
+
+  /*
+   * ⚠️ 勾选框本身**不重画**：项目踩过「原生控件颜色被无层级规则压掉」的坑，
+   * 这里只给 accent-color，深浅两套主题都不用重新调。
+   */
+  .bd-exam__check {
+    flex: none;
+    width: 15px;
+    height: 15px;
+    margin: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  .bd-exam__label {
+    font-size: var(--fs-xs);
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  /* 勾上之后标签转强调色 —— 提醒「这一条现在会被当成考期」 */
+  .bd-exam--on .bd-exam__label {
+    color: var(--accent-text);
+    font-weight: 550;
+  }
+
+  /*
+   * 「是考试但没填截止日」的提示。
+   *
+   * 不用红色报错：没填日期不阻止添加（见 BoardPage 的 add：日期是可选的设计
+   * 从第一天就定了，见 board-page.css 文件头），但它决定了首页倒计时能不能
+   * 出现 —— 所以必须当场说清楚，而不是让用户加完发现首页没动静。
+   */
+  .bd-exam__warn {
+    flex: 1 1 100%;
+    margin: 0;
+    font-size: var(--fs-xs);
+    line-height: var(--lh-snug);
+    color: var(--warn);
+  }
+
+  /* ---------- 列表徽标：距 N 天 ---------- */
+  /*
+   * 徽标独立于右侧的截止日文字。
+   *
+   * 为什么不用现成的 `.bd-item__due--overdue` 那一套：那一条说的是
+   * 「这条待办拖了」，而「距高数期末 3 天」说的是**一个日期在逼近**，
+   * 两者语义相反（前者是欠债，后者是提醒），用同一个颜色会混。
+   */
+  .bd-exam-badge {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: var(--radius-pill);
+    border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent-text);
+    font-size: var(--fs-xs);
+    font-weight: 550;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  /* 今天到期：整块实心，这是最该被看见的一档 */
+  .bd-exam-badge--today {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+  }
+
+  /* 已过期（考期过了但还没勾掉）：退成灰调，不喊也不装作没事 */
+  .bd-exam-badge--past {
+    background: color-mix(in srgb, var(--warn) 12%, transparent);
+    border-color: color-mix(in srgb, var(--warn) 38%, transparent);
+    color: var(--warn);
+  }
+
+  /*
+   * 「考期」小标（已是考试的条目的转换按钮）。
+   *
+   * ⚠️ 刻意做成**纯文字、无描边、无底色**。
+   *
+   * 第一版给它加了描边和背景（做成一枚徽标），截图一看那一行是：
+   *   [已过期] [考期] 已逾期 · 2026-11-15
+   * 两个方块徽标并排，读起来像两个同等重要的状态，
+   * 而「这场是考试」这件事已经由左边的距离徽标说明白了。
+   *
+   * 现在它只是一段可点的强调色小字：能认出来、能点回去，
+   * 但不与真正的状态徽标抢注意力。
+   */
+  .bd-exam-mark {
+    flex: 0 0 auto;
+    padding: 0 2px;
+    border: none;
+    background: transparent;
+    font: inherit;
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+    cursor: pointer;
+    transition: opacity 0.12s;
+  }
+
+  /* 与「考」同一档可见度：常驻可读，悬停整行更清楚 */
+  .bd-exam-mark:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  /*
+   * 「还不是考试」的转换按钮。
+   *
+   * 常驻淡灰、悬停整行才明显 —— 与「删除」同一档可见度。
+   * 一屏几十条待办里每条都挂一个亮色「考」字，会把标题挤成次要信息，
+   * 而把待办改成考试是个低频动作。但**不能藏到看不见**：
+   * 只靠「新增时勾」会让已有待办永远改不了（见 BoardPage 的注释）。
+   */
+  .bd-item__exam-add {
+    flex: none;
+    padding: 0 4px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-xs);
+    background: transparent;
+    font: inherit;
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+    cursor: pointer;
+    opacity: 0.45;
+    transition: opacity 0.12s, color 0.12s, border-color 0.12s;
+  }
+
+  .bd-item:hover .bd-item__exam-add,
+  .bd-item__exam-add:focus-visible {
+    opacity: 1;
+    border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+
+  /* ---------- 概览里的考期一格 ---------- */
+  /*
+   * 与「件已逾期 / 件高优先级」同一排、同一结构（大数字 + 小标签）。
+   * 颜色用强调色而不是危险色：考试临近不是错误，是日程。
+   *
+   * 数字那一格可能是「今天」两个字而不是数字，字宽比数字宽得多，
+   * 所以字号压到 `--fs-lg`，与旁边三个数字的视觉重量对齐 ——
+   * 不然「今天」会比「3 件已逾期」的 3 大出一圈，喧宾夺主。
+   */
+  .bd-stat--exam .bd-stat__n {
+    font-size: var(--fs-lg);
+    font-weight: 550;
+    color: var(--accent-text);
+  }
+
+  /* ---------- 首页小组件的倒计时行 ---------- */
+  /*
+   * 只在真有未来考期时渲染（见 HomeWidgets.tsx）。
+   * 排版与 `.home-widget__buckets` 同一视觉语言：小字、纸面色、数字加重。
+   */
+  .home-widget__exam {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 6px;
+    margin: 0;
+    padding-top: var(--space-2);
+    /*
+     * 与上面几行数字用一条极淡的分隔线隔开：
+     * 上面说的是「今天练多少」，这一行说的是「哪天要考」——
+     * 时间尺度不同（今天 vs 几周后），不该读成同一组数字。
+     */
+    border-top: 1px solid var(--paper-rule);
+    font-size: var(--fs-sm);
+    color: var(--paper-dim);
+  }
+
+  .home-widget__exam-n {
+    font-weight: 600;
+    color: var(--paper-ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .home-widget__exam-title {
+    color: var(--paper-ink);
+    /* 考试名可能长（「2026 秋季高等数学（上）期末」），别把卡片撑破 */
+    max-width: 16ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /*
+   * 首页倒计时行里的「今天 / N 天后」数字。
+   *
+   * ## ⚠️ 为什么不用 `var(--accent)` 直接写（2026-11-21，截图前算出来的）
+   *
+   * 这一行在**纸张卡**（`.paper`，深色主题下是 #ece4d6 米黄纸）上，
+   * 不是画布上。量出来的对比度：
+   *
+   *   --accent      #c93d22 on #ece4d6 → 3.99:1   ❌ 低于 AA 4.5
+   *   --accent-text #ec6a4a on #ece4d6 → 2.47:1   ❌ 差得离谱
+   *
+   * 两个都不合格。根因是 accent 系列是照着**深色画布**调的，
+   * 压在米黄纸上就糊了 —— 项目踩过同一类坑（`.reveal__option-why`
+   * 1.66:1），只是那次是在 drawi 别的组件上。
+   *
+   * `scripts/check-contrast.cjs` 抓不到这个：它的种子数据里没有考期，
+   * 首页那块压根不会渲染这一行。所以自己算一遍并用 mix 压深：
+   *
+   *   color-mix(in srgb, var(--accent) 75%, var(--paper-ink))
+   *     → 深色纸 5.54:1 ✅ · 浅色纸 7.35:1 ✅
+   *
+   * 用 mix 而不是写死色值：换主题时它仍然跟着 accent 走，
+   * 只是把「往墨色里压」这个动作固定下来。
+   */
+  .home-widget__exam--soon .home-widget__exam-n {
+    color: color-mix(in srgb, var(--accent) 75%, var(--paper-ink));
+  }
+}
+
+/*
+ * ===== 层外：勾选框与按钮的文字色 =====
+ *
+ * base.css 的 `button, input, select, textarea { font: inherit; color: inherit }`
+ * 不在层内，层内写多高特异性都赢不了它。
+ * 所以下面这些规则必须在层外，且 specificity 高于 `button`(0,0,1) /
+ * `input`(0,0,1) —— 用 0,1,0 这一档（单个类选择器）就够，
+ * 不要用 `:where()`（特异性 0，会输，项目已踩过）。
+ */
+
+/* 勾选框：保持原生外观，只给强调色与焦点圈 */
+.bd-exam__check {
+  appearance: auto;
+  accent-color: var(--accent);
+}
+
+.bd-exam__check:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 「考期」小标：可点的纯文字按钮，用强调色 */
+.bd-exam-mark {
+  color: var(--accent-text);
+}
+
+.bd-exam-mark:hover {
+  color: var(--accent);
+}
+
+/* 「考」转换按钮：文字色淡，悬停转强调色（可见度靠 opacity 控制，见层内） */
+.bd-item__exam-add {
+  color: var(--text-faint);
+}
+
+.bd-item__exam-add:hover {
+  color: var(--accent-text);
+}
+
+/* 禁用时跟着整行一起退后，不要一个亮一个暗 */
+.bd-exam--disabled .bd-exam__label {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
