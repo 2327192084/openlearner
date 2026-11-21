@@ -35,6 +35,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SourceService } from '@/core/sources.ts';
+import { RouteBoard } from './RouteBoard.tsx';
 import type { SourceRoute } from '@/core/ai/source-route.ts';
 import { attachSegments, parseSourceRoute } from '@/core/ai/source-route.ts';
 import { buildSubjectQuery, searchWeb, type SearchResult } from '@/core/ai/web-search.ts';
@@ -64,15 +65,26 @@ export interface RoutePlannerProps {
   onSaved: (route: SourceRoute) => Promise<void>;
   /** 去「文档解析」补解析 */
   onOpenParse: () => void;
-  /** 已保存的路线（有就显示，可清除） */
+  /** 已保存的路线（有就显示成横板地图） */
   saved: SourceRoute | null;
   onClearSaved: () => Promise<void>;
+  /**
+   * 每章的覆盖情况：章号 → { 段数, 已出题的段数 }。
+   *
+   * 横板图的「走过没走过」按它算。没有就不显示进度
+   * （不猜 —— 「这一章学完了吗」在数据里没有答案）。
+   */
+  coverageByChapter?: ReadonlyMap<number, { segments: number; withQuestions: number }>;
+  /** 题目的锚点还有效吗（见 RouteBoard 的说明） */
+  anchorHealth?: { total: number; resolved: number };
+  /** 点横板上某一步：去学这一章 */
+  onStep?: (step: import('@/core/ai/source-route.ts').RouteStep) => void;
 }
 
 type Stage = 'pick' | 'confirm' | 'generating';
 
 export function RoutePlanner(props: RoutePlannerProps) {
-  const { sourceService, ai, readSearchKey, onSaved, onOpenParse, saved, onClearSaved } = props;
+  const { sourceService, ai, readSearchKey, onSaved, onOpenParse, saved, onClearSaved, coverageByChapter, anchorHealth, onStep } = props;
 
   const [preps, setPreps] = useState<SourcePlanPrep[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -224,19 +236,31 @@ export function RoutePlanner(props: RoutePlannerProps) {
         </p>
       </header>
 
-      {/* ==================== 已保存的路线 ==================== */}
+      {/* ==================== 已保存的路线：横板地图 ==================== */}
+      {/*
+        * ⚠️ 2026-11-21 深夜修：原来这里只有一行文字摘要
+        * （「已确认的路线：信号与系统 · 3 块 · 3 步」），**没有任何图**。
+        * 用户直接指出「我没找到地图的入口」—— 他要的是看得见路线和进度的图。
+        *
+        * 根因是我从知识点级换成资料级时，只重写了规划表单，
+        * 忘了给新数据结构（SourceRoute）写渲染器。
+        * `RouteMap.tsx`（知识点级）视觉语言仍然适用，但数据结构不同，
+        * 所以新写 `RouteBoard.tsx`，视觉参数刻意与它保持一致。
+        */}
       {saved ? (
-        <div className="rsp-saved">
-          <p className="rsp-saved__lead">
-            已确认的路线：<b>{saved.subject}</b>
-            {saved.edition ? `（${saved.edition}）` : ''} · {saved.blocks.length} 块 ·{' '}
-            {saved.blocks.reduce((n, b) => n + b.steps.length, 0)} 步
-            {saved.usedSearch ? ' · 规划时联网过' : ''}
-          </p>
-          <button type="button" className="btn-ghost" onClick={() => void onClearSaved()}>
-            清除这条路线
-          </button>
-        </div>
+        <RouteBoard
+          route={saved}
+          {...(coverageByChapter ? { coverageByChapter } : {})}
+          {...(anchorHealth ? { anchorHealth } : {})}
+          {...(onStep ? { onStep } : {})}
+          onReplan={() => {
+            /* 重新规划 = 回到表单（不清掉已确认的，用户可能只是看看） */
+            setStage('pick');
+            setErr(null);
+          }}
+          onClear={() => void onClearSaved()}
+          busy={stage === 'generating'}
+        />
       ) : null}
 
       {/* ==================== 第 1 步：选资料 ==================== */}

@@ -143,6 +143,7 @@ import './exam-page.css';
 import './map-page.css';
 import './route-map.css';
 import './route-planner.css';
+import './route-board.css';
 import './search-key-field.css';
 import './route-preview.css';
 import './focus-page.css';
@@ -2621,6 +2622,141 @@ interface PlanDraft {
   const routeAi = useMemo(() => ({ orderRoute: orderSourceRoute }), [orderSourceRoute]);
 
   /**
+   * 横板路线图要的「每章覆盖度」（2026-11-21 深夜补）。
+   *
+   * ## 为什么需要它
+   *
+   * 资料级路线的每一步是**一章**，而数据里没有「这一章学完了吗」。
+   * 能观测到的事实是：
+   *  - 这一章在资料里有多少段正文
+   *  - 其中多少段已经出过题
+   *
+   * 所以进度按「这一章的正文有多少比例已经变成题目」算 ——
+   * 这是可验证的，不是猜的。**不假装知道「学会没」**。
+   *
+   * ## 为什么在这里算而不是在 RouteBoard 里
+   *
+   * `RouteBoard` 是纯展示组件，不碰存储。它要什么由上层给。
+   * 而这里已经能拿到 decks / knowledge / 资料段落。
+   *
+   * 依赖 `sourceRoute` 与 `page`：只在学习地图页、且有路线时才算。
+   */
+  const [routeCoverage, setRouteCoverage] = useState<
+    Map<number, { segments: number; withQuestions: number }> | undefined
+  >(undefined);
+  /**
+   * 题目的锚点还有效吗（2026-11-21 深夜实测出来的）。
+   *
+   * 用户库「信号与系统」有 10 道题，但它们的 `anchors[].segmentId`
+   * **全部指向已不存在的段** —— 重新整理知识点时段落被替换，锚点没更新。
+   *
+   * 不知道这件事的话，覆盖度会恒为 0%，界面显示「0 段已出题（0%）」，
+   * 用户会以为他一题都没做。所以要把「题目数」与「能对上段的题目数」
+   * 一起算出来，界面据此如实说明。
+   */
+  const [routeAnchorHealth, setRouteAnchorHealth] = useState<
+    { total: number; resolved: number } | undefined
+  >(undefined);
+
+  useEffect(() => {
+    if (page !== 'flow' || !sourceRoute) {
+      setRouteCoverage(undefined);
+      setRouteAnchorHealth(undefined);
+      return;
+    }
+    let alive = true;
+    void (async () => {
+      try {
+        /* 路线的 subject 是从哪份资料来的？按标题反查 */
+        const sources = await sourceService.list();
+        const src = sources.find((s) => (s.title || '').indexOf(sourceRoute.subject) >= 0)
+          ?? sources.find((s) => sourceRoute.edition && (s.title || '').indexOf(sourceRoute.edition) >= 0);
+        if (!src) {
+          if (alive) setRouteCoverage(undefined);
+          return;
+        }
+
+        const segs = await sourceService.getSegments(src.id);
+
+        /* 每段的章号（与 source-plan-inputs 的 toScopeInfo 同一套规则） */
+        const chapterOf = (text: string): number | null => {
+          const m = /^[ \t]*第[ \t]*([0-9]+)[ \t]*章/m.exec(text);
+          return m ? Number(m[1]) : null;
+        };
+
+        /* 已经有题的段落：从已发布题组的题目锚点里取 segmentId */
+        const deckList = await decks.list();
+        const segWithQuestion = new Set<string>();
+        await Promise.all(
+          deckList
+            .filter((d) => d.status === 'published')
+            .map(async (d) => {
+              try {
+                const qs = await decks.getQuestions(d.id);
+                for (const q of qs) {
+                  for (const a of q.anchors ?? []) {
+                    if (a.segmentId) segWithQuestion.add(a.segmentId);
+                  }
+                }
+              } catch {
+                /* 题组刚被删，跳过 */
+              }
+            }),
+        );
+
+        const map = new Map<number, { segments: number; withQuestions: number }>();
+        let current: number | null = null;
+        const segIds = new Set(segs.map((x) => x.id));
+        for (const seg of segs.slice().sort((a, b) => a.index - b.index)) {
+          const found = chapterOf(seg.text);
+          if (found !== null) current = found;
+          if (current === null) continue;
+          const row = map.get(current) ?? { segments: 0, withQuestions: 0 };
+          row.segments += 1;
+          if (segWithQuestion.has(seg.id)) row.withQuestions += 1;
+          map.set(current, row);
+        }
+
+        /*
+         * 题目的锚点还有效吗（见 routeAnchorHealth 的注释）。
+         *
+         * 统计这份资料已发布题组里的题目：共几道、其中几道的锚点
+         * 能对上**当前**的段 id。
+         */
+        let totalQ = 0;
+        let resolvedQ = 0;
+        await Promise.all(
+          deckList
+            .filter((d) => d.status === 'published' && d.sourceId === src.id)
+            .map(async (d) => {
+              try {
+                const qs = await decks.getQuestions(d.id);
+                for (const q of qs) {
+                  totalQ += 1;
+                  const hit = (q.anchors ?? []).some((a) => a.segmentId && segIds.has(a.segmentId));
+                  if (hit) resolvedQ += 1;
+                }
+              } catch {
+                /* 题组刚被删，跳过 */
+              }
+            }),
+        );
+
+        if (alive) {
+          setRouteCoverage(map);
+          setRouteAnchorHealth(totalQ > 0 ? { total: totalQ, resolved: resolvedQ } : undefined);
+        }
+      } catch {
+        /* 算不出来就不显示进度 —— 不猜 */
+        if (alive) setRouteCoverage(undefined);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [page, sourceRoute, sourceService, decks]);
+
+  /**
    * ⚠️ 下面这一组是**知识点级路线**（第一版，2026-11-21 白天做的）。
    *
    * 用户当天晚上改了口径：路线要「依据资料本体」，于是资料级那套
@@ -2776,6 +2912,12 @@ interface PlanDraft {
               onSaved: saveSourceRoute,
               onClearSaved: clearSourceRoute,
               onOpenParse: () => setPage('parse'),
+              ...(routeCoverage ? { coverageByChapter: routeCoverage } : {}),
+              ...(routeAnchorHealth ? { anchorHealth: routeAnchorHealth } : {}),
+              onStep: () => {
+                /* 点横板某一步：去「我的题组」看这一章的题（没有独立的章节页） */
+                setPage('decks');
+              },
             }
           }
         />

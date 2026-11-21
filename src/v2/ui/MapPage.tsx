@@ -95,6 +95,17 @@ export interface MapPageProps {
     onClearSaved: () => Promise<void>;
     /** 去「文档解析」补解析 */
     onOpenParse: () => void;
+    /**
+     * 每章覆盖度（横板地图的进度依据，2026-11-21 深夜补）。
+     *
+     * 章号 → { 段数, 已出题的段数 }。没有就不显示进度 ——
+     * 「这一章学完了吗」在数据里没有答案，不猜。
+     */
+    coverageByChapter?: ReadonlyMap<number, { segments: number; withQuestions: number }>;
+    /** 题目的锚点还有效吗 */
+    anchorHealth?: { total: number; resolved: number };
+    /** 点横板上某一步 */
+    onStep?: (step: import('@/core/ai/source-route.ts').RouteStep) => void;
   } | null;
 }
 
@@ -369,6 +380,9 @@ export function MapPage({
           onOpenParse={route.onOpenParse}
           saved={route.sourceRoute}
           onClearSaved={route.onClearSaved}
+          {...(route.coverageByChapter ? { coverageByChapter: route.coverageByChapter } : {})}
+          {...(route.anchorHealth ? { anchorHealth: route.anchorHealth } : {})}
+          {...(route.onStep ? { onStep: route.onStep } : {})}
         />
       ) : null}
 

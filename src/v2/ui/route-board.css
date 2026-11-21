@@ -1,0 +1,409 @@
+/**
+ * 资料级学习路线的横板爬塔图（2026-11-21 深夜补）。
+ *
+ * ## 为什么单独一个文件
+ *
+ * `route-map.css` 里的 `.rmap__track` / `.rmap__node` 是给**知识点级**路线
+ * （`RouteMap.tsx`）用的，那一套已不再渲染。这里的类名前缀是 `rboard-`。
+ *
+ * 为什么不复用 `.rmap-` 那套：两套的节点内容不同
+ * （一个是知识点陈述，一个是章名 + 章号），共用会互相牵制。
+ * 但**视觉参数刻意保持一致**（节点宽度、状态色、连接线）——
+ * 用户已经认可了那个横板的样子，换成另一套观感会突兀。
+ *
+ * ## ⚠️ 层序陷阱
+ *
+ * `base.css` 有不在 `@layer` 内的 `button { color: inherit }`。
+ * 层内写 color 一律无效（层外优先于层内，比 specificity 还优先）。
+ * 节点按钮的字体色写在本文件末尾层外，用 `.app .` 抬 specificity。
+ *
+ * ## ⚠️ 横向滚动而不是压缩节点
+ *
+ * 资料可能有好几章，一章一步。压缩节点会挤成竖线，
+ * 所以 `overflow-x: auto` —— 路线长就横着滚。
+ */
+
+@layer study.features {
+  .rboard {
+    margin-top: var(--space-4);
+    padding: var(--space-4);
+    border-radius: var(--radius-card);
+    background: var(--bg-surface);
+    border: 1px solid var(--line);
+    min-width: 0;
+    width: 100%;
+  }
+
+  .rboard__head {
+    margin-bottom: var(--space-3);
+  }
+
+  .rboard__title {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    font-size: var(--fs-md);
+    color: var(--text);
+    margin-bottom: var(--space-1);
+  }
+
+  .rboard__count {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .rboard__lead {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: var(--lh-body);
+    max-width: 640px;
+  }
+
+  .rboard__tag {
+    display: inline-block;
+    margin-left: var(--space-2);
+    font-size: var(--fs-xs);
+    color: var(--info);
+    border: 1px solid currentColor;
+    border-radius: var(--radius-xs);
+    padding: 0 4px;
+  }
+
+  /* ==================== 轨道 ==================== */
+
+  .rboard__track {
+    display: flex;
+    align-items: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: var(--space-2) 0 var(--space-4);
+    scrollbar-width: thin;
+  }
+
+  .rboard__layer {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 auto;
+    gap: var(--space-2);
+    padding-right: var(--space-4);
+  }
+
+  .rboard__layer-label {
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding-left: 2px;
+    /* 固定高度，各层节点才能对齐在同一水平线 */
+    height: 16px;
+    line-height: 16px;
+  }
+
+  .rboard__nodes {
+    display: flex;
+    align-items: center;
+  }
+
+  .rboard__slot {
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+  }
+
+  .rboard__link {
+    display: block;
+    width: 22px;
+    height: 2px;
+    background: var(--line-strong);
+    flex: 0 0 auto;
+  }
+
+  .rboard__link--done {
+    background: var(--ok);
+  }
+
+  /* ==================== 节点 ==================== */
+
+  .rboard__node {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    width: 132px;
+    min-height: 58px;
+    padding: var(--space-2);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--line);
+    background: var(--bg-raised);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+
+  .rboard__node:hover {
+    background: var(--bg-hover);
+    border-color: var(--line-strong);
+  }
+
+  .rboard__node:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .rboard__node--done {
+    border-color: var(--ok);
+    background: color-mix(in srgb, var(--ok) 10%, var(--bg-raised));
+  }
+
+  .rboard__node--current {
+    border-color: var(--accent);
+    border-width: 2px;
+    background: var(--bg-selected);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+    /*
+     * 给下面的「你在这里」徽标留空间。
+     * 徽标 absolute + bottom:-9px 会探出节点下边界，
+     * 不加高就压住标签第二行（知识点级那版踩过，这里提前防）。
+     */
+    min-height: 72px;
+    padding-bottom: var(--space-4);
+  }
+
+  .rboard__node--ahead {
+    opacity: 0.72;
+  }
+
+  .rboard__order {
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+
+  .rboard__node--current .rboard__order {
+    color: var(--accent-text);
+    font-weight: 600;
+  }
+
+  .rboard__label {
+    font-size: var(--fs-xs);
+    line-height: var(--lh-snug);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* 难度角标 */
+  .rboard__diff {
+    position: absolute;
+    top: 4px;
+    right: 5px;
+    font-size: 10px;
+    line-height: 1;
+    color: var(--text-faint);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xs);
+    padding: 1px 3px;
+  }
+
+  .rboard__here {
+    position: absolute;
+    bottom: -9px;
+    left: 8px;
+    font-size: 10px;
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: var(--radius-pill);
+    background: var(--accent);
+    color: var(--accent-ink);
+    white-space: nowrap;
+  }
+
+  /* ==================== 终点 ==================== */
+
+  .rboard__end {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    flex: 0 0 auto;
+    padding: 0 var(--space-2);
+    margin-top: 24px;
+  }
+
+  .rboard__end-mark {
+    font-size: 16px;
+    line-height: 1;
+    color: var(--line-strong);
+  }
+
+  .rboard__end-mark--reached {
+    color: var(--ok);
+  }
+
+  .rboard__end-text {
+    font-size: 10px;
+    color: var(--text-faint);
+    white-space: nowrap;
+  }
+
+  /* ==================== 当前步详情 ==================== */
+
+  .rboard__current {
+    margin-top: var(--space-3);
+    padding: var(--space-4);
+    border-radius: var(--radius-sm);
+    background: var(--bg-raised);
+    border-left: 3px solid var(--accent);
+    min-width: 0;
+  }
+
+  .rboard__current-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .rboard__current-badge {
+    font-size: var(--fs-xs);
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-pill);
+    background: var(--accent);
+    color: var(--accent-ink);
+    white-space: nowrap;
+  }
+
+  .rboard__current-title {
+    font-size: var(--fs-sm);
+    color: var(--text);
+  }
+
+  .rboard__current-meta {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-3);
+  }
+
+  .rboard__current-meta > div {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .rboard__current-meta dt {
+    flex: 0 0 auto;
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    min-width: 72px;
+  }
+
+  .rboard__current-meta dd {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: var(--lh-snug);
+    max-width: 560px;
+  }
+
+  .rboard__hint {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    margin-left: var(--space-1);
+  }
+
+  .rboard__warn {
+    font-size: var(--fs-sm);
+    color: var(--warn);
+    line-height: var(--lh-body);
+    max-width: 560px;
+    margin-bottom: var(--space-2);
+  }
+
+  /* ==================== 资料外的部分 ==================== */
+
+  .rboard__beyond {
+    margin-top: var(--space-3);
+    padding: var(--space-3);
+    border-radius: var(--radius-sm);
+    background: var(--bg-sunken);
+    border: 1px dashed var(--line-strong);
+  }
+
+  .rboard__beyond-title {
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    margin-bottom: var(--space-2);
+  }
+
+  .rboard__beyond-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .rboard__beyond-item {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    font-size: var(--fs-xs);
+  }
+
+  .rboard__beyond-name {
+    color: var(--text-dim);
+  }
+
+  .rboard__beyond-note {
+    color: var(--text-faint);
+  }
+
+  .rboard__dropped {
+    margin-top: var(--space-2);
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    line-height: var(--lh-body);
+    max-width: 620px;
+  }
+
+  .rboard__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+    flex-wrap: wrap;
+  }
+}
+
+/*
+ * 层外：节点按钮的字体色。
+ * `base.css` 的 `button { color: inherit }` 在层外，层内 color 一律被压掉。
+ */
+.app .rboard__label {
+  color: var(--text-dim);
+}
+
+.app .rboard__node--current .rboard__label {
+  color: var(--text);
+}
+
+.app .rboard__node--done .rboard__label {
+  color: var(--text-faint);
+}
+
+.app .rboard__current-badge,
+.app .rboard__here {
+  color: var(--accent-ink);
+}
