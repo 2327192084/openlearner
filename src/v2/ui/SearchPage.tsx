@@ -39,6 +39,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Source, SourceSegment } from '@/core/model.ts';
 import type { GlobalSearchResult } from '@/v2/core/global-search.ts';
 import {
+  groupHitsByPage,
   hitToReaderTarget,
   searchAllSources,
   summarizeResult,
@@ -102,6 +103,17 @@ export function SearchPage({ loadIndex, onOpenHit }: SearchPageProps) {
   const [searchedFor, setSearchedFor] = useState('');
   /** 用户主动展开的资料组 */
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  /**
+   * 是否把同一页的多处命中合成一行（2026-11-21）。
+   *
+   * 默认开启：实测搜「极限」时前 6 条全来自「第 11 页 目录」，
+   * 同页重复内容把真正有价值的内容（第 18、27 页的定义）压到下面。
+   *
+   * 但**保留关闭开关**：有些时候用户就是想看「这一页里出现在哪几处」
+   * （比如核对某段文字的具体位置）。默认归并、可展开，
+   * 比强制归并更尊重「有时我要每一条」这种需求。
+   */
+  const [mergeByPage, setMergeByPage] = useState(true);
   /**
    * 搜索历史（2026-11-21）。
    *
@@ -330,10 +342,29 @@ export function SearchPage({ loadIndex, onOpenHit }: SearchPageProps) {
               {result.groups.map((g) => {
                 const collapsible = result.matchCount > COLLAPSE_THRESHOLD;
                 const isOpen = expanded.has(g.sourceId);
-                const shownHits =
-                  collapsible && !isOpen ? g.hits.slice(0, COLLAPSED_PER_GROUP) : g.hits;
-                const hidden = g.hits.length - shownHits.length;
-                const notShown = g.count - shownHits.length;
+                /*
+                 * 同页归并（2026-11-21）。
+                 *
+                 * ⚠️ `pageRows` 必须**无条件计算**，不能只在 mergeByPage 为真时算。
+                 * 第一版写成 `mergeByPage ? groupHitsByPage(...) : null`，
+                 * 于是切到「按处列出」后 pageRows 变 null → 开关的
+                 * 显示条件 `pageRows.length < g.hits.length` 不成立 →
+                 * 开关消失 → **用户再也切不回去**（实测抓到）。
+                 *
+                 * 现在 pageRows 始终有值（它只是「这一页里有几处」的统计），
+                 * 开关是否显示只看「是否真有同页多处」。
+                 */
+                const pageRows = groupHitsByPage(g.hits);
+                const totalRows = mergeByPage ? pageRows.length : g.hits.length;
+                const shownRows = mergeByPage
+                  ? collapsible && !isOpen
+                    ? pageRows.slice(0, COLLAPSED_PER_GROUP)
+                    : pageRows
+                  : collapsible && !isOpen
+                    ? g.hits.slice(0, COLLAPSED_PER_GROUP)
+                    : g.hits;
+                const hidden = totalRows - shownRows.length;
+                const notShown = g.count - totalRows;
 
                 return (
                   <li key={g.sourceId} className="spage__group">
@@ -341,10 +372,32 @@ export function SearchPage({ loadIndex, onOpenHit }: SearchPageProps) {
                       <span className="spage__source">{g.sourceTitle}</span>
                       <span className="spage__count">
                         {g.count} 处
+                        {mergeByPage && pageRows ? (
+                          <span className="spage__count-sub">· {pageRows.length} 页</span>
+                        ) : null}
                         {g.hits.length < g.count ? (
                           <span className="spage__count-sub">（列前 {g.hits.length} 处）</span>
                         ) : null}
                       </span>
+                      {/*
+                        同页归并开关（2026-11-21）。
+                        只在确实有「同页多处」时才出现 —— 每页都只命中一次时
+                        这个开关点了没变化，摆出来就是假开关。
+                      */}
+                      {pageRows && pageRows.length < g.hits.length ? (
+                        <button
+                          type="button"
+                          className="spage__toggle"
+                          onClick={() => setMergeByPage((v) => !v)}
+                          title={
+                            mergeByPage
+                              ? '把同一页的多处分开列出'
+                              : '把同一页的多处合成一行'
+                          }
+                        >
+                          {mergeByPage ? '按处列出' : '按页合并'}
+                        </button>
+                      ) : null}
                       {hidden > 0 ? (
                         <button
                           type="button"
@@ -353,9 +406,9 @@ export function SearchPage({ loadIndex, onOpenHit }: SearchPageProps) {
                             setExpanded((prev) => new Set(prev).add(g.sourceId))
                           }
                         >
-                          展开全部 {g.hits.length} 条
+                          展开全部 {totalRows} 条
                         </button>
-                      ) : collapsible && isOpen && g.hits.length > COLLAPSED_PER_GROUP ? (
+                      ) : collapsible && isOpen && totalRows > COLLAPSED_PER_GROUP ? (
                         <button
                           type="button"
                           className="spage__toggle"
@@ -373,31 +426,61 @@ export function SearchPage({ loadIndex, onOpenHit }: SearchPageProps) {
                     </div>
 
                     <ul className="spage__hits">
-                      {shownHits.map((h, i) => (
-                        <li key={`${h.segmentId}:${h.charStart}:${i}`}>
-                          <button
-                            type="button"
-                            className="spage__hit"
-                            onClick={() => pick(h)}
-                            title="跳到这一句"
-                          >
-                            {/*
-                              三段式（借搜索引擎的结果条目结构）：
-                              来源路径 → 位置 → 片段。
-                              位置在前是因为「第几页」是用户找东西的坐标。
-                            */}
-                            <span className="spage__where">
-                              第 {h.page} 页
-                              {h.chapter ? (
-                                <span className="spage__chapter">{h.chapter}</span>
-                              ) : null}
-                            </span>
-                            <span className="spage__snippet">
-                              {renderSnippet(h.snippet, searchedFor)}
-                            </span>
-                          </button>
-                        </li>
-                      ))}
+                      {mergeByPage
+                        ? /* 同页归并：一行一页，点进去落第一处 */
+                          (shownRows as ReturnType<typeof groupHitsByPage>).map((row) => (
+                            <li key={`p${row.page}:${row.first.charStart}`}>
+                              <button
+                                type="button"
+                                className="spage__hit"
+                                onClick={() => pick(row.first)}
+                                title={
+                                  row.count > 1
+                                    ? `跳到第 ${row.page} 页第一处（本页共 ${row.count} 处）`
+                                    : '跳到这一句'
+                                }
+                              >
+                                <span className="spage__where">
+                                  第 {row.page} 页
+                                  {row.chapter ? (
+                                    <span className="spage__chapter">{row.chapter}</span>
+                                  ) : null}
+                                  {row.count > 1 ? (
+                                    <span className="spage__pagecount">本页 {row.count} 处</span>
+                                  ) : null}
+                                </span>
+                                <span className="spage__snippet">
+                                  {renderSnippet(row.first.snippet, searchedFor)}
+                                </span>
+                              </button>
+                            </li>
+                          ))
+                        : /* 按处列出：每条单独一行 */
+                          (shownRows as GlobalSearchResult['groups'][number]['hits']).map((h, i) => (
+                            <li key={`${h.segmentId}:${h.charStart}:${i}`}>
+                              <button
+                                type="button"
+                                className="spage__hit"
+                                onClick={() => pick(h)}
+                                title="跳到这一句"
+                              >
+                                {/*
+                                  三段式（借搜索引擎的结果条目结构）：
+                                  来源路径 → 位置 → 片段。
+                                  位置在前是因为「第几页」是用户找东西的坐标。
+                                */}
+                                <span className="spage__where">
+                                  第 {h.page} 页
+                                  {h.chapter ? (
+                                    <span className="spage__chapter">{h.chapter}</span>
+                                  ) : null}
+                                </span>
+                                <span className="spage__snippet">
+                                  {renderSnippet(h.snippet, searchedFor)}
+                                </span>
+                              </button>
+                            </li>
+                          ))}
                     </ul>
 
                     {notShown > 0 ? (

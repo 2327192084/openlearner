@@ -369,3 +369,57 @@ export function summarizeResult(r: GlobalSearchResult, query: string): string {
     ? `${base}（另有 ${r.skippedSources} 份资料没有正文，未参与搜索）`
     : base;
 }
+
+/**
+ * 把一份资料的命中按「页」归并（2026-11-21）。
+ *
+ * ## 为什么需要
+ *
+ * 实测搜「极限」时，前 6 条结果**全部来自「第 11 页 目录」**——
+ * 因为那是一份 PDF 的目录页，页里密集出现「极限」这个词。
+ * 真正有价值的内容（第 18、27 页的定义）被压在下面，用户要滚很久。
+ *
+ * 这不是 bug（目录页确实有这个词），但按「一条结果一行」平铺
+ * 会把同一页的重复内容堆在一起，读起来像刷屏。
+ *
+ * ## 做法：同页归并，一页一行
+ *
+ * 一页内的多处命中合成一条，显示：
+ *  - 页码 + 章节
+ *  - 这一页有几处
+ *  - 第一处的片段（作为「这一页讲什么」的线索）
+ *
+ * 点进去仍然定位到**第一处**并标橙光 —— 至少落点对了，
+ * 而用户想看的更多是「这一页在哪」，翻过去自己就能扫。
+ *
+ * ## 为什么不做「目录页降权」
+ *
+ * 那需要判断「这一页是不是目录/索引」，靠标题关键词猜会误判
+ * （用户的书可能管它叫「内容提要」「本章要点」）。
+ * 同页归并是**不确定内容语义也能安全做**的那一档：
+ * 它只减少重复，不改变哪条更重要的判断。
+ */
+export interface PageHit {
+  page: number;
+  chapter: string | null;
+  /** 这一页里有多少处命中 */
+  count: number;
+  /** 代表这一页的那一处（第一处） */
+  first: GlobalSearchHit;
+}
+
+/**
+ * 把命中按页归并，保持原有顺序（按页码升序）。
+ *
+ * @param hits 一份资料的全部命中
+ */
+export function groupHitsByPage(hits: readonly GlobalSearchHit[]): PageHit[] {
+  const byPage = new Map<number, PageHit>();
+  for (const h of hits) {
+    const cur = byPage.get(h.page);
+    if (cur) cur.count += 1;
+    else byPage.set(h.page, { page: h.page, chapter: h.chapter, count: 1, first: h });
+  }
+  /* 页码升序：与用户翻书的顺序一致（hits 本身已按页排，这里显式排序更稳） */
+  return [...byPage.values()].sort((a, b) => a.page - b.page);
+}

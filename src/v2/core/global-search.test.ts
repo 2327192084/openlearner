@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  groupHitsByPage,
   hitToReaderTarget,
   searchAllSources,
   summarizeResult,
 } from './global-search.ts';
 import type { Source, SourceSegment } from '@/core/model.ts';
+import type { GlobalSearchHit } from './global-search.ts';
 
 /**
  * 跨资料全文搜索（2026-11-20）。
@@ -311,5 +313,57 @@ describe('截断必须如实告知（2026-11-20）', () => {
     expect(r.matchCount).toBe(150);
     expect(r.total).toBeLessThanOrEqual(12);
     expect(r.groups.every((g) => g.hits.length > 0)).toBe(true);
+  });
+});
+describe('groupHitsByPage · 同页归并（2026-11-21）', () => {
+  /**
+   * 实测场景：搜「极限」时前 6 条全来自「第 11 页 目录」，
+   * 把真正有价值的内容（第 18、27 页）压到下面。
+   */
+  function hit(page: number, charStart: number, snippet = '片段'): GlobalSearchHit {
+    return {
+      sourceId: 's1',
+      sourceTitle: '书',
+      segmentId: 'seg_' + page,
+      page,
+      chapter: null,
+      charStart,
+      charEnd: charStart + 2,
+      snippet,
+    };
+  }
+
+  it('**同一页的多处合成一行，count 是这一页的处数**', () => {
+    const rows = groupHitsByPage([hit(11, 0), hit(11, 20), hit(11, 40)]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.page).toBe(11);
+    expect(rows[0]!.count).toBe(3);
+  });
+
+  it('不同页各占一行，按页码升序', () => {
+    const rows = groupHitsByPage([hit(27, 0), hit(11, 0), hit(18, 0)]);
+    expect(rows.map((r) => r.page)).toEqual([11, 18, 27]);
+  });
+
+  it('代表这一页的是**第一处**（点进去落到它）', () => {
+    const rows = groupHitsByPage([hit(11, 0, '第一'), hit(11, 20, '第二')]);
+    expect(rows[0]!.first.snippet).toBe('第一');
+  });
+
+  it('空输入返回空数组', () => {
+    expect(groupHitsByPage([])).toEqual([]);
+  });
+
+  it('不改动入参', () => {
+    const input = [hit(11, 0), hit(11, 20)];
+    const copy = JSON.parse(JSON.stringify(input));
+    groupHitsByPage(input);
+    expect(input).toEqual(copy);
+  });
+
+  it('**归并后行数 = 命中的页数**（这才是用户想看的「几页」）', () => {
+    const rows = groupHitsByPage([hit(11, 0), hit(11, 20), hit(18, 0), hit(18, 40)]);
+    expect(rows).toHaveLength(2);
+    expect(rows.reduce((n, r) => n + r.count, 0)).toBe(4);
   });
 });

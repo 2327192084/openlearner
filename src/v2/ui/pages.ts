@@ -442,7 +442,8 @@ export const PAGES: PageDef[] = [
     label: '搜索',
     title: '搜索资料',
     icon: IconSearch,
-    purpose: '在全部资料里搜一句话或一个词，按书分组看命中，点一条跳到原文那一句',
+    purpose:
+      '在全部资料里搜一句话或一个词，按书分组看命中分布，点一条跳到原文那一句（带搜索历史）',
     group: 'prep',
     show: true,
     ready: true,
