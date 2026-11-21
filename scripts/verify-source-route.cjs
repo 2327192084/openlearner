@@ -498,6 +498,115 @@ function startFakeModel() {
   rec('界面显示已确认路线摘要', (routeView?.savedText ?? '').length > 0, routeView?.savedText);
   rec('生成后页面仍无字面星号', (routeView?.starCount ?? -1) === 0, String(routeView?.starCount));
 
+  /* ---------- 5.5 设置页的搜索 Key 入口 + 配了 Key 后勾选框可用 ---------- */
+  await ev(`(() => {
+    const el = [...document.querySelectorAll(".nav-item__label,.nav-item")]
+      .find((e) => (e.textContent || "").trim() === "设置");
+    if (el) el.click();
+    return true;
+  })()`);
+  await waitFor(`document.querySelector(".settings-page, .set-nav, .set-section") ? true : null`, 25000, '设置页');
+  await sleep(900);
+
+  /*
+   * ⚠️ 设置页是**分标签**的，SearchKeyField 在「模型与出题」那一栏下。
+   * 第一版直接在设置页找 `.skf` 会超时 —— 因为默认标签是别的。
+   */
+  const tabClicked = await ev(`(() => {
+    /*
+     * 用类名找，不用文本精确匹配 —— 「模型与出题」那个按钮里还嵌了
+     * 一个未读计数角标（.settings-nav__count），textContent 会多出数字，
+     * 精确等值比较永远不成立（第一版就是这么挂的）。
+     */
+    const el = [...document.querySelectorAll(".settings-nav__item")]
+      .find((e) => (e.textContent || "").indexOf("模型与出题") >= 0);
+    if (el) { el.click(); return true; }
+    return false;
+  })()`);
+  console.log('点「模型与出题」标签 =', tabClicked);
+  await waitFor(`document.querySelector(".skf") ? true : null`, 25000, '设置页 Key 输入框');
+  await sleep(900);
+  await shot('04-settings-search-key.png');
+
+  const keyField = await ev(`(() => {
+    const s = document.querySelector(".skf");
+    if (!s) return null;
+    const input = s.querySelector(".skf__input");
+    const state = s.querySelector(".skf__state");
+    const txt = (s.textContent || "").replace(/\\s+/g, " ");
+    return {
+      hasInput: !!input,
+      inputType: input ? input.type : null,
+      /* 未配置时的状态文字 */
+      stateText: (state?.textContent ?? "").trim(),
+      mentionsNotInBackup: txt.indexOf("不会写进导出的备份") >= 0,
+      starCount: (txt.match(/\\*\\*/g) || []).length,
+      buttons: [...s.querySelectorAll("button")].map((b) => (b.textContent || "").trim()),
+    };
+  })()`);
+  console.log('设置页 Key 输入 =', JSON.stringify(keyField, null, 1));
+
+  rec('**设置页有搜索 Key 输入框**', !!keyField?.hasInput);
+  rec('输入框是密码型（不明文回显已有 Key）', keyField?.inputType === 'password', keyField?.inputType);
+  rec('**写明「不会写进导出的备份」**（凭据保护要说清）', !!keyField?.mentionsNotInBackup);
+  rec('未配置时显示「未配置」', (keyField?.stateText ?? '').indexOf('未配置') >= 0, keyField?.stateText);
+  rec('设置页没有字面星号', (keyField?.starCount ?? -1) === 0, String(keyField?.starCount));
+
+  /* 写入一个假 Key，验证规划页的勾选框变为可用 */
+  const keySaved = await ev(`(async () => {
+    const db = await new Promise((res, rej) => {
+      const r = indexedDB.open("openleaner");
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+    const tx = db.transaction("settings", "readwrite");
+    const get = tx.objectStore("settings").get("app");
+    const row = await new Promise((res, rej) => {
+      get.onsuccess = () => res(get.result);
+      get.onerror = () => rej(get.error);
+    });
+    const next = { ...(row || {}), id: "app", webSearchKey: "tvly-fake-key-for-ui-test" };
+    tx.objectStore("settings").put(next);
+    await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+    db.close();
+    return true;
+  })()`);
+
+  await ev('location.reload()');
+  await sleep(8000);
+  await ev(`(() => {
+    for (const lb of document.querySelectorAll(".nav-group__label")) {
+      const b = lb.closest("button"); const g = lb.closest(".nav-group");
+      if (b && g && g.getAttribute("aria-expanded") !== "true") b.click();
+    }
+    return true;
+  })()`);
+  await sleep(900);
+  await ev(`(() => {
+    const el = [...document.querySelectorAll(".nav-item__label,.nav-item")]
+      .find((e) => (e.textContent || "").trim() === "学习地图");
+    if (el) el.click();
+    return true;
+  })()`);
+  await waitFor(`document.querySelector(".rmap--planner") ? true : null`, 25000, '规划面板');
+  await sleep(2500);
+
+  const afterKey = await ev(`(() => {
+    const check = document.querySelector(".rmap--planner .rsp-check__box");
+    const text = (document.querySelector(".rmap--planner .rsp-check__text")?.textContent ?? '').replace(/\\s+/g, ' ');
+    return {
+      hasCheck: !!check,
+      disabled: check ? check.disabled : null,
+      text: text.slice(0, 160),
+    };
+  })()`);
+  console.log('配 Key 后 =', JSON.stringify(afterKey, null, 1));
+
+  rec('**配了 Key 之后联网勾选框可用**（不是永远的假开关）',
+      afterKey?.disabled === false, '禁用=' + afterKey?.disabled);
+  rec('配 Key 后提示改为「消耗搜索额度」（不再是「还没配」）',
+      (afterKey?.text ?? '').indexOf('额度') >= 0, afterKey?.text);
+
   /* ---------- 6. 无控制台报错 ---------- */
   const realErrs = errs.filter((e) => e && e.indexOf('favicon') < 0 && e.indexOf('ERR_FILE') < 0);
   rec('无控制台报错', realErrs.length === 0, realErrs.slice(0, 3).join(' | '));

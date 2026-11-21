@@ -28,6 +28,7 @@ import {
   strictnessFor,
 } from '@/v2/core/grading.ts';
 import { useServices } from '@/app/services-context.ts';
+import { SearchKeyField } from './SearchKeyField.tsx';
 import { ConfirmDialog } from './dialog.tsx';
 import { ModelPicker } from './ModelPicker.tsx';
 
@@ -725,7 +726,7 @@ interface FormState {
 }
 
 function ModelPane({ backends, onRefresh, onFlash }: ModelPaneProps) {
-  const { backends: service } = useServices();
+  const { backends: service, library: libraryService } = useServices();
   const [form, setForm] = useState<FormState | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -950,6 +951,17 @@ function ModelPane({ backends, onRefresh, onFlash }: ModelPaneProps) {
           </div>
         )}
       </div>
+
+      {
+        /*
+         * 搜索 API Key（2026-11-21 深夜）。
+         *
+         * 与「模型后端」放在同一组：两者都是外部服务的凭据，
+         * 用户找 Key 时会自然地先看这一页。
+         * 组件单独一个文件（SettingsPage 已 1474 行，硬约束不插大段代码）。
+         */
+        <SearchKeyField library={libraryService} />
+      }
 
       {form ? (
         <BackendForm

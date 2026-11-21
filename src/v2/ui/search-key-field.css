@@ -1,0 +1,105 @@
+/**
+ * 搜索 API Key 设置项（2026-11-21 深夜）。
+ *
+ * ## 为什么单独一个 CSS 文件
+ *
+ * 与 `SearchKeyField.tsx` 配套。设置页的样式在 `settings-page.css` 里，
+ * 但那是 1000+ 行的大文件，往里加会让它更难维护（硬约束：大文件不插代码）。
+ *
+ * ## ⚠️ 层序陷阱
+ *
+ * `base.css` 有不在 `@layer` 内的 `button`/`input` 规则。
+ * 层内写 color 一律无效（层外优先于层内，比 specificity 还优先）。
+ * 原生控件的字体色与背景写在本文件末尾的层外块。
+ */
+
+@layer study.features {
+  .skf {
+    margin-top: var(--space-5);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--line-soft);
+    min-width: 0;
+  }
+
+  .skf__title {
+    font-size: var(--fs-md);
+    color: var(--text);
+    margin-bottom: var(--space-2);
+  }
+
+  .skf__lead {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: var(--lh-body);
+    max-width: 620px;
+    margin-bottom: var(--space-2);
+  }
+
+  .skf__hint {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+  }
+
+  .skf__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: var(--space-3) 0 var(--space-2);
+    max-width: 520px;
+  }
+
+  .skf__input {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: var(--fs-sm);
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-xs);
+  }
+
+  .skf__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+
+  .skf__state {
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+  }
+
+  .skf__state--on {
+    color: var(--ok);
+  }
+
+  .skf__ok {
+    font-size: var(--fs-sm);
+    color: var(--ok);
+    line-height: var(--lh-body);
+    margin-top: var(--space-2);
+    max-width: 620px;
+  }
+
+  .skf__err {
+    font-size: var(--fs-sm);
+    color: var(--bad);
+    line-height: var(--lh-body);
+    margin-top: var(--space-2);
+    max-width: 620px;
+  }
+}
+
+/* 层外：原生输入框的字体色与底色（base.css 的 input 规则在层外） */
+.app .skf__input {
+  color: var(--text);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+}
+
+.app .skf__input::placeholder {
+  color: var(--text-faint);
+}
+
+.app .skf__state--on {
+  color: var(--ok);
+}
