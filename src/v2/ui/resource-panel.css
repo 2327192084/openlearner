@@ -504,3 +504,69 @@
 .app .bindp__search {
   color: var(--rp-text);
 }
+
+/* ==========================================================================
+ * 折叠三角形与动作区（2026-11-22 用户要求）
+ *
+ * 标题整行是按钮：整行可点、键盘可达，三角形只是视觉状态。
+ * 三角形用 ▾ 旋转而不是换字符 —— 换字符在两个 Unicode 之间跳，
+ * 有些字体不齐；旋转是同一个字形，过渡也平滑。
+ * ========================================================================== */
+
+@layer study.features {
+  .bindp__toggle {
+    display: flex;
+    align-items: baseline;
+    gap: var(--rp-gap-2);
+    border: none;
+    background: transparent;
+    padding: 0;
+    cursor: pointer;
+    text-align: left;
+    min-width: 0;
+  }
+
+  .bindp__toggle:focus-visible {
+    outline: 2px solid var(--rp-accent);
+    outline-offset: 2px;
+    border-radius: var(--rp-radius);
+  }
+
+  .bindp__caret {
+    flex: none;
+    display: inline-block;
+    /*
+     * 12px 而不是 10px（2026-11-22 看截图后调）。
+     * 10px 在深色底上几乎看不见，用户找不到折叠入口 ——
+     * 而"找不到入口"正是这个项目反复记的那类问题。
+     */
+    font-size: 12px;
+    line-height: 1;
+    color: var(--rp-text-muted);
+    /* 收起时指向右，展开时指向下 —— 与系统树控件一致 */
+    transform: rotate(-90deg);
+    transition: transform 140ms ease;
+  }
+
+  .bindp__caret--open {
+    transform: rotate(0deg);
+  }
+
+  .bindp__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--rp-gap-2);
+    flex-wrap: wrap;
+  }
+
+  /* 减少动效偏好：三角形不转动，直接切换 */
+  @media (prefers-reduced-motion: reduce) {
+    .bindp__caret {
+      transition: none;
+    }
+  }
+}
+
+.app .bindp__toggle {
+  color: var(--rp-text);
+}

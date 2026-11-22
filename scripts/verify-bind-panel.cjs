@@ -245,6 +245,50 @@ const rec = (n, ok, x) => {
   rec('统计标注了来源（绑定的 / 自动找到的）',
       ((statsSrc && statsSrc.srcs) || []).length > 0, JSON.stringify(statsSrc && statsSrc.srcs));
 
+  /* ---------- 折叠三角形（2026-11-22 用户要求） ---------- */
+  const collapse = await ev(`(async () => {
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const toggles = [...document.querySelectorAll(".rsdetail .bindp__toggle")];
+    if (toggles.length < 2) return { hasToggles: toggles.length };
+    const carets = toggles.map(t => t.querySelector(".bindp__caret"));
+    const before = toggles.map(t => t.getAttribute("aria-expanded"));
+    const caretBefore = carets.map(c => c ? getComputedStyle(c).transform : null);
+    toggles[0].click();
+    await sleep(500);
+    const after = toggles.map(t => t.getAttribute("aria-expanded"));
+    const caretAfter = carets.map(c => c ? getComputedStyle(c).transform : null);
+    toggles[0].click();
+    await sleep(400);
+    return {
+      hasToggles: toggles.length, before, after, caretBefore, caretAfter,
+      hasCaretGlyph: carets.every(c => !!c),
+    };
+  })()`);
+  console.log('折叠 =', JSON.stringify(collapse));
+  await shot('02-collapse.png');
+
+  rec('两个区块各有一个折叠按钮', (collapse && collapse.hasToggles) === 2,
+      (collapse && collapse.hasToggles) + ' 个');
+  rec('有倒三角形图标', !!(collapse && collapse.hasCaretGlyph));
+  rec('三角形字号够大（>=12px，太小等于没有入口）',
+      (await ev(`(() => {
+        const c = document.querySelector(".rsdetail .bindp__caret");
+        if (!c) return 0;
+        return parseFloat(getComputedStyle(c).fontSize);
+      })()`)) >= 12);
+  rec('本节未绑卡时有「生成几张闪卡」按钮（与全库有没有卡无关）',
+      (await ev(`(() => {
+        const p = document.querySelector(".rsdetail .bindp");
+        if (!p) return false;
+        return [...p.querySelectorAll("button")].some(b => (b.textContent||"").indexOf("生成") >= 0);
+      })()`)) === true);
+  rec('点击能切换展开/收起（aria-expanded 变化）',
+      !!(collapse && collapse.before[0] === 'true' && collapse.after[0] === 'false'),
+      JSON.stringify(collapse && collapse.before) + ' -> ' + JSON.stringify(collapse && collapse.after));
+  rec('三角形跟着旋转（transform 变了）',
+      !!(collapse && collapse.caretBefore[0] !== collapse.caretAfter[0]),
+      (collapse && collapse.caretBefore[0]) + ' -> ' + (collapse && collapse.caretAfter[0]));
+
   const stars = await ev(`((document.body.textContent || "").match(/\\*\\*/g) || []).length`);
   rec('无字面星号（全页）', stars === 0);
 

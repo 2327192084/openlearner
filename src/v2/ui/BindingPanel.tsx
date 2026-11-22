@@ -38,6 +38,14 @@ export interface BindingPanelProps {
   /** 让 AI 帮我挑（可选） */
   onAskAi?: () => void;
   aiBusy?: boolean;
+  /**
+   * 用这一节的正文**生成**几张闪卡（2026-11-22 加）。
+   *
+   * 只在闪卡库为空时显示。用户库实测闪卡 0 张 —— 那时面板只能
+   * 显示"库里还没有闪卡"，等于告诉他一个没有出口的事实。
+   */
+  onGenerateCards?: () => void;
+  generateBusy?: boolean;
 }
 
 /** 搜索框里的匹配（大小写不敏感） */
@@ -47,11 +55,39 @@ function matches(text: string, q: string): boolean {
 }
 
 export function BindingPanel(props: BindingPanelProps) {
-  const { cardIds, deckIds, availableCards, availableDecks, onChange, onAskAi, aiBusy } = props;
+  const {
+    cardIds,
+    deckIds,
+    availableCards,
+    availableDecks,
+    onChange,
+    onAskAi,
+    aiBusy,
+    onGenerateCards,
+    generateBusy,
+  } = props;
 
   /** 正在挑哪一类；null = 没在挑 */
   const [picking, setPicking] = useState<'cards' | 'decks' | null>(null);
   const [query, setQuery] = useState('');
+
+  /**
+   * 两块的展开/收起（2026-11-22 用户要求加倒三角形）。
+   *
+   * ## 为什么两块各自独立折叠，而不是一个总开关
+   *
+   * 用户可能只想看闪卡（题库那半他清楚），不想让题组那块占位置。
+   * 一个总开关做不到这件事。
+   *
+   * ## 默认展开
+   *
+   * 折叠是为了"看完想收起来"，不是为了藏起来。
+   * 默认收起会让用户以为这里没内容（尤其闪卡为 0 时）。
+   */
+  const [open, setOpen] = useState<{ cards: boolean; decks: boolean }>({
+    cards: true,
+    decks: true,
+  });
 
   /* 已绑的闪卡/题组，映射成可显示的形状（找不到的说明被删了） */
   const cardById = useMemo(() => new Map(availableCards.map((c) => [c.id, c])), [availableCards]);
@@ -89,24 +125,67 @@ export function BindingPanel(props: BindingPanelProps) {
       {/* ==================== 闪卡 ==================== */}
       <div className="bindp__sec">
         <div className="bindp__head">
-          <span className="bindp__label">
-            绑定的闪卡
-            <span className="bindp__count">{boundCards.length}</span>
+          {/*
+            * 标题本身就是折叠按钮（用户要求加倒三角形）。
+            *
+            * 用 button 而不是 span + 独立按钮：整行可点、键盘可达，
+            * 三角形只是视觉上的状态提示（aria-expanded 才是给读屏的）。
+            */}
+          <button
+            type="button"
+            className="bindp__toggle"
+            onClick={() => setOpen((c) => ({ ...c, cards: !c.cards }))}
+            aria-expanded={open.cards}
+            title={open.cards ? '收起' : '展开'}
+          >
+            <span className={`bindp__caret${open.cards ? ' bindp__caret--open' : ''}`} aria-hidden="true">
+              ▾
+            </span>
+            <span className="bindp__label">
+              绑定的闪卡
+              <span className="bindp__count">{boundCards.length}</span>
+            </span>
+          </button>
+
+          <span className="bindp__actions">
+            {/*
+              * 「生成几张」的显示条件（2026-11-22 改了）。
+              *
+              * ⚠️ 原来只在"库里一张卡都没有"时显示 —— 那是错的。
+              *
+              * 用户真的从 0 张做到了十几张，那时按钮就消失了，
+              * 而他在这一节仍然没有卡可绑（库里有卡 ≠ 这一节有卡）。
+              * 他真正需要的是"**这一节**还没卡时能快速造几张"，
+              * 与全库有没有卡无关。
+              *
+              * 现在的条件：**这一节没绑卡** 且 给了生成回调。
+              */}
+            {onGenerateCards && boundCards.length === 0 ? (
+              <button
+                type="button"
+                className="btn-ghost btn-ghost--sm"
+                onClick={onGenerateCards}
+                disabled={generateBusy}
+                title="用这一节的正文让 AI 写几张闪卡，写完自动绑上"
+              >
+                {generateBusy ? '正在生成…' : '生成几张闪卡'}
+              </button>
+            ) : null}
+            {onAskAi ? (
+              <button
+                type="button"
+                className="btn-ghost btn-ghost--sm"
+                onClick={onAskAi}
+                disabled={aiBusy}
+                title="让 AI 根据这一节的正文，从库里挑出相关的卡"
+              >
+                {aiBusy ? '正在挑…' : '让 AI 帮我挑'}
+              </button>
+            ) : null}
           </span>
-          {onAskAi ? (
-            <button
-              type="button"
-              className="btn-ghost btn-ghost--sm"
-              onClick={onAskAi}
-              disabled={aiBusy}
-              title="让 AI 根据这一节的正文，从库里挑出相关的卡"
-            >
-              {aiBusy ? '正在挑…' : '让 AI 帮我挑'}
-            </button>
-          ) : null}
         </div>
 
-        {boundCards.length > 0 ? (
+        {!open.cards ? null : boundCards.length > 0 ? (
           <ul className="bindp__list">
             {boundCards.map(({ id, card }) => (
               <li key={id} className="bindp__item">
@@ -128,7 +207,7 @@ export function BindingPanel(props: BindingPanelProps) {
           <p className="bindp__hint">还没绑定闪卡。</p>
         )}
 
-        {picking === 'cards' ? (
+        {!open.cards ? null : picking === 'cards' ? (
           <div className="bindp__picker">
             <input
               className="bindp__search"
@@ -185,13 +264,24 @@ export function BindingPanel(props: BindingPanelProps) {
       {/* ==================== 题组 ==================== */}
       <div className="bindp__sec">
         <div className="bindp__head">
-          <span className="bindp__label">
-            绑定的题组
-            <span className="bindp__count">{boundDecks.length}</span>
-          </span>
+          <button
+            type="button"
+            className="bindp__toggle"
+            onClick={() => setOpen((c) => ({ ...c, decks: !c.decks }))}
+            aria-expanded={open.decks}
+            title={open.decks ? '收起' : '展开'}
+          >
+            <span className={`bindp__caret${open.decks ? ' bindp__caret--open' : ''}`} aria-hidden="true">
+              ▾
+            </span>
+            <span className="bindp__label">
+              绑定的题组
+              <span className="bindp__count">{boundDecks.length}</span>
+            </span>
+          </button>
         </div>
 
-        {boundDecks.length > 0 ? (
+        {!open.decks ? null : boundDecks.length > 0 ? (
           <ul className="bindp__list">
             {boundDecks.map(({ id, deck }) => (
               <li key={id} className="bindp__item">
@@ -220,7 +310,7 @@ export function BindingPanel(props: BindingPanelProps) {
           <p className="bindp__hint">还没绑定题组。</p>
         )}
 
-        {picking === 'decks' ? (
+        {!open.decks ? null : picking === 'decks' ? (
           <div className="bindp__picker">
             <input
               className="bindp__search"

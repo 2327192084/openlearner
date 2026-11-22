@@ -84,6 +84,9 @@ export interface SectionDetailProps {
   /** 让 AI 帮我挑（手工入口里的辅助按钮）；不给就隐藏 */
   onAskAiBind?: () => void;
   aiBindBusy?: boolean;
+  /** 用这一节正文生成闪卡（2026-11-22） */
+  onGenerateCards?: () => void;
+  generateCardsBusy?: boolean;
 }
 
 export function SectionDetail(props: SectionDetailProps) {
@@ -102,6 +105,8 @@ export function SectionDetail(props: SectionDetailProps) {
     bindings,
     onAskAiBind,
     aiBindBusy,
+    onGenerateCards,
+    generateCardsBusy,
   } = props;
   const [newTask, setNewTask] = useState('');
 
@@ -313,6 +318,8 @@ export function SectionDetail(props: SectionDetailProps) {
             onChange={bindings.onChange}
             {...(onAskAiBind ? { onAskAi: onAskAiBind } : {})}
             {...(aiBindBusy !== undefined ? { aiBusy: aiBindBusy } : {})}
+            {...(onGenerateCards ? { onGenerateCards } : {})}
+            {...(generateCardsBusy !== undefined ? { generateBusy: generateCardsBusy } : {})}
           />
         </div>
       ) : null}

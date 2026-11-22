@@ -3470,6 +3470,147 @@ interface PlanDraft {
     [openTreeSourceId, trees, saveTree],
   );
 
+  /**
+   * 用某一节的正文**生成几张闪卡**（2026-11-22 用户要求）。
+   *
+   * ## 为什么需要它
+   *
+   * 用户库实测**闪卡 0 张**，于是「任务二：学完闪卡」永远是空的，
+   * 绑定面板也只能显示"库里还没有闪卡" —— 告诉他一个没有出口的事实。
+   *
+   * ## 做法
+   *
+   * 复用 `make-flashcards.ts` 的提示词与解析（那里已有 5 条硬规则，
+   * 包括「只用素材里出现过的事实」「素材不足就返回空数组，不要硬编」）。
+   * 生成后**自动绑到这一节** —— 用户点这个按钮的意图就是要这一节有卡。
+   *
+   * ## 为什么生成 3 张而不是更多
+   *
+   * 一节正文通常几百字，够出 3 张有区分度的卡。再多模型会开始重复
+   * （提示词里明确要求"多张时角度不同"，但素材本身有限）。
+   */
+  const [genCardsSectionId, setGenCardsSectionId] = useState<string | null>(null);
+
+  const generateCardsForSection = useCallback(
+    async (sectionId: string) => {
+      if (!openTreeSourceId) return;
+      const tree = trees[openTreeSourceId];
+      if (!tree) return;
+
+      let target: { section: SectionNode; chapterTitle: string } | null = null;
+      for (const ch of tree.chapters) {
+        const sec = ch.sections.find((x) => x.id === sectionId);
+        if (sec) {
+          target = { section: sec, chapterTitle: ch.title };
+          break;
+        }
+      }
+      if (!target) return;
+
+      setGenCardsSectionId(sectionId);
+      setTreeStatsError(null);
+      try {
+        const segments = await sourceService.getSegments(openTreeSourceId);
+        const byId = new Map(segments.map((x) => [x.id, x]));
+        /* 这一节的正文（取前几段，够出 3 张卡就行） */
+        const texts: string[] = [];
+        for (const id of target.section.segmentIds.slice(0, 5)) {
+          const seg = byId.get(id);
+          if (seg) texts.push(seg.text.trim());
+        }
+        const material = texts.join(`
+
+`).trim();
+
+        if (material.length < 50) {
+          setTreeStatsError(
+            '这一节的正文太少（' + material.length + ' 字），出不了有意义的卡。换一节试试。',
+          );
+          return;
+        }
+
+        const b = await resolveBackend();
+        const { buildCardPrompt, parseCards, cardsToDrafts } = await import(
+          '@/core/ai/make-flashcards.ts'
+        );
+        const { chatCompletion } = await import('@/core/ai/deepseek-client.ts');
+
+        const { system, user } = buildCardPrompt(
+          { kind: 'text', text: material, hint: target.chapterTitle + ' · ' + target.section.title },
+          3,
+        );
+
+        const res = await chatCompletion({
+          apiKey: b.apiKey,
+          model: b.model,
+          ...(b.baseUrl ? { baseUrl: b.baseUrl } : {}),
+          provider: b.provider,
+          systemPrompt: system,
+          userPrompt: user,
+          temperature: 0.3,
+          maxTokens: 2000,
+        });
+
+        const parsed = parseCards(res.content);
+        if (!parsed.ok) {
+          setTreeStatsError('生成闪卡失败：' + parsed.reason);
+          return;
+        }
+        if (parsed.cards.length === 0) {
+          /*
+           * 模型按提示词要求返回了空数组（素材不足）。
+           * 这不是错误 —— 如实说明，别假装生成成功。
+           */
+          setTreeStatsError(
+            '这一节的正文不足以出卡（AI 判断素材不够，没有硬编）。可以换一节，或在别处手工建卡。',
+          );
+          return;
+        }
+
+        const drafts = cardsToDrafts(parsed.cards, {
+          kind: 'manual',
+          sourceId: openTreeSourceId,
+        });
+        const created = await flashcardsService.addMany(drafts);
+
+        /* 自动绑到这一节（用户点这个按钮就是要这一节有卡） */
+        const newIds = created.map((c) => c.id);
+        const chapters = tree.chapters.map((ch) => ({
+          ...ch,
+          sections: ch.sections.map((sec) =>
+            sec.id === sectionId
+              ? {
+                  ...sec,
+                  tasks: {
+                    ...sec.tasks,
+                    boundFlashcardIds: [
+                      ...(sec.tasks.boundFlashcardIds ?? []),
+                      ...newIds,
+                    ],
+                  },
+                }
+              : sec,
+          ),
+        }));
+        await saveTree({ ...tree, chapters, savedAt: new Date().toISOString() });
+
+        /* 刷新可绑池，让新卡立刻出现在面板里 */
+        setBindPool((cur) => ({
+          ...cur,
+          cards: [...cur.cards, ...created.map((c) => ({ id: c.id, front: c.frontText }))],
+        }));
+        setTreeStatsError(null);
+      } catch (e) {
+        setTreeStatsError(
+          '生成闪卡失败：' + (e instanceof Error ? e.message : String(e)) + '（可以重试，或手工建卡）',
+        );
+      } finally {
+        setGenCardsSectionId(null);
+      }
+    },
+    [openTreeSourceId, trees, sourceService, resolveBackend, flashcardsService, saveTree],
+  );
+
   /** 让 AI 给某一节挑绑定（手工入口里的辅助） */
   const [aiBindSectionId, setAiBindSectionId] = useState<string | null>(null);
 
@@ -3817,6 +3958,8 @@ interface PlanDraft {
               onChange: setSectionBindings,
               onAskAi: (sectionId: string) => void askAiForSection(sectionId),
               aiBusySectionId: aiBindSectionId,
+              onGenerateCards: (sectionId: string) => void generateCardsForSection(sectionId),
+              generatingSectionId: genCardsSectionId,
             }}
           />
         ) : (

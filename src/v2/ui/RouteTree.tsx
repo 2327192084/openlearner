@@ -87,6 +87,9 @@ export interface RouteTreeProps {
     onChange: (sectionId: string, next: { cardIds: string[]; deckIds: string[] }) => void;
     onAskAi?: (sectionId: string) => void;
     aiBusySectionId?: string | null;
+    /** 用这一节正文生成闪卡（2026-11-22），只在没有卡时出现 */
+    onGenerateCards?: (sectionId: string) => void;
+    generatingSectionId?: string | null;
   };
   /** 重新规划 */
   onReplan?: () => void;
@@ -467,6 +470,15 @@ export function RouteTree(props: RouteTreeProps) {
               : {})}
             {...(bindingData?.aiBusySectionId === openSection.section.id
               ? { aiBindBusy: true }
+              : {})}
+            {...(bindingData?.onGenerateCards
+              ? {
+                  onGenerateCards: () =>
+                    bindingData.onGenerateCards!(openSection.section.id),
+                }
+              : {})}
+            {...(bindingData?.generatingSectionId === openSection.section.id
+              ? { generateCardsBusy: true }
               : {})}
             onClose={() => setOpenSectionId(null)}
           />
