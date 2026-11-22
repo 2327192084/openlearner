@@ -18,6 +18,7 @@ import { isWholePageNote } from '@/core/text-anchor.ts';
 import { IconSources } from './icons.tsx';
 import { ReaderFigure } from './ReaderFigure.tsx';
 import { ReaderSidePanel } from './ReaderSidePanel.tsx';
+import type { SourceResource } from '@/v2/core/resource-store.ts';
 import { MarkdownBodyMarked } from './MarkdownBodyMarked.tsx';
 import type { MarkRange } from './MarkdownBodyMarked.tsx';
 import { paintTextMarks, clearTextMarks } from './paint-marks.ts';
@@ -139,6 +140,17 @@ export interface ReaderPageProps {
   onMakeCardFromSelection?: (material: OralMaterial) => void;
   /** 不能做闪卡的原因（没接 AI 时） */
   cardDisabledReason?: string | null;
+  /**
+   * 外部资源（2026-11-22，方案 7.3）。
+   *
+   * 右栏的「资源」标签要用它。不给就不显示那个标签（不做假开关）。
+   */
+  resources?: {
+    sourceId: string;
+    items: readonly SourceResource[];
+    onAdd: (r: SourceResource) => void;
+    onRemove: (id: string) => void;
+  };
   onBack: () => void;
 }
 
@@ -211,6 +223,7 @@ export function ReaderPage({
   cardDisabledReason,
   askDisabledReason,
   onBack,
+  resources,
 }: ReaderPageProps) {
   const [phase, setPhase] = useState<LoadPhase>({ kind: 'loading' });
   /** 当前显示第几段（= 第几页）。1-based。 */
@@ -2093,6 +2106,7 @@ export function ReaderPage({
         ReaderPage 已经 900+ 行，项目对往大文件里插代码有过教训。
       */}
       <ReaderSidePanel
+        {...(resources ? { resources } : {})}
         segment={seg}
         pageNo={pageNo}
         totalSegments={totalSegments}

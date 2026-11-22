@@ -15,6 +15,7 @@ import type { TodoService } from '@/core/todos.ts';
 import type { FocusService } from '@/core/focus.ts';
 import type { TrashService } from '@/core/trash.ts';
 import type { TaskRunService } from '@/core/task-run-service.ts';
+import type { ResourceService } from '@/core/resource-service.ts';
 
 /**
  * 应用运行时上下文。
@@ -76,6 +77,13 @@ export interface AppServices {
   slides: SlideService;
   /** P5：用量统计（按天、按后端） */
   usage: UsageService;
+  /**
+   * 外部资源（2026-11-22，方案第 7 步）。
+   *
+   * 网课 / 文档 / 视频的链接，挂在资料上（可再指定小节）。
+   * 三处要用它：阅读器右栏、小节详情、规划预搜。
+   */
+  resources: ResourceService;
   /** 运行环境：浏览器 / Electron 桌面端 / 测试 */
   env: 'web' | 'desktop' | 'test';
 }

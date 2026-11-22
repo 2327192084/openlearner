@@ -3,46 +3,77 @@
  *
  * 类名前缀 `rpanel-`。
  *
+ * ## 这个组件要在**两套主题**里出现
+ *
+ * | 位置 | 主题 | token 体系 |
+ * |---|---|---|
+ * | 小节详情（学习地图二级页） | v2 深色 | --bg- / --text- / --space- |
+ * | 阅读器右栏（src/pages/sources/） | v1 浅色 | --c- / --sp- |
+ *
+ * reader.css 里 128 处全是 v1 token，一处 v2 都没有。
+ * 直接把这个面板塞进去，所有颜色会失效（v2 变量在阅读器那棵树上没定义）。
+ *
+ * 所以面板自己定义一层**中间变量**（--rp-*），用带回退的方式取值：
+ * 在 v2 环境取 v2，在 v1 环境由 .reader__rail 覆盖成 v1 值。
+ * 一套组件，两套主题，不用复制两份样式。
+ *
  * ## 形态参照用户给的 LogiNote 截图（方案 7.2）
  *
- * ```
- * ● 资源标题
- *   域名 · 来源标注（联网收集 / 人工整理）
- *   相对时间
- * ```
+ *   ● 资源标题
+ *     域名 · 来源标注（联网收集 / 人工整理）
+ *     相对时间
  *
- * 左侧小圆点 + 三行元信息，标题是主信息、其余压暗。
  * 不做成卡片（资源是"边看边点开"的东西，卡片太占地方）。
- *
- * ## ⚠️ 层序陷阱
- *
- * `base.css` 有不在 `@layer` 内的 `button { color: inherit }`。
- * 这里把资源做成了 `<button>`（整块可点、键盘可达），所以文字色
- * 写在文件末尾**层外**，用 `.app .` 抬 specificity。
  */
+
+/* ---------- 中间变量层 ---------- */
+
+.rpanel {
+  /* v2 环境下这些会取到真值；v1 环境由 .reader__rail 覆盖 */
+  --rp-surface: var(--bg-sunken, #f7f8fa);
+  --rp-line: var(--line, #e3e6eb);
+  --rp-line-soft: var(--line-soft, #eef1f5);
+  --rp-text: var(--text, #1b1f26);
+  --rp-text-dim: var(--text-dim, #5b6472);
+  --rp-text-muted: var(--text-muted, #5b6472);
+  --rp-text-faint: var(--text-faint, #8b94a3);
+  --rp-accent: var(--accent-text, #c93d22);
+  --rp-info: var(--info, #2f6fb0);
+  --rp-warn: var(--warn, #a9690b);
+  --rp-bad: var(--bad, #c0392b);
+  --rp-hover: var(--bg-hover, #f2f4f7);
+  --rp-gap-1: var(--space-1, 4px);
+  --rp-gap-2: var(--space-2, 8px);
+  --rp-gap-3: var(--space-3, 12px);
+  --rp-fs-sm: var(--fs-sm, 13px);
+  --rp-fs-xs: var(--fs-xs, 12px);
+  --rp-lh: var(--lh-body, 1.6);
+  --rp-snug: var(--lh-snug, 1.35);
+  --rp-radius: var(--radius-sm, 6px);
+}
 
 @layer study.features {
   .rpanel {
-    margin-top: var(--space-3);
+    margin-top: var(--rp-gap-3);
   }
 
   .rpanel__head {
     display: flex;
     align-items: baseline;
-    gap: var(--space-2);
-    margin-bottom: var(--space-2);
+    gap: var(--rp-gap-2);
+    margin-bottom: var(--rp-gap-2);
   }
 
   .rpanel__title {
     margin: 0;
-    font-size: var(--fs-sm);
+    font-size: var(--rp-fs-sm);
     font-weight: 600;
-    color: var(--text);
+    color: var(--rp-text);
   }
 
   .rpanel__count {
-    font-size: var(--fs-xs);
-    color: var(--text-faint);
+    font-size: var(--rp-fs-xs);
+    color: var(--rp-text-faint);
     font-variant-numeric: tabular-nums;
   }
 
@@ -58,13 +89,13 @@
   .rpanel__item {
     display: flex;
     align-items: flex-start;
-    gap: var(--space-1);
-    border-radius: var(--radius-sm);
+    gap: var(--rp-gap-1);
+    border-radius: var(--rp-radius);
     transition: background-color 140ms ease;
   }
 
   .rpanel__item:hover {
-    background: var(--bg-hover);
+    background: var(--rp-hover);
   }
 
   /*
@@ -77,17 +108,17 @@
     min-width: 0;
     display: flex;
     align-items: flex-start;
-    gap: var(--space-2);
+    gap: var(--rp-gap-2);
     text-align: left;
     border: none;
     background: transparent;
-    padding: var(--space-2);
+    padding: var(--rp-gap-2);
     cursor: pointer;
-    border-radius: var(--radius-sm);
+    border-radius: var(--rp-radius);
   }
 
   .rpanel__link:focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--rp-accent);
     outline-offset: -2px;
   }
 
@@ -98,7 +129,7 @@
     height: 6px;
     margin-top: 6px;
     border-radius: 50%;
-    background: var(--accent-text);
+    background: var(--rp-accent);
   }
 
   .rpanel__body {
@@ -110,9 +141,9 @@
   }
 
   .rpanel__name {
-    font-size: var(--fs-sm);
-    line-height: var(--lh-snug);
-    color: var(--text);
+    font-size: var(--rp-fs-sm);
+    line-height: var(--rp-snug);
+    color: var(--rp-text);
     /* 长标题两行内截断 —— 资源标题常很长（视频全名） */
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -124,23 +155,23 @@
     display: flex;
     align-items: baseline;
     flex-wrap: wrap;
-    gap: var(--space-2);
-    font-size: var(--fs-xs);
-    color: var(--text-faint);
+    gap: var(--rp-gap-2);
+    font-size: var(--rp-fs-xs);
+    color: var(--rp-text-faint);
   }
 
   .rpanel__src {
-    color: var(--info);
+    color: var(--rp-info);
   }
 
   .rpanel__time {
-    color: var(--text-faint);
+    color: var(--rp-text-faint);
   }
 
   .rpanel__note {
-    font-size: var(--fs-xs);
-    color: var(--text-muted);
-    line-height: var(--lh-body);
+    font-size: var(--rp-fs-xs);
+    color: var(--rp-text-muted);
+    line-height: var(--rp-lh);
   }
 
   /* 删除按钮：悬停才明显（平时不抢注意力，但要可达） */
@@ -151,8 +182,8 @@
     padding: 2px 6px;
     margin-top: 4px;
     cursor: pointer;
-    font-size: var(--fs-xs);
-    color: var(--text-faint);
+    font-size: var(--rp-fs-xs);
+    color: var(--rp-text-faint);
     opacity: 0.5;
     transition: opacity 140ms ease, color 140ms ease;
   }
@@ -164,22 +195,22 @@
 
   .rpanel__empty {
     margin: 0;
-    font-size: var(--fs-xs);
-    color: var(--text-faint);
-    line-height: var(--lh-body);
+    font-size: var(--rp-fs-xs);
+    color: var(--rp-text-faint);
+    line-height: var(--rp-lh);
   }
 
   /* ---------- 表单 ---------- */
 
   .rpanel__form {
-    margin-top: var(--space-2);
-    padding: var(--space-3);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-sm);
-    background: var(--bg-sunken);
+    margin-top: var(--rp-gap-2);
+    padding: var(--rp-gap-3);
+    border: 1px solid var(--rp-line);
+    border-radius: var(--rp-radius);
+    background: var(--rp-surface);
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
+    gap: var(--rp-gap-2);
   }
 
   .rpanel__field {
@@ -189,16 +220,16 @@
   }
 
   .rpanel__label {
-    font-size: var(--fs-xs);
-    color: var(--text-muted);
+    font-size: var(--rp-fs-xs);
+    color: var(--rp-text-muted);
   }
 
   .rpanel__req {
-    color: var(--accent-text);
+    color: var(--rp-accent);
   }
 
   .rpanel__input {
-    font-size: var(--fs-sm);
+    font-size: var(--rp-fs-sm);
     width: 100%;
     min-width: 0;
   }
@@ -209,32 +240,32 @@
    */
   .rpanel__err {
     margin: 0;
-    font-size: var(--fs-xs);
-    color: var(--warn);
-    line-height: var(--lh-body);
+    font-size: var(--rp-fs-xs);
+    color: var(--rp-warn);
+    line-height: var(--rp-lh);
   }
 
   .rpanel__actions {
     display: flex;
-    gap: var(--space-2);
+    gap: var(--rp-gap-2);
   }
 
   .rpanel__add {
-    margin-top: var(--space-2);
+    margin-top: var(--rp-gap-2);
   }
 
   /* ---------- 小节详情里的容器 ---------- */
 
   .rsdetail__resources {
-    margin: var(--space-2) 0 0 calc(var(--space-3) + var(--space-2));
-    padding-left: var(--space-3);
-    border-left: 1px solid var(--line-soft);
+    margin: var(--rp-gap-2) 0 0 calc(var(--rp-gap-3) + var(--rp-gap-2));
+    padding-left: var(--rp-gap-3);
+    border-left: 1px solid var(--rp-line-soft);
   }
 
   /* 只读资源（规划时带的）的标注 */
   .rsdetail__res-ro {
-    font-size: var(--fs-xs);
-    color: var(--text-faint);
+    font-size: var(--rp-fs-xs);
+    color: var(--rp-text-faint);
     font-style: italic;
   }
 }
@@ -244,29 +275,29 @@
  * ========================================================================== */
 
 .app .rpanel__link {
-  color: var(--text);
+  color: var(--rp-text);
 }
 
 .app .rpanel__link .rpanel__name {
-  color: var(--text);
+  color: var(--rp-text);
 }
 
 .app .rpanel__link .rpanel__meta {
-  color: var(--text-faint);
+  color: var(--rp-text-faint);
 }
 
 .app .rpanel__del {
-  color: var(--text-faint);
+  color: var(--rp-text-faint);
 }
 
 .app .rpanel__del:hover {
-  color: var(--bad);
+  color: var(--rp-bad);
 }
 
 .app .rpanel__add {
-  color: var(--text-muted);
+  color: var(--rp-text-muted);
 }
 
 .app .rpanel__input {
-  color: var(--text);
+  color: var(--rp-text);
 }

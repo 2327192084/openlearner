@@ -26,6 +26,8 @@ import type { SourceSegment, TextMark, TextMarkKind, NotemarkImage } from '@/cor
 import { MARK_COLORS, isWholePageNote } from '@/core/text-anchor.ts';
 import { NoteImageField, fileToNoteImage, imageFromPaste } from './NoteImageField.tsx';
 import './reader-side.css';
+import type { SourceResource } from '@/v2/core/resource-store.ts';
+import { ResourcePanel } from './ResourcePanel.tsx';
 
 /** 右栏的两种模式 */
 /**
@@ -37,7 +39,7 @@ import './reader-side.css';
  * 两种交互混在一页会让「加标记」那三个按钮和备注按钮抢注意力，
  * 而且用户点「高亮」时可能以为会弹出写字的框。
  */
-export type ReaderSideMode = 'view' | 'annotate' | 'note';
+export type ReaderSideMode = 'view' | 'annotate' | 'note' | 'resources';
 
 export interface ReaderSidePanelProps {
   /** 当前这一段（页） */
@@ -61,6 +63,18 @@ export interface ReaderSidePanelProps {
   figureCount?: number;
   /** 默认模式 */
   initialMode?: ReaderSideMode;
+  /**
+   * 外部资源（2026-11-22，方案 7.3）。
+   *
+   * 不给就**不显示「资源」标签** —— 环境不支持时摆一个点了没用的标签
+   * 比没有更糟（项目硬约束：不做假开关）。
+   */
+  resources?: {
+    sourceId: string;
+    items: readonly SourceResource[];
+    onAdd: (r: SourceResource) => void;
+    onRemove: (id: string) => void;
+  };
   /**
    * 外部要求切到某个页签（2026-11-11 晚，「先选再写」流程用）。
    *
@@ -190,6 +204,7 @@ export function ReaderSidePanel({
   onAddSelectionNote,
   onAddPageNote,
   onLocateMark,
+  resources,
 }: ReaderSidePanelProps) {
   const [mode, setMode] = useState<ReaderSideMode>(initialMode);
 
@@ -293,6 +308,7 @@ export function ReaderSidePanel({
   const noteMarks = useMemo(() => sorted.filter((m) => m.kind === 'note'), [sorted]);
   const annotationCount = annotationMarks.length;
   const noteCount = noteMarks.length;
+  const resourceCount = resources?.items.length ?? 0;
 
   return (
     <aside className="rside" aria-label="资料侧栏">
@@ -333,6 +349,24 @@ export function ReaderSidePanel({
           备注
           {noteCount > 0 ? <span className="rside__count">{noteCount}</span> : null}
         </button>
+        {/*
+          资源页（2026-11-22，方案 7.1/7.3）。
+          用户确认：「资源是边看边点开的东西，与 LogiNote 一致；抽屉塞不下」。
+          放在右栏第三/四个标签，而不是另开一个页面 ——
+          看资料时顺手点开一个网课链接是高频动作，切页就懒得用了。
+        */}
+        {resources ? (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'resources'}
+            className={`rside__tab${mode === 'resources' ? ' rside__tab--on' : ''}`}
+            onClick={() => setMode('resources')}
+          >
+            资源
+            {resourceCount > 0 ? <span className="rside__count">{resourceCount}</span> : null}
+          </button>
+        ) : null}
       </div>
 
       {mode === 'view' ? (
@@ -374,6 +408,18 @@ export function ReaderSidePanel({
           <p className="rside__tip">
             要标重点就切到「批注」：在正文里选中文字，再点高亮 / 下划线 / 删除线。
           </p>
+        </div>
+      ) : mode === 'resources' && resources ? (
+        /* ---------- 资源页（2026-11-22，方案 7.1/7.3） ---------- */
+        <div className="rside__body">
+          <ResourcePanel
+            sourceId={resources.sourceId}
+            resources={resources.items}
+            onAdd={resources.onAdd}
+            onRemove={resources.onRemove}
+            title="这份资料的资源"
+            emptyHint="还没有资源。可以加网课、文档、视频的链接，看资料时点开。"
+          />
         </div>
       ) : mode === 'note' ? (
         /* ---------- 备注页（2026-11-11） ---------- */

@@ -3195,7 +3195,14 @@ interface PlanDraft {
   }, [library]);
 
   useEffect(() => {
-    if (page !== 'flow' && page !== 'mapTree') return;
+    /*
+     * ⚠️ 阅读器页也要加载（2026-11-22）。
+     *
+     * 右栏「资源」标签读的是同一份 `resources` 表 —— 只在地图两页加载
+     * 的话，从资料页进阅读器时表是空的，右栏永远显示"还没有资源"
+     *（而库里明明有）。这正是"做了没接上"的典型形态。
+     */
+    if (page !== 'flow' && page !== 'mapTree' && page !== 'reader') return;
     void loadResources();
   }, [page, loadResources]);
 
@@ -4231,6 +4238,22 @@ interface PlanDraft {
         <ReaderPage
           sourceService={sourceService}
           annotations={annotations}
+          /*
+           * 右栏「资源」标签的数据（2026-11-22，方案 7.3）。
+           *
+           * 用 App 已有的 `resources` 表（与学习地图小节详情同一份数据）——
+           * 不另读一份，否则同一份资料在两处显示的资源会不一样。
+           */
+          {...(readerSourceId
+            ? {
+                resources: {
+                  sourceId: readerSourceId,
+                  items: resources[readerSourceId] ?? [],
+                  onAdd: addResource,
+                  onRemove: (id: string) => removeResource(readerSourceId, id),
+                },
+              }
+            : {})}
           initialSourceId={readerSourceId}
           target={readerTarget}
           /* 回到**来时那一页**（原来一律回「资料」，从错题进来时等于回不去） */
