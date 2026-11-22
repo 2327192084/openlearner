@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { shortTitle } from './RouteBoard.tsx';
+import { shortTitle } from './short-title.ts';
 
 /**
  * 横板节点标题截断（2026-11-21 深夜）。

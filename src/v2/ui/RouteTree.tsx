@@ -41,7 +41,7 @@ import type { SectionNode, SourceTree } from '@/v2/core/source-tree.ts';
 import { chapterProgress, isSectionDone, treeProgress } from '@/v2/core/source-tree.ts';
 import { prereqNote } from '@/v2/core/tree-build.ts';
 import { layoutTree, TREE_METRICS, type TreeBox } from '@/v2/core/tree-layout.ts';
-import { shortTitle } from './RouteBoard.tsx';
+import { shortTitle } from './short-title.ts';
 import { SectionDetail } from './SectionDetail.tsx';
 import type { SectionStats } from './section-stats.ts';
 import type { SourceResource } from '@/v2/core/resource-store.ts';

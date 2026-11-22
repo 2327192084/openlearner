@@ -63,6 +63,14 @@ export interface MapTreePageProps {
    * 悄悄把丢失吞掉等于骗用户。
    */
   replanNote?: string | null;
+  /**
+   * 操作失败的提示（2026-11-22 加）。
+   *
+   * 统计读取失败 / 生成闪卡失败 / 让 AI 挑绑定失败 —— 这些原本由
+   * 旧的横板页面显示，那个页面删掉后错误就只被设置、没人显示。
+   * 那种"错误被吞掉"最糟：用户以为操作成功了。
+   */
+  errorNotice?: string | null;
 }
 
 export function MapTreePage(props: MapTreePageProps) {
@@ -77,6 +85,7 @@ export function MapTreePage(props: MapTreePageProps) {
     onReplan,
     onDelete,
     replanNote,
+    errorNotice,
     resources,
     sourceId,
     onAddResource,
@@ -106,6 +115,11 @@ export function MapTreePage(props: MapTreePageProps) {
         */}
       {replanNote ? (
         <p className="map-tree-page__note">{replanNote}</p>
+      ) : null}
+
+      {/* 失败提示用 warn 色，与"已绑了 N 条"那种信息提示区分开 */}
+      {errorNotice ? (
+        <p className="map-tree-page__error">{errorNotice}</p>
       ) : null}
 
       <RouteTree

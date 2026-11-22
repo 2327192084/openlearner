@@ -79,6 +79,7 @@ import type { SourcePlanPrep } from '@/v2/core/source-plan-inputs.ts';
 import { loadSourceSegments, prepareSourcePlans, toScopeInfo } from '@/v2/core/source-plan-inputs.ts';
 import { buildSubjectQuery, searchWeb } from '@/core/ai/web-search.ts';
 import { searchWithBackend } from '@/core/ai/model-search-io.ts';
+import { planPresearchTasks } from '@/core/ai/presearch-resources.ts';
 import { attachSegments, attachSectionSegments } from '@/core/ai/source-route.ts';
 import { RoutePreviewDialog } from './RoutePreviewDialog.tsx';
 import type { PlanOrder, PlanPointInput } from '@/core/ai/plan-order.ts';
@@ -158,9 +159,6 @@ import './book-page.css';
 import './notes-page.css';
 import './exam-page.css';
 import './map-page.css';
-import './route-map.css';
-import './route-planner.css';
-import './route-board.css';
 import './route-tree.css';
 import './map-home.css';
 import './resource-panel.css';
@@ -255,23 +253,6 @@ export function App({
    */
   const [readerFrom, setReaderFrom] = useState<PageId | null>(null);
 
-  /**
-   * 首页各行「点了跳到哪个具体对象」（2026-11-13 深夜，用户要求）。
-   *
-   * 用户原话：「点击界面上的题组、错题或是资料能直接跳转到对应的题组、
-   * 错题或是资料页面，不用再到对于功能栏打开」。
-   *
-   * 目标页（学习地图 / 错题页）需要知道「落到哪一个」，
-   * 所以这里存一份待定位的 id。`token` 每次点都递增 ——
-   * 否则同一行再点一次时 id 没变，目标页的 effect 不会重跑，
-   * 表现为「第二次点没反应」。
-   *
-   * 只保留一种：同一时刻只会从首页跳到一处，不需要栈。
-   */
-  const [mapFocus, setMapFocus] = useState<{ sourceId: string | null; token: number }>({
-    sourceId: null,
-    token: 0,
-  });
   const [wrongFocus, setWrongFocus] = useState<{ cardId: string | null; token: number }>({
     cardId: null,
     token: 0,
@@ -2490,40 +2471,19 @@ interface PlanDraft {
     [knowledgeService, startPractice],
   );
 
-  /* ==================== 学习路线：资料级（2026-11-21 深夜） ==================== */
+  /* ==================== 学习路线（依据资料本体，2026-11-21 深夜） ====================
 
-  /**
-   * ## 为什么这一套取代了上面那套（知识点级）
+  /*
+   * ⚠️ 单张路线的 state 与读取 effect 已删（2026-11-22 清死代码）。
    *
-   * 用户原话：
-   * > 这个规划路线的规划方法需要修改一下，当前是依据知识库里的知识点进行规划，
-   * > 我觉得应该依据资料本体进行构建。
+   * 那时整页只有一个「学习路线」，存在 `settings.sourceRoute`。
+   * 现在地图按资料存多张（`settings.sourceTrees`），旧路线在
+   * `loadTrees` 里被**迁移**成地图（`readTreeMap` → `normalizeSourceRoute`）。
    *
-   * 所以地图上的「学习路线」现在读 `settings.sourceRoute`（资料级），
-   * 不再读 `settings.studyPlan`（知识点级）。
-   *
-   * ## 为什么存在 settings 里而不是新分区
-   *
-   * 与 `studyPlan` 同一个理由（见 `study-plan-store.ts` 文件头）：
-   * 路线是一个整体，一次写入天然原子；新分区要动迁移四件套。
-   * 而 settings 的恢复白名单 bug 今天已经修掉且有 4 条回归测试守着。
+   * **但 `settings.sourceRoute` 仍然要读** —— 迁移路径依赖它：
+   * 用户库里只有旧路线时，靠它转出第一张地图。所以 `orderSourceRoute`
+   * （AI 排路线）与 `normalizeSourceRoute`（读旧数据）都留着。
    */
-  const [sourceRoute, setSourceRoute] = useState<SourceRoute | null>(null);
-
-  const loadSourceRoute = useCallback(async () => {
-    try {
-      const s = await library.getSettings();
-      const raw = (s as unknown as { sourceRoute?: unknown }).sourceRoute;
-      setSourceRoute(normalizeSourceRoute(raw));
-    } catch {
-      /* 读不到就当作没有路线：这是地图的附加一块，不该影响上半部分 */
-    }
-  }, [library]);
-
-  useEffect(() => {
-    if (page !== 'flow') return;
-    void loadSourceRoute();
-  }, [page, loadSourceRoute]);
 
   /**
    * 让 AI 排资料级路线。
@@ -2609,19 +2569,6 @@ interface PlanDraft {
     [backends, sourceService],
   );
 
-  const saveSourceRoute = useCallback(
-    async (route: SourceRoute) => {
-      await library.saveSettings({ sourceRoute: route } as never);
-      setSourceRoute(route);
-    },
-    [library],
-  );
-
-  const clearSourceRoute = useCallback(async () => {
-    await library.saveSettings({ sourceRoute: null } as never);
-    setSourceRoute(null);
-  }, [library]);
-
   /**
    * 读搜索 API Key。
    *
@@ -2638,143 +2585,6 @@ interface PlanDraft {
       return null;
     }
   }, [library]);
-
-  const routeAi = useMemo(() => ({ orderRoute: orderSourceRoute }), [orderSourceRoute]);
-
-  /**
-   * 横板路线图要的「每章覆盖度」（2026-11-21 深夜补）。
-   *
-   * ## 为什么需要它
-   *
-   * 资料级路线的每一步是**一章**，而数据里没有「这一章学完了吗」。
-   * 能观测到的事实是：
-   *  - 这一章在资料里有多少段正文
-   *  - 其中多少段已经出过题
-   *
-   * 所以进度按「这一章的正文有多少比例已经变成题目」算 ——
-   * 这是可验证的，不是猜的。**不假装知道「学会没」**。
-   *
-   * ## 为什么在这里算而不是在 RouteBoard 里
-   *
-   * `RouteBoard` 是纯展示组件，不碰存储。它要什么由上层给。
-   * 而这里已经能拿到 decks / knowledge / 资料段落。
-   *
-   * 依赖 `sourceRoute` 与 `page`：只在学习地图页、且有路线时才算。
-   */
-  const [routeCoverage, setRouteCoverage] = useState<
-    Map<number, { segments: number; withQuestions: number }> | undefined
-  >(undefined);
-  /**
-   * 题目的锚点还有效吗（2026-11-21 深夜实测出来的）。
-   *
-   * 用户库「信号与系统」有 10 道题，但它们的 `anchors[].segmentId`
-   * **全部指向已不存在的段** —— 重新整理知识点时段落被替换，锚点没更新。
-   *
-   * 不知道这件事的话，覆盖度会恒为 0%，界面显示「0 段已出题（0%）」，
-   * 用户会以为他一题都没做。所以要把「题目数」与「能对上段的题目数」
-   * 一起算出来，界面据此如实说明。
-   */
-  const [routeAnchorHealth, setRouteAnchorHealth] = useState<
-    { total: number; resolved: number } | undefined
-  >(undefined);
-
-  useEffect(() => {
-    if (page !== 'flow' || !sourceRoute) {
-      setRouteCoverage(undefined);
-      setRouteAnchorHealth(undefined);
-      return;
-    }
-    let alive = true;
-    void (async () => {
-      try {
-        /* 路线的 subject 是从哪份资料来的？按标题反查 */
-        const sources = await sourceService.list();
-        const src = sources.find((s) => (s.title || '').indexOf(sourceRoute.subject) >= 0)
-          ?? sources.find((s) => sourceRoute.edition && (s.title || '').indexOf(sourceRoute.edition) >= 0);
-        if (!src) {
-          if (alive) setRouteCoverage(undefined);
-          return;
-        }
-
-        const segs = await sourceService.getSegments(src.id);
-
-        /* 每段的章号（与 source-plan-inputs 的 toScopeInfo 同一套规则） */
-        const chapterOf = (text: string): number | null => {
-          const m = /^[ \t]*第[ \t]*([0-9]+)[ \t]*章/m.exec(text);
-          return m ? Number(m[1]) : null;
-        };
-
-        /* 已经有题的段落：从已发布题组的题目锚点里取 segmentId */
-        const deckList = await decks.list();
-        const segWithQuestion = new Set<string>();
-        await Promise.all(
-          deckList
-            .filter((d) => d.status === 'published')
-            .map(async (d) => {
-              try {
-                const qs = await decks.getQuestions(d.id);
-                for (const q of qs) {
-                  for (const a of q.anchors ?? []) {
-                    if (a.segmentId) segWithQuestion.add(a.segmentId);
-                  }
-                }
-              } catch {
-                /* 题组刚被删，跳过 */
-              }
-            }),
-        );
-
-        const map = new Map<number, { segments: number; withQuestions: number }>();
-        let current: number | null = null;
-        const segIds = new Set(segs.map((x) => x.id));
-        for (const seg of segs.slice().sort((a, b) => a.index - b.index)) {
-          const found = chapterOf(seg.text);
-          if (found !== null) current = found;
-          if (current === null) continue;
-          const row = map.get(current) ?? { segments: 0, withQuestions: 0 };
-          row.segments += 1;
-          if (segWithQuestion.has(seg.id)) row.withQuestions += 1;
-          map.set(current, row);
-        }
-
-        /*
-         * 题目的锚点还有效吗（见 routeAnchorHealth 的注释）。
-         *
-         * 统计这份资料已发布题组里的题目：共几道、其中几道的锚点
-         * 能对上**当前**的段 id。
-         */
-        let totalQ = 0;
-        let resolvedQ = 0;
-        await Promise.all(
-          deckList
-            .filter((d) => d.status === 'published' && d.sourceId === src.id)
-            .map(async (d) => {
-              try {
-                const qs = await decks.getQuestions(d.id);
-                for (const q of qs) {
-                  totalQ += 1;
-                  const hit = (q.anchors ?? []).some((a) => a.segmentId && segIds.has(a.segmentId));
-                  if (hit) resolvedQ += 1;
-                }
-              } catch {
-                /* 题组刚被删，跳过 */
-              }
-            }),
-        );
-
-        if (alive) {
-          setRouteCoverage(map);
-          setRouteAnchorHealth(totalQ > 0 ? { total: totalQ, resolved: resolvedQ } : undefined);
-        }
-      } catch {
-        /* 算不出来就不显示进度 —— 不猜 */
-        if (alive) setRouteCoverage(undefined);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [page, sourceRoute, sourceService, decks]);
 
   /* ==========================================================================
    * 学习地图：多张地图的存储与装配（2026-11-22 下午，拆两级页面时改）
@@ -3139,13 +2949,154 @@ interface PlanDraft {
           '）。可以在小节详情里手动绑，效果一样。';
       }
 
-      /* 5. 存下来并进二级页面 */
+      /*
+       * 5. 预搜外部资源（2026-11-22，方案第 7 步最后一块）。
+       *
+       * ## 为什么默认按**章**级（虽然用户当时选了小节级）
+       *
+       * 用户 2026-11-22 上午选「小节级（约 30 次检索）」，那时假设走
+       * Tavily（一次 HTTP，很便宜）。后来他改成「用模型自带搜索」——
+       * 那每次检索是**一次完整模型调用**，30 次就是 30 次对话。
+       *
+       * 方案第十一节本来也建议章级（8 次），理由是「网课通常按章组织」。
+       * 现在多了成本理由，所以默认章级；小节级仍可用，但要用户显式选。
+       *
+       * ## 失败不阻塞建图
+       *
+       * 搜不到就只是没有资源，用户还能自己加。
+       */
+      let presearchNote: string | null = null;
+      try {
+        const segMap = new Map(segments.map((x) => [x.id, x.text]));
+        const tasks = planPresearchTasks({
+          subject: subjectName,
+          edition: prep.subject.edition,
+          chapters: boundTree.chapters,
+          segmentsById: segMap,
+          granularity: 'chapter',
+          /* 上限 10：442 页 8 章没问题，超大资料也不会一次发几十个请求 */
+          maxTasks: 10,
+        });
+
+        if (tasks.length > 0) {
+          const b2 = await resolveBackend();
+          const { chatCompletion: chat2 } = await import('@/core/ai/deepseek-client.ts');
+          const {
+            buildPresearchPrompt,
+            parsePresearchItems,
+            toPresearchedResources,
+          } = await import('@/core/ai/presearch-resources.ts');
+
+          const found: { title: string; url: string; source: 'search'; sectionId: string | null }[] = [];
+
+          /* 串行发（不是 Promise.all）：省额度、也让"正在搜第 N 章"可显示 */
+          for (const task of tasks) {
+            const { system, user } = buildPresearchPrompt({
+              subject: subjectName,
+              chapterNumber: task.chapterNumber,
+              chapterTitle: task.chapterTitle,
+              excerpt: '',
+            });
+            try {
+              const r = await chat2({
+                apiKey: b2.apiKey,
+                model: b2.model,
+                ...(b2.baseUrl ? { baseUrl: b2.baseUrl } : {}),
+                provider: b2.provider,
+                systemPrompt: system,
+                userPrompt: user,
+                temperature: 0.2,
+                maxTokens: 2000,
+              });
+              const parsedItems = parsePresearchItems(r.content);
+              if (parsedItems.ok) {
+                for (const res of toPresearchedResources(task, parsedItems.items)) {
+                  found.push({
+                    title: res.title,
+                    url: res.url,
+                    source: 'search',
+                    sectionId: res.sectionId,
+                  });
+                }
+              }
+            } catch {
+              /* 单章失败继续下一章 —— 不因一次抖动让整块预搜白跑 */
+            }
+          }
+
+          if (found.length > 0) {
+            /*
+             * 落库：写进 sourceResources（与手工加的资源同一张表）。
+             *
+             * ⚠️ 这里直接写库而不是走 ResourceService.add（那个会逐条去重
+             * 并按 sourceId 分组）。预搜是一次性批量写，逐条走服务层
+             * 会读 N 次设置、写 N 次库 —— 慢且没意义。
+             */
+            /*
+             * ⚠️ 用**函数式更新**读当前资源表，不用闭包里的 `resources`。
+             *
+             * `resources` 这个 state 声明在 `createTreeFor` 之后
+             *（顺序是历史原因：建图流程先写、资源功能后加），
+             * 直接引用会 "used before declaration"。
+             *
+             * 函数式更新顺带解决另一个问题：即使这个回调是几分钟前创建的，
+             * 拿到的也是**此刻**的资源表，不会把别处新加的资源覆盖掉。
+             */
+            let added = 0;
+            let nextSnapshot: Record<string, SourceResource[]> = {};
+            setResources((cur) => {
+              const current = cur[prep.source.id] ?? [];
+              const seen = new Set(current.map((x) => x.url));
+              const additions = found
+                .filter((f) => !seen.has(f.url))
+                .map((f) => ({
+                  id: 'res_' + Math.random().toString(36).slice(2, 10),
+                  sourceId: prep.source.id,
+                  title: f.title,
+                  url: f.url,
+                  source: f.source,
+                  addedAt: new Date().toISOString(),
+                  sectionId: f.sectionId,
+                }));
+              added = additions.length;
+              if (additions.length === 0) {
+                nextSnapshot = cur;
+                return cur;
+              }
+              nextSnapshot = { ...cur, [prep.source.id]: [...current, ...additions] };
+              return nextSnapshot;
+            });
+
+            /*
+             * 写库在 setState 之外做：updater 必须是纯的
+             *（React 严格模式下会被调两次，里面发请求会写两遍）。
+             */
+            if (added > 0) {
+              await library.saveSettings({ sourceResources: nextSnapshot } as never);
+              presearchNote = '联网搜到 ' + added + ' 条参考资料，已放进「资源」里。';
+            }
+          } else {
+            presearchNote = '联网找过资料，没有找到可用的链接（不会硬凑）。你可以自己加。';
+          }
+        }
+      } catch (e) {
+        /* 没后端 / 网络失败 —— 不阻塞建图，但要说清 */
+        presearchNote =
+          '预搜资料没成功（' +
+          (e instanceof Error ? e.message : String(e)) +
+          '）。可以在小节详情里自己加资源。';
+      }
+
+      /* 6. 存下来并进二级页面 */
       const tree: SourceTree = { ...boundTree, savedAt: new Date().toISOString() };
       const nextMap = putTree(trees, tree);
       setTrees(nextMap);
       await library.saveSettings({ sourceTrees: nextMap } as never);
       setOpenTreeSourceId(prep.source.id);
-      setReplanNote(bindNote);
+      /* 两条结果都如实显示（可能一条成功一条失败） */
+      setReplanNote(
+        [bindNote, presearchNote].filter((x): x is string => !!x).join(' ') || null,
+      );
       setPage('mapTree');
     },
     [orderSourceRoute, readSearchKey, searchViaCurrentBackend, sourceService, trees, library, resolveBackend, flashcardsService, decks],
@@ -3351,40 +3302,6 @@ interface PlanDraft {
     const t = trees[openTreeSourceId];
     return sourceTitles.get(openTreeSourceId) ?? t?.subject ?? '';
   })();
-
-  /**
-   * ⚠️ 下面这一组是**单张地图时代**留下的代码（2026-11-22 中午及之前）。
-   *
-   * 那时地图只有一张，来源是唯一的 v2 路线（`settings.sourceRoute`），
-   * 规划表单 `RoutePlanner` / 横板 `RouteBoard` 都挂在学习地图页上。
-   *
-   * 用户 2026-11-22 下午要求拆两级页面并「页面内这些东西都不要了」，
-   * 所以这些不再有渲染入口：
-   *  - `mapFocus`：一级页不再有资料章节列表，没有"聚焦某份资料"了
-   *  - `saveSourceRoute` / `clearSourceRoute` / `sourceRoute`：单张路线的存取
-   *  - `routeAi` / `routeCoverage` / `routeAnchorHealth`：横板路线的进度
-   *
-   * ## 为什么留着而不删（与下面知识点级那组同一个理由）
-   *
-   * 1. `RoutePlanner` / `RouteBoard` / `source-route.ts` / `source-route-store.ts`
-   *    都有完整测试（25 + 6 + ... 条），删接线不等于删能力。
-   * 2. 用户改方向是常态（这一天学习地图做了三版）。真删了，
-   *    下次要"按章排一条线性路线"又得重写。
-   * 3. `sourceRoute` 的读取路径还在 `readTreeMap` 的兜底里用得到 ——
-   *    旧库里那条「信号与系统」路线正是靠它转成地图的。
-   *
-   * 用 `void` 而不是注释掉：明确表达"这是有意保留的活代码，
-   * 只是当前没有渲染入口"，同时满足 `noUnusedLocals`。
-   */
-  void mapFocus;
-  void setMapFocus;
-  void saveSourceRoute;
-  void clearSourceRoute;
-  void routeAi;
-  void routeCoverage;
-  void routeAnchorHealth;
-  void sourceRoute;
-  void treeStatsError;
 
   /* ==========================================================================
    * 绑定闪卡 / 题组（2026-11-22）
@@ -3948,6 +3865,7 @@ interface PlanDraft {
               if (openTreeSourceId) await deleteTree(openTreeSourceId);
             }}
             replanNote={replanNote}
+            errorNotice={treeStatsError}
             sourceId={openTreeSourceId}
             resources={resources[openTreeSourceId] ?? []}
             onAddResource={addResource}
@@ -4849,9 +4767,34 @@ interface PlanDraft {
            *  - 资料阅读行 → 直接打开阅读器并回到上次那一页
            *  - 错题行     → 错题页并展开+滚动+高亮到那一题
            */
+          /**
+           * 首页「题组进度」那一行 → 学习地图。
+           *
+           * ## 2026-11-22 改了落点
+           *
+           * 原来是「跳到学习地图并展开那份资料」—— 那时地图只有一张、
+           * 且页面里有资料章节列表，`mapFocus` 用它定位。
+           *
+           * 现在地图是两级：一级页列全部资料、二级页才是某份资料的树。
+           * 所以正确落点是**直接进那份资料的地图**（如果已经建过），
+           * 否则回一级页（让用户在那份资料上点「创建地图」）。
+           *
+           * ⚠️ 这里不能简单删掉——用户点那一行是有意图的
+           *（「我要看这份资料的地图」），删了等于点了没反应。
+           */
           onOpenMapSource={(sourceId) => {
-            setMapFocus((prev) => ({ sourceId, token: prev.token + 1 }));
-            setPage('flow');
+            if (trees[sourceId]) {
+              setOpenTreeSourceId(sourceId);
+              setPage('mapTree');
+            } else {
+              /*
+               * 还没建地图：回一级页。
+               * 理想情况是自动滚到那一行并高亮，但一级页的 DOM 由子组件
+               * 管，跨组件传"聚焦某行"要再加一层 prop —— 这一轮先做
+               * "回到正确页面"，不假装做到了高亮。
+               */
+              setPage('flow');
+            }
           }}
           onOpenSourceAt={(source, page) =>
             openReader(source.id, {
