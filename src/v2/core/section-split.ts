@@ -130,6 +130,28 @@ function cnToNum(cn: string): number | null {
 }
 
 /**
+ * 把标题行清成**给人看的标题**：去掉 markdown 的 `#` 标记。
+ *
+ * ## 为什么必须去（2026-11-22 截图发现的）
+ *
+ * 真实资料里标题是 `## 1.1 连续时间和离散时间信号` —— 那个 `##` 是
+ * MinerU 转出来的 markdown 语法，**不是标题内容**。
+ *
+ * 原来直接把整行当 title 存，界面上就渲染成「## 1.0 引言」，
+ * 两个井号明晃晃地露在卡片里。32 条断言一条都没报 ——
+ * 因为断言查的是"有没有标题""分不分叉"，没人查"标题好不好看"。
+ * 这正是「断言全绿必须看截图」的原因。
+ *
+ * ## 为什么只去前导 `#` 和空白
+ *
+ * 标题正文里可能合法地含 `#`（如「C# 入门」），那种不能动。
+ * 所以只剥**行首**的 `#{1,6}\s*`。
+ */
+function cleanHeadingText(line: string): string {
+  return line.replace(/^#{1,6}\s*/, '').trim();
+}
+
+/**
  * 判断一行是不是标题样的行。
  *
  * 三条排除（都是实测会踩的）：
@@ -164,7 +186,7 @@ function scanHeadings(text: string): HeadingHit[] {
     if (ch) {
       const n = cnToNum(ch[1] ?? '');
       if (n !== null) {
-        out.push({ kind: 'chapter', number: String(n), chapterNumber: n, title: line });
+        out.push({ kind: 'chapter', number: String(n), chapterNumber: n, title: cleanHeadingText(line) });
         continue;
       }
     }
@@ -172,7 +194,7 @@ function scanHeadings(text: string): HeadingHit[] {
     if (chEn) {
       const n = Number(chEn[1]);
       if (Number.isFinite(n)) {
-        out.push({ kind: 'chapter', number: String(n), chapterNumber: n, title: line });
+        out.push({ kind: 'chapter', number: String(n), chapterNumber: n, title: cleanHeadingText(line) });
         continue;
       }
     }
@@ -180,7 +202,7 @@ function scanHeadings(text: string): HeadingHit[] {
     /* ---------- 小节（1.1 / 1.1.1） ---------- */
     const sec = RE_SECTION_MD.exec(line) ?? RE_SECTION_PLAIN.exec(line);
     if (sec) {
-      out.push({ kind: 'section', number: sec[1] ?? '', title: line });
+      out.push({ kind: 'section', number: sec[1] ?? '', title: cleanHeadingText(line) });
       continue;
     }
 
@@ -195,14 +217,14 @@ function scanHeadings(text: string): HeadingHit[] {
     if (/^#{1,3}\s/.test(line)) {
       const inner = RE_INNER_NUMBER_MD.exec(line);
       if (inner) {
-        out.push({ kind: 'inner', number: inner[1] ?? '', title: line });
+        out.push({ kind: 'inner', number: inner[1] ?? '', title: cleanHeadingText(line) });
         continue;
       }
     }
     /* 裸文本的章内序号：要求短（≤ 24 字）且不以标点结尾，风险较高但真实资料里有 */
     const innerPlain = RE_INNER_NUMBER_PLAIN.exec(line);
     if (innerPlain && line.length <= 24) {
-      out.push({ kind: 'inner', number: innerPlain[1] ?? '', title: line });
+      out.push({ kind: 'inner', number: innerPlain[1] ?? '', title: cleanHeadingText(line) });
     }
   }
   return out;

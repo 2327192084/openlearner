@@ -307,3 +307,49 @@ describe('chaptersNeedingAiSplit', () => {
     expect(chaptersNeedingAiSplit(r)).toHaveLength(1);
   });
 });
+describe('标题必须能直接显示给人（2026-11-22 截图发现的）', () => {
+  /**
+   * ⚠️ 这个 bug 是**看截图**发现的，不是断言发现的。
+   *
+   * 真实资料里标题是 `## 1.1 连续时间和离散时间信号`，原来整行存进
+   * `title`，界面上渲染成「## 1.0 引言」—— 两个 markdown 井号明晃晃
+   * 露在卡片里。当时 32 条断言全绿：它们查的是"有没有标题""分不分叉"，
+   * 没有一条查"标题长什么样"。
+   *
+   * 所以下面这些断言只做一件事：**title 里不许出现 markdown 标记**。
+   * 坏实现（直接用 line）会全部变红。
+   */
+  it('`## 1.1 xxx` 的 title 不含井号', () => {
+    const r = splitSections([seg(1, '## 第1章 甲\n## 1.1 连续时间信号\n正文')]);
+    const titles = r.chapters[0]!.sections.map((s) => s.title);
+    expect(titles).toEqual(['1.1 连续时间信号']);
+    expect(titles.every((t) => !t.includes('#'))).toBe(true);
+  });
+
+  it('三级标题 `## 1.1.1 xxx` 的 title 不含井号', () => {
+    const r = splitSections([
+      seg(1, '## 第1章 甲\n## 1.1 一\n## 1.1.1 举例与数学表示\n正文'),
+    ]);
+    const titles = r.chapters[0]!.sections.map((s) => s.title);
+    expect(titles).toEqual(['1.1 一', '1.1.1 举例与数学表示']);
+  });
+
+  it('章标题也不含井号', () => {
+    const r = splitSections([seg(1, '## 第1章 信号与系统\n## 1.0 引言\n正文')]);
+    expect(r.chapters[0]!.title).toBe('第1章 信号与系统');
+  });
+
+  it('裸标题（无 `#`）保持原样，不多剥', () => {
+    const r = splitSections([seg(1, '第3章 微分中值定理\n## 3.1 罗尔定理\n正文')]);
+    expect(r.chapters[0]!.sections[0]!.title).toBe('3.1 罗尔定理');
+  });
+
+  it('⚠️ 标题正文里合法的 `#` 不能被剥掉（如「C# 入门」）', () => {
+    /*
+     * 只剥**行首**的 `#{1,6}`。标题正文里的 # 是内容的一部分，
+     * 剥掉了就是改用户资料。坏实现（全局 replace /#/g）会变红。
+     */
+    const r = splitSections([seg(1, '第1章 甲\n## 1.1 C# 入门\n正文')]);
+    expect(r.chapters[0]!.sections[0]!.title).toContain('C#');
+  });
+});

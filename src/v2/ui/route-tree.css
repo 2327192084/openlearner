@@ -1,0 +1,767 @@
+/**
+ * 树状学习地图的样式（2026-11-22，树状地图第 4 步）。
+ *
+ * ## ⚠️ 这个文件**不定卡片宽高**
+ *
+ * 卡片的位置与尺寸全部由 `tree-layout.ts` 算好、经 inline style 挂上去
+ * （见 `RouteTree.tsx` 的 `boxStyle`）。因为 SVG 连线用的是同一套坐标，
+ * 两处各写一遍必然漂移 —— 差 2px 就看起来像断线。
+ *
+ * 所以这里只写**不影响外框**的东西：颜色、边框、字号、阴影、
+ * 内部排列、过渡。改尺寸请去 `TREE_METRICS`。
+ *
+ * ## ⚠️ 层序陷阱（项目反复踩的）
+ *
+ * `base.css` 有不在任何 `@layer` 内的 `button { color: inherit }`。
+ * 层内写 `color` 一律无效。所以节点按钮的文字色写在本文件末尾**层外**，
+ * 并用 `.app .` 抬 specificity（`:where()` 是 0，会输给 `button`(0,0,1)）。
+ *
+ * ## 淡出用 opacity 不用 display:none
+ *
+ * 用户要「点一章后只专注于该章」。用 `display: none` 会让其余章
+ * 瞬间消失（布局还在，但看起来像坏了）；`opacity: 0.25` 保留
+ * 位置暗示"它们还在，只是暂时不看"，与方案 5.1 一致。
+ *
+ * ## ⚠️ 三层动效降级（2026-11-22 调研后补）
+ *
+ * 调研 StudyHub 的 `graph-sketch.css` 发现它做了三层降级，我们原来一层都没有：
+ *
+ * 1. `prefers-reduced-motion`：前庭功能障碍用户会因大范围淡入淡出不适
+ * 2. `forced-colors`（Windows 高对比度）：**系统会忽略 opacity**，
+ *    淡出的章会变得和正常章一样看不清区别 —— 必须改用边框区分
+ * 3. 高对比度下 `opacity` 抬到 0.4 保底（不能低于此，否则读不出还有内容）
+ */
+
+@layer study.features {
+  .rtree {
+    margin-top: var(--space-4);
+    padding: var(--space-4);
+    border-radius: var(--radius-card);
+    background: var(--bg-surface);
+    border: 1px solid var(--line);
+    min-width: 0;
+    width: 100%;
+    /*
+     * 树比屏幕宽时横着滚。不压缩卡片 —— 压缩后卡片窄到看不清标题，
+     * 那就失去了"一眼看出结构"的意义。
+     */
+    overflow-x: auto;
+  }
+
+  .rtree__head {
+    margin-bottom: var(--space-4);
+  }
+
+  .rtree__title {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    font-size: var(--fs-md);
+    color: var(--text);
+    margin: 0 0 var(--space-1) 0;
+  }
+
+  .rtree__progress {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .rtree__progress-sub {
+    margin-left: var(--space-2);
+    color: var(--text-faint);
+  }
+
+  .rtree__lead {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: var(--lh-body);
+    max-width: 660px;
+    margin: 0;
+  }
+
+  .rtree__tag {
+    display: inline-block;
+    margin-left: var(--space-2);
+    font-size: var(--fs-xs);
+    color: var(--info);
+    border: 1px solid currentColor;
+    border-radius: var(--radius-xs);
+    padding: 0 4px;
+  }
+
+  .rtree__unfocus {
+    margin-top: var(--space-2);
+  }
+
+  /* ==================== 画布 ==================== */
+
+  .rtree__canvas {
+    position: relative;
+    /*
+     * 宽度/高度由 inline style 给（来自 layout）。
+     * 这里只保证它是定位上下文。
+     */
+    margin: var(--space-3) 0;
+  }
+
+  .rtree__wires {
+    position: absolute;
+    inset: 0;
+    /* 连线在卡片下面 —— 不能盖住文字 */
+    pointer-events: none;
+    overflow: visible;
+  }
+
+  .rtree__wire {
+    stroke: var(--line-strong);
+    stroke-width: 1.5;
+    transition: stroke 160ms ease;
+  }
+
+  /* 根→章是主干，稍重；章→小节是枝，稍轻 */
+  .rtree__wire--trunk {
+    stroke-width: 2;
+    stroke: var(--line-strong);
+  }
+
+  .rtree__wire--branch {
+    stroke-width: 1.5;
+    stroke: var(--line);
+  }
+
+  /*
+   * 聚焦时，展开那一章的枝稍微提亮 —— 但**不用 accent**。
+   *
+   * ⚠️ 2026-11-22 截图后改的：原来枝用朱砂红 + 2px，
+   * 结果 9 条枝从同一个点扇出去，渲染成**一大团红**，
+   * 分叉完全看不出来，反而比不聚焦更乱。
+   *
+   * 现在用 line-strong（比默认枝稍亮）+ 1.75px：
+   * 能看出"这些线属于当前章"，又不抢卡片和文字的注意力。
+   * 朱砂留给真正的主操作（根→章的主干与选中态）。
+   */
+  .rtree__wire--active {
+    stroke: var(--line-strong);
+    stroke-width: 1.75;
+  }
+
+  /* ==================== 节点通用 ==================== */
+
+  .rtree__node {
+    position: absolute;
+    /*
+     * ⚠️ 宽高来自 inline style，这里**不要**写 width/height。
+     * box-sizing 已在 base.css 全局设为 border-box。
+     */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    border-radius: var(--radius-2);
+    border: 1px solid var(--line);
+    background: var(--bg-raised);
+    color: var(--text);
+    text-align: left;
+    padding: var(--space-2) var(--space-3);
+    cursor: pointer;
+    transition:
+      opacity 180ms ease,
+      border-color 160ms ease,
+      background-color 160ms ease,
+      transform 160ms ease;
+    /* 卡片的深度 —— 与项目其它卡片一致 */
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+  }
+
+  .rtree__node:hover {
+    border-color: var(--line-strong);
+    background: var(--bg-hover);
+  }
+
+  .rtree__node:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* ==================== 根节点（资料） ==================== */
+
+  .rtree__node--root {
+    background: var(--paper);
+    color: var(--paper-ink);
+    border-color: var(--paper-rule);
+    cursor: default;
+    justify-content: center;
+    gap: 2px;
+  }
+
+  .rtree__root-label {
+    font-size: var(--fs-xs);
+    color: var(--paper-dim);
+    letter-spacing: 0.08em;
+  }
+
+  .rtree__root-title {
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    line-height: var(--lh-snug);
+  }
+
+  /* ==================== 章节点 ==================== */
+
+  .rtree__node--chapter {
+    gap: 3px;
+  }
+
+  .rtree__node--chapter.rtree__node--open {
+    border-color: var(--accent);
+    background: var(--bg-selected);
+  }
+
+  /* 全部小节完成：绿边 + 徽标（不用"掌握度"这种编出来的东西） */
+  .rtree__node--chapter.rtree__node--done {
+    border-color: var(--ok);
+  }
+
+  /*
+   * 聚焦淡出：其余章压暗但保留位置。
+   * 0.25 与方案 5.1 写的一致；不低于 0.2（再低就看不出还有东西）。
+   */
+  .rtree__node--dim {
+    opacity: 0.25;
+  }
+
+  .rtree__node--dim:hover {
+    /* 悬停时恢复一点，让用户还能换章 */
+    opacity: 0.6;
+  }
+
+  /*
+   * 主干连线也要淡 —— 原来只淡了节点，聚焦时根→其它章的线仍然全亮，
+   * 视觉上"那一章还在被强调"，与"只看这一章"矛盾。
+   * 淡得比节点更狠（0.18 < 0.25），因为线是纯装饰、不该抢注意力。
+   */
+  .rtree__wire--dim {
+    opacity: 0.18;
+  }
+
+  .rtree__ch-top {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  .rtree__ch-num {
+    flex: none;
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+    color: var(--accent-text);
+    border: 1px solid currentColor;
+    border-radius: var(--radius-xs);
+    padding: 0 4px;
+    line-height: 1.5;
+  }
+
+  .rtree__ch-title {
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    line-height: var(--lh-snug);
+    /* 标题过长时省略，不撑破卡片（完整标题在 title 属性里） */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .rtree__diff {
+    flex: none;
+    margin-left: auto;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .rtree__ch-meta {
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .rtree__node--done .rtree__ch-meta {
+    color: var(--ok);
+  }
+
+  /*
+   * 前置提醒：只提醒、不锁。
+   * 用 warn 色边框而不是禁用样式 —— 禁用会让用户以为点不了，
+   * 而用户明确要求"章节可以同时进行"。
+   */
+  .rtree__prereq {
+    font-size: var(--fs-xs);
+    color: var(--warn);
+    line-height: var(--lh-snug);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ==================== 小节节点 ==================== */
+
+  .rtree__node--section {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .rtree__node--section.rtree__node--done {
+    border-color: var(--ok);
+  }
+
+  .rtree__node--section.rtree__node--sel {
+    border-color: var(--accent);
+    background: var(--bg-selected);
+  }
+
+  .rtree__sec-mark {
+    flex: none;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    line-height: 1;
+  }
+
+  .rtree__node--done .rtree__sec-mark {
+    color: var(--ok);
+  }
+
+  .rtree__sec-title {
+    font-size: var(--fs-sm);
+    line-height: var(--lh-snug);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  /* 「整章」标记：如实标出这不是真小节结构 */
+  .rtree__sec-origin {
+    flex: none;
+    margin-left: auto;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xs);
+    padding: 0 3px;
+  }
+
+  /* ==================== 提示与尾部 ==================== */
+
+  .rtree__hint {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    margin: var(--space-2) 0 0;
+  }
+
+  .rtree__beyond {
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px dashed var(--line);
+  }
+
+  .rtree__beyond-title {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    margin: 0 0 var(--space-2);
+  }
+
+  .rtree__beyond-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .rtree__beyond-item {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    padding: 2px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--bg-sunken);
+  }
+
+  .rtree__beyond-name {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+  }
+
+  .rtree__beyond-note {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+  }
+
+  .rtree__dropped {
+    margin-top: var(--space-3);
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    line-height: var(--lh-body);
+  }
+
+  .rtree__actions {
+    display: flex;
+    gap: var(--space-2);
+    margin-top: var(--space-4);
+  }
+
+  /* ==================== 小节详情面板 ==================== */
+
+  .rsdetail {
+    margin-top: var(--space-4);
+    padding: var(--space-4);
+    border-radius: var(--radius-card);
+    border: 1px solid var(--accent);
+    background: var(--bg-raised);
+    max-width: 760px;
+  }
+
+  .rsdetail__head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+  }
+
+  .rsdetail__head-main {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .rsdetail__chapter {
+    display: block;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .rsdetail__title {
+    margin: 2px 0 0;
+    font-size: var(--fs-md);
+    color: var(--text);
+    line-height: var(--lh-snug);
+  }
+
+  .rsdetail__close {
+    flex: none;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 2px 8px;
+    line-height: 1.4;
+  }
+
+  .rsdetail__close:hover {
+    border-color: var(--line-strong);
+    color: var(--text);
+  }
+
+  .rsdetail__note {
+    font-size: var(--fs-sm);
+    color: var(--warn);
+    line-height: var(--lh-body);
+    padding: var(--space-2) var(--space-3);
+    border-left: 2px solid var(--warn);
+    background: var(--bg-sunken);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    margin: 0 0 var(--space-3);
+  }
+
+  .rsdetail__task {
+    padding: var(--space-3) 0;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .rsdetail__task:first-of-type {
+    border-top: none;
+  }
+
+  .rsdetail__task-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    cursor: pointer;
+  }
+
+  .rsdetail__check {
+    flex: none;
+    cursor: pointer;
+  }
+
+  .rsdetail__task-num {
+    flex: none;
+    font-size: var(--fs-xs);
+    color: var(--accent-text);
+    border: 1px solid currentColor;
+    border-radius: var(--radius-xs);
+    padding: 0 4px;
+    line-height: 1.5;
+  }
+
+  .rsdetail__task-name {
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .rsdetail__task-body {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: var(--space-2) 0 0 calc(var(--space-3) + var(--space-2));
+  }
+
+  .rsdetail__stat {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .rsdetail__stat-why {
+    display: block;
+    width: 100%;
+    font-size: var(--fs-xs);
+    color: var(--warn);
+    line-height: var(--lh-body);
+  }
+
+  .rsdetail__res-list {
+    list-style: none;
+    margin: var(--space-2) 0 0 calc(var(--space-3) + var(--space-2));
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .rsdetail__res {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+  }
+
+  .rsdetail__res-title {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+  }
+
+  .rsdetail__res-src {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xs);
+    padding: 0 4px;
+  }
+
+  .rsdetail__hint {
+    margin: var(--space-2) 0 0 calc(var(--space-3) + var(--space-2));
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    line-height: var(--lh-body);
+  }
+
+  .rsdetail__hint-inline {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+  }
+
+  /* ---------- 自定义任务 ---------- */
+
+  .rsdetail__custom-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+  }
+
+  .rsdetail__custom-list {
+    list-style: none;
+    margin: var(--space-2) 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .rsdetail__custom {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .rsdetail__custom-label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    cursor: pointer;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .rsdetail__custom-text {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: var(--lh-snug);
+  }
+
+  .rsdetail__custom--done .rsdetail__custom-text {
+    color: var(--text-faint);
+    text-decoration: line-through;
+  }
+
+  .rsdetail__custom-del {
+    flex: none;
+    border: none;
+    background: transparent;
+    color: var(--text-faint);
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1.4;
+  }
+
+  .rsdetail__custom-del:hover {
+    color: var(--bad);
+  }
+
+  .rsdetail__add {
+    display: flex;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+  }
+
+  .rsdetail__add-input {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--fs-sm);
+  }
+
+  /* ---------- 完成汇总 ---------- */
+
+  .rsdetail__foot {
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line-soft);
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+  }
+
+  .rsdetail__foot--done {
+    color: var(--ok);
+    font-weight: 600;
+  }
+
+  .rsdetail__foot-why {
+    font-weight: 400;
+    color: var(--text-faint);
+  }
+}
+
+/* ==========================================================================
+ * ⚠️ 层外：base.css 的 `button { color: inherit }` 不在任何层里，
+ * 层内写的 color 一律无效。节点按钮的文字色必须在这里写，
+ * 并用 `.app .` 把 specificity 抬到 (0,2,0) 以上。
+ * ========================================================================== */
+
+.app .rtree__node {
+  color: var(--text);
+}
+
+.app .rtree__node--root {
+  color: var(--paper-ink);
+}
+
+.app .rtree__node--chapter .rtree__ch-num {
+  color: var(--accent-text);
+}
+
+.app .rtree__node--chapter .rtree__ch-meta {
+  color: var(--text-muted);
+}
+
+.app .rtree__node--chapter.rtree__node--done .rtree__ch-meta {
+  color: var(--ok);
+}
+
+.app .rtree__node--chapter .rtree__prereq {
+  color: var(--warn);
+}
+
+.app .rtree__node--section .rtree__sec-title {
+  color: var(--text-dim);
+}
+
+.app .rtree__node--section.rtree__node--sel .rtree__sec-title {
+  color: var(--text);
+}
+
+.app .rsdetail__close {
+  color: var(--text-muted);
+}
+
+.app .rsdetail__custom-del {
+  color: var(--text-faint);
+}
+
+.app .rsdetail__add-input {
+  color: var(--text);
+}
+/* ==========================================================================
+ * 动效与高对比度降级（2026-11-22 调研后补）
+ *
+ * 调研 StudyHub 的 `graph-sketch.css` 发现它做了三层降级，
+ * 我们原来一层都没有。这三条不是"锦上添花"：
+ *
+ * 1. `prefers-reduced-motion` —— 前庭功能障碍用户会因大范围淡入淡出不适
+ * 2. `forced-colors` —— Windows 高对比度模式下**系统忽略 opacity**，
+ *    光靠 0.25 的淡出在这里完全失效，必须改用边框区分
+ * 3. 高对比度下 opacity 抬到 0.4 保底 —— 低于此就读不出"还有内容"
+ *
+ * 用层外写：降级必须能覆盖层内规则，而层外优先于层内。
+ * ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .app .rtree__node,
+  .app .rtree__wire {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  /*
+   * 系统忽略 opacity 时不靠亮度区分，改用边框粗细 + 系统色。
+   * `Highlight` / `Canvas` 是 Windows 高对比度主题的语义色。
+   */
+  .app .rtree__node--dim {
+    opacity: 0.4;
+    border-style: dashed;
+    border-color: GrayText;
+  }
+
+  .app .rtree__wire--dim {
+    opacity: 0.4;
+    stroke: GrayText;
+  }
+
+  /* 选中/展开的章用系统高亮色，不靠自绘 accent */
+  .app .rtree__node--chapter.rtree__node--open,
+  .app .rtree__node--section.rtree__node--sel {
+    border-color: Highlight;
+    border-width: 2px;
+  }
+}

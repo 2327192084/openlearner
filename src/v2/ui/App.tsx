@@ -60,6 +60,11 @@ import { MapPage } from './MapPage.tsx';
 import { normalizeStudyPlan, planToSteps, type StudyPlan } from '@/v2/core/study-plan-store.ts';
 import { loadPlanInputs } from '@/v2/core/plan-inputs.ts';
 import { normalizeSourceRoute } from '@/v2/core/source-route-store.ts';
+/* 树状地图（2026-11-22，学习地图第三次重做） */
+import { buildTreeFromRoute, rebuildSections } from '@/v2/core/tree-build.ts';
+import { normalizeSourceTree, type SectionNode, type SourceTree } from '@/v2/core/source-tree.ts';
+import { assembleStats } from './stats-assemble.ts';
+import type { SectionStats } from './section-stats.ts';
 import type { SourceRoute } from '@/core/ai/source-route.ts';
 import type { SearchResult } from '@/core/ai/web-search.ts';
 import type { SourcePlanPrep } from '@/v2/core/source-plan-inputs.ts';
@@ -78,7 +83,7 @@ import { KnowledgePage } from './KnowledgePage.tsx';
 import { TrashPage } from './TrashPage.tsx';
 import { DEFAULT_WIDGETS, widgetsFromSettings, type HomeWidget } from './home-widgets.ts';
 import { fetchDailyQuote } from './daily-quote.ts';
-import type { KnowledgePoint, Todo } from '@/core/model.ts';
+import type { KnowledgePoint, Question, Todo } from '@/core/model.ts';
 import { StatsPage } from './StatsPage.tsx';
 import { AnswerRecordPage } from './AnswerRecordPage.tsx';
 import './answer-record-page.css';
@@ -144,6 +149,7 @@ import './map-page.css';
 import './route-map.css';
 import './route-planner.css';
 import './route-board.css';
+import './route-tree.css';
 import './search-key-field.css';
 import './route-preview.css';
 import './focus-page.css';
@@ -2757,6 +2763,167 @@ interface PlanDraft {
   }, [page, sourceRoute, sourceService, decks]);
 
   /**
+   * 树状地图的装配（2026-11-22，学习地图第 4 步）。
+   *
+   * ## 为什么在这里装配而不是在组件里
+   *
+   * 树要从**真实段落**切小节（`section-split`），要读知识点/闪卡/题目
+   * 算统计。这些都是存储读取，组件不碰存储（项目一贯分工）。
+   *
+   * ## ⚠️ 为什么必须「先装配、再渲染」而不是"渲染一个空树"
+   *
+   * 上一轮的错误正是"换实现只做了一半"：数据有了、图没了，
+   * 而断言还是绿的。所以这里**算不出来就不显示树**（`treeState`
+   * 保持 null），并在界面上如实说为什么 —— 不摆一个空壳。
+   */
+  const [treeState, setTreeState] = useState<
+    { tree: SourceTree; stats: Map<string, SectionStats>; sourceId: string } | null
+  >(null);
+  const [treeError, setTreeError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (page !== 'flow' || !sourceRoute) {
+      setTreeState(null);
+      setTreeError(null);
+      return;
+    }
+    let alive = true;
+    void (async () => {
+      try {
+        /*
+         * 路线的 sourceId 没存（v2 的 SourceRoute 没这个字段）。
+         * 按标题反查 —— 与上面 routeCoverage 那段同一套规则，
+         * 保证两块用的是**同一份资料**（用两套规则会算出不同资料，
+         * 那就会出现"进度按 A 算、树按 B 显示"）。
+         */
+        const sources = await sourceService.list();
+        const src =
+          sources.find((s) => (s.title || '').indexOf(sourceRoute.subject) >= 0) ??
+          sources.find(
+            (s) => sourceRoute.edition && (s.title || '').indexOf(sourceRoute.edition) >= 0,
+          );
+        if (!src) {
+          if (alive) {
+            setTreeState(null);
+            setTreeError('找不到这条路线对应的资料（可能已被删除）。重新规划一条即可。');
+          }
+          return;
+        }
+
+        const segs = await sourceService.getSegments(src.id);
+
+        /*
+         * ⚠️ 先看有没有**已保存的树**（2026-11-22 中午补）。
+         *
+         * 任务状态（三项勾选 + 自定义任务 + 手工加的资源）存在
+         * `settings.sourceTree` 里。如果每次都用 `buildTreeFromRoute`
+         * 从 v2 路线重新长一棵树，那些状态**全都会被重置成未勾选** ——
+         * 用户勾了一堆小节、刷新页面一下全没了。
+         *
+         * 所以：有已保存的树 → `rebuildSections`（按小节标题继承任务
+         * 状态，5 条单测守着）；没有 → 从 v2 路线新建。
+         *
+         * 这也接上了方案 3.3 的读取顺序（`sourceTree` 优先，
+         * 否则旧的 `sourceRoute` 转换）。
+         */
+        const settingsNow = await library.getSettings();
+        const savedTree = normalizeSourceTree(
+          (settingsNow as unknown as { sourceTree?: unknown }).sourceTree,
+        );
+
+        const built = savedTree
+          ? rebuildSections(savedTree, segs)
+          : buildTreeFromRoute({
+              route: sourceRoute,
+              sourceId: src.id,
+              segments: segs,
+            });
+
+        /*
+         * 统计要知识点 + 闪卡 + 题目。
+         * 闪卡从 loadCards() 拿（它已是"已发布题组的题"口径）；
+         * 知识点用 listBySource 只取这份资料的 —— 全库取会把
+         * 别的资料的卡算进来。
+         */
+        const [points, cards, deckList] = await Promise.all([
+          knowledge.listBySource(src.id),
+          /*
+           * ⚠️ 用 `flashcardsService.list()`（原始 Flashcard），
+           * 不是 `loadCards()` —— 后者返回的是**题目**（`Card`），
+           * 两者同名但完全不同：`Card` 是题、`Flashcard` 是闪卡。
+           * 拿 `Card` 去数闪卡会恒为 0，而界面上看起来"正常"。
+           */
+          flashcardsService.list(),
+          decks.list(),
+        ]);
+
+        const questions: Question[] = [];
+        await Promise.all(
+          deckList
+            .filter((d) => d.status === 'published' && d.sourceId === src.id)
+            .map(async (d) => {
+              try {
+                const qs = await decks.getQuestions(d.id);
+                for (const q of qs) questions.push(q);
+              } catch {
+                /* 题组刚被删，跳过 —— 不让统计失败 */
+              }
+            }),
+        );
+
+        const allSections = built.tree.chapters.flatMap((c) => c.sections);
+        const stats = assembleStats(allSections, { points, cards, questions, segments: segs });
+
+        if (alive) {
+          setTreeState({ tree: built.tree, stats, sourceId: src.id });
+          setTreeError(null);
+        }
+      } catch (e) {
+        if (alive) {
+          setTreeState(null);
+          setTreeError(e instanceof Error ? e.message : '读不出这份资料的结构');
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [page, sourceRoute, sourceService, decks, knowledge, flashcardsService]);
+
+  /**
+   * 改某一小节的任务状态并写回。
+   *
+   * ## 为什么写的是整棵树
+   *
+   * 任务状态存在 `settings.sourceTree` 里（方案 3.1 的理由：一条路线
+   * 一次写入天然原子，且这些状态只对这一条路线有意义）。
+   * 所以每次改动都要把整棵树写回去。
+   */
+  const updateSectionTasks = useCallback(
+    async (sectionId: string, next: SectionNode['tasks']) => {
+      setTreeState((cur) => {
+        if (!cur) return cur;
+        const chapters = cur.tree.chapters.map((ch) => ({
+          ...ch,
+          sections: ch.sections.map((s) => (s.id === sectionId ? { ...s, tasks: next } : s)),
+        }));
+        const nextTree = { ...cur.tree, chapters, savedAt: new Date().toISOString() };
+        /*
+         * 写库放在 setState 外面做会用到旧值；这里直接在 updater 里
+         * 发起写（fire-and-forget 但带 catch），保证写的就是屏幕上那份。
+         */
+        void library
+          .saveSettings({ sourceTree: nextTree } as never)
+          .catch(() => {
+            /* 写失败不回滚界面：下一次装配会按库里的重算，用户能看到真实状态 */
+          });
+        return { ...cur, tree: nextTree };
+      });
+    },
+    [library],
+  );
+
+  /**
    * ⚠️ 下面这一组是**知识点级路线**（第一版，2026-11-21 白天做的）。
    *
    * 用户当天晚上改了口径：路线要「依据资料本体」，于是资料级那套
@@ -2917,6 +3084,38 @@ interface PlanDraft {
               onStep: () => {
                 /* 点横板某一步：去「我的题组」看这一章的题（没有独立的章节页） */
                 setPage('decks');
+              },
+              /* ---------- 树状地图（2026-11-22，第三次重做） ---------- */
+              /*
+               * ⚠️ 这里的关键不是"传了什么"，而是**真的被渲染出来了**。
+               * 上一轮的错误是数据有了图没了、断言还绿。所以：
+               *  - `tree` 有值 → RouteTree 渲染（MapPage 里接线）
+               *  - 长不出树 → `treeError` 如实说明，不摆空壳
+               */
+              tree: treeState ? { tree: treeState.tree, stats: treeState.stats } : null,
+              treeError,
+              onTasksChange: (sectionId, next) => void updateSectionTasks(sectionId, next),
+              onGoFlashcards: (section) => {
+                /*
+                 * 「去学这些卡」→ 闪卡页。
+                 *
+                 * 不能按小节精确过滤（闪卡页没有"按段筛选"的入口），
+                 * 所以只跳过去。**如实说清跳过去是全部卡**，
+                 * 不能让用户以为看到的就是这一节的。
+                 */
+                void section;
+                setPage('flashcards');
+              },
+              onGoPractice: (section) => {
+                /* 「去练这些题」→ 我的题组（按章看题） */
+                void section;
+                setPage('decks');
+              },
+              onReplanRequest: () => {
+                /* 重新规划表单在树的下面，滚过去即可（不另开页面） */
+                document
+                  .querySelector('.rmap--planner')
+                  ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
               },
             }
           }

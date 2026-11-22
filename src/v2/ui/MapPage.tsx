@@ -37,6 +37,7 @@ import type { DeckService } from '@/core/questions/service.ts';
 import type { SourceService } from '@/core/sources.ts';
 import { mapLabel, weakestChapter, type MapGroup, type MapSource } from '@/v2/core/study-map.ts';
 import { RoutePlanner } from './RoutePlanner.tsx';
+import { RouteTree } from './RouteTree.tsx';
 import type { CardLoader } from './cards-loader.ts';
 import { buildSnapshot, type StudySnapshot } from './study-snapshot.ts';
 
@@ -106,6 +107,32 @@ export interface MapPageProps {
     anchorHealth?: { total: number; resolved: number };
     /** 点横板上某一步 */
     onStep?: (step: import('@/core/ai/source-route.ts').RouteStep) => void;
+    /**
+     * 树状地图的数据（2026-11-22，学习地图第三次重做）。
+     *
+     * ## 为什么是"要么有树、要么有原因"，不摆空壳
+     *
+     * 上一轮的错误是"换实现只做了一半"：数据有了、图没了，断言还绿。
+     * 所以这里把「树」与「为什么没有树」分开传 ——
+     * 有树就画树，没树但有原因就如实说，两样都没有才退回横板。
+     */
+    tree?: {
+      tree: import('@/v2/core/source-tree.ts').SourceTree;
+      stats: ReadonlyMap<string, import('./section-stats.ts').SectionStats>;
+    } | null;
+    /** 为什么没有树（资料被删 / 读失败） */
+    treeError?: string | null;
+    /** 改小节任务状态 */
+    onTasksChange?: (
+      sectionId: string,
+      next: import('@/v2/core/source-tree.ts').SectionNode['tasks'],
+    ) => void;
+    /** 去闪卡页 */
+    onGoFlashcards?: (section: import('@/v2/core/source-tree.ts').SectionNode) => void;
+    /** 去做题页 */
+    onGoPractice?: (section: import('@/v2/core/source-tree.ts').SectionNode) => void;
+    /** 请求重新规划（树上的「重新规划」按钮）；不给就只是不响应 */
+    onReplanRequest?: () => void;
   } | null;
 }
 
@@ -372,18 +399,50 @@ export function MapPage({
         * 但不再上地图 —— 用户明确要的是资料级。
         */}
       {route ? (
-        <RoutePlanner
-          sourceService={route.sourceService}
-          ai={route.ai}
-          readSearchKey={route.readSearchKey}
-          onSaved={route.onSaved}
-          onOpenParse={route.onOpenParse}
-          saved={route.sourceRoute}
-          onClearSaved={route.onClearSaved}
-          {...(route.coverageByChapter ? { coverageByChapter: route.coverageByChapter } : {})}
-          {...(route.anchorHealth ? { anchorHealth: route.anchorHealth } : {})}
-          {...(route.onStep ? { onStep: route.onStep } : {})}
-        />
+        <>
+          {/*
+            * ==================== 树状地图（2026-11-22） ====================
+            *
+            * 用户第三次改方向：要「资料 → 章 → 小节」的树，点章聚焦，
+            * 通过完成小节任务来完成章节。
+            *
+            * ⚠️ 树在上、规划表单在下：树是"我现在的地图"，
+            * 表单是"我要重新排"。用户每次进页面先看到地图。
+            */}
+          {route.tree ? (
+            <RouteTree
+              tree={route.tree.tree}
+              sectionStats={route.tree.stats}
+              {...(route.onTasksChange ? { onTasksChange: route.onTasksChange } : {})}
+              {...(route.onGoFlashcards ? { onGoFlashcards: route.onGoFlashcards } : {})}
+              {...(route.onGoPractice ? { onGoPractice: route.onGoPractice } : {})}
+              onReplan={() => {
+                /* 重新规划 = 回到表单（不清掉已确认的，用户可能只是看看） */
+                route.onReplanRequest?.();
+              }}
+              onClear={() => void route.onClearSaved()}
+            />
+          ) : route.treeError ? (
+            /*
+             * 有路线但长不出树 → 如实说明，不摆空壳。
+             * 这时**仍然显示横板**（旧视图），因为路线本身还在。
+             */
+            <p className="map-error">{route.treeError}</p>
+          ) : null}
+
+          <RoutePlanner
+            sourceService={route.sourceService}
+            ai={route.ai}
+            readSearchKey={route.readSearchKey}
+            onSaved={route.onSaved}
+            onOpenParse={route.onOpenParse}
+            saved={route.sourceRoute}
+            onClearSaved={route.onClearSaved}
+            {...(route.coverageByChapter ? { coverageByChapter: route.coverageByChapter } : {})}
+            {...(route.anchorHealth ? { anchorHealth: route.anchorHealth } : {})}
+            {...(route.onStep ? { onStep: route.onStep } : {})}
+          />
+        </>
       ) : null}
 
       {/* ---------- 工具条 ---------- */}
