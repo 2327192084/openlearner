@@ -29,6 +29,13 @@
  * 现在有了成本理由，这条建议从"也可以"变成"该这么做"。
  * **小节级仍然可选**（`granularity: 'section'`），但界面要如实提示代价。
  *
+ * ## 2026-11-23 用户确认：做成可选项
+ *
+ * 上一轮我单方面改成了章级且界面上没有回头路 —— 用户本轮明确拍板
+ * 「做成可选项」：建图界面给「章级 / 小节级」两个选择，
+ * **默认章级**，选小节级时如实提示约多少次模型调用、大约多久。
+ * 所以这里不再是"实现替用户做了决定"，界面上两个粒度都真实可达。
+ *
  * ## 失败不阻塞建图
  *
  * 预搜是增强项。搜不到就只是那一章没有资源 —— 界面上如实说，
@@ -43,6 +50,17 @@ import type { ChapterNode } from '@/v2/core/source-tree.ts';
 
 /** 预搜粒度 */
 export type PresearchGranularity = 'chapter' | 'section';
+
+/**
+ * 一次建图最多发多少个预搜任务。
+ *
+ * ⚠️ 这个数**必须只有一个定义处**（2026-11-23）。
+ * 之前这里默认 12、App 调用处又写死 `maxTasks: 10` —— 两个数不一致，
+ * 而一级页的提示文字谁都不看：14 章的教材界面说 14 次、实际只跑 10 次。
+ * 那是"两个部分之间的关系"上的错（提示与实际不一致），
+ * 单点断言谁都发现不了。现在提示由 `describePresearchCost` 用同一个常量算。
+ */
+export const PRESEARCH_MAX_TASKS = 10;
 
 /** 一条预搜到的资源（还未落库） */
 export interface PresearchedResource {
@@ -328,7 +346,7 @@ export function planPresearchTasks(input: {
   chapters: readonly ChapterNode[];
   segmentsById: ReadonlyMap<string, string>;
   granularity: PresearchGranularity;
-  /** 最多做几次（防止超大资料一次发几十个请求） */
+  /** 最多做几次（防止超大资料一次发几十个请求）；缺省 = PRESEARCH_MAX_TASKS */
   maxTasks?: number;
 }): PresearchTask[] {
   const {
@@ -337,7 +355,7 @@ export function planPresearchTasks(input: {
     chapters,
     segmentsById,
     granularity,
-    maxTasks = 12,
+    maxTasks = PRESEARCH_MAX_TASKS,
   } = input;
 
   const tasks: PresearchTask[] = [];
@@ -388,6 +406,42 @@ export function planPresearchTasks(input: {
   }
 
   return tasks;
+}
+
+/**
+ * 给用户看的成本说明（2026-11-23，粒度做成可选项时加）。
+ *
+ * ## 为什么由这个函数生成，而不是界面自己拼话术
+ *
+ * 「约 N 次检索」与「被上限截到 M 次」必须和 `planPresearchTasks`
+ * **真会发出的任务数**一致。界面若按章数自己乘一个数，一旦将来
+ * 章级改成只搜有正文的章，话术就成了假承诺 ——
+ * 这是"提示与实际的关系"上的错，单点断言抓不到（项目第四次记这类）。
+ * 所以次数只有一个来源：`planPresearchTasks` 本身。
+ */
+export function describePresearchCost(input: {
+  subject: string;
+  edition: string;
+  chapters: readonly ChapterNode[];
+  segmentsById: ReadonlyMap<string, string>;
+  granularity: PresearchGranularity;
+  maxTasks?: number;
+}): { n: number; capped: boolean; text: string } {
+  const max = input.maxTasks ?? PRESEARCH_MAX_TASKS;
+  const tasks = planPresearchTasks({ ...input, maxTasks: max + 1 });
+  const n = Math.min(tasks.length, max);
+  const capped = tasks.length > max;
+  const head =
+    input.granularity === 'chapter'
+      ? `按章找资料：约 ${n} 次模型搜索`
+      : `按小节找资料：约 ${n} 次模型搜索`;
+  return {
+    n,
+    capped,
+    text: capped
+      ? head + `（这份资料结构太多，最多 ${max} 次，其余的建完图在小节里现搜）`
+      : head + '，每次是一次完整模型调用，会明显拖慢建图',
+  };
 }
 
 /**
