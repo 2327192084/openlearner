@@ -237,16 +237,29 @@ export function MapHomePage(props: MapHomePageProps) {
                         />
                       </label>
 
-                      <label className="maphome-check" title={
-                        hasSearchKey === false ? '还没配搜索 API Key，到「设置」里可以填' : ''
-                      }>
+                      {/*
+                        * ⚠️ 2026-11-22 下午：没配搜索 Key **不再置灰**。
+                        *
+                        * 以前没 Key 就整条不可用（勾选框 disabled）。现在
+                        * 没 Key 会借用后端模型自带的联网（用户明确要求）。
+                        * 所以这个勾选框始终可点 —— 勾了就是"这次要联网"，
+                        * 具体走哪条路由系统自己选，用户不用管。
+                        */}
+                      <label
+                        className="maphome-check"
+                        title={
+                          hasSearchKey
+                            ? '会用搜索 API 查（结果更原始）'
+                            : '没配搜索 API，会用后端模型自带的联网能力查（探不通就不联网，会如实告诉你）'
+                        }
+                      >
                         <input
                           type="checkbox"
                           checked={wantSearch[id] === true}
                           onChange={(e) =>
                             setWantSearch((cur) => ({ ...cur, [id]: e.target.checked }))
                           }
-                          disabled={busy || hasSearchKey === false}
+                          disabled={busy}
                         />
                         联网查章节
                       </label>
@@ -268,11 +281,11 @@ export function MapHomePage(props: MapHomePageProps) {
         </ul>
       )}
 
-      {hasSearchKey === false ? (
-        <p className="map-home__foot">
-          「联网查章节」现在是灰的 —— 还没配搜索 API Key。到「设置」里填一个就能用。
-        </p>
-      ) : null}
+      <p className="map-home__foot">
+        {hasSearchKey
+          ? '「联网查章节」会走搜索 API（结果是网页摘录，依据更原始）。'
+          : '「联网查章节」没配搜索 API 也能用 —— 会借用后端模型自带的联网能力；探不通就不联网，并如实告诉你。到「设置」里填搜索 Key 可以换成更原始的依据。'}
+      </p>
     </div>
   );
 }

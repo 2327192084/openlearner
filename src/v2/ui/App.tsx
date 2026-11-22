@@ -77,7 +77,8 @@ import type { SearchResult } from '@/core/ai/web-search.ts';
 import type { SourcePlanPrep } from '@/v2/core/source-plan-inputs.ts';
 import { loadSourceSegments, prepareSourcePlans, toScopeInfo } from '@/v2/core/source-plan-inputs.ts';
 import { buildSubjectQuery, searchWeb } from '@/core/ai/web-search.ts';
-import { attachSegments } from '@/core/ai/source-route.ts';
+import { searchWithBackend } from '@/core/ai/model-search-io.ts';
+import { attachSegments, attachSectionSegments } from '@/core/ai/source-route.ts';
 import { RoutePreviewDialog } from './RoutePreviewDialog.tsx';
 import type { PlanOrder, PlanPointInput } from '@/core/ai/plan-order.ts';
 import type { ChapterPreview } from '@/core/ai/chapter-backfill.ts';
@@ -2926,6 +2927,73 @@ interface PlanDraft {
    *  - 不再有 completeness 硬拦（方案第八节，用户要求"按钮始终可点"）
    *  - 生成后**直接进二级页面**（用户要求"创建完就显示树"）
    */
+  /**
+   * 用**当前已配置的后端**做一次「自带联网」检索（2026-11-22 下午）。
+   *
+   * ## 为什么不让用户再配一个搜索服务
+   *
+   * 用户原话：「要是没有联网搜索 api 可以调用模型本身的搜索功能。」
+   * 大多数人不会为一个附加功能再买一个搜索 API。后端已经配了，
+   * 就用它自己的联网能力。
+   *
+   * ## 三件事都和「如实」有关
+   *
+   * 1. 探不通就返回 `searched:false` + 原因，界面会说「这次没联网」
+   * 2. 探通了但没搜到内容，`searched:true` + `hits:[]`（搜过但空）
+   * 3. 探通过的结果 title 注明「模型总结的，不是原始网页摘录」
+   *
+   * 三种状态在界面上完全不同 —— 用户据此判断这条路线有多少外部依据。
+   */
+  const searchViaCurrentBackend = useCallback(
+    async (query: string): Promise<SearchResult> => {
+      try {
+        const b = await resolveBackend();
+        return await searchWithBackend(
+          {
+            provider: b.provider,
+            ...(b.baseUrl ? { baseUrl: b.baseUrl } : {}),
+            model: b.model,
+            apiKey: b.apiKey,
+          },
+          query,
+        );
+      } catch (e) {
+        /*
+         * 连后端都没配好 → 这不是"不支持联网"，是"还没配模型"。
+         * 分清楚很重要：前者用户要换服务商，后者用户要去设置页。
+         */
+        return {
+          searched: false,
+          hits: [],
+          note: `没走搜索 API，也没法用后端自带联网：${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        };
+      }
+    },
+    [resolveBackend],
+  );
+
+  /**
+   * 把 AI 给的小节用 `quote` 对回真实段落（2026-11-22 下午）。
+   *
+   * 抽成一个局部函数是因为**两条路径都要它**（新建地图、重新生成）。
+   * 两处各写一遍迟早漂移，而漂移的表现是"新建的地图有小节、
+   * 重新生成的没有"—— 那种 bug 极难看出来。
+   *
+   * `ScopeInfo` 已经算过一次（`toScopeInfo` 要遍历全部段落），
+   * 所以传进来复用，不重复算。
+   */
+  const attachSections = useCallback(
+    (
+      route: SourceRoute,
+      segments: readonly { id: string; text: string }[],
+      scope: { chapterBySegment: ReadonlyMap<string, number | null> },
+    ): SourceRoute =>
+      attachSectionSegments(route, segments, scope.chapterBySegment),
+    [],
+  );
+
   const createTreeFor = useCallback(
     async (prep: SourcePlanPrep, subjectName: string, wantSearch: boolean) => {
       /*
@@ -2934,12 +3002,36 @@ interface PlanDraft {
        * ⚠️ 预搜粒度：用户 2026-11-22 明确选了**小节级**（约 30 次检索），
        * 而方案第十一节建议的是章级。**以用户为准** —— 别照方案改回去。
        * 这一轮先按"整份资料搜一次"实现（第 7 步做外部资源栏时再细化到小节）。
+       *
+       * ## 两条路，用户不用管哪条（2026-11-22 下午加）
+       *
+       * 用户原话：「要是没有联网搜索 api 可以调用模型本身的搜索功能。」
+       *
+       *  1. **有搜索 API Key** → 走 Tavily（结果更"原始"，是网页摘录）
+       *  2. **没 Key** → 借后端模型自己的联网能力（`searchWithBackend`）
+       *
+       * 以前没 Key 就整条不可用，界面只能写「这次没有联网」。
+       * 现在没 Key 也会真的联网 —— 只是依据是模型总结的，不是原始网页。
+       * `SearchResult.note` 会如实标明是哪一种，提示词里也会写清。
        */
       let search: SearchResult | null = null;
       if (wantSearch) {
-        const key = await readSearchKey();
         const query = buildSubjectQuery(subjectName, prep.subject.edition);
-        search = await searchWeb(query, key);
+        const key = await readSearchKey();
+
+        if (key) {
+          /* 有搜索服务：优先用它（原始网页摘录，可信度更高） */
+          search = await searchWeb(query, key);
+        } else {
+          /*
+           * 没搜索服务：用后端自带的联网。
+           *
+           * 借的是**同一个已配置的后端**（用户不用再配任何东西）。
+           * `searchWithBackend` 会先探测这个后端认不认联网参数，
+           * 探不通就如实返回 searched:false —— 绝不假装搜过。
+           */
+          search = await searchViaCurrentBackend(query);
+        }
       }
 
       /* 2. 排路线（AI 要给章节结构） */
@@ -2947,7 +3039,20 @@ interface PlanDraft {
 
       /* 3. 回填段 id，再装配成树（真实小节从正文切） */
       const segments = await loadSourceSegments(sourceService, prep.source.id);
-      const withSegs = attachSegments(route, toScopeInfo(prep, segments));
+      /*
+       * 回填两样：
+       *  1. 每步对应哪些**段**（按章号，`attachSegments`）
+       *  2. AI 给的小节对应哪些**段**（按 quote 文本匹配，`attachSectionSegments`）
+       *
+       * 第 2 步是方案 4.3 的核心：模型说「这一章分三节」很容易，
+       * 但要它指出"这一节对应正文哪句话"就把编造成本抬高了。
+       * 对不上的小节 segmentIds 为空，`buildTreeFromRoute` 会丢掉它们。
+       */
+      const withSegs = attachSections(
+        attachSegments(route, toScopeInfo(prep, segments)),
+        segments,
+        toScopeInfo(prep, segments),
+      );
       const built = buildTreeFromRoute({
         route: withSegs,
         sourceId: prep.source.id,
@@ -2962,7 +3067,7 @@ interface PlanDraft {
       setOpenTreeSourceId(prep.source.id);
       setPage('mapTree');
     },
-    [orderSourceRoute, readSearchKey, sourceService, trees, library],
+    [orderSourceRoute, readSearchKey, searchViaCurrentBackend, sourceService, trees, library],
   );
 
   /**
@@ -3149,7 +3254,12 @@ interface PlanDraft {
     });
 
     const segments = await loadSourceSegments(sourceService, src.id);
-    const withSegs = attachSegments(route, toScopeInfo(prep, segments));
+    const scopeNow = toScopeInfo(prep, segments);
+    const withSegs = attachSections(
+      attachSegments(route, scopeNow),
+      segments,
+      scopeNow,
+    );
     const built = buildTreeFromRoute({
       route: withSegs,
       sourceId: src.id,

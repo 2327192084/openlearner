@@ -73,7 +73,38 @@ export function buildTreeFromRoute(options: {
   const base = fromLegacyRoute(route, sourceId);
   const split = splitSections(segments);
 
-  return drillSections(base, split);
+  /*
+   * 把 AI 给的小节按章号收起来（2026-11-22 下午，方案第 3 步）。
+   *
+   * 同一个章号可能有多步（AI 对同一章的三段细分，用户库里就是这样）。
+   * 那种情况下 `drillSections` 会走"分摊"分支，不用 AI 的小节 ——
+   * 因为 AI 是整章给的，硬拆到三步上会重复。
+   * 所以这里只在「该章号只有一步」时使用 AI 的结果。
+   */
+  const stepsPerChapter = new Map<number, number>();
+  for (const b of route.blocks) {
+    for (const st of b.steps) {
+      stepsPerChapter.set(st.chapterNumber, (stepsPerChapter.get(st.chapterNumber) ?? 0) + 1);
+    }
+  }
+
+  const aiDrafts = new Map<number, AiSection[]>();
+  for (const b of route.blocks) {
+    for (const st of b.steps) {
+      if (st.sections.length === 0) continue;
+      /* 同号多步：不用 AI 小节（会重复），交给分摊逻辑 */
+      if ((stepsPerChapter.get(st.chapterNumber) ?? 0) > 1) continue;
+      aiDrafts.set(
+        st.chapterNumber,
+        st.sections.map((x) => ({
+          title: x.title,
+          ...(x.segmentIds ? { segmentIds: x.segmentIds } : {}),
+        })),
+      );
+    }
+  }
+
+  return drillSections(base, split, undefined, aiDrafts);
 }
 
 /**
@@ -171,10 +202,17 @@ function shareSections<T>(sections: readonly T[], idx: number, total: number): T
  *
  * @param prevByTitle 上次的小节（按标题索引），有就继承任务状态
  */
+/** AI 给的一小节（已回填段 id） */
+interface AiSection {
+  title: string;
+  segmentIds?: string[];
+}
+
 function drillSections(
   base: SourceTree,
   split: SplitResult,
   prevByTitle?: ReadonlyMap<string, SectionNode>,
+  aiDrafts?: ReadonlyMap<number, AiSection[]>,
 ): BuiltTree {
   /** 章号 → 切出的章 */
   const byNumber = new Map<number, SplitChapter>();
@@ -201,6 +239,29 @@ function drillSections(
     const idx = seenOfNumber.get(ch.number) ?? 0;
     seenOfNumber.set(ch.number, idx + 1);
     const total = totalOfNumber.get(ch.number) ?? 1;
+
+    /*
+     * 优先级（2026-11-22 下午，方案第 3 步）：
+     *
+     *  1. **AI 给了小节** → 用它（那是按内容拆的，比标题切更贴近学习单元）
+     *  2. 否则用正文标题切（`section-split`）
+     *  3. 都没有 → 退化整章
+     *
+     * ⚠️ AI 给的小节必须带 `quote` 且**已在本地对回段 id**
+     * （`attachSectionSegments`）。这里再检查一次 `segmentIds`：
+     * 空数组说明那句 quote 在正文里找不到，那种小节不可信，
+     * 宁可用标题切的结果 —— 那是资料里真实存在的结构。
+     */
+    const aiSections = aiDrafts?.get(ch.number) ?? [];
+    const usableAi = aiSections.filter((x) => (x.segmentIds?.length ?? 0) > 0);
+
+    if (usableAi.length >= 2) {
+      drilledChapters += 1;
+      const sections: SectionNode[] = usableAi.map((x) =>
+        makeSection(x.title, x.segmentIds ?? [], 'ai', prevByTitle),
+      );
+      return { ...ch, sections };
+    }
 
     /* 把它该拿的那份小节切出来（total === 1 时就是全部） */
     const mine = match ? shareSections(match.sections, idx, total) : [];

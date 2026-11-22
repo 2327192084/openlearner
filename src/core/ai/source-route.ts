@@ -65,6 +65,52 @@ export interface RouteStep {
   basis: 'toc' | 'search' | 'model';
   /** 难度 1–5（与 plan-order 同一口径：知识点本身的难度，不是掌握度） */
   difficulty: number | null;
+  /**
+   * 这一步（这一章）包含哪些**小节**（2026-11-22 下午，方案第 3 步）。
+   *
+   * ## 为什么要 AI 给，而不是只用正文标题切
+   *
+   * `section-split.ts` 能从正文标题切小节（信号那份能切 26 个），
+   * 但有两类资料切不出：整份没标题（pptx）、或只切出 1 个
+   *（等于没切）。那种资料需要 AI 读正文后按内容拆。
+   *
+   * ## `quote` 是干什么的
+   *
+   * 每个小节必须给一句**原文片段**，解析层拿它去正文里找对应段落，
+   * 回填 `segmentIds`。这样「这个小节依据的是资料里哪几段」是
+   * **可验证的**，不是模型说啥算啥。
+   *
+   * 空数组 = 模型没给（或给的都对不上原文）→ 调用方退回标题切分。
+   */
+  sections: RouteSectionDraft[];
+  /**
+   * 前置章号（AI 顺带给）。
+   *
+   * ⚠️ **只提醒、不锁** —— 用户明确要求「章节可以同时进行」。
+   * 解析层会校验：不存在的章号、自引用一律丢弃。
+   */
+  prerequisites: number[];
+  /** 为什么需要这些前置（给用户看） */
+  prereqReason: string;
+}
+
+/** AI 给的一个小节草稿 */
+export interface RouteSectionDraft {
+  /** 小节标题（尽量用资料里的原标题） */
+  title: string;
+  /**
+   * 原文片段，用于本地回填段 id。
+   *
+   * 取不到就空串 —— 解析层会把它当成"对不上"，不会瞎猜。
+   */
+  quote: string;
+  /**
+   * 由 `attachSectionSegments` 本地回填（模型不知道段 id）。
+   *
+   * 空数组 = **这句 quote 在正文里找不到**。
+   * 界面与调用方据此判断「这个小节的依据是否可验证」。
+   */
+  segmentIds?: string[];
 }
 
 /** 一条规划好的路线 */
@@ -217,6 +263,31 @@ export function buildRoutePrompt(options: BuildRoutePromptOptions): {
     '每步给 1–5 的难度（1 最容易）。**这是这一步内容本身的难度**，',
     '与学员掌握得怎样无关 —— 你看不到他的掌握度，也不需要猜。',
     '',
+    '### 4. 每章给出小节',
+    '',
+    '每一章（每个 step）要列出它包含的**小节**，放进 `sections` 数组。',
+    '',
+    '**只能按这一章已有的正文拆，不许引入资料外的小节。**',
+    '每个小节必须给一句 `quote` —— 从这一章正文里**原样抄**的一句',
+    '（8–40 字，能唯一定位到那段话）。这句用来在本地把小节',
+    '对应回原文段落，所以**必须是原文里真的有的字**，不要改写。',
+    '',
+    '如果这一章的正文里已经有明显的小节标题（如「1.1 连续时间信号」），',
+    '就直接用那些标题当 `title`，不要自己另起一套。',
+    '',
+    '如果这一章实在没有可拆的结构（整章就一个主题），`sections` 给空数组 ——',
+    '**不要为了填满而硬造小节**。',
+    '',
+    '### 5. 前置关系：只写"真的需要先学"的',
+    '',
+    '每一章给 `prerequisites`（需要先学哪几章，填章号数组）与',
+    '`prereqReason`（一句话说明为什么需要）。',
+    '',
+    '⚠️ **不要把前面所有章都列成前置。** 只写「不先学这一章，',
+    '这一章就真的看不懂」那种关系。绝大多数章没有硬前置，那就给空数组。',
+    '拿不准就给空数组 —— 空数组不会误导人，乱列前置会让学员以为',
+    '必须按顺序学，而实际上用户要的是可以并行。',
+    '',
     '## 输出格式',
     '',
     '只输出一个完整 JSON 对象，不要解释文字，不要 markdown 围栏。',
@@ -233,7 +304,13 @@ export function buildRoutePrompt(options: BuildRoutePromptOptions): {
     '          "title": "步骤标题（用目录里的章名）",',
     '          "difficulty": 2,',
     '          "reason": "为什么这一步排在这个位置（20 字以内）",',
-    '          "basis": "toc"',
+    '          "basis": "toc",',
+    '          "sections": [',
+    '            { "title": "1.1 连续时间信号", "quote": "正文里原样的一句" },',
+    '            { "title": "1.2 离散时间信号", "quote": "另一句原样的话" }',
+    '          ],',
+    '          "prerequisites": [],',
+    '          "prereqReason": ""',
     '        }',
     '      ]',
     '    }',
@@ -365,6 +442,9 @@ export function parseSourceRoute(
         reason: typeof s.reason === 'string' ? s.reason.trim().slice(0, 80) : '',
         basis: normalizeBasis(s.basis),
         difficulty: toDifficulty(s.difficulty),
+        sections: parseSections(s.sections),
+        prerequisites: parsePrerequisites(s.prerequisites, chapterNumber, allowed),
+        prereqReason: typeof s.prereqReason === 'string' ? s.prereqReason.trim().slice(0, 120) : '',
       });
     }
 
@@ -444,6 +524,167 @@ export function attachSegments(route: SourceRoute, scope: ScopeInfo): SourceRout
   }));
 
   return { ...route, blocks };
+}
+
+/**
+ * 用 `quote` 把 AI 给的小节**对回真实段落**（方案 4.3 的核心要求）。
+ *
+ * ## 为什么这一步不能省
+ *
+ * 提示词要求模型给 `quote`，但如果不在本地验证，它就只是一句话 ——
+ * 模型完全可能编一句"看起来像原文"的话。只有去正文里**真的找到**，
+ * 「这一节依据资料里哪几段」才成立。
+ *
+ * ## 匹配规则（保守优先）
+ *
+ * 1. 先精确匹配（去掉空白后包含）
+ * 2. 不行再按前缀匹配（模型可能截断后半句）
+ * 3. 都不行 → 空数组，**不猜**
+ *
+ * ## 为什么限定在这一章的段里找
+ *
+ * 同一句话可能在书里出现多次（页眉、重复的例题）。限定在本章的
+ * 段集合内可以大幅降低错配，而错配的后果是"点这一节跳到别章去"。
+ */
+export function attachSectionSegments(
+  route: SourceRoute,
+  segments: readonly { id: string; text: string }[],
+  chapterBySegment: ReadonlyMap<string, number | null>,
+): SourceRoute {
+  /** 章号 → 该章的段 */
+  const byChapter = new Map<number, { id: string; text: string }[]>();
+  for (const seg of segments) {
+    const ch = chapterBySegment.get(seg.id);
+    if (ch === null || ch === undefined) continue;
+    const arr = byChapter.get(ch);
+    if (arr) arr.push(seg);
+    else byChapter.set(ch, [seg]);
+  }
+
+  const norm = (t: string) => t.replace(/\s+/g, '');
+
+  const blocks = route.blocks.map((b) => ({
+    ...b,
+    steps: b.steps.map((step) => {
+      if (step.sections.length === 0) return step;
+
+      const pool = byChapter.get(step.chapterNumber) ?? [];
+
+      const sections = step.sections.map((sec) => {
+        const q = norm(sec.quote);
+        if (q.length === 0) return { ...sec, segmentIds: [] as string[] };
+
+        /* 1) 精确包含 */
+        const exact = pool.filter((seg) => norm(seg.text).includes(q));
+        if (exact.length > 0) {
+          return { ...sec, segmentIds: exact.map((x) => x.id) };
+        }
+
+        /*
+         * 2) 前缀匹配：用前 8 个字（太短容易误命中，太长容易全落空）。
+         *    只在 quote 够长时才做 —— 3 个字的"前言"会匹配到半个书。
+         */
+        if (q.length >= 8) {
+          const head = q.slice(0, 8);
+          const loose = pool.filter((seg) => norm(seg.text).includes(head));
+          if (loose.length > 0) {
+            return { ...sec, segmentIds: loose.map((x) => x.id) };
+          }
+        }
+
+        /* 3) 找不到 → 空数组（如实"对不上"，绝不猜） */
+        return { ...sec, segmentIds: [] as string[] };
+      });
+
+      return { ...step, sections };
+    }),
+  }));
+
+  return { ...route, blocks };
+}
+
+/**
+ * 解析 AI 给的 `sections`（方案第 3 步）。
+ *
+ * ## 三条校验
+ *
+ * 1. `title` 空的丢掉（没法显示）
+ * 2. `quote` 空的也丢掉 —— **没有原文片段就没法回填段 id**，
+ *    留着会变成一个"不知道依据在哪"的小节，比没有更糟
+ * 3. 同一个 title 只留第一个（模型有时会重复列出）
+ *
+ * ## 为什么 quote 是硬要求
+ *
+ * 「依据资料」这件事必须是可验证的。模型说「这一章分三节」很容易，
+ * 但要它指出「这一节对应正文的哪句话」，就把编造成本抬高了 ——
+ * 抄不出原句就说明它多半是在编。
+ *
+ * 调用方（`tree-build`）还拿不到对应段落时会退回正文标题切分，
+ * 所以丢掉不会让树变空。
+ */
+function parseSections(raw: unknown): RouteSectionDraft[] {
+  if (!Array.isArray(raw)) return [];
+
+  const out: RouteSectionDraft[] = [];
+  const seen = new Set<string>();
+
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const o = item as Record<string, unknown>;
+
+    const title = typeof o.title === 'string' ? o.title.trim().slice(0, 120) : '';
+    if (title.length === 0) continue;
+
+    const quote = typeof o.quote === 'string' ? o.quote.trim().slice(0, 300) : '';
+    if (quote.length === 0) continue;
+
+    const key = title.replace(/\s+/g, '');
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    out.push({ title, quote });
+  }
+
+  return out;
+}
+
+/**
+ * 解析 AI 给的 `prerequisites`（方案第 3 步 / 第九节）。
+ *
+ * ## 三条校验（方案里点名要做的）
+ *
+ * 1. **不存在的章号丢弃** —— 模型可能给出这份资料里没有的章
+ *    （尤其它看过别的教材）。`allowed` 是资料实际覆盖的章号集合。
+ * 2. **自引用丢弃** —— 「第 3 章需要先学第 3 章」是废话。
+ * 3. **重复去重**
+ *
+ * ## 为什么只提醒不锁
+ *
+ * 用户明确要求「章节可以同时进行，不用按顺序」。
+ * 所以这里只产出数据，界面拿它显示提醒条，**绝不拿它禁用按钮**。
+ */
+function parsePrerequisites(
+  raw: unknown,
+  selfChapter: number,
+  allowed: number[] | null,
+): number[] {
+  if (!Array.isArray(raw)) return [];
+
+  const allowedSet = allowed ? new Set(allowed) : null;
+  const out: number[] = [];
+
+  for (const item of raw) {
+    const n = typeof item === 'number' ? item : typeof item === 'string' ? Number(item.trim()) : NaN;
+    if (!Number.isInteger(n) || n <= 0) continue;
+    /* 自引用 */
+    if (n === selfChapter) continue;
+    /* 不存在的章号 */
+    if (allowedSet && !allowedSet.has(n)) continue;
+    if (out.includes(n)) continue;
+    out.push(n);
+  }
+
+  return out.sort((a, b) => a - b);
 }
 
 /** 依据来源归一 */

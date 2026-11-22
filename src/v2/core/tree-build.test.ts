@@ -44,6 +44,9 @@ function route(steps: { n: number; title: string }[]): SourceRoute {
           reason: '按目录',
           basis: 'toc' as const,
           difficulty: 2,
+          sections: [],
+          prerequisites: [],
+          prereqReason: '',
         })),
       },
     ],
@@ -928,5 +931,99 @@ describe('carryTaskProgress：重新生成时保留勾选', () => {
     next.chapters[0]!.title = '新的章名';
     const r = carryTaskProgress(next, prev);
     expect(r.tree.chapters[0]!.title).toBe('新的章名');
+  });
+});
+
+describe('AI 给的小节优先于标题切分（2026-11-22 下午，方案第 3 步）', () => {
+  /**
+   * 优先级：AI 小节 > 正文标题切 > 整章退化。
+   *
+   * 但 AI 小节有一个硬门槛：**必须已经对回真实段 id**。
+   * 对不上的（quote 在正文里找不到）不可信，宁可用标题切分的结构 ——
+   * 那是资料里真实存在的。
+   */
+
+  /** 造一条带 AI 小节的路线 */
+  function routeWithSections(
+    sections: { title: string; quote: string; segmentIds?: string[] }[],
+  ): SourceRoute {
+    const r = route([{ n: 1, title: '第1章 甲' }]);
+    r.blocks[0]!.steps[0] = {
+      ...r.blocks[0]!.steps[0]!,
+      sections: sections as never,
+    } as never;
+    return r;
+  }
+
+  it('AI 小节对上了段 → 用它（origin 标 ai）', () => {
+    const segments = [seg(1, '第1章 甲\n## 1.1 正文一\nA'), seg(2, '## 1.2 正文二\nB')];
+    const r = routeWithSections([
+      { title: 'AI 拆的第一节', quote: 'q1', segmentIds: ['seg-1'] },
+      { title: 'AI 拆的第二节', quote: 'q2', segmentIds: ['seg-2'] },
+    ]);
+    const built = buildTreeFromRoute({ route: r, sourceId: 'src-1', segments });
+    const secs = built.tree.chapters[0]!.sections;
+    expect(secs.map((s) => s.title)).toEqual(['AI 拆的第一节', 'AI 拆的第二节']);
+    expect(secs.every((s) => s.origin === 'ai')).toBe(true);
+  });
+
+  it('⚠️ AI 小节对不上段（segmentIds 空）→ 退回标题切分', () => {
+    /*
+     * 坏实现：只要 AI 给了 sections 就用，不看 segmentIds。
+     * 那样会显示一堆"不知道依据在哪"的小节，点进去没有原文。
+     */
+    const segments = [seg(1, '第1章 甲\n## 1.1 正文一\nA'), seg(2, '## 1.2 正文二\nB')];
+    const r = routeWithSections([
+      { title: 'AI 编的甲', quote: '找不到', segmentIds: [] },
+      { title: 'AI 编的乙', quote: '也找不到', segmentIds: [] },
+    ]);
+    const built = buildTreeFromRoute({ route: r, sourceId: 'src-1', segments });
+    const secs = built.tree.chapters[0]!.sections;
+    /* 用正文标题切的 */
+    expect(secs.map((s) => s.title)).toEqual(['1.1 正文一', '1.2 正文二']);
+    expect(secs.every((s) => s.origin === 'heading')).toBe(true);
+  });
+
+  it('只有 1 个 AI 小节 → 不算数（和标题切分同一阈值）', () => {
+    const segments = [seg(1, '第1章 甲\n## 1.1 一\nA'), seg(2, '## 1.2 二\nB')];
+    const r = routeWithSections([{ title: 'AI 只给一个', quote: 'q', segmentIds: ['seg-1'] }]);
+    const built = buildTreeFromRoute({ route: r, sourceId: 'src-1', segments });
+    expect(built.tree.chapters[0]!.sections.every((s) => s.origin === 'heading')).toBe(true);
+  });
+
+  it('⚠️ 同章号多步时不用 AI 小节（会重复），走分摊', () => {
+    const segments = [
+      seg(1, '第1章 甲\n## 1.1 一\nA'),
+      seg(2, '## 1.2 二\nB'),
+      seg(3, '## 1.3 三\nC'),
+    ];
+    const r = route([
+      { n: 1, title: '第一步' },
+      { n: 1, title: '第二步' },
+    ]);
+    /* 三步都给同一批 AI 小节 */
+    for (const st of r.blocks[0]!.steps) {
+      (st as never as { sections: unknown }).sections = [
+        { title: 'AI 甲', quote: 'q1', segmentIds: ['seg-1'] },
+        { title: 'AI 乙', quote: 'q2', segmentIds: ['seg-2'] },
+      ];
+    }
+    const built = buildTreeFromRoute({ route: r, sourceId: 'src-1', segments });
+    const titles = built.tree.chapters.flatMap((c) => c.sections.map((s) => s.title));
+    /* 不该出现 AI 标题（会各拿一份 → 重复） */
+    expect(titles.some((t) => t.indexOf('AI') >= 0)).toBe(false);
+    /* 小节总数仍是切出来的 3 个 */
+    expect(titles).toHaveLength(3);
+  });
+
+  it('AI 小节给了段 id 但章里没有那些段 → 仍按 AI 用（段 id 是本地回填的，可信）', () => {
+    const segments = [seg(1, '第1章 甲\n无小节标题的正文')];
+    const r = routeWithSections([
+      { title: 'AI 甲', quote: 'q1', segmentIds: ['seg-1'] },
+      { title: 'AI 乙', quote: 'q2', segmentIds: ['seg-1'] },
+    ]);
+    const built = buildTreeFromRoute({ route: r, sourceId: 'src-1', segments });
+    const secs = built.tree.chapters[0]!.sections;
+    expect(secs.map((s) => s.title)).toEqual(['AI 甲', 'AI 乙']);
   });
 });

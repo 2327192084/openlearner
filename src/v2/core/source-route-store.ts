@@ -66,6 +66,29 @@ export function normalizeSourceRoute(raw: unknown): SourceRoute | null {
           ? s.segmentIds.filter((x): x is string => typeof x === 'string')
           : [],
         reason: typeof s.reason === 'string' ? s.reason.slice(0, 80) : '',
+        /*
+         * 小节与前置关系（2026-11-22 加入）。
+         *
+         * 旧库里没有这两个字段 —— 读出来是 undefined，
+         * 这里归一成空数组。**不能强转**：undefined.map 会崩。
+         */
+        sections: Array.isArray(s.sections)
+          ? s.sections
+              .map((x) => {
+                if (!x || typeof x !== 'object') return null;
+                const o = x as Record<string, unknown>;
+                const t = typeof o.title === 'string' ? o.title.trim().slice(0, 120) : '';
+                const q = typeof o.quote === 'string' ? o.quote.trim().slice(0, 300) : '';
+                return t.length > 0 && q.length > 0 ? { title: t, quote: q } : null;
+              })
+              .filter((x): x is { title: string; quote: string } => x !== null)
+          : [],
+        prerequisites: Array.isArray(s.prerequisites)
+          ? s.prerequisites
+              .map((x) => toInt(x))
+              .filter((x): x is number => x !== null && x > 0)
+          : [],
+        prereqReason: typeof s.prereqReason === 'string' ? s.prereqReason.slice(0, 120) : '',
         basis:
           s.basis === 'toc' || s.basis === 'search' || s.basis === 'model'
             ? s.basis

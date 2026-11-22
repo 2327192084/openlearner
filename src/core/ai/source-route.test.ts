@@ -365,7 +365,10 @@ describe('attachSegments：证明「依据资料本体」是可验证的', () =>
           title: '基础',
           why: '',
           steps: [
-            { chapterNumber: 1, title: '第1章', difficulty: 2, reason: '', basis: 'toc' as const, segmentIds: [] },
+            {
+              chapterNumber: 1, title: '第1章', difficulty: 2, reason: '', basis: 'toc' as const,
+              segmentIds: [], sections: [], prerequisites: [], prereqReason: '',
+            },
           ],
         },
       ],
@@ -386,7 +389,10 @@ describe('attachSegments：证明「依据资料本体」是可验证的', () =>
           title: 'x',
           why: '',
           steps: [
-            { chapterNumber: 9, title: '第9章', difficulty: null, reason: '', basis: 'model' as const, segmentIds: [] },
+            {
+              chapterNumber: 9, title: '第9章', difficulty: null, reason: '', basis: 'model' as const,
+              segmentIds: [], sections: [], prerequisites: [], prereqReason: '',
+            },
           ],
         },
       ],
@@ -398,3 +404,206 @@ describe('attachSegments：证明「依据资料本体」是可验证的', () =>
     expect(out.blocks[0]!.steps[0]!.segmentIds).toEqual([]);
   });
 });
+describe('小节与前置关系（2026-11-22 下午，方案第 3 步）', () => {
+  /**
+   * AI 现在要额外给两样东西：
+   *  - `sections`：这一章分几个小节，每节带一句**原文片段**
+   *  - `prerequisites`：需要先学哪几章（只提醒不锁）
+   *
+   * 解析层要做的校验是方案第九节点名要求的：
+   * 越界章号丢弃、自引用丢弃、不存在的章号丢弃。
+   */
+
+  const scope = {
+    chapters: [1, 2],
+    sourceTitle: '信号与系统',
+    chapterBySegment: new Map<string, number | null>([
+      ['seg-1', 1],
+      ['seg-2', 1],
+      ['seg-3', 2],
+    ]),
+  };
+
+  /** 造一个含指定字段的模型返回 */
+  function payload(steps: unknown[]): string {
+    return JSON.stringify({
+      blocks: [{ title: '基础', why: '打基础', steps }],
+    });
+  }
+
+  function parse(content: string) {
+    return parseSourceRoute(content, scope, { name: '信号与系统', edition: '' }, false);
+  }
+
+  it('解析出 sections（title + quote 都留）', () => {
+    const r = parse(
+      payload([
+        {
+          chapterNumber: 1,
+          title: '第1章',
+          sections: [
+            { title: '1.1 连续时间信号', quote: '连续时间信号在时间上是连续的' },
+            { title: '1.2 离散时间信号', quote: '离散时间信号只在离散时刻有定义' },
+          ],
+        },
+      ]),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const secs = r.route.blocks[0]!.steps[0]!.sections;
+    expect(secs).toHaveLength(2);
+    expect(secs[0]!.title).toBe('1.1 连续时间信号');
+    expect(secs[0]!.quote).toContain('连续时间信号');
+  });
+
+  it('⚠️ 没有 quote 的小节被丢掉（没法回填段 id，留着更糟）', () => {
+    const r = parse(
+      payload([
+        {
+          chapterNumber: 1,
+          title: '第1章',
+          sections: [
+            { title: '1.1 有依据', quote: '原句' },
+            { title: '1.2 没依据', quote: '' },
+            { title: '1.3 也没', quote: '   ' },
+          ],
+        },
+      ]),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.route.blocks[0]!.steps[0]!.sections.map((s) => s.title)).toEqual(['1.1 有依据']);
+  });
+
+  it('sections 缺字段 / 不是数组 → 空数组（旧模型不返回这字段也不崩）', () => {
+    const r = parse(payload([{ chapterNumber: 1, title: '第1章' }]));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.route.blocks[0]!.steps[0]!.sections).toEqual([]);
+  });
+
+  it('重复标题的小节只留第一个', () => {
+    const r = parse(
+      payload([
+        {
+          chapterNumber: 1,
+          title: '第1章',
+          sections: [
+            { title: '1.1 甲', quote: 'a' },
+            { title: '1.1 甲', quote: 'b' },
+          ],
+        },
+      ]),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.route.blocks[0]!.steps[0]!.sections).toHaveLength(1);
+  });
+
+  it('解析出 prerequisites（有效章号留下）', () => {
+    const r = parse(
+      payload([
+        { chapterNumber: 1, title: '第1章' },
+        { chapterNumber: 2, title: '第2章', prerequisites: [1], prereqReason: '第2章要用第1章' },
+      ]),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.route.blocks[0]!.steps[1]!.prerequisites).toEqual([1]);
+    expect(r.route.blocks[0]!.steps[1]!.prereqReason).toContain('第1章');
+  });
+
+  it('⚠️ 不存在的章号被丢弃（方案第九节的硬要求）', () => {
+    const r = parse(
+      payload([
+        { chapterNumber: 1, title: '第1章' },
+        { chapterNumber: 2, title: '第2章', prerequisites: [7, 99], prereqReason: '编的' },
+      ]),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.route.blocks[0]!.steps[1]!.prerequisites).toEqual([]);
+  });
+
+  it('⚠️ 自引用被丢弃', () => {
+    const r = parse(
+      payload([{ chapterNumber: 2, title: '第2章', prerequisites: [2], prereqReason: '废话' }]),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.route.blocks[0]!.steps[0]!.prerequisites).toEqual([]);
+  });
+
+  it('一个有效一个无效 → 只留有效的', () => {
+    const r = parse(
+      payload([
+        { chapterNumber: 1, title: '第1章' },
+        { chapterNumber: 2, title: '第2章', prerequisites: [1, 88] },
+      ]),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.route.blocks[0]!.steps[1]!.prerequisites).toEqual([1]);
+  });
+
+  it('重复前置去重、并按章号升序', () => {
+    const r = parse(
+      payload([
+        { chapterNumber: 1, title: '第1章' },
+        { chapterNumber: 2, title: '第2章', prerequisites: [1, 1] },
+      ]),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.route.blocks[0]!.steps[1]!.prerequisites).toEqual([1]);
+  });
+
+  it('prerequisites 是字符串数字也能认', () => {
+    const r = parse(
+      payload([
+        { chapterNumber: 1, title: '第1章' },
+        { chapterNumber: 2, title: '第2章', prerequisites: ['1'] },
+      ]),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.route.blocks[0]!.steps[1]!.prerequisites).toEqual([1]);
+  });
+
+  it('没有章节范围（chapters=null）时不按章号过滤，但自引用仍丢', () => {
+    const noScope = {
+      chapters: null,
+      sourceTitle: 'x',
+      chapterBySegment: new Map<string, number | null>([['seg-1', null]]),
+    };
+    const r = parseSourceRoute(
+      payload([{ chapterNumber: 5, title: '第5章', prerequisites: [3, 5] }]),
+      noScope,
+      { name: 'x', edition: '' },
+      false,
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    /* 3 留下（没范围就没法判越界），5 自引用丢掉 */
+    expect(r.route.blocks[0]!.steps[0]!.prerequisites).toEqual([3]);
+  });
+
+  it('⚠️ 提示词里真的要求了小节与前置（不是只改了解析层）', () => {
+    const { system } = buildRoutePrompt({
+      subject: { name: '信号与系统', edition: '', evidence: '', source: 'title' } as never,
+      outline: { kind: 'none', entries: [], chapterNumbers: [], tocSegmentIds: [] } as never,
+      scope,
+      search: null,
+    });
+    expect(system).toContain('sections');
+    expect(system).toContain('quote');
+    expect(system).toContain('prerequisites');
+    /* 必须明确"只写真的需要先学的"，否则模型会把所有前章都列上 */
+    expect(sysMatch(system, '不要把前面所有章都列成前置')).toBe(true);
+  });
+});
+
+/** 小工具：断言文本包含（避免在上面的 it 里写长断言） */
+function sysMatch(text: string, needle: string): boolean {
+  return text.indexOf(needle) >= 0;
+}
