@@ -60,7 +60,7 @@ import { normalizeStudyPlan, planToSteps, type StudyPlan } from '@/v2/core/study
 import { loadPlanInputs } from '@/v2/core/plan-inputs.ts';
 import { normalizeSourceRoute } from '@/v2/core/source-route-store.ts';
 /* 树状地图（2026-11-22，学习地图第三次重做） */
-import { buildTreeFromRoute } from '@/v2/core/tree-build.ts';
+import { buildTreeFromRoute, carryTaskProgress } from '@/v2/core/tree-build.ts';
 import type { SectionNode, SourceTree } from '@/v2/core/source-tree.ts';
 import {
   dropTree,
@@ -75,7 +75,7 @@ import type { SectionStats } from './section-stats.ts';
 import type { SourceRoute } from '@/core/ai/source-route.ts';
 import type { SearchResult } from '@/core/ai/web-search.ts';
 import type { SourcePlanPrep } from '@/v2/core/source-plan-inputs.ts';
-import { loadSourceSegments, toScopeInfo } from '@/v2/core/source-plan-inputs.ts';
+import { loadSourceSegments, prepareSourcePlans, toScopeInfo } from '@/v2/core/source-plan-inputs.ts';
 import { buildSubjectQuery, searchWeb } from '@/core/ai/web-search.ts';
 import { attachSegments } from '@/core/ai/source-route.ts';
 import { RoutePreviewDialog } from './RoutePreviewDialog.tsx';
@@ -3099,19 +3099,85 @@ interface PlanDraft {
   void treeStatsError;
 
   /** 二级页「重新规划」：回一级页并提示用同一份资料重建 */
+  /**
+   * 「重新生成这张地图」—— 重排章节，但**尽量保住用户勾过的东西**。
+   *
+   * ## 用户改了这个决定（2026-11-22 下午）
+   *
+   * 上一版是"先删掉整张图，回一级页重建"，勾选全丢。用户看完说
+   * 「可以改成那样」（按标题保留已完成小节的状态）。
+   *
+   * ## 怎么保留
+   *
+   * `carryTaskProgress` 按**小节标题**把旧勾选搬到新树上：
+   *  - 三项勾选 + 自定义任务 + 手工加的资源 → 搬
+   *  - 联网搜来的资源 → 不搬（这次会重新搜，混在一起没法分辨）
+   *  - 标题对不上 → **不搬**，并在界面上如实说丢了哪几节
+   *
+   * 对不上就不搬是硬要求：把 A 的勾选安到 B 上比丢掉更糟，
+   * 用户会以为"我明明没勾这个"。
+   */
+  const [replanNote, setReplanNote] = useState<string | null>(null);
+
   const replanOpenTree = useCallback(async () => {
-    /*
-     * ⚠️ 这里的"重新规划"会先删掉现有地图再让用户重建 ——
-     * 因为 AI 排出来的章节结构会变，新旧小节对不上，
-     * 硬留着旧任务状态等于把状态安到错的节上。
-     *
-     * 但要**明确告知**用户在掉什么（见 MapTreePage 的 busy 文案）。
-     */
     if (!openTreeSourceId) return;
-    await deleteTree(openTreeSourceId);
-    setOpenTreeSourceId(null);
-    setPage('flow');
-  }, [openTreeSourceId, deleteTree]);
+    const old = trees[openTreeSourceId];
+    if (!old) return;
+
+    setReplanNote(null);
+
+    /*
+     * 复用创建路径：同样的 AI 排序 + 切小节。
+     * 科目名与 edition 从旧地图继承（那是用户确认过的），
+     * 不重新推断 —— 重排不该悄悄改掉科目。
+     */
+    const sources = await sourceService.list();
+    const src = sources.find((x) => x.id === openTreeSourceId);
+    if (!src) throw new Error('这份资料已经不在了，没法重新生成。');
+
+    /*
+     * 复用 `prepareSourcePlans`（它会一次读完段落再分组），
+     * 只取这一份 —— 不另写一个只读单份的函数，避免两套规则漂移。
+     */
+    const prepped = await prepareSourcePlans({ sourceService });
+    const prep = prepped.sources.find((x) => x.source.id === openTreeSourceId);
+    if (!prep) throw new Error('读不出这份资料的结构，没法重新生成。');
+    const route = await orderSourceRoute({
+      prep,
+      subjectName: old.subject || prep.subject.name,
+      search: null,
+    });
+
+    const segments = await loadSourceSegments(sourceService, src.id);
+    const withSegs = attachSegments(route, toScopeInfo(prep, segments));
+    const built = buildTreeFromRoute({
+      route: withSegs,
+      sourceId: src.id,
+      segments,
+    });
+
+    /* 把旧勾选搬过来 */
+    const carried = carryTaskProgress(built.tree, old);
+    const nextTree: SourceTree = { ...carried.tree, savedAt: new Date().toISOString() };
+
+    const nextMap = putTree(trees, nextTree);
+    setTrees(nextMap);
+    await library.saveSettings({ sourceTrees: nextMap } as never);
+
+    /*
+     * 如实汇报：搬过去几条、丢了哪几节。
+     * 只报个数不够 —— 用户想知道丢的是哪一节。
+     */
+    if (carried.lost > 0) {
+      setReplanNote(
+        '已按小节标题保留 ' + carried.carried + ' 节的状态；' +
+          '有 ' + carried.lost + ' 节在新结构里找不到同名小节，这些节的勾选没能保留：' +
+          carried.lostTitles.join('、') + (carried.lost > carried.lostTitles.length ? ' 等' : ''),
+      );
+    } else if (carried.carried > 0) {
+      setReplanNote('已按小节标题保留 ' + carried.carried + ' 节的状态。');
+    }
+  }, [openTreeSourceId, trees, sourceService, orderSourceRoute, library]);
 
   /**
    * ⚠️ 下面这一组是**知识点级路线**（第一版，2026-11-21 白天做的）。
@@ -3286,6 +3352,7 @@ interface PlanDraft {
             onDelete={async () => {
               if (openTreeSourceId) await deleteTree(openTreeSourceId);
             }}
+            replanNote={replanNote}
           />
         ) : (
           <MapHomePage

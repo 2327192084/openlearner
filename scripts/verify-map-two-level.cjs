@@ -333,6 +333,55 @@ const rec = (n, ok, x) => {
         !!confirmCheck?.dialogAppeared, confirmCheck?.dialogText);
     rec('确认框关掉后状态正常（没真删）', !!confirmCheck?.closedAfterCancel);
 
+    /* ---------- 重新生成：接线与文案（不真跑 AI） ---------- */
+    /*
+     * ⚠️ 这里**验不了"保留勾选"的完整链路**，如实说明原因：
+     *
+     * 重新生成要调真实模型，而隔离副本里没有配置任何 AI 后端
+     * （实测 backends=0、secrets=0）。假模型也补不了 ——
+     * 桌面端走 preload 桥（`window.openleaner.chat`），不碰页面 fetch，
+     * 项目文档里记过两次这个坑。
+     *
+     * 所以这里只验**能验的部分**：
+     *  - 按钮存在、文案说清是"整张地图"
+     *  - 点了会弹确认框，且确认框文案说的是"尽量保留"而不是"会清掉"
+     *
+     * 「按标题保留」的逻辑由 42 条单测守（`carryTaskProgress`，含反向验证：
+     * 改成按位置硬搬 → 2 条红）。**不在这里假装验过。**
+     */
+    const regenUi = await ev(`(async () => {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const btn = [...document.querySelectorAll(".rtree__actions button")]
+        .find((b) => (b.textContent || "").includes("重新生成"));
+      if (!btn) return { hasBtn: false };
+      const label = (btn.textContent || "").trim();
+      btn.click();
+      await sleep(900);
+      const dlg = document.querySelector('[role="dialog"]');
+      const text = dlg ? (dlg.textContent || "").replace(/\s+/g, " ") : "";
+      /* 关掉，别真触发（副本里没后端，点了只会报错） */
+      const cancel = dlg ? [...dlg.querySelectorAll("button")]
+        .find((b) => (b.textContent || "").trim() === "取消") : null;
+      if (cancel) cancel.click();
+      await sleep(400);
+      return {
+        hasBtn: true,
+        label,
+        dialogAppeared: !!dlg,
+        text: text.slice(0, 200),
+        closed: document.querySelectorAll('[role="dialog"]').length === 0,
+      };
+    })()`);
+    console.log('重新生成（只验接线）=', JSON.stringify(regenUi, null, 1));
+    await shot('03-regen-confirm.png');
+
+    rec('有「重新生成这张地图」按钮', !!regenUi?.hasBtn, regenUi?.label);
+    rec('**确认框文案说「尽量保留」而不是「会被清掉」**',
+        /尽量|保留/.test(regenUi?.text || '') && !/会被清掉/.test(regenUi?.text || ''),
+        (regenUi?.text || '').slice(0, 120));
+    rec('点重新生成会弹确认框', !!regenUi?.dialogAppeared);
+    rec('取消后状态正常', !!regenUi?.closed);
+
     /* ---------- 点返回 → 回一级页 ---------- */
     await ev(`(() => {
       const b = document.querySelector(".map-tree-page__back");

@@ -43,6 +43,13 @@ export interface MapTreePageProps {
   onReplan: () => Promise<void>;
   /** 删掉这张地图（回到一级页） */
   onDelete: () => Promise<void>;
+  /**
+   * 上一次「重新生成」的结果说明（保住了几节、丢了哪几节）。
+   *
+   * 由 App 算好传进来：它才知道搬了几条。这里只负责如实显示 ——
+   * 悄悄把丢失吞掉等于骗用户。
+   */
+  replanNote?: string | null;
 }
 
 export function MapTreePage(props: MapTreePageProps) {
@@ -56,6 +63,7 @@ export function MapTreePage(props: MapTreePageProps) {
     onGoPractice,
     onReplan,
     onDelete,
+    replanNote,
   } = props;
 
   const [busy, setBusy] = useState(false);
@@ -73,6 +81,14 @@ export function MapTreePage(props: MapTreePageProps) {
           {sourceTitle}
         </span>
       </div>
+
+      {/*
+        * 重新生成后的结果如实显示。
+        * 有丢失时说清丢的是哪几节 —— 只说个数字等于让用户自己比对。
+        */}
+      {replanNote ? (
+        <p className="map-tree-page__note">{replanNote}</p>
+      ) : null}
 
       <RouteTree
         tree={tree}
@@ -96,8 +112,9 @@ export function MapTreePage(props: MapTreePageProps) {
           title="重新生成这张地图？"
           description={
             <>
-              AI 会按资料重新排一遍章节。<b>这一节上勾过的任务会被清掉</b>
-              （新旧小节对不上，没法把旧勾选搬过去）。资料本身不动。
+              AI 会按资料重新排一遍章节。<b>勾过的任务会尽量按小节标题保留</b>
+              （同名小节的状态会搬过去；新结构里找不到同名小节的会丢，之后会告诉你丢了哪几节）。
+              资料本身不动。
             </>
           }
           confirmLabel="重新生成"

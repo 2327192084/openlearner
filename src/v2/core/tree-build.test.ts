@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SourceRoute } from '@/core/ai/source-route.ts';
 import type { SourceSegment } from '@/core/model.ts';
-import { buildTreeFromRoute, prereqNote, rebuildSections } from './tree-build.ts';
+import { buildTreeFromRoute, carryTaskProgress, prereqNote, rebuildSections } from './tree-build.ts';
 import { emptyTasks, type ChapterNode, type SourceTree } from './source-tree.ts';
 
 /**
@@ -677,5 +677,256 @@ describe('⚠️ 同章号多步不能重复吃同一批小节（截图发现的
     const ch2 = built.tree.chapters.find((c) => c.number === 2)!;
     expect(ch1.sections.map((s) => s.title)).toEqual(['1.1 甲一', '1.2 甲二']);
     expect(ch2.sections.map((s) => s.title)).toEqual(['1. 乙一', '2. 乙二']);
+  });
+});
+
+/* ==========================================================================
+ * 「重新生成地图」保留勾选（2026-11-22 下午）
+ * ========================================================================== */
+
+function secNode(over: Partial<import('./source-tree.ts').SectionNode> = {}) {
+  return {
+    id: 'sec_' + Math.random().toString(36).slice(2, 8),
+    title: '1.1 一',
+    segmentIds: ['seg-1'],
+    origin: 'heading' as const,
+    tasks: {
+      resources: [],
+      resourceDone: false,
+      flashcardsDone: false,
+      exerciseDone: false,
+      custom: [],
+    },
+    ...over,
+  };
+}
+
+function treeOf(sections: ReturnType<typeof secNode>[]): import('./source-tree.ts').SourceTree {
+  return {
+    subject: '信号与系统',
+    edition: '第二版',
+    sourceId: 'src-1',
+    chapters: [
+      {
+        number: 1,
+        title: '第1章 甲',
+        prerequisites: [],
+        prereqReason: '',
+        difficulty: 2,
+        basis: 'toc' as const,
+        sections,
+      },
+    ],
+    beyond: [],
+    usedSearch: false,
+    droppedOutOfScope: 0,
+    savedAt: '2026-11-22T10:00:00.000Z',
+  };
+}
+
+describe('carryTaskProgress：重新生成时保留勾选', () => {
+  /**
+   * 用户原话：「可以改成那样」（保留已完成小节的状态）。
+   *
+   * 关键在于：AI 重排后章节结构会变，但资料里的小节标题是原文、
+   * 跨次稳定 —— 所以按标题对齐。对不上的**绝不能安到别的节上**。
+   */
+  it('同名小节的三项勾选搬过去', () => {
+    const prev = treeOf([
+      secNode({
+        title: '1.1 连续时间信号',
+        tasks: {
+          resources: [],
+          resourceDone: true,
+          flashcardsDone: true,
+          exerciseDone: false,
+          custom: [],
+        },
+      }),
+    ]);
+    const next = treeOf([secNode({ title: '1.1 连续时间信号' })]);
+
+    const r = carryTaskProgress(next, prev);
+    expect(r.carried).toBe(1);
+    expect(r.lost).toBe(0);
+    expect(r.tree.chapters[0]!.sections[0]!.tasks.resourceDone).toBe(true);
+    expect(r.tree.chapters[0]!.sections[0]!.tasks.flashcardsDone).toBe(true);
+    expect(r.tree.chapters[0]!.sections[0]!.tasks.exerciseDone).toBe(false);
+  });
+
+  it('标题里的空格差异不影响对齐（「1.1 一」vs「1.1  一」）', () => {
+    const prev = treeOf([
+      secNode({
+        title: '1.1  连续时间信号',
+        tasks: {
+          resources: [],
+          resourceDone: true,
+          flashcardsDone: false,
+          exerciseDone: false,
+          custom: [],
+        },
+      }),
+    ]);
+    const next = treeOf([secNode({ title: '1.1 连续时间信号' })]);
+    expect(carryTaskProgress(next, prev).carried).toBe(1);
+  });
+
+  it('自定义任务（含 done）搬过去', () => {
+    const prev = treeOf([
+      secNode({
+        title: '1.1 一',
+        tasks: {
+          resources: [],
+          resourceDone: false,
+          flashcardsDone: false,
+          exerciseDone: false,
+          custom: [{ id: 'c1', text: '看第 3 讲', done: true }],
+        },
+      }),
+    ]);
+    const next = treeOf([secNode({ title: '1.1 一' })]);
+    const r = carryTaskProgress(next, prev);
+    expect(r.tree.chapters[0]!.sections[0]!.tasks.custom).toEqual([
+      { id: 'c1', text: '看第 3 讲', done: true },
+    ]);
+  });
+
+  it('⚠️ 只搬手工加的资源，联网搜的不搬（会和新结果混）', () => {
+    const prev = treeOf([
+      secNode({
+        title: '1.1 一',
+        tasks: {
+          resources: [
+            { id: 'r1', title: '手工的', url: 'https://a.com', source: 'manual' },
+            { id: 'r2', title: '搜来的', url: 'https://b.com', source: 'search' },
+          ],
+          resourceDone: true,
+          flashcardsDone: false,
+          exerciseDone: false,
+          custom: [],
+        },
+      }),
+    ]);
+    const next = treeOf([secNode({ title: '1.1 一' })]);
+    const got = carryTaskProgress(next, prev).tree.chapters[0]!.sections[0]!.tasks.resources;
+    expect(got).toHaveLength(1);
+    expect(got[0]!.source).toBe('manual');
+  });
+
+  it('⚠️ 对不上就不搬，且绝不把 A 的状态安到 B 上', () => {
+    const prev = treeOf([
+      secNode({
+        title: '1.1 旧的标题',
+        tasks: {
+          resources: [],
+          resourceDone: true,
+          flashcardsDone: true,
+          exerciseDone: true,
+          custom: [],
+        },
+      }),
+    ]);
+    const next = treeOf([secNode({ title: '1.1 全新的标题' })]);
+    const r = carryTaskProgress(next, prev);
+    /* 新树仍是全未勾 —— 没有把旧的勾选安过去 */
+    expect(r.tree.chapters[0]!.sections[0]!.tasks.resourceDone).toBe(false);
+    expect(r.carried).toBe(0);
+    /* 但如实报告丢了 1 节 */
+    expect(r.lost).toBe(1);
+    expect(r.lostTitles).toEqual(['1.1 旧的标题']);
+  });
+
+  it('部分对上部分对不上 → 各算各的', () => {
+    const prev = treeOf([
+      secNode({
+        title: '1.1 能对上',
+        tasks: {
+          resources: [],
+          resourceDone: true,
+          flashcardsDone: false,
+          exerciseDone: false,
+          custom: [],
+        },
+      }),
+      secNode({
+        title: '1.2 对不上',
+        tasks: {
+          resources: [],
+          resourceDone: true,
+          flashcardsDone: false,
+          exerciseDone: false,
+          custom: [],
+        },
+      }),
+    ]);
+    const next = treeOf([secNode({ title: '1.1 能对上' }), secNode({ title: '1.9 新的' })]);
+    const r = carryTaskProgress(next, prev);
+    expect(r.carried).toBe(1);
+    expect(r.lost).toBe(1);
+    expect(r.tree.chapters[0]!.sections[0]!.tasks.resourceDone).toBe(true);
+    expect(r.tree.chapters[0]!.sections[1]!.tasks.resourceDone).toBe(false);
+  });
+
+  it('⚠️ 没有痕迹的小节不算「丢失」（否则新地图会被报丢 26 节）', () => {
+    const prev = treeOf([secNode({ title: '1.1 没动过' }), secNode({ title: '1.2 也没动' })]);
+    const next = treeOf([secNode({ title: '1.9 全新' })]);
+    const r = carryTaskProgress(next, prev);
+    expect(r.lost).toBe(0);
+    expect(r.lostTitles).toEqual([]);
+  });
+
+  it('旧树为 null → 原样返回新树（第一次创建地图）', () => {
+    const next = treeOf([secNode({ title: '1.1 一' })]);
+    const r = carryTaskProgress(next, null);
+    expect(r.carried).toBe(0);
+    expect(r.lost).toBe(0);
+    expect(r.tree).toBe(next);
+  });
+
+  it('新树为空 → 不崩，旧痕迹全算丢失', () => {
+    const prev = treeOf([
+      secNode({
+        title: '1.1 一',
+        tasks: {
+          resources: [],
+          resourceDone: true,
+          flashcardsDone: false,
+          exerciseDone: false,
+          custom: [],
+        },
+      }),
+    ]);
+    const next = treeOf([]);
+    const r = carryTaskProgress(next, prev);
+    expect(r.carried).toBe(0);
+    expect(r.lost).toBe(1);
+  });
+
+  it('搬过去的小节 id 用的是新树的（不与旧 id 撞）', () => {
+    const prev = treeOf([
+      secNode({
+        id: 'old_id',
+        title: '1.1 一',
+        tasks: {
+          resources: [],
+          resourceDone: true,
+          flashcardsDone: false,
+          exerciseDone: false,
+          custom: [],
+        },
+      }),
+    ]);
+    const next = treeOf([secNode({ id: 'new_id', title: '1.1 一' })]);
+    const r = carryTaskProgress(next, prev);
+    expect(r.tree.chapters[0]!.sections[0]!.id).toBe('new_id');
+  });
+
+  it('章的结构（章号/标题/难度）用新树的，不被旧树覆盖', () => {
+    const prev = treeOf([secNode({ title: '1.1 一' })]);
+    prev.chapters[0]!.title = '旧的章名';
+    const next = treeOf([secNode({ title: '1.1 一' })]);
+    next.chapters[0]!.title = '新的章名';
+    const r = carryTaskProgress(next, prev);
+    expect(r.tree.chapters[0]!.title).toBe('新的章名');
   });
 });

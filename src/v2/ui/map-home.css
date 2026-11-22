@@ -245,3 +245,21 @@
 .app .maphome-field__input {
   color: var(--text);
 }
+/* ==========================================================================
+ * 「重新生成」的结果说明（2026-11-22 下午）
+ *
+ * 搬过去几节、丢了哪几节 —— 必须看得见。悄悄吞掉丢失等于骗用户。
+ * ========================================================================== */
+
+@layer study.features {
+  .map-tree-page__note {
+    margin: 0 0 var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: var(--lh-body);
+    border-left: 2px solid var(--info);
+    background: var(--bg-sunken);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  }
+}

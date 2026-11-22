@@ -342,3 +342,145 @@ export function prereqNote(
 
   return { chapters: valid, text };
 }
+/* ==========================================================================
+ * 「重新生成地图」时保留已勾选的任务（2026-11-22 下午）
+ * ========================================================================== */
+
+/**
+ * 把旧树上「用户勾过的痕迹」按**小节标题**搬到新树上。
+ *
+ * ## 为什么需要它
+ *
+ * 用户原来被告知「重新生成会清掉勾选」。他选了改成"能保留就保留" ——
+ * 这个函数就是那一半。
+ *
+ * ## 为什么按标题对上
+ *
+ * AI 重新排一次，章节结构会变（章号/顺序都可能不同），但资料里的
+ * **小节标题是原文**（`1.1 连续时间和离散时间信号`），跨次稳定。
+ * 所以按标题归一后对齐，是唯一有依据的对法。
+ *
+ * ## ⚠️ 对不上就不搬，绝不安到别的节上
+ *
+ * 把 A 的勾选安到 B 上，比丢掉更糟 —— 用户会以为"我明明没勾这个"。
+ * 所以对不上的一律按新小节处理（全未勾），并在返回值里如实计数。
+ *
+ * ## 搬什么
+ *
+ * 搬的是**用户的劳动成果**：
+ *  - 三项勾选（resourceDone / flashcardsDone / exerciseDone）
+ *  - 自定义任务（连同它的 done 状态）
+ *  - 手工加的资源链接
+ *
+ * 不搬 `resources` 里 `source: 'search'` 的那些 —— 那是上次联网搜来的，
+ * 这次重新规划会重新搜，留着会和新结果混在一起。手工加的必须留
+ *（那是用户自己粘进来的链接，丢了找不回来）。
+ */
+export interface CarryResult {
+  /** 搬过去的树 */
+  tree: SourceTree;
+  /** 有多少个旧小节的状态被搬到了新树上 */
+  carried: number;
+  /** 旧树里有勾选痕迹、但新树找不到同名小节的个数 */
+  lost: number;
+  /**
+   * 旧树里有勾选痕迹但没搬过去的小节标题（给用户看，最多 20 条）。
+   *
+   * 为什么要给标题而不是只给个数：用户想知道"丢的是哪几节"，
+   * 只报"N 节"等于让他自己去比对。
+   */
+  lostTitles: string[];
+}
+
+/**
+ * 判断一个小节有没有「值得搬的痕迹」。
+ *
+ * 全未勾、无自定义、无手工资源 = 没有痕迹，不用搬（也不用报丢失）。
+ * 不这样判的话，一个全新地图重新生成会被报"丢了 26 节"——那是假的。
+ */
+function hasTrace(s: SectionNode): boolean {
+  const t = s.tasks;
+  return (
+    t.resourceDone ||
+    t.flashcardsDone ||
+    t.exerciseDone ||
+    t.custom.length > 0 ||
+    t.resources.some((r) => r.source === 'manual')
+  );
+}
+
+/** 标题归一（与 `sectionTitleKey` 同一套规则） */
+function normTitle(title: string): string {
+  return title.replace(/\s+/g, '').trim();
+}
+
+/**
+ * 把旧树的勾选状态搬到新树上。
+ *
+ * @param next 新排出来的树（任务全是空的）
+ * @param prev 旧树（用户勾过的）
+ */
+export function carryTaskProgress(next: SourceTree, prev: SourceTree | null): CarryResult {
+  if (!prev) {
+    return { tree: next, carried: 0, lost: 0, lostTitles: [] };
+  }
+
+  /* 旧树：标题 → 小节。同一标题出现多次时保留第一个（不猜别的） */
+  const prevByTitle = new Map<string, SectionNode>();
+  const traceTitles = new Map<string, string>(); // 归一 → 原样标题（报丢失时给人看）
+  for (const ch of prev.chapters) {
+    for (const sec of ch.sections) {
+      const k = normTitle(sec.title);
+      if (!k) continue;
+      if (!prevByTitle.has(k)) {
+        prevByTitle.set(k, sec);
+        if (hasTrace(sec)) traceTitles.set(k, sec.title);
+      }
+    }
+  }
+
+  /* 新树：逐节看能不能对上 */
+  const carriedKeys = new Set<string>();
+  let carried = 0;
+
+  const chapters = next.chapters.map((ch) => ({
+    ...ch,
+    sections: ch.sections.map((sec) => {
+      const k = normTitle(sec.title);
+      const old = k ? prevByTitle.get(k) : undefined;
+      if (!old) return sec;
+      if (!hasTrace(old)) return sec; // 没痕迹，不用搬（也不算丢失）
+
+      carriedKeys.add(k);
+      carried += 1;
+
+      return {
+        ...sec,
+        tasks: {
+          /*
+           * 资源：只搬用户手工加的那些。
+           * 联网搜的会被这次重新规划取代，留着会和新结果混。
+           */
+          resources: old.tasks.resources
+            .filter((r) => r.source === 'manual')
+            .map((r) => ({ ...r })),
+          resourceDone: old.tasks.resourceDone,
+          flashcardsDone: old.tasks.flashcardsDone,
+          exerciseDone: old.tasks.exerciseDone,
+          custom: old.tasks.custom.map((c) => ({ ...c })),
+        },
+      };
+    }),
+  }));
+
+  /* 有痕迹但对不上的 = 真丢了 */
+  const lostKeys = [...traceTitles.keys()].filter((k) => !carriedKeys.has(k));
+  const lostTitles = lostKeys.slice(0, 20).map((k) => traceTitles.get(k) ?? k);
+
+  return {
+    tree: { ...next, chapters },
+    carried,
+    lost: lostKeys.length,
+    lostTitles,
+  };
+}
