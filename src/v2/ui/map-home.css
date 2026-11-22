@@ -1,0 +1,247 @@
+/**
+ * 学习地图两级页面的样式（2026-11-22 下午）。
+ *
+ * 类名前缀：
+ *  - `map-home` / `maphome-` —— 一级页（选资料）
+ *  - `map-tree-page` —— 二级页外壳（返回栏 + 树）
+ *
+ * 树本身的样式在 `route-tree.css`（`rtree-` / `rsdetail-`）。
+ *
+ * ## 为什么一级页每行把动作放右侧竖排
+ *
+ * 一行里要放「科目输入 + 联网勾选 + 创建按钮」三样。横着排会把
+ * 资料标题挤到很窄（资料标题常常 30+ 字，如
+ * 「信号与系统（第二版）第1章 信号与系统 正文（不含习题）」）。
+ * 所以左边整块给标题与元信息，右边一列放动作。
+ */
+
+@layer study.features {
+  /* ==================== 一级页 ==================== */
+
+  .map-home {
+    max-width: var(--page-max);
+    padding: var(--space-6) var(--space-5);
+  }
+
+  .map-home__head {
+    margin-bottom: var(--space-5);
+  }
+
+  .map-home__title {
+    font-size: var(--fs-2xl);
+    color: var(--text);
+    margin: 0 0 var(--space-2);
+    font-weight: 600;
+  }
+
+  .map-home__lead {
+    font-size: var(--fs-sm);
+    color: var(--text-dim);
+    line-height: var(--lh-body);
+    max-width: 720px;
+    margin: 0;
+  }
+
+  .map-home__empty {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+    line-height: var(--lh-body);
+    padding: var(--space-5);
+    border: 1px dashed var(--line);
+    border-radius: var(--radius-card);
+    background: var(--bg-sunken);
+  }
+
+  .map-home__foot {
+    margin-top: var(--space-4);
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    line-height: var(--lh-body);
+  }
+
+  /* ---------- 资料行 ---------- */
+
+  .map-home__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .maphome-row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-card);
+    background: var(--bg-surface);
+    transition: border-color 160ms ease;
+  }
+
+  .maphome-row:hover {
+    border-color: var(--line-strong);
+  }
+
+  /* 已有地图的行用 accent 左边条标记 —— 一眼看出哪些做过了 */
+  .maphome-row--has {
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+
+  .maphome-row__main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .maphome-row__head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-1);
+  }
+
+  .maphome-row__title {
+    font-size: var(--fs-md);
+    font-weight: 600;
+    color: var(--text);
+    line-height: var(--lh-snug);
+  }
+
+  .maphome-row__badge {
+    flex: none;
+    font-size: var(--fs-xs);
+    color: var(--accent-text);
+    border: 1px solid currentColor;
+    border-radius: var(--radius-xs);
+    padding: 0 5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .maphome-row__meta {
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    line-height: var(--lh-body);
+  }
+
+  /*
+   * 未解析完的提示：用 warn 色，但**不是禁用样式**。
+   * 方案第八节 / 用户要求：只提示不拦，按钮始终可点。
+   */
+  .maphome-row__warn {
+    margin: var(--space-2) 0 0;
+    font-size: var(--fs-xs);
+    color: var(--warn);
+    line-height: var(--lh-body);
+    padding-left: var(--space-2);
+    border-left: 2px solid var(--warn);
+  }
+
+  /* ---------- 行内动作 ---------- */
+
+  .maphome-row__actions {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+    width: 200px;
+  }
+
+  .maphome-field {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .maphome-field__label {
+    flex: none;
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+  }
+
+  .maphome-field__input {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--fs-sm);
+  }
+
+  .maphome-check {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  .maphome-check input {
+    flex: none;
+    cursor: pointer;
+  }
+
+  .maphome-check:has(input:disabled) {
+    color: var(--text-faint);
+    cursor: default;
+  }
+
+  /* ==================== 二级页外壳 ==================== */
+
+  .map-tree-page {
+    max-width: var(--page-max);
+    padding: var(--space-5);
+  }
+
+  .map-tree-page__bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+    min-width: 0;
+  }
+
+  .map-tree-page__back {
+    flex: none;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: var(--fs-sm);
+    padding: var(--space-1) var(--space-3);
+    cursor: pointer;
+    transition: border-color 160ms ease, color 160ms ease;
+  }
+
+  .map-tree-page__back:hover {
+    border-color: var(--line-strong);
+    color: var(--text);
+  }
+
+  .map-tree-page__crumb {
+    font-size: var(--fs-sm);
+    color: var(--text-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+}
+
+/* ==========================================================================
+ * ⚠️ 层外：base.css 的 `button { color: inherit }` 不在任何层里，
+ * 层内写的 color 一律无效。返回按钮的文字色必须在这里写。
+ * ========================================================================== */
+
+.app .map-tree-page__back {
+  color: var(--text-muted);
+}
+
+.app .map-tree-page__back:hover {
+  color: var(--text);
+}
+
+.app .maphome-field__input {
+  color: var(--text);
+}

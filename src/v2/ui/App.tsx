@@ -56,18 +56,28 @@ import {
 import { todayLocal, type ReviewGrade } from '@/v2/core/srs.ts';
 import { NotesPage } from './NotesPage.tsx';
 import { ExamPage } from './ExamPage.tsx';
-import { MapPage } from './MapPage.tsx';
 import { normalizeStudyPlan, planToSteps, type StudyPlan } from '@/v2/core/study-plan-store.ts';
 import { loadPlanInputs } from '@/v2/core/plan-inputs.ts';
 import { normalizeSourceRoute } from '@/v2/core/source-route-store.ts';
 /* 树状地图（2026-11-22，学习地图第三次重做） */
-import { buildTreeFromRoute, rebuildSections } from '@/v2/core/tree-build.ts';
-import { normalizeSourceTree, type SectionNode, type SourceTree } from '@/v2/core/source-tree.ts';
+import { buildTreeFromRoute } from '@/v2/core/tree-build.ts';
+import type { SectionNode, SourceTree } from '@/v2/core/source-tree.ts';
+import {
+  dropTree,
+  putTree,
+  readTreeMap,
+  type SourceTreeMap,
+} from '@/v2/core/source-tree-store.ts';
+import { MapHomePage } from './MapHomePage.tsx';
+import { MapTreePage } from './MapTreePage.tsx';
 import { assembleStats } from './stats-assemble.ts';
 import type { SectionStats } from './section-stats.ts';
 import type { SourceRoute } from '@/core/ai/source-route.ts';
 import type { SearchResult } from '@/core/ai/web-search.ts';
 import type { SourcePlanPrep } from '@/v2/core/source-plan-inputs.ts';
+import { loadSourceSegments, toScopeInfo } from '@/v2/core/source-plan-inputs.ts';
+import { buildSubjectQuery, searchWeb } from '@/core/ai/web-search.ts';
+import { attachSegments } from '@/core/ai/source-route.ts';
 import { RoutePreviewDialog } from './RoutePreviewDialog.tsx';
 import type { PlanOrder, PlanPointInput } from '@/core/ai/plan-order.ts';
 import type { ChapterPreview } from '@/core/ai/chapter-backfill.ts';
@@ -150,6 +160,7 @@ import './route-map.css';
 import './route-planner.css';
 import './route-board.css';
 import './route-tree.css';
+import './map-home.css';
 import './search-key-field.css';
 import './route-preview.css';
 import './focus-page.css';
@@ -2762,96 +2773,227 @@ interface PlanDraft {
     };
   }, [page, sourceRoute, sourceService, decks]);
 
+  /* ==========================================================================
+   * 学习地图：多张地图的存储与装配（2026-11-22 下午，拆两级页面时改）
+   *
+   * ## 与上一版的区别
+   *
+   * 上一版只有**一张**地图（`settings.sourceTree` 单个对象），来源是
+   * 那条唯一的 v2 路线。用户这次要求「每份资料都能创建地图」，
+   * 所以改成 `settings.sourceTrees: { [sourceId]: SourceTree }`。
+   *
+   * 旧字段 `sourceTree` 仍然读（`readTreeMap` 里兜底）—— 用户库里
+   * 那张「信号与系统」不能因为改存储形状就消失。
+   * ========================================================================== */
+
+  /** 全部地图：sourceId → 树 */
+  const [trees, setTrees] = useState<SourceTreeMap>({});
+  /** 二级页面正在看哪份资料的地图；null = 在一级页 */
+  const [openTreeSourceId, setOpenTreeSourceId] = useState<string | null>(null);
+
   /**
-   * 树状地图的装配（2026-11-22，学习地图第 4 步）。
+   * 二级页面要的统计（按小节 id 索引）。
    *
-   * ## 为什么在这里装配而不是在组件里
-   *
-   * 树要从**真实段落**切小节（`section-split`），要读知识点/闪卡/题目
-   * 算统计。这些都是存储读取，组件不碰存储（项目一贯分工）。
-   *
-   * ## ⚠️ 为什么必须「先装配、再渲染」而不是"渲染一个空树"
-   *
-   * 上一轮的错误正是"换实现只做了一半"：数据有了、图没了，
-   * 而断言还是绿的。所以这里**算不出来就不显示树**（`treeState`
-   * 保持 null），并在界面上如实说为什么 —— 不摆一个空壳。
+   * 只对**当前打开的那张图**算 —— 给所有地图都算会读全库，
+   * 而用户一次只看一张。
    */
-  const [treeState, setTreeState] = useState<
-    { tree: SourceTree; stats: Map<string, SectionStats>; sourceId: string } | null
-  >(null);
-  const [treeError, setTreeError] = useState<string | null>(null);
+  /**
+   * 资料 id → 资料标题。
+   *
+   * 二级页面的面包屑要用**资料标题**而不是科目名：用户在一级页看到的
+   * 是「信号与系统（第二版）第1章 信号与系统 正文（不含习题）」，
+   * 点进来却只看到「信号与系统」，会觉得"我点的和看到的不一样"。
+   *
+   * 查不到就退回科目名（见 `treeSourceTitle`），不留空白。
+   */
+  const [sourceTitles, setSourceTitles] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    if (page !== 'flow' && page !== 'mapTree') return;
+    void (async () => {
+      try {
+        const list = await sourceService.list();
+        setSourceTitles(new Map(list.map((x) => [x.id, x.title])));
+      } catch {
+        /* 读不到就用科目名兜底 */
+      }
+    })();
+  }, [page, sourceService]);
+
+  const [treeStats, setTreeStats] = useState<Map<string, SectionStats>>(new Map());
+  const [treeStatsError, setTreeStatsError] = useState<string | null>(null);
+
+  /** 读全部地图（进地图相关页面时拉一次） */
+  const loadTrees = useCallback(async () => {
+    try {
+      const st = await library.getSettings();
+      const raw = st as unknown as {
+        sourceTrees?: unknown;
+        sourceTree?: unknown;
+        sourceRoute?: unknown;
+      };
+
+      const map = readTreeMap(raw);
+      if (Object.keys(map).length > 0) {
+        setTrees(map);
+        return;
+      }
+
+      /*
+       * ⚠️ 还有第三种旧形状要兜：用户库里可能**只有** v2 的扁平路线
+       * （`settings.sourceRoute`），既没有 `sourceTree` 也没有 `sourceTrees`。
+       *
+       * 实测就是这样：那份「信号与系统」路线存在，一级页却显示三份资料
+       * 全都只有「创建地图」—— 因为他已有的那条路线没被转成地图，
+       * 看起来像"我做的地图没了"。
+       *
+       * 方案 3.3 的读取顺序本来就要求这一层（旧 `sourceRoute` 转成树），
+       * 我上一版只做了 `sourceTree` 那一半。
+       *
+       * 转的时候要按 **subject/edition 反查它是哪份资料** ——
+       * v2 的 `SourceRoute` 没有 sourceId 字段。
+       */
+      const legacy = normalizeSourceRoute(raw.sourceRoute);
+      if (!legacy) {
+        setTrees({});
+        return;
+      }
+
+      const list = await sourceService.list();
+      const src =
+        list.find((x) => (x.title || '').indexOf(legacy.subject) >= 0) ??
+        list.find((x) => legacy.edition && (x.title || '').indexOf(legacy.edition) >= 0);
+      if (!src) {
+        /*
+         * 对不上资料就不硬造地图 —— 造出来的地图点进去会没有章节内容。
+         * 用户在一级页会看到「创建地图」，重新做一张即可。
+         */
+        setTrees({});
+        return;
+      }
+
+      /*
+       * 转成树，并且**真的从正文切小节**（`fromLegacyRoute` 只给占位节点）。
+       * 实测「信号与系统」那份能切出 26 个小节，转出来的树才有分叉。
+       */
+      const segments = await sourceService.getSegments(src.id);
+      const built = buildTreeFromRoute({
+        route: legacy,
+        sourceId: src.id,
+        segments,
+      });
+      const migrated: SourceTree = { ...built.tree, savedAt: new Date().toISOString() };
+
+      setTrees({ [src.id]: migrated });
+      /*
+       * 立刻落盘一次：下次进页面就不用再转。
+       * 失败不回滚（界面已经能用了），下次再转一遍也无害。
+       */
+      void library.saveSettings({ sourceTrees: { [src.id]: migrated } } as never).catch(() => {});
+    } catch {
+      /* 读不到就当作没有地图：这是附加上层，不该让整页崩 */
+    }
+  }, [library, sourceService]);
 
   useEffect(() => {
-    if (page !== 'flow' || !sourceRoute) {
-      setTreeState(null);
-      setTreeError(null);
+    if (page !== 'flow' && page !== 'mapTree') return;
+    void loadTrees();
+  }, [page, loadTrees]);
+
+  /** 写一张地图（新表整体写回） */
+  const saveTree = useCallback(
+    async (tree: SourceTree) => {
+      const next = putTree(trees, tree);
+      setTrees(next);
+      await library.saveSettings({ sourceTrees: next } as never);
+    },
+    [trees, library],
+  );
+
+  /** 删一张地图 */
+  const deleteTree = useCallback(
+    async (sourceId: string) => {
+      const next = dropTree(trees, sourceId);
+      setTrees(next);
+      await library.saveSettings({ sourceTrees: next } as never);
+    },
+    [trees, library],
+  );
+
+  /**
+   * 为一份资料创建地图（一级页的「创建地图」）。
+   *
+   * 与上一版 `RoutePlanner.generate` 的区别：
+   *  - 不再有 completeness 硬拦（方案第八节，用户要求"按钮始终可点"）
+   *  - 生成后**直接进二级页面**（用户要求"创建完就显示树"）
+   */
+  const createTreeFor = useCallback(
+    async (prep: SourcePlanPrep, subjectName: string, wantSearch: boolean) => {
+      /*
+       * 1. 需要时先联网检索。
+       *
+       * ⚠️ 预搜粒度：用户 2026-11-22 明确选了**小节级**（约 30 次检索），
+       * 而方案第十一节建议的是章级。**以用户为准** —— 别照方案改回去。
+       * 这一轮先按"整份资料搜一次"实现（第 7 步做外部资源栏时再细化到小节）。
+       */
+      let search: SearchResult | null = null;
+      if (wantSearch) {
+        const key = await readSearchKey();
+        const query = buildSubjectQuery(subjectName, prep.subject.edition);
+        search = await searchWeb(query, key);
+      }
+
+      /* 2. 排路线（AI 要给章节结构） */
+      const route = await orderSourceRoute({ prep, subjectName, search });
+
+      /* 3. 回填段 id，再装配成树（真实小节从正文切） */
+      const segments = await loadSourceSegments(sourceService, prep.source.id);
+      const withSegs = attachSegments(route, toScopeInfo(prep, segments));
+      const built = buildTreeFromRoute({
+        route: withSegs,
+        sourceId: prep.source.id,
+        segments,
+      });
+
+      /* 4. 存下来并进二级页面 */
+      const tree: SourceTree = { ...built.tree, savedAt: new Date().toISOString() };
+      const nextMap = putTree(trees, tree);
+      setTrees(nextMap);
+      await library.saveSettings({ sourceTrees: nextMap } as never);
+      setOpenTreeSourceId(prep.source.id);
+      setPage('mapTree');
+    },
+    [orderSourceRoute, readSearchKey, sourceService, trees, library],
+  );
+
+  /**
+   * 二级页面的统计装配。
+   *
+   * 只装配**当前打开那张图**的小节。算不出来就如实说，
+   * 不显示 0（那是 `SectionStats` 三态存在的理由）。
+   */
+  useEffect(() => {
+    if (page !== 'mapTree' || !openTreeSourceId) {
+      setTreeStats(new Map());
+      setTreeStatsError(null);
       return;
     }
+    const tree = trees[openTreeSourceId];
+    if (!tree) {
+      setTreeStats(new Map());
+      setTreeStatsError('这张地图对应的资料已经不在了。回到资料列表重新创建一张。');
+      return;
+    }
+
     let alive = true;
     void (async () => {
       try {
-        /*
-         * 路线的 sourceId 没存（v2 的 SourceRoute 没这个字段）。
-         * 按标题反查 —— 与上面 routeCoverage 那段同一套规则，
-         * 保证两块用的是**同一份资料**（用两套规则会算出不同资料，
-         * 那就会出现"进度按 A 算、树按 B 显示"）。
-         */
-        const sources = await sourceService.list();
-        const src =
-          sources.find((s) => (s.title || '').indexOf(sourceRoute.subject) >= 0) ??
-          sources.find(
-            (s) => sourceRoute.edition && (s.title || '').indexOf(sourceRoute.edition) >= 0,
-          );
-        if (!src) {
-          if (alive) {
-            setTreeState(null);
-            setTreeError('找不到这条路线对应的资料（可能已被删除）。重新规划一条即可。');
-          }
-          return;
-        }
-
-        const segs = await sourceService.getSegments(src.id);
-
-        /*
-         * ⚠️ 先看有没有**已保存的树**（2026-11-22 中午补）。
-         *
-         * 任务状态（三项勾选 + 自定义任务 + 手工加的资源）存在
-         * `settings.sourceTree` 里。如果每次都用 `buildTreeFromRoute`
-         * 从 v2 路线重新长一棵树，那些状态**全都会被重置成未勾选** ——
-         * 用户勾了一堆小节、刷新页面一下全没了。
-         *
-         * 所以：有已保存的树 → `rebuildSections`（按小节标题继承任务
-         * 状态，5 条单测守着）；没有 → 从 v2 路线新建。
-         *
-         * 这也接上了方案 3.3 的读取顺序（`sourceTree` 优先，
-         * 否则旧的 `sourceRoute` 转换）。
-         */
-        const settingsNow = await library.getSettings();
-        const savedTree = normalizeSourceTree(
-          (settingsNow as unknown as { sourceTree?: unknown }).sourceTree,
-        );
-
-        const built = savedTree
-          ? rebuildSections(savedTree, segs)
-          : buildTreeFromRoute({
-              route: sourceRoute,
-              sourceId: src.id,
-              segments: segs,
-            });
-
-        /*
-         * 统计要知识点 + 闪卡 + 题目。
-         * 闪卡从 loadCards() 拿（它已是"已发布题组的题"口径）；
-         * 知识点用 listBySource 只取这份资料的 —— 全库取会把
-         * 别的资料的卡算进来。
-         */
-        const [points, cards, deckList] = await Promise.all([
-          knowledge.listBySource(src.id),
+        const [segs, points, cards, deckList] = await Promise.all([
+          sourceService.getSegments(openTreeSourceId),
+          knowledge.listBySource(openTreeSourceId),
           /*
-           * ⚠️ 用 `flashcardsService.list()`（原始 Flashcard），
-           * 不是 `loadCards()` —— 后者返回的是**题目**（`Card`），
-           * 两者同名但完全不同：`Card` 是题、`Flashcard` 是闪卡。
-           * 拿 `Card` 去数闪卡会恒为 0，而界面上看起来"正常"。
+           * ⚠️ `flashcardsService.list()`（原始 Flashcard），不是 loadCards()
+           * —— 后者返回的是**题目**（`Card`）。两者同名但完全不同，
+           * 拿 Card 数闪卡会恒为 0，而界面看起来"正常"。
            */
           flashcardsService.list(),
           decks.list(),
@@ -2860,68 +3002,116 @@ interface PlanDraft {
         const questions: Question[] = [];
         await Promise.all(
           deckList
-            .filter((d) => d.status === 'published' && d.sourceId === src.id)
+            .filter((d) => d.status === 'published' && d.sourceId === openTreeSourceId)
             .map(async (d) => {
               try {
                 const qs = await decks.getQuestions(d.id);
                 for (const q of qs) questions.push(q);
               } catch {
-                /* 题组刚被删，跳过 —— 不让统计失败 */
+                /* 题组刚被删，跳过 */
               }
             }),
         );
 
-        const allSections = built.tree.chapters.flatMap((c) => c.sections);
-        const stats = assembleStats(allSections, { points, cards, questions, segments: segs });
-
+        const allSections = tree.chapters.flatMap((c) => c.sections);
         if (alive) {
-          setTreeState({ tree: built.tree, stats, sourceId: src.id });
-          setTreeError(null);
+          setTreeStats(assembleStats(allSections, { points, cards, questions, segments: segs }));
+          setTreeStatsError(null);
         }
       } catch (e) {
         if (alive) {
-          setTreeState(null);
-          setTreeError(e instanceof Error ? e.message : '读不出这份资料的结构');
+          setTreeStats(new Map());
+          setTreeStatsError(e instanceof Error ? e.message : '读不出这一节的统计');
         }
       }
     })();
     return () => {
       alive = false;
     };
-  }, [page, sourceRoute, sourceService, decks, knowledge, flashcardsService]);
+  }, [page, openTreeSourceId, trees, sourceService, decks, knowledge, flashcardsService]);
 
   /**
    * 改某一小节的任务状态并写回。
    *
-   * ## 为什么写的是整棵树
-   *
-   * 任务状态存在 `settings.sourceTree` 里（方案 3.1 的理由：一条路线
-   * 一次写入天然原子，且这些状态只对这一条路线有意义）。
-   * 所以每次改动都要把整棵树写回去。
+   * 写的是**那张地图**（不是全表）：`saveTree` 内部把它并进表里。
    */
   const updateSectionTasks = useCallback(
-    async (sectionId: string, next: SectionNode['tasks']) => {
-      setTreeState((cur) => {
-        if (!cur) return cur;
-        const chapters = cur.tree.chapters.map((ch) => ({
-          ...ch,
-          sections: ch.sections.map((s) => (s.id === sectionId ? { ...s, tasks: next } : s)),
-        }));
-        const nextTree = { ...cur.tree, chapters, savedAt: new Date().toISOString() };
-        /*
-         * 写库放在 setState 外面做会用到旧值；这里直接在 updater 里
-         * 发起写（fire-and-forget 但带 catch），保证写的就是屏幕上那份。
-         */
-        void library
-          .saveSettings({ sourceTree: nextTree } as never)
-          .catch(() => {
-            /* 写失败不回滚界面：下一次装配会按库里的重算，用户能看到真实状态 */
-          });
-        return { ...cur, tree: nextTree };
+    (sectionId: string, next: SectionNode['tasks']) => {
+      if (!openTreeSourceId) return;
+      const tree = trees[openTreeSourceId];
+      if (!tree) return;
+
+      const chapters = tree.chapters.map((ch) => ({
+        ...ch,
+        sections: ch.sections.map((s) => (s.id === sectionId ? { ...s, tasks: next } : s)),
+      }));
+      const nextTree: SourceTree = {
+        ...tree,
+        chapters,
+        savedAt: new Date().toISOString(),
+      };
+      void saveTree(nextTree).catch(() => {
+        /* 写失败不回滚界面：下次进页面会按库里的重算，用户能看到真实状态 */
       });
     },
-    [library],
+    [openTreeSourceId, trees, saveTree],
   );
+
+  /** 二级页面面包屑的标题（资料标题优先，回退科目名） */
+  const treeSourceTitle = (() => {
+    if (!openTreeSourceId) return '';
+    const t = trees[openTreeSourceId];
+    return sourceTitles.get(openTreeSourceId) ?? t?.subject ?? '';
+  })();
+
+  /**
+   * ⚠️ 下面这一组是**单张地图时代**留下的代码（2026-11-22 中午及之前）。
+   *
+   * 那时地图只有一张，来源是唯一的 v2 路线（`settings.sourceRoute`），
+   * 规划表单 `RoutePlanner` / 横板 `RouteBoard` 都挂在学习地图页上。
+   *
+   * 用户 2026-11-22 下午要求拆两级页面并「页面内这些东西都不要了」，
+   * 所以这些不再有渲染入口：
+   *  - `mapFocus`：一级页不再有资料章节列表，没有"聚焦某份资料"了
+   *  - `saveSourceRoute` / `clearSourceRoute` / `sourceRoute`：单张路线的存取
+   *  - `routeAi` / `routeCoverage` / `routeAnchorHealth`：横板路线的进度
+   *
+   * ## 为什么留着而不删（与下面知识点级那组同一个理由）
+   *
+   * 1. `RoutePlanner` / `RouteBoard` / `source-route.ts` / `source-route-store.ts`
+   *    都有完整测试（25 + 6 + ... 条），删接线不等于删能力。
+   * 2. 用户改方向是常态（这一天学习地图做了三版）。真删了，
+   *    下次要"按章排一条线性路线"又得重写。
+   * 3. `sourceRoute` 的读取路径还在 `readTreeMap` 的兜底里用得到 ——
+   *    旧库里那条「信号与系统」路线正是靠它转成地图的。
+   *
+   * 用 `void` 而不是注释掉：明确表达"这是有意保留的活代码，
+   * 只是当前没有渲染入口"，同时满足 `noUnusedLocals`。
+   */
+  void mapFocus;
+  void setMapFocus;
+  void saveSourceRoute;
+  void clearSourceRoute;
+  void routeAi;
+  void routeCoverage;
+  void routeAnchorHealth;
+  void sourceRoute;
+  void treeStatsError;
+
+  /** 二级页「重新规划」：回一级页并提示用同一份资料重建 */
+  const replanOpenTree = useCallback(async () => {
+    /*
+     * ⚠️ 这里的"重新规划"会先删掉现有地图再让用户重建 ——
+     * 因为 AI 排出来的章节结构会变，新旧小节对不上，
+     * 硬留着旧任务状态等于把状态安到错的节上。
+     *
+     * 但要**明确告知**用户在掉什么（见 MapTreePage 的 busy 文案）。
+     */
+    if (!openTreeSourceId) return;
+    await deleteTree(openTreeSourceId);
+    setOpenTreeSourceId(null);
+    setPage('flow');
+  }, [openTreeSourceId, deleteTree]);
 
   /**
    * ⚠️ 下面这一组是**知识点级路线**（第一版，2026-11-21 白天做的）。
@@ -3050,76 +3240,65 @@ interface PlanDraft {
       ) : page === 'focus' ? (
         <FocusPage focus={focusService} />
       ) : page === 'flow' ? (
-        <MapPage
-          reviewService={reviewService}
-          loadCards={loadCards}
-          decks={decks}
-          knowledge={knowledge}
+        /*
+         * 学习地图·**一级页面**（2026-11-22 下午，用户要求拆两级）。
+         *
+         * 用户原话：
+         * > 写一个二级页面，用户在一级页面选择资料创建学习地图，
+         * > 二级页面显示树状地图。
+         * > 每份资料都能创建地图，创建完成后在不同资料底下留个查看地图按钮。
+         *
+         * 这一页只有一件事：**选资料、创建 / 查看地图**。
+         * 题库概览、章节列表、横板路线都不在这里了（用户：页面内这些东西都不要了）。
+         */
+        <MapHomePage
           sourceService={sourceService}
-          onOpenPractice={() => void navigate('review')}
-          onOpenWrongBook={() => setPage('wrongbook')}
-          onOpenSources={() => setPage('sources')}
-          onOpenDecks={() => setPage('decks')}
-          focusSourceId={mapFocus.sourceId}
-          focusToken={mapFocus.token}
-          route={
-            /*
-             * 学习路线整合进学习地图（2026-11-21 用户要求）。
-             *
-             * ⚠️ 2026-11-21 深夜换成**资料级**：用户要求
-             * 「依据资料本体」而不是「依据知识点」。
-             * 知识点级那套（planRoute / generatePlanRoute /
-             * RoutePreviewDialog）保留在代码里但不再上地图。
-             */
-            {
-              sourceRoute,
-              ai: routeAi,
-              sourceService,
-              readSearchKey,
-              onSaved: saveSourceRoute,
-              onClearSaved: clearSourceRoute,
-              onOpenParse: () => setPage('parse'),
-              ...(routeCoverage ? { coverageByChapter: routeCoverage } : {}),
-              ...(routeAnchorHealth ? { anchorHealth: routeAnchorHealth } : {}),
-              onStep: () => {
-                /* 点横板某一步：去「我的题组」看这一章的题（没有独立的章节页） */
-                setPage('decks');
-              },
-              /* ---------- 树状地图（2026-11-22，第三次重做） ---------- */
-              /*
-               * ⚠️ 这里的关键不是"传了什么"，而是**真的被渲染出来了**。
-               * 上一轮的错误是数据有了图没了、断言还绿。所以：
-               *  - `tree` 有值 → RouteTree 渲染（MapPage 里接线）
-               *  - 长不出树 → `treeError` 如实说明，不摆空壳
-               */
-              tree: treeState ? { tree: treeState.tree, stats: treeState.stats } : null,
-              treeError,
-              onTasksChange: (sectionId, next) => void updateSectionTasks(sectionId, next),
-              onGoFlashcards: (section) => {
-                /*
-                 * 「去学这些卡」→ 闪卡页。
-                 *
-                 * 不能按小节精确过滤（闪卡页没有"按段筛选"的入口），
-                 * 所以只跳过去。**如实说清跳过去是全部卡**，
-                 * 不能让用户以为看到的就是这一节的。
-                 */
-                void section;
-                setPage('flashcards');
-              },
-              onGoPractice: (section) => {
-                /* 「去练这些题」→ 我的题组（按章看题） */
-                void section;
-                setPage('decks');
-              },
-              onReplanRequest: () => {
-                /* 重新规划表单在树的下面，滚过去即可（不另开页面） */
-                document
-                  .querySelector('.rmap--planner')
-                  ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              },
-            }
-          }
+          trees={trees}
+          readSearchKey={readSearchKey}
+          onCreate={createTreeFor}
+          onOpen={(sourceId) => {
+            setOpenTreeSourceId(sourceId);
+            setPage('mapTree');
+          }}
         />
+      ) : page === 'mapTree' ? (
+        /*
+         * 学习地图·**二级页面**：树状地图。
+         *
+         * ⚠️ 三种情况都要有交代，不能摆空壳：
+         *  - 没有 `openTreeSourceId`（直接刷到这个 URL）→ 回一级页
+         *  - 有 id 但表里没这张图（被删了）→ 回一级页
+         *  - 正常 → 画树
+         */
+        openTreeSourceId && trees[openTreeSourceId] ? (
+          <MapTreePage
+            sourceTitle={treeSourceTitle}
+            tree={trees[openTreeSourceId]!}
+            stats={treeStats}
+            onBack={() => {
+              setOpenTreeSourceId(null);
+              setPage('flow');
+            }}
+            onTasksChange={(sectionId, next) => updateSectionTasks(sectionId, next)}
+            onGoFlashcards={() => setPage('flashcards')}
+            onGoPractice={() => setPage('decks')}
+            onReplan={replanOpenTree}
+            onDelete={async () => {
+              if (openTreeSourceId) await deleteTree(openTreeSourceId);
+            }}
+          />
+        ) : (
+          <MapHomePage
+            sourceService={sourceService}
+            trees={trees}
+            readSearchKey={readSearchKey}
+            onCreate={createTreeFor}
+            onOpen={(sourceId) => {
+              setOpenTreeSourceId(sourceId);
+              setPage('mapTree');
+            }}
+          />
+        )
       ) : page === 'exam' ? (
         <ExamPage
           exam={examService}
@@ -4234,7 +4413,8 @@ function Placeholder({ page, onBack }: { page: PageId; onBack: () => void }) {
     decks: '我的题组',
     tasks: '任务',
     wrongbook: '错题与待巩固',
-    flow: '学习流',
+    flow: '学习地图',
+    mapTree: '学习地图',
     notes: '学习笔记',
     board: '待办',
     focus: '专注',

@@ -239,6 +239,30 @@ const rec = (n, ok, x) => {
     return true;
   })()`);
 
+  /*
+   * ⚠️ 2026-11-22 下午：学习地图拆成两级了。
+   *
+   * 侧栏进来是**一级页**（选资料），树在**二级页**。
+   * 所以要先等一级页，再点「查看地图」进二级页，才能看到树。
+   *
+   * 不改这一步的话这个脚本会全红 —— 而那不是功能坏了，
+   * 是**验证路径过时了**（「验证方法本身是错的」那一类）。
+   */
+  await waitFor(`document.querySelector(".map-home") ? true : null`, 30000, '一级页');
+  await sleep(1200);
+  const entered = await ev(`(() => {
+    const b = [...document.querySelectorAll(".map-home button")]
+      .find((x) => (x.textContent || "").includes("查看地图"));
+    if (!b) return { ok: false, reason: '一级页没有「查看地图」' };
+    b.click();
+    return { ok: true };
+  })()`);
+  if (!entered?.ok) {
+    console.error('❌ 进不了二级页：' + (entered?.reason || ''));
+    try { app.kill(); } catch {}
+    process.exit(2);
+  }
+
   /* 等树出现 —— 这是本脚本的核心等待点 */
   const sawTree = await waitFor(
     `document.querySelector(".rtree") ? true : (document.querySelector(".map-error") ? "err" : null)`,
@@ -543,6 +567,15 @@ const rec = (n, ok, x) => {
     if (el) el.click();
     return true;
   })()`);
+  /* 刷新后同样要经过一级页 → 二级页 */
+  await waitFor(`document.querySelector(".map-home") ? true : null`, 30000, '刷新后的一级页');
+  await sleep(1200);
+  await ev(`(() => {
+    const b = [...document.querySelectorAll(".map-home button")]
+      .find((x) => (x.textContent || "").includes("查看地图"));
+    if (b) b.click();
+    return true;
+  })()`);
   await waitFor(`document.querySelector(".rtree") ? true : null`, 30000, '刷新后的树');
   await sleep(2000);
   await ev(`(() => { const b = document.querySelector(".rtree__node--chapter"); if (b) b.click(); return true; })()`);
@@ -595,7 +628,25 @@ const rec = (n, ok, x) => {
   console.log('\\n通过 ' + pass + ' / ' + (pass + fail));
 
   try { app.kill(); } catch {}
-  await sleep(600);
+  /*
+   * ⚠️ 确认进程真的没了再退出（2026-11-22 教训）。
+   *
+   * `app.kill()` 只杀主进程，Electron 的子进程可能存活一会儿。
+   * 残留进程会让"这个库是谁写的"变成一笔糊涂账 ——
+   * 上一轮就因为无法确认这件事，花时间追了一次真库变更。
+   */
+  await sleep(1200);
+  const stillAlive = await new Promise((res) => {
+    require('node:child_process').exec(
+      'tasklist /FI "IMAGENAME eq electron.exe"',
+      (e, out) => res(String(out || '').includes('electron.exe')),
+    );
+  });
+  if (stillAlive) {
+    console.log('⚠️ 仍有 electron 进程存活 —— 请人工确认它是不是本次拉起的');
+  } else {
+    console.log('已确认进程退出干净');
+  }
   process.exit(fail === 0 ? 0 : 1);
 })().catch((e) => {
   console.error('脚本本身出错：' + (e && e.stack ? e.stack : e));

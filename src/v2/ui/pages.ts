@@ -52,6 +52,20 @@ export type PageId =
   | 'tasks'
   | 'wrongbook'
   | 'flow'
+  /**
+   * 学习地图的**二级页面**：显示一份资料的树状地图（2026-11-22 下午）。
+   *
+   * 用户要求把学习地图拆两级：
+   * > 写一个二级页面，用户在一级页面选择资料创建学习地图，
+   * > 二级页面显示树状地图。
+   *
+   * `flow` 现在是一级页（选资料 / 已有地图列表），
+   * `mapTree` 是二级页（树 + 小节详情）。
+   *
+   * 为什么单独一个 PageId 而不是同一页切内部状态：
+   * 侧栏高亮与浏览器后退都要能表达"我在哪一层"。
+   */
+  | 'mapTree'
   | 'notes'
   | 'board'
   | 'focus'
@@ -205,9 +219,26 @@ export const PAGES: PageDef[] = [
      * 按「资料 → 章节」摊开掌握度、到期数、错题数，最弱的排最前面。
      * 参照 StudyHub 的 ui/study-map（详见 MapPage.tsx 头部注释）。
      */
-    purpose: '把题库按资料与章节摊开，看清哪一块练得少、哪一块最容易错',
+    purpose: '选一份资料做成学习地图，在一张树状图上逐节推进',
     group: 'daily',
     show: true,
+    ready: true,
+  },
+  {
+    /*
+     * 二级页面：不进侧栏（`show: false`）。
+     *
+     * 它是从一级页点「查看地图」进来的，侧栏里再放一个入口会让人
+     * 以为那是另一个功能。`label` 用「学习地图」是因为面包屑/
+     * 顶栏标题要显示它。
+     */
+    id: 'mapTree',
+    label: '学习地图',
+    title: '学习地图',
+    icon: IconFlow,
+    purpose: '一份资料的树状地图：章展开成小节，逐节完成三项任务',
+    group: 'daily',
+    show: false,
     ready: true,
   },
   {

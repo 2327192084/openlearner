@@ -139,6 +139,22 @@ export function AppShell({
 
   const page = pageById(current);
 
+  /**
+   * 侧栏该高亮哪一项。
+   *
+   * ## 为什么需要这一层映射（2026-11-22 下午）
+   *
+   * 学习地图拆成两级后，二级页是独立的 PageId（`mapTree`），
+   * 但它**不是侧栏里的一项** —— 侧栏只有「学习地图」（`flow`）。
+   *
+   * 直接拿 `current === p.id` 比，到了二级页就一个都不亮，
+   * 用户会以为自己"离开学习地图了"（而其实还在里面，只是下一层）。
+   *
+   * 这条是由 CDP 断言抓到的：二级页上 `.nav-item` 的 class 只有
+   * `nav-item`，没有 `nav-item--on`。
+   */
+  const navCurrent: PageId = current === 'mapTree' ? 'flow' : current;
+
   useEffect(() => {
     setDrawerOpen(false);
   }, [current]);
@@ -258,10 +274,10 @@ export function AppShell({
                         <button
                           key={p.id}
                           type="button"
-                          className={`nav-item${current === p.id ? ' nav-item--on' : ''}`}
+                          className={`nav-item${navCurrent === p.id ? ' nav-item--on' : ''}`}
                           onClick={() => onNavigate(p.id)}
                           title={p.purpose}
-                          aria-current={current === p.id ? 'page' : undefined}
+                          aria-current={navCurrent === p.id ? 'page' : undefined}
                         >
                           <span className="nav-item__icon" aria-hidden="true">
                             <Icon size={18} />
@@ -322,7 +338,7 @@ export function AppShell({
           */}
           <button
             type="button"
-            className={`nav-item${current === TRASH_ITEM.id ? ' nav-item--on' : ''}`}
+            className={`nav-item${navCurrent === TRASH_ITEM.id ? ' nav-item--on' : ''}`}
             onClick={() => onNavigate(TRASH_ITEM.id)}
             title="删掉的东西先放这里，30 天后彻底删除"
           >
@@ -339,7 +355,7 @@ export function AppShell({
 
           <button
             type="button"
-            className={`nav-item${current === SETTINGS_ITEM.id ? ' nav-item--on' : ''}`}
+            className={`nav-item${navCurrent === SETTINGS_ITEM.id ? ' nav-item--on' : ''}`}
             onClick={() => onNavigate(SETTINGS_ITEM.id)}
             title="接入模型、选择主题、导出备份"
           >

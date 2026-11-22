@@ -442,14 +442,28 @@ export function RouteTree(props: RouteTreeProps) {
         </p>
       ) : null}
 
+      {/*
+        * ⚠️ 按钮文案 2026-11-22 下午改过一次。
+        *
+        * 原来写「重新规划」「清除这条路线」—— 那是"路线"时代的措辞。
+        * 现在这一段是**整张地图**：重建会重排章节结构（新旧小节对不上，
+        * 旧的勾选状态只能一起丢），所以必须说清代价，不能让人以为
+        * 只是"刷新一下"。
+        *
+        * `onClear` 是**删除整张地图**（含所有勾选与自定义任务），
+        * 属于破坏性操作 —— 调用方（MapTreePage）负责确认与文案。
+        */}
       <div className="rtree__actions">
         <button type="button" className="btn-ghost" onClick={onReplan} disabled={busy}>
-          {busy ? '正在重新规划…' : '重新规划'}
+          {busy ? '正在重建…' : '重新生成这张地图'}
         </button>
         <button type="button" className="btn-ghost" onClick={onClear} disabled={busy}>
-          清除这条路线
+          删除这张地图
         </button>
       </div>
+      <p className="rtree__actions-hint">
+        重新生成会按资料重排章节，这一节上勾过的任务会一起清掉；删除会把整张地图去掉（资料本身不动）。
+      </p>
     </section>
   );
 }
