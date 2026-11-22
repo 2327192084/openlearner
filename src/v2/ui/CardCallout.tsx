@@ -1,0 +1,223 @@
+/**
+ * 闪卡的 callout 版式（2026-11-22，按用户给的 Obsidian 参考图）。
+ *
+ * ## 用户给的原样格式（错题卡）
+ *
+ * ```
+ * > [!tip] 闪卡 1｜题1.8 $1^\infty$无穷远处极限【新增拓展公式】
+ * > **题目**
+ * > $$\lim\limits_{x \to \infty}\left(\dfrac{x+2}{x-1}\right)^x$$
+ * > ✅答案：$\boldsymbol{e^3}$
+ * > 💡要点：
+ * > 1. $1^\infty$未定式，万能公式 $\boldsymbol{\lim u^v=e^{\lim v(u-1)}}$
+ * > ⚠️限制条件：简化公式只适用于底数为$1+\dfrac{a}{x}$…
+ * ```
+ *
+ * ## 关键判断：那些 ✅💡⚠️ 是**内容**，不是模板
+ *
+ * 它们由 AI 写进 `back` 文本里。所以这一层**不生成**这些符号，
+ * 只负责把它们**渲染成对应的样式**（见 `card-rich.ts` 的行角色判定）。
+ *
+ * 这意味着：
+ *  - AI 没写 ✅ 的老卡片照样正常显示（只是没有绿色标记行）
+ *  - 不需要为卡片内容新增任何字段、不做迁移
+ *
+ * ## 三组的配色（用户只给了错题那种）
+ *
+ * | 组 | callout | 图标 | 理由 |
+ * |---|---|---|---|
+ * | 错题 | tip | 🔗 | 用户给的就是这个 |
+ * | 知识点 | note | 📘 | 中性陈述，不该用提示色抢注意力 |
+ * | 手写 | quote | ✏️ | 自己写的更像摘录 |
+ *
+ * 只换**左边框色条与图标**，正文排版三组一致 ——
+ * 用户切筛选标签时不会看到版式跳变。
+ */
+
+import type { UnifiedCard } from './flashcard-manage.ts';
+import {
+  CALLOUT_ICON,
+  calloutKindOf,
+  cardTitleOf,
+  renderRichText,
+  splitFrontTitle,
+} from './card-rich.ts';
+import { escapeHtml } from './render-math.ts';
+
+export interface CardCalloutProps {
+  card: UnifiedCard;
+  /** 列表里的序号（callout 头部显示「闪卡 N」） */
+  index: number;
+  /** 背面是否已展开 */
+  open: boolean;
+  onToggleOpen: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  /** 正在编辑（这时渲染方自己出表单，这里只出头部） */
+  busy?: boolean;
+}
+
+export function CardCallout(props: CardCalloutProps) {
+  const { card, index, open, onToggleOpen, onEdit, onDelete, busy } = props;
+  const kind = calloutKindOf(card.group);
+
+  /*
+   * 组别文字标签。
+   *
+   * ⚠️ 这一度被我删掉过（改 callout 版式时以为色条 + 图标够了）。
+   * 但「全部」筛选下用户需要一眼看出这张卡是知识点来的、错题来的、
+   * 还是自己写的 —— 三种 callout 的颜色差别不足以承载这个信息，
+   * 而且色盲/高对比度模式下颜色会失效。文字标签才可靠。
+   */
+  const groupLabel = card.group === 'point' ? '知识点' : card.group === 'wrong' ? '错题' : '手写';
+  const groupTitle =
+    card.group === 'point'
+      ? '从知识点挑出来做的'
+      : card.group === 'wrong'
+        ? '从错题做成的'
+        : '自己写的';
+
+  /*
+   * 正面拆成「标题行 + 正文」。
+   *
+   * ⚠️ 这里曾经出过一个每张卡都中招的缺陷（2026-11-22 截图发现）：
+   * 上一版是「标题 = 第一行截断」而**正文仍然渲染整段正面**，
+   * 于是单行正面的卡会把同一句话显示两遍。
+   * 用户库里的卡基本都是单行长句（实测第一张 66 字一行），所以全中招。
+   *
+   * 现在：只有正面确实有多行时才有标题，且正文只渲染**剩余的行**。
+   * 单行正面 → 头部没有标题（Obsidian 的 `[!tip]` 不写标题也合法），
+   * 宁可头部只有「知识点 ｜ 闪卡 3」，也不重述正文。
+   */
+  const split = splitFrontTitle(card.front);
+  const frontLines = renderRichText(split.body);
+  const backLines = card.back ? renderRichText(card.back) : [];
+  /* 标题行本身也可能很长，压短后再渲染 */
+  const titleShort = split.title === null ? null : cardTitleOf(split.title);
+
+  return (
+    <div className={`fcal fcal--${kind}`}>
+      {/* ---------- 头部：组别徽章 + 图标 + 「闪卡 N｜标题」 ---------- */}
+      <div className="fcal__head">
+        <span className={`fcal__group fcal__group--${card.group}`} title={groupTitle}>
+          {groupLabel}
+        </span>
+        <span className="fcal__icon" aria-hidden="true">
+          {CALLOUT_ICON[kind]}
+        </span>
+        <span className="fcal__head-text">
+          <span className="fcal__no">闪卡 {index + 1}</span>
+          {/*
+            * 没有标题时连「｜」都不出 —— 否则头部以一个孤立竖线收尾，
+            * 看起来像渲染坏了。
+            */}
+          {titleShort === null ? null : (
+            <>
+              <span className="fcal__sep" aria-hidden="true">
+                ｜
+              </span>
+              {/* 标题里的数学也要渲染（图三的标题就带 $1^\infty$） */}
+              <span
+                className="fcal__title"
+                dangerouslySetInnerHTML={{
+                  __html:
+                    renderRichText(titleShort)[0]?.html ?? escapeHtml(titleShort),
+                }}
+              />
+            </>
+          )}
+        </span>
+        {card.sourceLabel ? (
+          <span className="fcal__src" title={card.sourceLabel}>
+            {card.sourceLabel}
+          </span>
+        ) : null}
+      </div>
+
+      {/* ---------- 正文（正面 + 展开的背面） ---------- */}
+      <div className="fcal__body">
+        {frontLines.length === 0 ? (
+          <p className="fcal__line fcal__line--empty">这张卡没有正面</p>
+        ) : (
+          frontLines.map((l, i) => <Line key={`f${i}`} line={l} />)
+        )}
+
+        {open ? (
+          <div className="fcal__back">
+            {backLines.length === 0 ? (
+              <p className="fcal__line fcal__line--empty">这张卡还没有写背面。</p>
+            ) : (
+              backLines.map((l, i) => <Line key={`b${i}`} line={l} />)
+            )}
+          </div>
+        ) : null}
+      </div>
+
+      {/* ---------- 操作 ---------- */}
+      <div className="fcal__acts">
+        <button type="button" className="fcal__act" onClick={onToggleOpen} aria-expanded={open}>
+          {open ? '收起背面' : '看背面'}
+        </button>
+        <button type="button" className="fcal__act" onClick={onEdit} disabled={busy}>
+          编辑
+        </button>
+        <button
+          type="button"
+          className="fcal__act fcal__act--del"
+          onClick={onDelete}
+          disabled={busy}
+        >
+          删除
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 一行。
+ *
+ * ⚠️ `html` 来自 `card-rich.ts`：非公式段已经过 `escapeHtml`，
+ * 公式段是 KaTeX 输出。所以这里 `dangerouslySetInnerHTML` 是安全的
+ * —— 但**只允许**接 `renderRichText` 的产物，不能接原始文本。
+ */
+function Line(props: { line: ReturnType<typeof renderRichText>[number] }) {
+  const { line } = props;
+
+  if (line.role === 'ordered') {
+    return (
+      <p className={`fcal__line fcal__line--ordered`}>
+        <span className="fcal__num" aria-hidden="true">
+          {line.order}.
+        </span>
+        <span className="fcal__text" dangerouslySetInnerHTML={{ __html: line.html }} />
+      </p>
+    );
+  }
+
+  if (line.role === 'bullet') {
+    return (
+      <p className="fcal__line fcal__line--bullet">
+        <span className="fcal__num" aria-hidden="true">
+          •
+        </span>
+        <span className="fcal__text" dangerouslySetInnerHTML={{ __html: line.html }} />
+      </p>
+    );
+  }
+
+  const cls =
+    line.role === 'answer'
+      ? 'fcal__line--answer'
+      : line.role === 'point'
+        ? 'fcal__line--point'
+        : line.role === 'warn'
+          ? 'fcal__line--warn'
+          : '';
+
+  return (
+    <p className={`fcal__line${cls ? ' ' + cls : ''}`}>
+      <span className="fcal__text" dangerouslySetInnerHTML={{ __html: line.html }} />
+    </p>
+  );
+}

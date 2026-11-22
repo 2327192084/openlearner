@@ -34,6 +34,7 @@ import type { Card } from '@/v2/core/cards.ts';
 import type { KnowledgePoint } from '@/core/model.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import { MathText } from './MathText.tsx';
+import { CardCallout } from './CardCallout.tsx';
 import { downloadBlob } from '@/pages/slides/download.ts';
 import {
   DEFAULT_FILTER,
@@ -181,6 +182,18 @@ export function FlashcardsPage({
   const cards = useMemo(() => (views ? toUnifiedCards(views) : null), [views]);
   const counts = useMemo(() => (cards ? countByGroup(cards) : null), [cards]);
   const visible = useMemo(() => (cards ? filterCards(cards, filter) : []), [cards, filter]);
+
+  /**
+   * 某张卡在**全部卡**里的序号（不是筛选后的）。
+   *
+   * 理由见调用处：callout 头部的「闪卡 N」是用户认这张卡的编号，
+   * 筛选不该改变它。
+   */
+  const cardIndexOf = (c: UnifiedCard): number => {
+    if (!cards) return 0;
+    const at = cards.findIndex((x) => x.id === c.id);
+    return at < 0 ? 0 : at;
+  };
 
   /** 打开某个新建面板时按需读候选（不要一进页面就读全库） */
   const openNew = useCallback(
@@ -711,97 +724,73 @@ export function FlashcardsPage({
           {visible.map((c) => {
             const isOpen = opened.has(c.id);
             const isEditing = editing?.id === c.id;
+
+            /*
+             * 编辑态仍用原来的表单（textarea 要拿原始文本，
+             * callout 是渲染态的版式，两者不冲突）。
+             */
+            if (isEditing) {
+              return (
+                <li key={c.key} className="fcx__item fcx__item--editing">
+                  <label className="fcx__field">
+                    <span className="fcx__field-label">正面</span>
+                    <textarea
+                      className="fcx__textarea"
+                      value={editing.front}
+                      onChange={(e) => setEditing({ ...editing, front: e.target.value })}
+                      rows={3}
+                      aria-label="编辑正面"
+                    />
+                  </label>
+                  <label className="fcx__field">
+                    <span className="fcx__field-label">背面</span>
+                    <textarea
+                      className="fcx__textarea"
+                      value={editing.back}
+                      onChange={(e) => setEditing({ ...editing, back: e.target.value })}
+                      rows={4}
+                      aria-label="编辑背面"
+                    />
+                  </label>
+                  <div className="fcx__item-actions">
+                    <button
+                      type="button"
+                      className="fcx__act fcx__act--go"
+                      onClick={() => void saveEdit()}
+                      disabled={busy}
+                    >
+                      保存
+                    </button>
+                    <button type="button" className="fcx__act" onClick={() => setEditing(null)}>
+                      取消
+                    </button>
+                  </div>
+                </li>
+              );
+            }
+
+            /*
+             * 渲染态：Obsidian callout 版式（2026-11-22 用户给了参考图）。
+             *
+             * ⚠️ 序号用**全库序号**而不是筛选后的 i ——
+             * 用户说「闪卡 1｜题1.8…」，那个编号在他心里是这张卡的编号。
+             * 筛选后从 1 重新数会让同一张卡在不同筛选下显示不同编号，
+             * 反而更乱。所以传 `cardIndexOf(c)`（在全部卡里的位置）。
+             */
             return (
-              <li key={c.key} className="fcx__item">
-                <div className="fcx__item-top">
-                  <span
-                    className={`fcx__badge fcx__badge--${c.group}`}
-                    title={
-                      c.group === 'point'
-                        ? '从知识点挑出来做的'
-                        : c.group === 'wrong'
-                          ? '从错题做成的'
-                          : '自己写的'
-                    }
-                  >
-                    {c.group === 'point' ? '知识点' : c.group === 'wrong' ? '错题' : '手写'}
-                  </span>
-                  {/*
-                    来源只是一条追溯信息。**没有「来源已删」这种标签** ——
-                    闪卡独立之后，来源在不在与卡片无关（2026-11-14 用户要求）。
-                  */}
-                  {c.sourceLabel ? <span className="fcx__src">来自：{c.sourceLabel}</span> : null}
-                </div>
-
-                {isEditing ? (
-                  <>
-                    <label className="fcx__field">
-                      <span className="fcx__field-label">正面</span>
-                      <textarea
-                        className="fcx__textarea"
-                        value={editing.front}
-                        onChange={(e) => setEditing({ ...editing, front: e.target.value })}
-                        rows={3}
-                        aria-label="编辑正面"
-                      />
-                    </label>
-                    <label className="fcx__field">
-                      <span className="fcx__field-label">背面</span>
-                      <textarea
-                        className="fcx__textarea"
-                        value={editing.back}
-                        onChange={(e) => setEditing({ ...editing, back: e.target.value })}
-                        rows={4}
-                        aria-label="编辑背面"
-                      />
-                    </label>
-                    <div className="fcx__item-actions">
-                      <button type="button" className="fcx__act fcx__act--go" onClick={() => void saveEdit()} disabled={busy}>
-                        保存
-                      </button>
-                      <button type="button" className="fcx__act" onClick={() => setEditing(null)}>
-                        取消
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <p className="fcx__front">
-                      {c.front ? <MathText text={c.front} /> : <em>这张卡没有正面</em>}
-                    </p>
-
-                    {isOpen ? (
-                      <div className="fcx__back">
-                        {c.back ? <MathText text={c.back} /> : <em className="fcx__no-back">这张卡还没有写背面。</em>}
-                      </div>
-                    ) : null}
-
-                    <div className="fcx__item-actions">
-                      <button type="button" className="fcx__act" onClick={() => toggleOpen(c.id)} aria-expanded={isOpen}>
-                        {isOpen ? '收起背面' : '看背面'}
-                      </button>
-                      <button
-                        type="button"
-                        className="fcx__act"
-                        onClick={() => {
-                          setEditing({ id: c.id, front: c.front, back: c.back ?? '' });
-                          setOpened((prev) => new Set(prev).add(c.id));
-                        }}
-                        disabled={busy}
-                      >
-                        编辑
-                      </button>
-                      <button
-                        type="button"
-                        className="fcx__act fcx__act--del"
-                        onClick={() => setPendingDelete(c)}
-                        disabled={busy}
-                      >
-                        删除
-                      </button>
-                    </div>
-                  </>
-                )}
+              <li key={c.key} className="fcx__item fcx__item--callout">
+                <CardCallout
+                  card={c}
+                  index={cardIndexOf(c)}
+                  open={isOpen}
+                  busy={busy}
+                  onToggleOpen={() => toggleOpen(c.id)}
+                  onEdit={() => {
+                    setEditing({ id: c.id, front: c.front, back: c.back ?? '' });
+                    setOpened((prev) => new Set(prev).add(c.id));
+                  }}
+                  onDelete={() => setPendingDelete(c)}
+                />
               </li>
             );
           })}
