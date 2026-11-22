@@ -1,0 +1,98 @@
+/*
+ * 选取模式横幅与「选这个」按钮（2026-11-23）。
+ *
+ * ⚠️ 与 flashcards-page.css 同理：里面的按钮是原生控件，
+ * base.css 有层外的 button 规则（font/color: inherit），
+ * 文字色必须写在层外（`.app` 前缀抬特异性），否则被盖。
+ *
+ * 类名 `pkb-`（pick banner）前缀，避开 v1 短类名。
+ */
+
+@layer study.features {
+  .pkb {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin: 0 0 var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--accent-soft);
+    border-radius: var(--radius-card);
+    background: var(--bg-sunken);
+  }
+
+  .pkb__icon {
+    flex: none;
+    font-size: var(--fs-lg);
+  }
+
+  .pkb__text {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--fs-sm);
+    line-height: var(--lh-body);
+  }
+
+  .pkb__back {
+    flex: none;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    font-size: var(--fs-sm);
+    padding: var(--space-1) var(--space-3);
+    cursor: pointer;
+  }
+
+  .pkb__back:hover {
+    border-color: var(--accent);
+  }
+
+  .pkb__pick {
+    flex: none;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    font-size: var(--fs-xs);
+    padding: var(--space-1) var(--space-3);
+    cursor: pointer;
+  }
+
+  .pkb__pick:disabled {
+    cursor: default;
+    border-color: var(--line);
+    opacity: 0.7;
+  }
+}
+
+/* ---------- 层外：文字色（base.css 的 button{color:inherit} 在层外） ---------- */
+
+.app .pkb__text {
+  color: var(--text);
+}
+
+.app .pkb__back {
+  color: var(--text-muted);
+}
+
+.app .pkb__back:hover {
+  color: var(--text);
+}
+
+.app .pkb__pick {
+  color: var(--accent-text);
+}
+
+.app .pkb__pick:disabled,
+.app .pkb__pick--done {
+  color: var(--text-faint);
+}
+
+/*
+ * 高对比度（forced-colors）：横幅边框靠 accent 色区分，系统会忽略，
+ * 给一条实线 + CanvasText 保底（route-tree.css 同套路，三层降级第 2 层）。
+ */
+@media (forced-colors: active) {
+  .pkb {
+    border: 2px solid CanvasText;
+    forced-color-adjust: none;
+  }
+}

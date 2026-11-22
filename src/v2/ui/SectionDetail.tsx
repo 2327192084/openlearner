@@ -87,6 +87,12 @@ export interface SectionDetailProps {
   /** 用这一节正文生成闪卡（2026-11-22） */
   onGenerateCards?: () => void;
   generateCardsBusy?: boolean;
+  /**
+   * 跳页选取（2026-11-23，用户待办第 1 项）：把「加闪卡/加题组」
+   * 从内嵌列表改成跳到功能页挑。不给就不显示跳转按钮。
+   */
+  onPickCards?: () => void;
+  onPickDecks?: () => void;
 }
 
 export function SectionDetail(props: SectionDetailProps) {
@@ -107,6 +113,8 @@ export function SectionDetail(props: SectionDetailProps) {
     aiBindBusy,
     onGenerateCards,
     generateCardsBusy,
+    onPickCards,
+    onPickDecks,
   } = props;
   const [newTask, setNewTask] = useState('');
 
@@ -320,6 +328,8 @@ export function SectionDetail(props: SectionDetailProps) {
             {...(aiBindBusy !== undefined ? { aiBusy: aiBindBusy } : {})}
             {...(onGenerateCards ? { onGenerateCards } : {})}
             {...(generateCardsBusy !== undefined ? { generateBusy: generateCardsBusy } : {})}
+            {...(onPickCards ? { onPickCards } : {})}
+            {...(onPickDecks ? { onPickDecks } : {})}
           />
         </div>
       ) : null}

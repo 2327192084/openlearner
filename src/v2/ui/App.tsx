@@ -80,6 +80,12 @@ import { loadSourceSegments, prepareSourcePlans, toScopeInfo } from '@/v2/core/s
 import { buildSubjectQuery, searchWeb } from '@/core/ai/web-search.ts';
 import { searchWithBackend } from '@/core/ai/model-search-io.ts';
 import { planPresearchTasks, type PresearchGranularity } from '@/core/ai/presearch-resources.ts';
+import {
+  applyPickToTree,
+  pickTargetPage,
+  type PickSession,
+  type PickTarget,
+} from './pick-context.ts';
 import { attachSegments, attachSectionSegments } from '@/core/ai/source-route.ts';
 import { RoutePreviewDialog } from './RoutePreviewDialog.tsx';
 import type { PlanOrder, PlanPointInput } from '@/core/ai/plan-order.ts';
@@ -161,6 +167,7 @@ import './exam-page.css';
 import './map-page.css';
 import './route-tree.css';
 import './map-home.css';
+import './pick-banner.css';
 import './resource-panel.css';
 import './search-key-field.css';
 import './route-preview.css';
@@ -3405,6 +3412,135 @@ interface PlanDraft {
     [openTreeSourceId, trees, saveTree],
   );
 
+  /*
+   * ==================== 跳页选取（2026-11-23，用户待办第 1 项） ====================
+   *
+   * 用户原话：「这个选闪卡的界面每个闪卡的边界都不明显，
+   * 我觉得这两个选取都改为跳转到对应的功能界面进行选取好一点。」
+   *
+   * 绑定面板的「+ 去闪卡页挑 / + 去题组页挑」→ 这里发起一次「选取会话」：
+   * 记住在为哪棵资料的哪一节挑（id + 标题），跳到对应功能页；
+   * 在那一页点「选这个」即时写回树；「返回地图」回二级页并重新打开那一节。
+   *
+   * ## 为什么状态放 App 而不是页面组件
+   *
+   * 跳页会把 RouteTree 整个卸载（小节展开态、详情开合态都会丢 ——
+   * 交接文档记过这个坑）。会话与"回来该重新打开哪一节"必须由活得
+   * 比页面久的东西持有。`resumeSectionId` 消费后由回调清掉，
+   * 免得下次普通进地图也弹出一个旧小节详情。
+   */
+  const [pickSession, setPickSession] = useState<PickSession | null>(null);
+  const [resumeSectionId, setResumeSectionId] = useState<string | null>(null);
+
+  /** 在树里找一小节（返回章/节标题用；找不到 = 会话过期） */
+  const findTreeSection = useCallback(
+    (sourceId: string, sectionId: string) => {
+      const tree = trees[sourceId];
+      if (!tree) return null;
+      for (const ch of tree.chapters) {
+        const sec = ch.sections.find((x) => x.id === sectionId);
+        if (sec) return { chapter: ch, section: sec };
+      }
+      return null;
+    },
+    [trees],
+  );
+
+  /** 发起跳转：kind + 小节 id → 建会话、跳页 */
+  const startPick = useCallback(
+    (kind: PickTarget, sectionId: string) => {
+      if (!openTreeSourceId) return;
+      const found = findTreeSection(openTreeSourceId, sectionId);
+      if (!found) {
+        setTreeStatsError('这一节在地图里已经找不到了（可能刚重新生成过）。');
+        return;
+      }
+      setPickSession({
+        kind,
+        sourceId: openTreeSourceId,
+        sectionId,
+        sectionTitle: found.section.title,
+        chapterTitle: found.chapter.title,
+        /* token 学 incomingAiCards：同一节连续两次发起也要重新触发目标页 */
+        token: Date.now(),
+      });
+      goPage(pickTargetPage(kind));
+    },
+    [openTreeSourceId, findTreeSection, goPage],
+  );
+
+  /**
+   * 功能页点「选这个」：即时写回。
+   *
+   * 过期检查与合并都在 `applyPickToTree`（纯函数，有单测 + 反向验证）——
+   * App 只负责拿最新的树调它、落库、如实提示。
+   *
+   * ## 为什么读 `treesRef` 而不是闭包里的 `trees`
+   *
+   * 用户会**连续点好几张卡**。每次点击都基于 `trees` 快照合并的话，
+   * 第二次点击若发生在第一次的 setTrees 提交之前，就会拿旧值合并、
+   * 把第一张覆盖掉 —— 表现是"点了两张只绑上一张"。
+   * 那是典型的"两个部分之间的关系"错误（点击次数与绑定数量不一致）。
+   * 所以这里同步维护一份 ref：算完立刻写回 ref，下一次点击必然看得见。
+   */
+  const treesRef = useRef(trees);
+  useEffect(() => {
+    treesRef.current = trees;
+  }, [trees]);
+
+  const applyPick = useCallback(
+    (id: string) => {
+      const s = pickSession;
+      if (!s) return;
+      const cur = treesRef.current;
+      const res = applyPickToTree(s, cur[s.sourceId], id);
+      if (!res.ok) {
+        setPickSession(null);
+        setTreeStatsError(
+          res.reason === 'no-tree'
+            ? '那张地图已经不在了，这次选择没有保存。'
+            : '这一节在地图里已经找不到了（可能刚重新生成过），这次选择没有保存。',
+        );
+        return;
+      }
+      const next = putTree(cur, { ...res.tree, savedAt: new Date().toISOString() });
+      treesRef.current = next;
+      setTrees(next);
+      void library.saveSettings({ sourceTrees: next } as never).catch(() => {
+        setTreeStatsError('绑定没能写进地图（存库失败）。回到地图页再选一次试试。');
+      });
+    },
+    [pickSession, library],
+  );
+
+  /** 「返回地图」：清会话、记下要重开的小节、回二级页（退掉返回栈里的那一跳） */
+  const backFromPick = useCallback(() => {
+    const s = pickSession;
+    setPickSession(null);
+    if (!s) return;
+    setResumeSectionId(s.sectionId);
+    /*
+     * ⚠️ 不在 setPage 的 updater 里 pop 栈 —— updater 在严格模式下会被
+     * 调两次，栈会被退两下。照 closeReader 的做法：副作用放外面。
+     */
+    const top = navStackRef.current[navStackRef.current.length - 1];
+    if (top === 'mapTree') {
+      navStackRef.current.pop();
+      setCanGoBack(navStackRef.current.length > 0);
+    }
+    setPage('mapTree');
+  }, [pickSession]);
+
+  /** 会话里这一节当前已绑的 id（横幅计数与「已绑上」的唯一来源：树） */
+  const pickBoundIds = useMemo(() => {
+    if (!pickSession) return { cards: [] as string[], decks: [] as string[] };
+    const found = findTreeSection(pickSession.sourceId, pickSession.sectionId);
+    return {
+      cards: found?.section.tasks.boundFlashcardIds ?? [],
+      decks: found?.section.tasks.boundDeckIds ?? [],
+    };
+  }, [pickSession, findTreeSection]);
+
   /**
    * 用某一节的正文**生成几张闪卡**（2026-11-22 用户要求）。
    *
@@ -3896,7 +4032,12 @@ interface PlanDraft {
               aiBusySectionId: aiBindSectionId,
               onGenerateCards: (sectionId: string) => void generateCardsForSection(sectionId),
               generatingSectionId: genCardsSectionId,
+              /* 跳页选取（2026-11-23）：绑定面板的「+ 去…页挑」 */
+              onPickCards: (sectionId: string) => startPick('flashcards', sectionId),
+              onPickDecks: (sectionId: string) => startPick('decks', sectionId),
             }}
+            resumeSectionId={resumeSectionId}
+            onSectionResumed={() => setResumeSectionId(null)}
           />
         ) : (
           <MapHomePage
@@ -4701,6 +4842,15 @@ interface PlanDraft {
             void refreshData();
             void refreshShellState();
           }}
+          /*
+           * 跳页选取（2026-11-23）：从地图小节详情跳过来挑题组时，
+           * 顶部出横幅、每个已发布题组给「选这个」。
+           * 会话为 null 时这四个 props 全不生效（页面与原来完全一样）。
+           */
+          {...(pickSession?.kind === 'decks' ? { pickContext: pickSession } : {})}
+          {...(pickSession?.kind === 'decks' ? { pickBoundDeckIds: pickBoundIds.decks } : {})}
+          {...(pickSession?.kind === 'decks' ? { onPickDeck: applyPick } : {})}
+          {...(pickSession?.kind === 'decks' ? { onBackFromPick: backFromPick } : {})}
         />
       ) : page === 'stats' ? (
         <StatsPage service={reviewService} cardPool={pool} loadCards={loadCards} />
@@ -4729,6 +4879,15 @@ interface PlanDraft {
            */
           incomingAiCards={pendingAiCards}
           onIncomingConsumed={() => setPendingAiCards(null)}
+          /*
+           * 跳页选取（2026-11-23）：从地图小节详情跳过来挑闪卡时，
+           * 顶部出横幅、每张卡的操作区多一个「选这个」（即时绑）。
+           * 会话为 null 时这页与原来完全一样 —— 不加任何控件。
+           */
+          {...(pickSession?.kind === 'flashcards' ? { pickContext: pickSession } : {})}
+          {...(pickSession?.kind === 'flashcards' ? { pickBoundCardIds: pickBoundIds.cards } : {})}
+          {...(pickSession?.kind === 'flashcards' ? { onPickCard: applyPick } : {})}
+          {...(pickSession?.kind === 'flashcards' ? { onBackFromPick: backFromPick } : {})}
         />
       ) : page === 'oral' ? (
         /*
@@ -4876,6 +5035,9 @@ interface PlanDraft {
          * 把 page 设成 generate。以前没有这个分支，于是掉进最后的 Placeholder，
          * 用户看到「这一页还在重做中」—— 一个功能明明能用，界面却说没做。
          * 现在直接送去「我的题组」，并在那边默认展开新建表单（见 initialCreate）。
+         *
+         * ⚠️ 这个分支**不接选取 props**：跳页选取只会把 page 设成 'decks'
+         * （`pickTargetPage`），永远不会落到 generate。这里接了反而是死代码。
          */
         <DecksPage
           decks={decks}

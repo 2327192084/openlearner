@@ -55,10 +55,19 @@ export interface CardCalloutProps {
   onDelete: () => void;
   /** 正在编辑（这时渲染方自己出表单，这里只出头部） */
   busy?: boolean;
+  /**
+   * 选取模式下的「选这个」按钮（2026-11-23，用户待办第 1 项）。
+   *
+   * 由宿主（FlashcardsPage 在 pickContext 激活时）传一个现成组件进来；
+   * 不传 = 普通浏览，操作区一个按钮都不多。
+   * 这里只负责**放在哪**（操作区最左，主操作位置），不认识选取逻辑 ——
+   * CardCallout 与选取会话零耦合，单测不受影响。
+   */
+  pickSlot?: React.ReactNode;
 }
 
 export function CardCallout(props: CardCalloutProps) {
-  const { card, index, open, onToggleOpen, onEdit, onDelete, busy } = props;
+  const { card, index, open, onToggleOpen, onEdit, onDelete, busy, pickSlot } = props;
   const kind = calloutKindOf(card.group);
 
   /*
@@ -155,6 +164,8 @@ export function CardCallout(props: CardCalloutProps) {
 
       {/* ---------- 操作 ---------- */}
       <div className="fcal__acts">
+        {/* 选取模式的「选这个」放最左（主操作位）；浏览模式这里什么都没有 */}
+        {pickSlot ?? null}
         <button type="button" className="fcal__act" onClick={onToggleOpen} aria-expanded={open}>
           {open ? '收起背面' : '看背面'}
         </button>

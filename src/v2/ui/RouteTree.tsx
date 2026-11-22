@@ -90,7 +90,24 @@ export interface RouteTreeProps {
     /** 用这一节正文生成闪卡（2026-11-22），只在没有卡时出现 */
     onGenerateCards?: (sectionId: string) => void;
     generatingSectionId?: string | null;
+    /**
+     * 跳页选取（2026-11-23，用户待办第 1 项）：绑定面板的
+     * 「+ 去闪卡页挑 / + 去题组页挑」点下去要发起跳转，
+     * 由 App 建会话 + 切页。不给就不显示按钮（不做假开关）。
+     */
+    onPickCards?: (sectionId: string) => void;
+    onPickDecks?: (sectionId: string) => void;
   };
+  /**
+   * 跳页选取返回后要重新打开的小节 id（2026-11-23）。
+   *
+   * 跳去闪卡页时本组件被卸载，`openSectionId` 这个内部 state 会丢 ——
+   * 不恢复的话用户回来看到的是整棵树，找不到刚才那一节
+   * （接续说明点名的坑：验证要看"回来还停在原小节"）。
+   */
+  resumeSectionId?: string | null;
+  /** 已按 resumeSectionId 打开（App 据此清掉标记，别让下次普通进入也弹旧节） */
+  onSectionResumed?: () => void;
   /** 重新规划 */
   onReplan?: () => void;
   /** 清除路线 */
@@ -113,12 +130,34 @@ export function RouteTree(props: RouteTreeProps) {
     onReplan,
     onClear,
     busy,
+    resumeSectionId,
+    onSectionResumed,
   } = props;
 
   /** 展开哪一章（索引）；null = 全折叠 */
   const [expanded, setExpanded] = useState<number | null>(null);
   /** 当前打开详情的小节 id；null = 没打开 */
   const [openSectionId, setOpenSectionId] = useState<string | null>(null);
+
+  /*
+   * 跳页选取返回：重新展开那一章并打开那一节（2026-11-23）。
+   *
+   * 只在挂载后 resumeSectionId 存在时做一次，做完立刻让 App 清标记 ——
+   * 否则用户下次普通进这张图也会自动弹开一个旧小节。
+   * 找不到那一节（重规划过）就什么都不做：详情本来就该关着。
+   */
+  useEffect(() => {
+    if (!resumeSectionId) return;
+    const at = tree.chapters.findIndex((ch) =>
+      ch.sections.some((s) => s.id === resumeSectionId),
+    );
+    if (at >= 0) {
+      setExpanded(at);
+      setOpenSectionId(resumeSectionId);
+    }
+    onSectionResumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumeSectionId]);
 
   /**
    * ⚠️ 点小节后要把详情滚进视野（2026-11-22 截图发现的）。
@@ -479,6 +518,12 @@ export function RouteTree(props: RouteTreeProps) {
               : {})}
             {...(bindingData?.generatingSectionId === openSection.section.id
               ? { generateCardsBusy: true }
+              : {})}
+            {...(bindingData?.onPickCards
+              ? { onPickCards: () => bindingData.onPickCards!(openSection.section.id) }
+              : {})}
+            {...(bindingData?.onPickDecks
+              ? { onPickDecks: () => bindingData.onPickDecks!(openSection.section.id) }
               : {})}
             onClose={() => setOpenSectionId(null)}
           />

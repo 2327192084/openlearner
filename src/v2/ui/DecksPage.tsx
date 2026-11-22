@@ -10,6 +10,7 @@ import { ConfirmDialog } from './dialog.tsx';
 import { IconGenerate } from './icons.tsx';
 import { QuestionEditor } from './QuestionEditor.tsx';
 import { RenameField } from './RenameField.tsx';
+import { PickBanner, PickButton } from './PickBanner.tsx';
 
 /**
  * 「我的题组」—— 列出现有题组，看题、检查待审核、发布。
@@ -74,6 +75,17 @@ export interface DecksPageProps {
    */
   initialVariant?: { questionIds: string[] } | null;
   onChanged: () => void;
+  /**
+   * 选取会话（2026-11-23，用户待办第 1 项：绑定面板改跳转选取）。
+   * 从地图小节详情点「+ 去题组页挑」进来时非空；为 null 时这页和原来一样。
+   */
+  pickContext?: import('./pick-context.ts').PickSession | null;
+  /** 这一节已绑的题组 id（「选这个」据此显示「已绑上」） */
+  pickBoundDeckIds?: readonly string[];
+  /** 点「选这个」：宿主写回树并持久化（本页不碰地图数据） */
+  onPickDeck?: (deckId: string) => void;
+  /** 「返回地图」 */
+  onBackFromPick?: () => void;
 }
 
 export function DecksPage({
@@ -90,6 +102,10 @@ export function DecksPage({
   reviewService,
   initialVariant,
   onChanged,
+  pickContext = null,
+  pickBoundDeckIds,
+  onPickDeck,
+  onBackFromPick,
 }: DecksPageProps) {
   const [list, setList] = useState<Deck[] | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
@@ -322,6 +338,18 @@ export function DecksPage({
 
   return (
     <div className="decks-page">
+      {/*
+       * 选取模式横幅（2026-11-23）。boundCount 是会话那一节当前已绑的真实
+       * 数量（App 从树里算好传来），与写回同源 —— 本页不自己数。
+       */}
+      {pickContext && onBackFromPick ? (
+        <PickBanner
+          session={pickContext}
+          boundCount={(pickBoundDeckIds ?? []).length}
+          onBack={onBackFromPick}
+        />
+      ) : null}
+
       <header className="decks-head">
         <div>
           <h1 className="decks-title">我的题组</h1>
@@ -430,6 +458,20 @@ export function DecksPage({
                 </div>
 
                 <div className="deck-item__actions">
+                  {/*
+                   * 选取模式的「选这个」（2026-11-23）。
+                   *
+                   * ⚠️ 只给**已发布**的题组 —— 地图的绑定池只收 published
+                   * （App 的 bindPool 过滤），给草稿出「选这个」等于绑上一个
+                   * 面板里显示"已被删了"的 id：承诺兑现不了的那种关系错误。
+                   */}
+                  {pickContext && onPickDeck && deck.status === 'published' ? (
+                    <PickButton
+                      picked={(pickBoundDeckIds ?? []).indexOf(deck.id) >= 0}
+                      busy={busy}
+                      onPick={() => onPickDeck(deck.id)}
+                    />
+                  ) : null}
                   {deck.status === 'draft' ? (
                     <button
                       type="button"

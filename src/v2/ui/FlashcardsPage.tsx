@@ -49,6 +49,7 @@ import {
   flashcardFileName,
   flashcardsToObsidianMarkdown,
 } from '@/v2/core/flashcard-export.ts';
+import { PickBanner, PickButton } from './PickBanner.tsx';
 
 export interface FlashcardsPageProps {
   flashcards: FlashcardService;
@@ -81,6 +82,21 @@ export interface FlashcardsPageProps {
   } | null;
   /** 草稿已被这一页接住，请宿主清掉 */
   onIncomingConsumed?: () => void;
+  /**
+   * 选取会话（2026-11-23，用户待办第 1 项：绑定面板改跳转选取）。
+   *
+   * 从学习地图小节详情点「+ 去闪卡页挑」进来时非空：
+   * 顶部出横幅说明在为哪一节挑，每张卡的操作区多一个「选这个」，
+   * 点了即时绑上（`onPickCard`），挑完「返回地图」。
+   * 为 null 时这一页和原来完全一样 —— 不加任何控件（假开关双向查）。
+   */
+  pickContext?: import('./pick-context.ts').PickSession | null;
+  /** 这一节已绑的闪卡 id（「选这个」据此显示「已绑上」，防重复计数） */
+  pickBoundCardIds?: readonly string[];
+  /** 点「选这个」：宿主负责写回树并持久化（本页不碰地图数据） */
+  onPickCard?: (cardId: string) => void;
+  /** 「返回地图」：宿主清会话 + 回 mapTree + 恢复小节详情 */
+  onBackFromPick?: () => void;
 }
 
 /** 三种新建来源 */
@@ -95,6 +111,10 @@ export function FlashcardsPage({
   onMakeCards,
   incomingAiCards,
   onIncomingConsumed,
+  pickContext = null,
+  pickBoundCardIds,
+  onPickCard,
+  onBackFromPick,
 }: FlashcardsPageProps) {
   const [views, setViews] = useState<FlashcardView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -451,6 +471,19 @@ export function FlashcardsPage({
 
   return (
     <div className="fcx">
+      {/*
+       * 选取模式横幅（2026-11-23）。boundCount 取的是**会话那一节当前已绑**的
+       * 真实数量（App 从树里算好传来）—— 横幅数字与写回目标是同一来源，
+       * 不许本页自己数 visible 里几个被点过（那会漂）。
+       */}
+      {pickContext && onBackFromPick ? (
+        <PickBanner
+          session={pickContext}
+          boundCount={(pickBoundCardIds ?? []).length}
+          onBack={onBackFromPick}
+        />
+      ) : null}
+
       <header className="fcx__head">
         <div>
           <h1 className="fcx__title">闪卡管理</h1>
@@ -784,6 +817,17 @@ export function FlashcardsPage({
                   index={cardIndexOf(c)}
                   open={isOpen}
                   busy={busy}
+                  {...(pickContext && onPickCard
+                    ? {
+                        pickSlot: (
+                          <PickButton
+                            picked={(pickBoundCardIds ?? []).indexOf(c.id) >= 0}
+                            busy={busy}
+                            onPick={() => onPickCard(c.id)}
+                          />
+                        ),
+                      }
+                    : {})}
                   onToggleOpen={() => toggleOpen(c.id)}
                   onEdit={() => {
                     setEditing({ id: c.id, front: c.front, back: c.back ?? '' });

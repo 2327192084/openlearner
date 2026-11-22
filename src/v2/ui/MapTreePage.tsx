@@ -57,6 +57,12 @@ export interface MapTreePageProps {
   /** 绑定闪卡/题组的数据与回调（2026-11-22），整块透传 */
   bindingData?: import('./RouteTree.tsx').RouteTreeProps['bindingData'];
   /**
+   * 跳页选取返回后要重开的小节（2026-11-23）。
+   * 这一页只透传 —— 恢复逻辑在 RouteTree（openSectionId 是它的内部 state）。
+   */
+  resumeSectionId?: string | null;
+  onSectionResumed?: () => void;
+  /**
    * 上一次「重新生成」的结果说明（保住了几节、丢了哪几节）。
    *
    * 由 App 算好传进来：它才知道搬了几条。这里只负责如实显示 ——
@@ -91,6 +97,8 @@ export function MapTreePage(props: MapTreePageProps) {
     onAddResource,
     onRemoveResource,
     bindingData,
+    resumeSectionId,
+    onSectionResumed,
   } = props;
 
   const [busy, setBusy] = useState(false);
@@ -133,6 +141,8 @@ export function MapTreePage(props: MapTreePageProps) {
         {...(onAddResource ? { onAddResource } : {})}
         {...(onRemoveResource ? { onRemoveResource } : {})}
         {...(bindingData ? { bindingData } : {})}
+        {...(resumeSectionId ? { resumeSectionId } : {})}
+        {...(onSectionResumed ? { onSectionResumed } : {})}
         onReplan={() => setConfirming('replan')}
         onClear={() => setConfirming('delete')}
         busy={busy}
