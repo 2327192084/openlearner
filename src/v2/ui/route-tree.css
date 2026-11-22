@@ -123,12 +123,21 @@
   /* 根→章是主干，稍重；章→小节是枝，稍轻 */
   .rtree__wire--trunk {
     stroke-width: 2;
-    stroke: var(--line-strong);
+    /* 主干是骨架，要比枝更明显（--decor-faint 约 3.0:1） */
+    stroke: var(--decor-faint);
   }
 
+  /*
+   * ⚠️ 枝原来用 `--line`（#332f2a），对卡片底（#1e1b18）的对比度约
+   * **1.77:1** —— 低于 WCAG 对图形元素要求的 3:1，实测在缩略图里
+   * 几乎看不见，树看起来像"九张卡片浮着"，分叉关系读不出来。
+   *
+   * 改成 `--decor-faint`（#6f685e）：对 #1e1b18 约 **3.02:1**，
+   * 刚好达到图形元素的最低要求，又不会抢卡片的注意力。
+   */
   .rtree__wire--branch {
     stroke-width: 1.5;
-    stroke: var(--line);
+    stroke: var(--decor-faint);
   }
 
   /*
@@ -143,7 +152,8 @@
    * 朱砂留给真正的主操作（根→章的主干与选中态）。
    */
   .rtree__wire--active {
-    stroke: var(--line-strong);
+    /* 比未激活的枝再亮一档（--text-faint 对底约 4.2:1），并用文字色而非 accent */
+    stroke: var(--text-faint);
     stroke-width: 1.75;
   }
 
