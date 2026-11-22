@@ -75,6 +75,19 @@ export interface RouteTreeProps {
   sourceId?: string;
   onAddResource?: (r: SourceResource) => void;
   onRemoveResource?: (id: string) => void;
+  /*
+   * 绑定闪卡/题组（2026-11-22）。
+   *
+   * 由上层算好传进来（组件不碰存储）。
+   * 按小节 id 索引 —— 一次只显示打开那一节的绑定。
+   */
+  bindingData?: {
+    availableCards: readonly { id: string; front: string }[];
+    availableDecks: readonly { id: string; title: string; questionCount: number }[];
+    onChange: (sectionId: string, next: { cardIds: string[]; deckIds: string[] }) => void;
+    onAskAi?: (sectionId: string) => void;
+    aiBusySectionId?: string | null;
+  };
   /** 重新规划 */
   onReplan?: () => void;
   /** 清除路线 */
@@ -86,6 +99,7 @@ export function RouteTree(props: RouteTreeProps) {
   const {
     tree,
     sectionStats,
+    bindingData,
     resources,
     sourceId,
     onAddResource,
@@ -436,6 +450,24 @@ export function RouteTree(props: RouteTreeProps) {
               : {})}
             {...(onAddResource ? { onAddResource } : {})}
             {...(onRemoveResource ? { onRemoveResource } : {})}
+            {...(bindingData
+              ? {
+                  bindings: {
+                    cardIds: openSection.section.tasks.boundFlashcardIds ?? [],
+                    deckIds: openSection.section.tasks.boundDeckIds ?? [],
+                    availableCards: bindingData.availableCards,
+                    availableDecks: bindingData.availableDecks,
+                    onChange: (next: { cardIds: string[]; deckIds: string[] }) =>
+                      bindingData.onChange(openSection.section.id, next),
+                  },
+                }
+              : {})}
+            {...(bindingData?.onAskAi
+              ? { onAskAiBind: () => bindingData.onAskAi!(openSection.section.id) }
+              : {})}
+            {...(bindingData?.aiBusySectionId === openSection.section.id
+              ? { aiBindBusy: true }
+              : {})}
             onClose={() => setOpenSectionId(null)}
           />
         </div>

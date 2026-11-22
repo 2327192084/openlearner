@@ -301,3 +301,206 @@
 .app .rpanel__input {
   color: var(--rp-text);
 }
+/* ==========================================================================
+ * 闪卡/题组绑定面板（2026-11-22）
+ *
+ * 类名前缀 `bindp-`。与资源面板同理，走 `--rp-*` 中间变量，
+ * 这样两套主题下都能用（当前只用 v2 深色）。
+ * ========================================================================== */
+
+@layer study.features {
+  .bindp {
+    margin-top: var(--rp-gap-2);
+    display: flex;
+    flex-direction: column;
+    gap: var(--rp-gap-3);
+  }
+
+  .bindp__empty {
+    margin: 0;
+    font-size: var(--rp-fs-xs);
+    color: var(--rp-text-faint);
+    line-height: var(--rp-lh);
+    padding: var(--rp-gap-2) var(--rp-gap-3);
+    border-left: 2px solid var(--rp-info);
+    background: var(--rp-surface);
+    border-radius: 0 var(--rp-radius) var(--rp-radius) 0;
+  }
+
+  .bindp__sec {
+    display: flex;
+    flex-direction: column;
+    gap: var(--rp-gap-2);
+  }
+
+  .bindp__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--rp-gap-2);
+    flex-wrap: wrap;
+  }
+
+  .bindp__label {
+    display: flex;
+    align-items: baseline;
+    gap: var(--rp-gap-2);
+    font-size: var(--rp-fs-sm);
+    font-weight: 600;
+    color: var(--rp-text);
+  }
+
+  .bindp__count {
+    font-size: var(--rp-fs-xs);
+    font-weight: 400;
+    color: var(--rp-text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bindp__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .bindp__item {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--rp-gap-2);
+    padding: var(--rp-gap-1) var(--rp-gap-2);
+    border-radius: var(--rp-radius);
+    background: var(--rp-surface);
+  }
+
+  .bindp__item-text {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--rp-fs-sm);
+    color: var(--rp-text-dim);
+    line-height: var(--rp-snug);
+  }
+
+  /* 被删掉的卡/题组要如实标出来，不能静默消失 */
+  .bindp__gone {
+    color: var(--rp-warn);
+    font-style: italic;
+  }
+
+  .bindp__meta {
+    margin-left: var(--rp-gap-2);
+    font-size: var(--rp-fs-xs);
+    color: var(--rp-text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bindp__del {
+    flex: none;
+    border: none;
+    background: transparent;
+    padding: 0 4px;
+    cursor: pointer;
+    font-size: var(--rp-fs-xs);
+    color: var(--rp-text-faint);
+    opacity: 0.6;
+    transition: opacity 140ms ease, color 140ms ease;
+  }
+
+  .bindp__item:hover .bindp__del,
+  .bindp__del:focus-visible {
+    opacity: 1;
+  }
+
+  .bindp__hint {
+    margin: 0;
+    font-size: var(--rp-fs-xs);
+    color: var(--rp-text-faint);
+  }
+
+  .bindp__picker {
+    display: flex;
+    flex-direction: column;
+    gap: var(--rp-gap-2);
+    padding: var(--rp-gap-3);
+    border: 1px solid var(--rp-line);
+    border-radius: var(--rp-radius);
+    background: var(--rp-surface);
+  }
+
+  .bindp__search {
+    font-size: var(--rp-fs-sm);
+    width: 100%;
+    min-width: 0;
+  }
+
+  .bindp__options {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+
+  .bindp__opt {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--rp-gap-2);
+    width: 100%;
+    text-align: left;
+    border: none;
+    background: transparent;
+    padding: var(--rp-gap-1) var(--rp-gap-2);
+    border-radius: var(--rp-radius);
+    cursor: pointer;
+    font-size: var(--rp-fs-sm);
+    color: var(--rp-text-dim);
+  }
+
+  .bindp__opt:hover {
+    background: var(--rp-hover);
+  }
+
+  .bindp__opt-text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .bindp__note {
+    margin: 0;
+    font-size: var(--rp-fs-xs);
+    color: var(--rp-text-faint);
+    line-height: var(--rp-lh);
+    padding-top: var(--rp-gap-2);
+    border-top: 1px solid var(--rp-line-soft);
+  }
+
+  /* 统计的来源标注 */
+  .rsdetail__stat-src {
+    margin-left: var(--rp-gap-2);
+    font-size: var(--rp-fs-xs);
+    color: var(--rp-text-faint);
+  }
+}
+
+/* 层外：button 的文字色 */
+.app .bindp__del {
+  color: var(--rp-text-faint);
+}
+
+.app .bindp__del:hover {
+  color: var(--rp-bad);
+}
+
+.app .bindp__opt {
+  color: var(--rp-text-dim);
+}
+
+.app .bindp__search {
+  color: var(--rp-text);
+}

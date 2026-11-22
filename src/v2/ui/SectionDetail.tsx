@@ -34,6 +34,7 @@ import { isSectionDone } from '@/v2/core/source-tree.ts';
 import { hasReal, statText, type SectionStats } from './section-stats.ts';
 import type { SourceResource } from '@/v2/core/resource-store.ts';
 import { ResourcePanel } from './ResourcePanel.tsx';
+import { BindingPanel } from './BindingPanel.tsx';
 
 export interface SectionDetailProps {
   section: SectionNode;
@@ -59,6 +60,30 @@ export interface SectionDetailProps {
   onRemoveResource?: (id: string) => void;
   /** 资料 id（新资源归属） */
   sourceId?: string;
+  /*
+   * 绑定闪卡/题组（2026-11-22）。
+   *
+   * 用户原话：
+   * > 这个绑定资源功能主要是自动的，可以调用后端 ai 自主审查已有资源进行绑定，
+   * > 但要留个给用户手工绑定的入口
+   *
+   * 自动绑定在建图时做（`autoBindTree`）。这里是**手工入口**：
+   * 用户在详情里挑几张卡/几个题组绑到这一节。
+   */
+  bindings?: {
+    /** 这一节已绑的闪卡 id */
+    cardIds: readonly string[];
+    /** 这一节已绑的题组 id */
+    deckIds: readonly string[];
+    /** 库里可选的全部闪卡（用于挑） */
+    availableCards: readonly { id: string; front: string }[];
+    /** 库里可选的全部题组 */
+    availableDecks: readonly { id: string; title: string; questionCount: number }[];
+    onChange: (next: { cardIds: string[]; deckIds: string[] }) => void;
+  };
+  /** 让 AI 帮我挑（手工入口里的辅助按钮）；不给就隐藏 */
+  onAskAiBind?: () => void;
+  aiBindBusy?: boolean;
 }
 
 export function SectionDetail(props: SectionDetailProps) {
@@ -74,6 +99,9 @@ export function SectionDetail(props: SectionDetailProps) {
     onAddResource,
     onRemoveResource,
     sourceId,
+    bindings,
+    onAskAiBind,
+    aiBindBusy,
   } = props;
   const [newTask, setNewTask] = useState('');
 
@@ -199,6 +227,15 @@ export function SectionDetail(props: SectionDetailProps) {
         <div className="rsdetail__task-body">
           <span className="rsdetail__stat">
             {stats ? statText(stats.flashcards, '张卡') : '算不出来'}
+            {/*
+              * 来源标注（2026-11-22）：绑定 vs 自动反查。
+              * 两者可信度不同，用户要知道这个数字是怎么来的。
+              */}
+            {stats?.origin === 'bound' && stats.boundCards > 0 ? (
+              <span className="rsdetail__stat-src">（你绑定的）</span>
+            ) : stats?.origin === 'auto' ? (
+              <span className="rsdetail__stat-src">（按原文出处自动找到的）</span>
+            ) : null}
           </span>
           {stats && hasReal(stats.flashcards) && onGoFlashcards ? (
             <button
@@ -227,6 +264,11 @@ export function SectionDetail(props: SectionDetailProps) {
         <div className="rsdetail__task-body">
           <span className="rsdetail__stat">
             {stats ? statText(stats.questions, '道题') : '算不出来'}
+            {stats?.origin === 'bound' && stats.boundDecks > 0 ? (
+              <span className="rsdetail__stat-src">
+                （{stats.boundDecks} 个题组，你绑定的）
+              </span>
+            ) : null}
           </span>
 
           {/*
@@ -255,6 +297,25 @@ export function SectionDetail(props: SectionDetailProps) {
           ) : null}
         </div>
       </div>
+
+      {/* ==================== 绑定闪卡 / 题组（2026-11-22） ==================== */}
+      {bindings ? (
+        <div className="rsdetail__task">
+          <div className="rsdetail__custom-head">
+            <span className="rsdetail__task-name">这一节用哪些卡和题</span>
+            <span className="rsdetail__hint-inline">（AI 自动绑，也可以自己改）</span>
+          </div>
+          <BindingPanel
+            cardIds={bindings.cardIds}
+            deckIds={bindings.deckIds}
+            availableCards={bindings.availableCards}
+            availableDecks={bindings.availableDecks}
+            onChange={bindings.onChange}
+            {...(onAskAiBind ? { onAskAi: onAskAiBind } : {})}
+            {...(aiBindBusy !== undefined ? { aiBusy: aiBindBusy } : {})}
+          />
+        </div>
+      ) : null}
 
       {/* ==================== 自定义任务 ==================== */}
       <div className="rsdetail__task rsdetail__task--custom">

@@ -71,7 +71,9 @@ describe('isSectionDone：完成判定严格照用户要求', () => {
         flashcardsDone: true,
         exerciseDone: true,
         custom: [],
-      },
+      boundFlashcardIds: [],
+    boundDeckIds: [],
+  },
     });
     expect(isSectionDone(s)).toBe(true);
   });
@@ -83,7 +85,9 @@ describe('isSectionDone：完成判定严格照用户要求', () => {
       flashcardsDone: true,
       exerciseDone: true,
       custom: [],
-    };
+    boundFlashcardIds: [],
+    boundDeckIds: [],
+  };
     expect(isSectionDone(section({ tasks: { ...base, resourceDone: false } }))).toBe(false);
     expect(isSectionDone(section({ tasks: { ...base, flashcardsDone: false } }))).toBe(false);
     expect(isSectionDone(section({ tasks: { ...base, exerciseDone: false } }))).toBe(false);
@@ -100,7 +104,9 @@ describe('isSectionDone：完成判定严格照用户要求', () => {
           { id: 'c1', text: '读完课本这一节', done: true },
           { id: 'c2', text: '做笔记', done: false },
         ],
-      },
+      boundFlashcardIds: [],
+    boundDeckIds: [],
+  },
     });
     expect(isSectionDone(s)).toBe(false);
   });
@@ -113,7 +119,9 @@ describe('isSectionDone：完成判定严格照用户要求', () => {
         flashcardsDone: true,
         exerciseDone: true,
         custom: [{ id: 'c1', text: '读完课本这一节', done: true }],
-      },
+      boundFlashcardIds: [],
+    boundDeckIds: [],
+  },
     });
     expect(isSectionDone(s)).toBe(true);
   });
@@ -132,7 +140,9 @@ describe('isSectionDone：完成判定严格照用户要求', () => {
         flashcardsDone: true,
         exerciseDone: true,
         custom: [],
-      },
+      boundFlashcardIds: [],
+    boundDeckIds: [],
+  },
     });
     expect(isSectionDone(s)).toBe(false);
   });
@@ -146,7 +156,15 @@ describe('chapterProgress / treeProgress', () => {
   it('章的完成进度按小节算', () => {
     const done = section({
       id: 'sec_a',
-      tasks: { resources: [], resourceDone: true, flashcardsDone: true, exerciseDone: true, custom: [] },
+      tasks: {
+        resources: [],
+        resourceDone: true,
+        flashcardsDone: true,
+        exerciseDone: true,
+        custom: [],
+        boundFlashcardIds: [],
+        boundDeckIds: [],
+      },
     });
     const notDone = section({ id: 'sec_b' });
     const c = chapter({ sections: [done, notDone] });
@@ -156,7 +174,15 @@ describe('chapterProgress / treeProgress', () => {
   it('整棵树的进度', () => {
     const done = section({
       id: 'sec_a',
-      tasks: { resources: [], resourceDone: true, flashcardsDone: true, exerciseDone: true, custom: [] },
+      tasks: {
+        resources: [],
+        resourceDone: true,
+        flashcardsDone: true,
+        exerciseDone: true,
+        custom: [],
+        boundFlashcardIds: [],
+        boundDeckIds: [],
+      },
     });
     const t = tree({
       chapters: [
@@ -454,7 +480,9 @@ describe('normalizeSourceTree：坏数据不崩', () => {
                 flashcardsDone: false,
                 exerciseDone: true,
                 custom: [{ id: 'c1', text: '做笔记', done: true }],
-              },
+              boundFlashcardIds: [],
+    boundDeckIds: [],
+  },
             }),
           ],
         }),

@@ -54,6 +54,8 @@ export interface MapTreePageProps {
   sourceId?: string;
   onAddResource?: (r: SourceResource) => void;
   onRemoveResource?: (id: string) => void;
+  /** 绑定闪卡/题组的数据与回调（2026-11-22），整块透传 */
+  bindingData?: import('./RouteTree.tsx').RouteTreeProps['bindingData'];
   /**
    * 上一次「重新生成」的结果说明（保住了几节、丢了哪几节）。
    *
@@ -79,6 +81,7 @@ export function MapTreePage(props: MapTreePageProps) {
     sourceId,
     onAddResource,
     onRemoveResource,
+    bindingData,
   } = props;
 
   const [busy, setBusy] = useState(false);
@@ -115,6 +118,7 @@ export function MapTreePage(props: MapTreePageProps) {
         {...(sourceId ? { sourceId } : {})}
         {...(onAddResource ? { onAddResource } : {})}
         {...(onRemoveResource ? { onRemoveResource } : {})}
+        {...(bindingData ? { bindingData } : {})}
         onReplan={() => setConfirming('replan')}
         onClear={() => setConfirming('delete')}
         busy={busy}

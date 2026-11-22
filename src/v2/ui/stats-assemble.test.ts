@@ -22,7 +22,9 @@ function sec(id: string, segmentIds: string[]): SectionNode {
       flashcardsDone: false,
       exerciseDone: false,
       custom: [],
-    },
+    boundFlashcardIds: [],
+    boundDeckIds: [],
+  },
   };
 }
 

@@ -198,7 +198,9 @@ describe('summarizeTree：一级页要的概况', () => {
       flashcardsDone: true,
       exerciseDone: true,
       custom: [{ id: 'c1', text: '自定义', done: false }],
-    };
+    boundFlashcardIds: [],
+    boundDeckIds: [],
+  };
     /* 自定义没勾完 → 不算完成 */
     expect(summarizeTree(t).sectionsDone).toBe(0);
 

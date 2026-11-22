@@ -42,6 +42,27 @@ export interface SectionStats {
   flashcards: StatCount;
   /** 习题：这一节对应的段落上锚了几道题 */
   questions: StatCount;
+  /**
+   * 这份统计的**来源**（2026-11-22 加）。
+   *
+   * 为什么要区分：
+   *  - `bound`：用户/AI **明确绑定**的卡与题组 → 数字可信，来源明确
+   *  - `auto`：靠锚点自动反查 → 锚点可能失效（用户库 41 道题全失效就是实例）
+   *
+   * 界面上要说清"这几个是我绑的"还是"这几个是反查出来的"，
+   * 因为两者的可信度不同，用户据此决定要不要补绑。
+   */
+  origin: 'bound' | 'auto';
+  /**
+   * 绑定的闪卡数 / 题组数（原样，不经反查）。
+   *
+   * 单独给出来是因为：一个题组里有 20 道题，但「这一节绑了几个题组」
+   * 与「这一节有多少道题」是两件事，用户两个都想看到。
+   */
+  boundCards: number;
+  boundDecks: number;
+  /** 绑定的题组里一共有多少道题（题组本身的数量由调用方给） */
+  boundQuestions: number;
 }
 
 /** 参与反查的最小知识点形状 */
@@ -79,6 +100,19 @@ export interface StatsInput {
   cards: readonly StatCard[];
   /** 全库题目 */
   questions: readonly StatQuestion[];
+  /**
+   * 闪卡 id → 它属于哪张卡（用于数「绑定的卡里有多少没被删」）。
+   *
+   * 不给就不校验绑定（直接按 id 数量算）。
+   */
+  liveCardIds?: ReadonlySet<string>;
+  /**
+   * 题组 id → 题目数。
+   *
+   * 用于把「绑了几个题组」换算成「一共多少道题」。
+   * 不给就按 0 算（界面会显示"题组数"而不是"题数"）。
+   */
+  deckQuestionCount?: ReadonlyMap<string, number>;
   /**
    * 这份资料当前的段 id 集合。
    *
@@ -148,6 +182,37 @@ export function buildSectionStats(
   const out = new Map<string, SectionStats>();
 
   for (const sec of sections) {
+    /*
+     * ==================== 绑定优先（2026-11-22） ====================
+     *
+     * 用户/AI 明确绑定的卡与题组**直接照用**，不再走锚点反查。
+     * 理由：反查这条路实测会断（41 道题锚点全失效、闪卡 0 张），
+     * 而绑定是明确的意图，比推断可信。
+     *
+     * 只有**没绑过**的才走下面的自动反查。
+     */
+    const boundCardIds = sec.tasks.boundFlashcardIds ?? [];
+    const boundDeckIds = sec.tasks.boundDeckIds ?? [];
+
+    /* 绑定的卡里有多少张真的还在（卡被删了要如实少算，不虚报） */
+    const liveBoundCards = input.liveCardIds
+      ? boundCardIds.filter((id) => input.liveCardIds!.has(id)).length
+      : boundCardIds.length;
+
+    const boundQuestions = boundDeckIds.reduce(
+      (n, id) => n + (input.deckQuestionCount?.get(id) ?? 0),
+      0,
+    );
+
+    /*
+     * ⚠️ 按**类别**分别判断，不要用一个总开关。
+     *
+     * 用户可能只绑了闪卡没绑题组 —— 那时题组仍该走自动反查。
+     * 用一个 `hasBind` 总开关会让"只绑闪卡"顺带把题组也变成 0。
+     */
+    const hasCardBind = boundCardIds.length > 0;
+    const hasDeckBind = boundDeckIds.length > 0;
+
     /* ---------- 闪卡 ---------- */
     let flash: StatCount;
     if (points.length === 0) {
@@ -199,7 +264,21 @@ export function buildSectionStats(
       }
     }
 
-    out.set(sec.id, { flashcards: flash, questions: quest });
+    out.set(sec.id, {
+      /*
+       * 绑定了就用绑定的数字（那是明确的意图）；
+       * 没绑才用反查结果。
+       *
+       * ⚠️ 这里不能"两者相加" —— 同一张卡可能既被绑、
+       * 又能被反查到，相加会重复计数。
+       */
+      flashcards: hasCardBind ? { kind: 'count', n: liveBoundCards } : flash,
+      questions: hasDeckBind ? { kind: 'count', n: boundQuestions } : quest,
+      origin: hasCardBind || hasDeckBind ? 'bound' : 'auto',
+      boundCards: liveBoundCards,
+      boundDecks: boundDeckIds.length,
+      boundQuestions,
+    });
   }
 
   return out;

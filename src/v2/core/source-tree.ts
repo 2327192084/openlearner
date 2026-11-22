@@ -72,6 +72,41 @@ export interface SectionTasks {
   exerciseDone: boolean;
   /** 用户自定义任务 */
   custom: { id: string; text: string; done: boolean }[];
+  /**
+   * 用户**手动绑定**的闪卡（2026-11-22 下午）。
+   *
+   * ## 为什么需要它（自动反查不够用）
+   *
+   * 原来「任务二」的数量只能靠自动反查：
+   *   小节的段 → 锚在这些段上的知识点 → 挂在这些知识点上的卡
+   *
+   * 实测有两个真实的空档：
+   *  1. 用户库**闪卡数为 0** —— 自动反查永远是"算不出来 / 0 张"，
+   *     这一项任务形同虚设
+   *  2. 就算有卡，反查也只认"锚在同样几段上"的卡。用户可能自己建了
+   *     一组卡讲同一节的内容（比如老师发的），它不锚原文，反查不到
+   *
+   * 所以允许用户直接从闪卡库里**挑**：绑几张卡到这一节。
+   *
+   * ## 存 id 列表为什么这次可以
+   *
+   * 前面（`source-tree.ts` 文件头）刻意说过「闪卡不存 id 列表，
+   * 运行时按知识点反查」—— 那条仍然成立，那是**自动**路径。
+   * 这里是**手动绑定**：用户明确挑了这几张卡，那就是他的意图，
+   * 存 id 是对的。卡被删了就显示"这张卡已删除"，不静默消失。
+   */
+  boundFlashcardIds: string[];
+  /**
+   * 用户**手动绑定**的题组（2026-11-22 下午）。
+   *
+   * 与闪卡同一套理由：自动反查靠锚点，锚点失效/题组不挂原文时
+   * 就算不出来（用户库 41 道题锚点全部失效就是实例）。
+   * 让用户直接绑题组，绕开锚点这一层。
+   *
+   * 存**题组 id** 而不是题目 id：用户是按"这一组题"想的
+   *（一次生成的归一组），绑 5 个题组比绑 60 道题合理得多。
+   */
+  boundDeckIds: string[];
 }
 
 /** 一个小节节点 */
@@ -143,6 +178,8 @@ export function emptyTasks(): SectionTasks {
     flashcardsDone: false,
     exerciseDone: false,
     custom: [],
+    boundFlashcardIds: [],
+    boundDeckIds: [],
   };
 }
 
@@ -462,6 +499,13 @@ function normalizeSection(raw: unknown): SectionNode | null {
       flashcardsDone: t.flashcardsDone === true,
       exerciseDone: t.exerciseDone === true,
       custom,
+      /* 绑定列表：只留字符串，坏值丢掉（旧库没有这两个字段 → 空数组） */
+      boundFlashcardIds: Array.isArray(t.boundFlashcardIds)
+        ? t.boundFlashcardIds.filter((x): x is string => typeof x === 'string' && x.length > 0)
+        : [],
+      boundDeckIds: Array.isArray(t.boundDeckIds)
+        ? t.boundDeckIds.filter((x): x is string => typeof x === 'string' && x.length > 0)
+        : [],
     },
   };
 }

@@ -23,6 +23,13 @@ export interface StatsSources {
   cards: readonly Flashcard[];
   questions: readonly Question[];
   segments: readonly SourceSegment[];
+  /**
+   * 题组 id → 题目数（2026-11-22 加）。
+   *
+   * 用于把「这一节绑了几个题组」换算成「一共多少道题」。
+   * 不给就按 0 算（界面显示题组数而不是题数）。
+   */
+  deckQuestionCount?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -73,8 +80,17 @@ export function assembleStats(
   }));
 
   const currentSegmentIds = new Set(src.segments.map((s) => s.id));
+  /* 卡片 id 集合：用于校验"绑定的卡还在不在"（被删了要如实少算） */
+  const liveCardIds = new Set(src.cards.map((c) => c.id));
 
-  return buildSectionStats(sections, { points, cards, questions, currentSegmentIds });
+  return buildSectionStats(sections, {
+    points,
+    cards,
+    questions,
+    currentSegmentIds,
+    liveCardIds,
+    ...(src.deckQuestionCount ? { deckQuestionCount: src.deckQuestionCount } : {}),
+  });
 }
 
 /**

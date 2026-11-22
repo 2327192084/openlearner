@@ -21,7 +21,9 @@ function sec(id: string, segmentIds: string[]) {
       flashcardsDone: false,
       exerciseDone: false,
       custom: [],
-    },
+    boundFlashcardIds: [],
+    boundDeckIds: [],
+  },
   };
 }
 
@@ -208,5 +210,131 @@ describe('⚠️ 同一张卡不能数两次（新旧字段常写同一个 id）
       currentSegmentIds: CURRENT,
     });
     expect(stats.get('a')!.flashcards).toEqual({ kind: 'count', n: 1 });
+  });
+});
+
+describe('绑定优先于自动反查（2026-11-22）', () => {
+  /**
+   * 用户原话：
+   * > 这个绑定资源功能主要是自动的，可以调用后端 ai 自主审查已有资源进行绑定，
+   * > 但要留个给用户手工绑定的入口
+   *
+   * ## 为什么绑定优先
+   *
+   * 自动反查这条路实测会断：
+   *  - 用户库**闪卡 0 张** → 反查永远空
+   *  - **41 道题锚点全部失效** → 反查永远空
+   *
+   * 而绑定是明确的意图。所以只要绑过，就照绑定算。
+   */
+
+  function secWithBind(flash: string[], decks: string[]) {
+    /* 展开成新对象而不是原地改字段：夹具的 tasks 是字面量，字段被推断成 never[] */
+    const s = sec('a', ['seg-1']);
+    return {
+      ...s,
+      tasks: {
+        ...s.tasks,
+        boundFlashcardIds: flash,
+        boundDeckIds: decks,
+      },
+    };
+  }
+
+  it('绑了闪卡 → 按绑定数算，不再走反查', () => {
+    const stats = buildSectionStats([secWithBind(['c1', 'c2'], [])], {
+      points: [{ id: 'kp-1', segmentIds: ['seg-1'] }],
+      /* 反查本来会算出 5 张（挂在这个知识点上） */
+      cards: Array.from({ length: 5 }, () => ({ knowledgePointIds: ['kp-1'] })),
+      questions: [],
+      currentSegmentIds: CURRENT,
+    });
+    const s = stats.get('a')!;
+    /* 绑定 2 张 > 反查 5 张：用绑定的（用户明确挑了这两张） */
+    expect(s.flashcards).toEqual({ kind: 'count', n: 2 });
+    expect(s.origin).toBe('bound');
+  });
+
+  it('绑了题组 → 按题组的题目数算', () => {
+    const stats = buildSectionStats([secWithBind([], ['d1', 'd2'])], {
+      points: [],
+      cards: [],
+      questions: [],
+      currentSegmentIds: CURRENT,
+      deckQuestionCount: new Map([
+        ['d1', 10],
+        ['d2', 5],
+      ]),
+    });
+    const s = stats.get('a')!;
+    expect(s.questions).toEqual({ kind: 'count', n: 15 });
+    expect(s.boundDecks).toBe(2);
+    expect(s.boundQuestions).toBe(15);
+  });
+
+  it('⚠️ 绑定的卡被删了 → 如实少算（不虚报）', () => {
+    const stats = buildSectionStats([secWithBind(['c1', 'c2', 'c3'], [])], {
+      points: [],
+      cards: [],
+      questions: [],
+      currentSegmentIds: CURRENT,
+      /* 只剩 c1 与 c3 还在 */
+      liveCardIds: new Set(['c1', 'c3']),
+    });
+    expect(stats.get('a')!.boundCards).toBe(2);
+  });
+
+  it('没绑过 → 仍走自动反查（origin=auto）', () => {
+    const stats = buildSectionStats([sec('a', ['seg-1'])], {
+      points: [{ id: 'kp-1', segmentIds: ['seg-1'] }],
+      cards: [{ knowledgePointIds: ['kp-1'] }],
+      questions: [],
+      currentSegmentIds: CURRENT,
+    });
+    const s = stats.get('a')!;
+    expect(s.origin).toBe('auto');
+    expect(s.flashcards).toEqual({ kind: 'count', n: 1 });
+  });
+
+  it('⚠️ 绑定与反查不叠加（同一张卡只算一次）', () => {
+    /*
+     * 坏实现：绑定的 + 反查的相加。那样同一张卡会被数两次，
+     * 用户看到的数字比他实际拥有的多。
+     */
+    const stats = buildSectionStats([secWithBind(['c1'], [])], {
+      points: [{ id: 'kp-1', segmentIds: ['seg-1'] }],
+      cards: [{ knowledgePointIds: ['kp-1'] }],
+      questions: [],
+      currentSegmentIds: CURRENT,
+    });
+    /* 是 1（绑定），不是 2（叠加） */
+    expect(stats.get('a')!.flashcards).toEqual({ kind: 'count', n: 1 });
+  });
+
+  it('绑了题组但没给题目数映射 → 按 0 算，不崩', () => {
+    const stats = buildSectionStats([secWithBind([], ['d1'])], {
+      points: [],
+      cards: [],
+      questions: [],
+      currentSegmentIds: CURRENT,
+    });
+    const s = stats.get('a')!;
+    expect(s.questions).toEqual({ kind: 'count', n: 0 });
+    /* 但题组数如实给出来 */
+    expect(s.boundDecks).toBe(1);
+  });
+
+  it('只绑闪卡不绑题组 → 题组仍走反查', () => {
+    const stats = buildSectionStats([secWithBind(['c1'], [])], {
+      points: [{ id: 'kp-1', segmentIds: ['seg-1'] }],
+      cards: [],
+      questions: [{ segmentIds: ['seg-1'] }],
+      currentSegmentIds: CURRENT,
+    });
+    const s = stats.get('a')!;
+    expect(s.origin).toBe('bound');
+    /* 闪卡按绑定 = 1；题组没绑，走反查 = 1 道 */
+    expect(s.flashcards).toEqual({ kind: 'count', n: 1 });
+    expect(s.questions).toEqual({ kind: 'count', n: 1 });
   });
 });

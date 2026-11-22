@@ -332,7 +332,9 @@ describe('rebuildSections：⚠️ 用户勾过的任务状态不能丢', () => 
                 flashcardsDone: true,
                 exerciseDone: false,
                 custom: [],
-              },
+              boundFlashcardIds: [],
+    boundDeckIds: [],
+  },
             },
             {
               id: 'old_2',
@@ -374,7 +376,9 @@ describe('rebuildSections：⚠️ 用户勾过的任务状态不能丢', () => 
                 flashcardsDone: false,
                 exerciseDone: false,
                 custom: [{ id: 'c1', text: '看老师的第 3 讲', done: true }],
-              },
+              boundFlashcardIds: [],
+    boundDeckIds: [],
+  },
             },
           ],
         }),
@@ -405,7 +409,9 @@ describe('rebuildSections：⚠️ 用户勾过的任务状态不能丢', () => 
                 flashcardsDone: false,
                 exerciseDone: false,
                 custom: [],
-              },
+              boundFlashcardIds: [],
+    boundDeckIds: [],
+  },
             },
           ],
         }),
@@ -434,7 +440,9 @@ describe('rebuildSections：⚠️ 用户勾过的任务状态不能丢', () => 
                 flashcardsDone: true,
                 exerciseDone: true,
                 custom: [],
-              },
+              boundFlashcardIds: [],
+    boundDeckIds: [],
+  },
             },
           ],
         }),
@@ -514,7 +522,9 @@ describe('prereqNote：只提醒、不锁', () => {
       flashcardsDone: true,
       exerciseDone: true,
       custom: [],
-    };
+    boundFlashcardIds: [],
+    boundDeckIds: [],
+  };
     const chapters = [
       chapter({
         number: 1,
@@ -699,7 +709,9 @@ function secNode(over: Partial<import('./source-tree.ts').SectionNode> = {}) {
       flashcardsDone: false,
       exerciseDone: false,
       custom: [],
-    },
+    boundFlashcardIds: [],
+    boundDeckIds: [],
+  },
     ...over,
   };
 }
@@ -744,7 +756,9 @@ describe('carryTaskProgress：重新生成时保留勾选', () => {
           flashcardsDone: true,
           exerciseDone: false,
           custom: [],
-        },
+        boundFlashcardIds: [],
+    boundDeckIds: [],
+  },
       }),
     ]);
     const next = treeOf([secNode({ title: '1.1 连续时间信号' })]);
@@ -767,7 +781,9 @@ describe('carryTaskProgress：重新生成时保留勾选', () => {
           flashcardsDone: false,
           exerciseDone: false,
           custom: [],
-        },
+        boundFlashcardIds: [],
+    boundDeckIds: [],
+  },
       }),
     ]);
     const next = treeOf([secNode({ title: '1.1 连续时间信号' })]);
@@ -784,7 +800,9 @@ describe('carryTaskProgress：重新生成时保留勾选', () => {
           flashcardsDone: false,
           exerciseDone: false,
           custom: [{ id: 'c1', text: '看第 3 讲', done: true }],
-        },
+        boundFlashcardIds: [],
+    boundDeckIds: [],
+  },
       }),
     ]);
     const next = treeOf([secNode({ title: '1.1 一' })]);
@@ -807,7 +825,9 @@ describe('carryTaskProgress：重新生成时保留勾选', () => {
           flashcardsDone: false,
           exerciseDone: false,
           custom: [],
-        },
+        boundFlashcardIds: [],
+    boundDeckIds: [],
+  },
       }),
     ]);
     const next = treeOf([secNode({ title: '1.1 一' })]);
@@ -826,7 +846,9 @@ describe('carryTaskProgress：重新生成时保留勾选', () => {
           flashcardsDone: true,
           exerciseDone: true,
           custom: [],
-        },
+        boundFlashcardIds: [],
+    boundDeckIds: [],
+  },
       }),
     ]);
     const next = treeOf([secNode({ title: '1.1 全新的标题' })]);
@@ -849,7 +871,9 @@ describe('carryTaskProgress：重新生成时保留勾选', () => {
           flashcardsDone: false,
           exerciseDone: false,
           custom: [],
-        },
+        boundFlashcardIds: [],
+    boundDeckIds: [],
+  },
       }),
       secNode({
         title: '1.2 对不上',
@@ -859,7 +883,9 @@ describe('carryTaskProgress：重新生成时保留勾选', () => {
           flashcardsDone: false,
           exerciseDone: false,
           custom: [],
-        },
+        boundFlashcardIds: [],
+    boundDeckIds: [],
+  },
       }),
     ]);
     const next = treeOf([secNode({ title: '1.1 能对上' }), secNode({ title: '1.9 新的' })]);
@@ -896,7 +922,9 @@ describe('carryTaskProgress：重新生成时保留勾选', () => {
           flashcardsDone: false,
           exerciseDone: false,
           custom: [],
-        },
+        boundFlashcardIds: [],
+    boundDeckIds: [],
+  },
       }),
     ]);
     const next = treeOf([]);
@@ -916,7 +944,9 @@ describe('carryTaskProgress：重新生成时保留勾选', () => {
           flashcardsDone: false,
           exerciseDone: false,
           custom: [],
-        },
+        boundFlashcardIds: [],
+    boundDeckIds: [],
+  },
       }),
     ]);
     const next = treeOf([secNode({ id: 'new_id', title: '1.1 一' })]);

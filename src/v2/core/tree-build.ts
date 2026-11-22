@@ -328,6 +328,9 @@ function makeSection(
           flashcardsDone: prev.tasks.flashcardsDone,
           exerciseDone: prev.tasks.exerciseDone,
           custom: prev.tasks.custom.map((c) => ({ ...c })),
+          /* 绑定的闪卡/题组也要继承 —— 那是用户/AI 的成果，重切小节不该丢 */
+          boundFlashcardIds: [...(prev.tasks.boundFlashcardIds ?? [])],
+          boundDeckIds: [...(prev.tasks.boundDeckIds ?? [])],
         }
       : {
           resources: [],
@@ -335,6 +338,8 @@ function makeSection(
           flashcardsDone: false,
           exerciseDone: false,
           custom: [],
+          boundFlashcardIds: [],
+          boundDeckIds: [],
         },
   };
 }
@@ -529,6 +534,14 @@ export function carryTaskProgress(next: SourceTree, prev: SourceTree | null): Ca
           flashcardsDone: old.tasks.flashcardsDone,
           exerciseDone: old.tasks.exerciseDone,
           custom: old.tasks.custom.map((c) => ({ ...c })),
+          /*
+           * 绑定的闪卡/题组也搬（2026-11-22）。
+           *
+           * 重新生成地图时，用户/AI 挑好的绑定关系是成果，
+           * 按小节标题对上了就该一起搬过去 —— 与三项勾选同理。
+           */
+          boundFlashcardIds: [...(old.tasks.boundFlashcardIds ?? [])],
+          boundDeckIds: [...(old.tasks.boundDeckIds ?? [])],
         },
       };
     }),

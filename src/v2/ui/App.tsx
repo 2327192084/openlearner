@@ -3061,15 +3061,94 @@ interface PlanDraft {
         segments,
       });
 
-      /* 4. 存下来并进二级页面 */
-      const tree: SourceTree = { ...built.tree, savedAt: new Date().toISOString() };
+      /*
+       * 4. 自动绑定闪卡/题组（2026-11-22）。
+       *
+       * 用户原话：「这个绑定资源功能主要是自动的，可以调用后端 ai
+       * 自主审查已有资源进行绑定」。
+       *
+       * ## 为什么放在建图流程里而不是等用户点按钮
+       *
+       * 用户不知道"可以去绑"，也不会主动点。建图时顺手绑好，
+       * 他打开小节详情就直接看到"这一节有 3 张卡、1 个题组"。
+       *
+       * ## 失败不阻塞建图
+       *
+       * 绑定是增强项。AI 挂了/没配后端时地图照常建好，
+       * 只是那几节没绑定 —— 用户可以手工绑（等价路径，不是降级方案）。
+       */
+      let boundTree = built.tree;
+      let bindNote: string | null = null;
+      try {
+        const [cardList, deckList] = await Promise.all([
+          flashcardsService.list(),
+          decks.list(),
+        ]);
+
+        if (cardList.length > 0 || deckList.some((d) => d.status === 'published')) {
+          const b = await resolveBackend();
+          const { chatCompletion } = await import('@/core/ai/deepseek-client.ts');
+          const { autoBindTree } = await import('@/core/ai/bind-resources-io.ts');
+
+          const outcome = await autoBindTree({
+            tree: built.tree,
+            segments,
+            cards: cardList,
+            decks: deckList,
+            chat: async ({ systemPrompt, userPrompt }) => {
+              const r = await chatCompletion({
+                apiKey: b.apiKey,
+                model: b.model,
+                ...(b.baseUrl ? { baseUrl: b.baseUrl } : {}),
+                provider: b.provider,
+                systemPrompt,
+                userPrompt,
+                temperature: 0.2,
+                maxTokens: 2000,
+              });
+              return r.content;
+            },
+          });
+
+          boundTree = outcome.tree;
+          /*
+           * 如实汇报：绑了几张卡/几个题组、有几条建议被丢掉。
+           * 静默成功等于让用户以为"AI 绑了"，而其实一条都没绑上。
+           */
+          if (outcome.cardsBound > 0 || outcome.decksBound > 0) {
+            bindNote =
+              '已自动绑定 ' +
+              outcome.cardsBound +
+              ' 张闪卡、' +
+              outcome.decksBound +
+              ' 个题组' +
+              (outcome.dropped > 0 ? '（另有 ' + outcome.dropped + ' 条建议没采用）' : '') +
+              '。绑得不对可以在小节详情里改。';
+          } else if (outcome.error === null) {
+            bindNote = 'AI 看过库里的卡与题组，没有找到明确属于各小节的内容 —— 可以在小节详情里手动绑。';
+          }
+          if (outcome.error) {
+            bindNote = '自动绑定没成功（' + outcome.error + '）。可以在小节详情里手动绑，效果一样。';
+          }
+        }
+      } catch (e) {
+        /* 没后端 / 网络失败 / 没卡没题组 —— 都不该让建图失败 */
+        bindNote =
+          '自动绑定没成功（' +
+          (e instanceof Error ? e.message : String(e)) +
+          '）。可以在小节详情里手动绑，效果一样。';
+      }
+
+      /* 5. 存下来并进二级页面 */
+      const tree: SourceTree = { ...boundTree, savedAt: new Date().toISOString() };
       const nextMap = putTree(trees, tree);
       setTrees(nextMap);
       await library.saveSettings({ sourceTrees: nextMap } as never);
       setOpenTreeSourceId(prep.source.id);
+      setReplanNote(bindNote);
       setPage('mapTree');
     },
-    [orderSourceRoute, readSearchKey, searchViaCurrentBackend, sourceService, trees, library],
+    [orderSourceRoute, readSearchKey, searchViaCurrentBackend, sourceService, trees, library, resolveBackend, flashcardsService, decks],
   );
 
   /**
@@ -3121,8 +3200,35 @@ interface PlanDraft {
         );
 
         const allSections = tree.chapters.flatMap((c) => c.sections);
+
+        /*
+         * 题组 id → 题目数（2026-11-22）。
+         *
+         * 绑定的题组要换算成"一共多少道题"显示给用户 ——
+         * "绑了 2 个题组"和"一共 15 道题"是两个信息，用户都要。
+         *
+         * 只用已发布的题组（草稿用户还没认过，绑了也没法练）。
+         */
+        const deckQuestionCount = new Map<string, number>();
+        for (const d of deckList) {
+          if (d.status !== 'published') continue;
+          try {
+            deckQuestionCount.set(d.id, (await decks.getQuestions(d.id)).length);
+          } catch {
+            /* 题组刚被删，跳过 */
+          }
+        }
+
         if (alive) {
-          setTreeStats(assembleStats(allSections, { points, cards, questions, segments: segs }));
+          setTreeStats(
+            assembleStats(allSections, {
+              points,
+              cards,
+              questions,
+              segments: segs,
+              deckQuestionCount,
+            }),
+          );
           setTreeStatsError(null);
         }
       } catch (e) {
@@ -3279,6 +3385,167 @@ interface PlanDraft {
   void routeAnchorHealth;
   void sourceRoute;
   void treeStatsError;
+
+  /* ==========================================================================
+   * 绑定闪卡 / 题组（2026-11-22）
+   *
+   * 用户原话：
+   * > 这个绑定资源功能主要是自动的，可以调用后端 ai 自主审查已有资源进行绑定，
+   * > 但要留个给用户手工绑定的入口
+   *
+   * 自动绑定在建图时跑（`autoBindTree`）；这里是手工入口的数据与回调。
+   * ========================================================================== */
+
+  /**
+   * 可绑的闪卡与题组（只读一次，供拉列表用）。
+   *
+   * 只取**已发布**的题组：草稿用户还没认过，绑了也没法练。
+   */
+  const [bindPool, setBindPool] = useState<{
+    cards: { id: string; front: string }[];
+    decks: { id: string; title: string; questionCount: number }[];
+  }>({ cards: [], decks: [] });
+
+  useEffect(() => {
+    if (page !== 'mapTree') return;
+    let alive = true;
+    void (async () => {
+      try {
+        const [cardList, deckList] = await Promise.all([flashcardsService.list(), decks.list()]);
+        const published = deckList.filter((d) => d.status === 'published');
+        const counts = await Promise.all(
+          published.map(async (d) => {
+            try {
+              return (await decks.getQuestions(d.id)).length;
+            } catch {
+              return 0;
+            }
+          }),
+        );
+        if (alive) {
+          setBindPool({
+            cards: cardList.map((c) => ({ id: c.id, front: c.frontText })),
+            decks: published.map((d, i) => ({
+              id: d.id,
+              title: d.title,
+              questionCount: counts[i] ?? 0,
+            })),
+          });
+        }
+      } catch {
+        /* 读不到就让面板显示"库里还没有"—— 不阻塞地图 */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [page, flashcardsService, decks]);
+
+  /** 手工改某小节的绑定 */
+  const setSectionBindings = useCallback(
+    (sectionId: string, next: { cardIds: string[]; deckIds: string[] }) => {
+      if (!openTreeSourceId) return;
+      const tree = trees[openTreeSourceId];
+      if (!tree) return;
+
+      const chapters = tree.chapters.map((ch) => ({
+        ...ch,
+        sections: ch.sections.map((s) =>
+          s.id === sectionId
+            ? {
+                ...s,
+                tasks: {
+                  ...s.tasks,
+                  boundFlashcardIds: next.cardIds,
+                  boundDeckIds: next.deckIds,
+                },
+              }
+            : s,
+        ),
+      }));
+      void saveTree({ ...tree, chapters, savedAt: new Date().toISOString() }).catch(() => {
+        /* 写失败不回滚：下次进页面按库里的重算 */
+      });
+    },
+    [openTreeSourceId, trees, saveTree],
+  );
+
+  /** 让 AI 给某一节挑绑定（手工入口里的辅助） */
+  const [aiBindSectionId, setAiBindSectionId] = useState<string | null>(null);
+
+  const askAiForSection = useCallback(
+    async (sectionId: string) => {
+      if (!openTreeSourceId) return;
+      const tree = trees[openTreeSourceId];
+      if (!tree) return;
+
+      /* 找到这一节（要它的 segmentIds 与所属章） */
+      let target: { section: SectionNode; chapterTitle: string } | null = null;
+      for (const ch of tree.chapters) {
+        const s = ch.sections.find((x) => x.id === sectionId);
+        if (s) {
+          target = { section: s, chapterTitle: ch.title };
+          break;
+        }
+      }
+      if (!target) return;
+
+      setAiBindSectionId(sectionId);
+      try {
+        const b = await resolveBackend();
+        const segments = await sourceService.getSegments(openTreeSourceId);
+        const [cardList, deckList] = await Promise.all([
+          flashcardsService.list(),
+          decks.list(),
+        ]);
+        const { chatCompletion } = await import('@/core/ai/deepseek-client.ts');
+        const { suggestForSection } = await import('@/core/ai/bind-resources-io.ts');
+
+        const res = await suggestForSection({
+          section: target.section,
+          chapterTitle: target.chapterTitle,
+          segments,
+          cards: cardList,
+          decks: deckList,
+          chat: async ({ systemPrompt, userPrompt }) => {
+            const r = await chatCompletion({
+              apiKey: b.apiKey,
+              model: b.model,
+              ...(b.baseUrl ? { baseUrl: b.baseUrl } : {}),
+              provider: b.provider,
+              systemPrompt,
+              userPrompt,
+              temperature: 0.2,
+              maxTokens: 1500,
+            });
+            return r.content;
+          },
+        });
+
+        if (res.error) {
+          setTreeStatsError(
+            '让 AI 挑绑定失败：' + res.error + '（你可以手动绑，效果一样）',
+          );
+          return;
+        }
+        setSectionBindings(sectionId, { cardIds: res.cardIds, deckIds: res.deckIds });
+        setTreeStatsError(null);
+      } catch (e) {
+        /*
+         * 失败不影响地图，也不静默 —— 如实告诉用户"AI 没挑成，可以手动绑"。
+         * 因为手动绑是等价路径，不是降级方案。
+         */
+        setTreeStatsError(
+          '让 AI 挑绑定失败：' +
+            (e instanceof Error ? e.message : String(e)) +
+            '（你可以手动绑，效果一样）',
+        );
+      } finally {
+        setAiBindSectionId(null);
+      }
+    },
+    [openTreeSourceId, trees, saveTree, resolveBackend, sourceService, flashcardsService, decks, setSectionBindings],
+  );
 
   /** 二级页「重新规划」：回一级页并提示用同一份资料重建 */
   /**
@@ -3544,6 +3811,13 @@ interface PlanDraft {
             resources={resources[openTreeSourceId] ?? []}
             onAddResource={addResource}
             onRemoveResource={(id) => removeResource(openTreeSourceId, id)}
+            bindingData={{
+              availableCards: bindPool.cards,
+              availableDecks: bindPool.decks,
+              onChange: setSectionBindings,
+              onAskAi: (sectionId: string) => void askAiForSection(sectionId),
+              aiBusySectionId: aiBindSectionId,
+            }}
           />
         ) : (
           <MapHomePage
