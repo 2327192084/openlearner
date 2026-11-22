@@ -52,15 +52,20 @@ import type { ChapterNode } from '@/v2/core/source-tree.ts';
 export type PresearchGranularity = 'chapter' | 'section';
 
 /**
- * 一次建图最多发多少个预搜任务。
+ * 一次建图最多发多少个预搜任务（按粒度分表）。
  *
- * ⚠️ 这个数**必须只有一个定义处**（2026-11-23）。
- * 之前这里默认 12、App 调用处又写死 `maxTasks: 10` —— 两个数不一致，
- * 而一级页的提示文字谁都不看：14 章的教材界面说 14 次、实际只跑 10 次。
- * 那是"两个部分之间的关系"上的错（提示与实际不一致），
- * 单点断言谁都发现不了。现在提示由 `describePresearchCost` 用同一个常量算。
+ * ⚠️ 这个表**必须只有一个定义处**（2026-11-23）。
+ * 之前这里默认 12、App 调用处又写死 `maxTasks: 10` —— 两个数不一致。
+ * 「界面话术说的次数」与「实际会跑的次数」是两个部分之间的关系，
+ * 单点断言谁都发现不了（项目记过的第五类同源失误）。
+ * 小节级 30：用户 11-22 选的正是约 30 次这个量级，拿章级的 10 去截它
+ * 等于把他的选择偷偷改小 —— 不允许。章级 10：教材很少超 10 章，
+ * 超了先搜前 10 章，其余建完图在小节里现搜。
  */
-export const PRESEARCH_MAX_TASKS = 10;
+export const PRESEARCH_MAX_TASKS: Readonly<Record<PresearchGranularity, number>> = {
+  chapter: 10,
+  section: 30,
+};
 
 /** 一条预搜到的资源（还未落库） */
 export interface PresearchedResource {
@@ -355,8 +360,12 @@ export function planPresearchTasks(input: {
     chapters,
     segmentsById,
     granularity,
-    maxTasks = PRESEARCH_MAX_TASKS,
   } = input;
+  /*
+   * 缺省上限按粒度取（2026-11-23）：之前不分粒度一个数，
+   * 小节级会被章级的 10 截掉 —— 等于把用户选的"约 30 次"偷偷改小。
+   */
+  const maxTasks = input.maxTasks ?? PRESEARCH_MAX_TASKS[granularity];
 
   const tasks: PresearchTask[] = [];
 
@@ -409,39 +418,44 @@ export function planPresearchTasks(input: {
 }
 
 /**
- * 给用户看的成本说明（2026-11-23，粒度做成可选项时加）。
+ * 一级页**建图前**的成本话术（2026-11-23，粒度做成可选项时加）。
  *
- * ## 为什么由这个函数生成，而不是界面自己拼话术
+ * ## 为什么不拿真实树算
  *
- * 「约 N 次检索」与「被上限截到 M 次」必须和 `planPresearchTasks`
- * **真会发出的任务数**一致。界面若按章数自己乘一个数，一旦将来
- * 章级改成只搜有正文的章，话术就成了假承诺 ——
- * 这是"提示与实际的关系"上的错，单点断言抓不到（项目第四次记这类）。
- * 所以次数只有一个来源：`planPresearchTasks` 本身。
+ * 树是点「创建地图」之后才让 AI 排出来的 —— 一级页只有资料的章号
+ * （`prep.coverage`），拿不到小节。所以这里算出来的是**估算**，
+ * 话术必须带"约/估算"字样。把估算说成确数，和把提示写成
+ * 实际会跑的次数，是同一类"两个部分之间的关系"错误（项目记过四次）。
+ *
+ * 建图完成后的**真实次数**由 App 直接拿 `tasks.length` 写进结果说明
+ * （`createTreeFor` 里），和界面承诺同一来源、可对照。
+ *
+ * ## `chapterCount = null`（资料没有可认的章结构）
+ *
+ * 如实说"估不了"，只承诺上限 —— 不编一个数字。
  */
-export function describePresearchCost(input: {
-  subject: string;
-  edition: string;
-  chapters: readonly ChapterNode[];
-  segmentsById: ReadonlyMap<string, string>;
+export function describePresearchCostEstimate(input: {
+  /** 正文实际出现的章数；null = 认不出章结构 */
+  chapterCount: number | null;
   granularity: PresearchGranularity;
-  maxTasks?: number;
-}): { n: number; capped: boolean; text: string } {
-  const max = input.maxTasks ?? PRESEARCH_MAX_TASKS;
-  const tasks = planPresearchTasks({ ...input, maxTasks: max + 1 });
-  const n = Math.min(tasks.length, max);
-  const capped = tasks.length > max;
-  const head =
-    input.granularity === 'chapter'
-      ? `按章找资料：约 ${n} 次模型搜索`
-      : `按小节找资料：约 ${n} 次模型搜索`;
-  return {
-    n,
-    capped,
-    text: capped
-      ? head + `（这份资料结构太多，最多 ${max} 次，其余的建完图在小节里现搜）`
-      : head + '，每次是一次完整模型调用，会明显拖慢建图',
-  };
+}): string {
+  const max = PRESEARCH_MAX_TASKS[input.granularity];
+
+  if (input.chapterCount === null) {
+    return input.granularity === 'chapter'
+      ? `这份资料认不出章结构，找资料的次数估不准；最多搜 ${max} 次（按 AI 排出来的块），每次是一次完整模型调用。`
+      : `这份资料认不出章结构，按小节搜的次数估不准；最多 ${max} 次，每次是一次完整模型调用，会明显拖慢建图。`;
+  }
+
+  if (input.granularity === 'chapter') {
+    const n = Math.min(input.chapterCount, max);
+    return input.chapterCount > max
+      ? `按章找资料：约 ${input.chapterCount} 章，最多搜 ${max} 次（其余建完图在小节里现搜），每次是一次完整模型调用。`
+      : `按章找资料：约 ${n} 次模型搜索，每次是一次完整模型调用，会明显拖慢建图。`;
+  }
+
+  /* 小节级：小节数要 AI 切完才知道，只说量级与上限 */
+  return `按小节找资料：每节约一次，大概 ${Math.min(input.chapterCount * 2, max)}~${max} 次（看 AI 切出多少节，估不准），每次是一次完整模型调用，会明显拖慢建图。`;
 }
 
 /**

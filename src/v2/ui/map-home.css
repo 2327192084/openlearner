@@ -187,6 +187,47 @@
     cursor: default;
   }
 
+  /*
+   * 「联网找资料」粒度（2026-11-23 做成可选项）。
+   *
+   * 与 `.maphome-check` 同一族：label 包 radio，文字吃容器色。
+   * radio 本体不需要 appearance 处理（checkbox 那行能正常工作，
+   * 同源规则即可）；如果截图发现被 base.css 层外规则盖掉再挪。
+   */
+  .maphome-gran {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+  }
+
+  .maphome-gran__opt {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    cursor: pointer;
+  }
+
+  .maphome-gran__opt input {
+    flex: none;
+    cursor: pointer;
+    accent-color: var(--accent);
+  }
+
+  .maphome-gran__opt:has(input:disabled) {
+    color: var(--text-faint);
+    cursor: default;
+  }
+
+  .maphome-gran__cost {
+    margin: 0;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    line-height: var(--lh-body);
+    max-width: 340px;
+  }
+
   /* ==================== 二级页外壳 ==================== */
 
   .map-tree-page {

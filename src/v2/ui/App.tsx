@@ -79,7 +79,7 @@ import type { SourcePlanPrep } from '@/v2/core/source-plan-inputs.ts';
 import { loadSourceSegments, prepareSourcePlans, toScopeInfo } from '@/v2/core/source-plan-inputs.ts';
 import { buildSubjectQuery, searchWeb } from '@/core/ai/web-search.ts';
 import { searchWithBackend } from '@/core/ai/model-search-io.ts';
-import { planPresearchTasks } from '@/core/ai/presearch-resources.ts';
+import { planPresearchTasks, type PresearchGranularity } from '@/core/ai/presearch-resources.ts';
 import { attachSegments, attachSectionSegments } from '@/core/ai/source-route.ts';
 import { RoutePreviewDialog } from './RoutePreviewDialog.tsx';
 import type { PlanOrder, PlanPointInput } from '@/core/ai/plan-order.ts';
@@ -2807,13 +2807,25 @@ interface PlanDraft {
   );
 
   const createTreeFor = useCallback(
-    async (prep: SourcePlanPrep, subjectName: string, wantSearch: boolean) => {
+    async (
+      prep: SourcePlanPrep,
+      subjectName: string,
+      wantSearch: boolean,
+      /**
+       * 2026-11-23 用户拍板：预搜粒度做成可选项（默认章级）。
+       * 上一版在这里写死 'chapter' 是我单方面改的，用户当时未确认；
+       * 现在两个粒度都真实可达，代价提示由一级页用
+       * `describePresearchCostEstimate` 渲染。
+       */
+      presearchGranularity: PresearchGranularity,
+    ) => {
       /*
        * 1. 需要时先联网检索。
        *
-       * ⚠️ 预搜粒度：用户 2026-11-22 明确选了**小节级**（约 30 次检索），
-       * 而方案第十一节建议的是章级。**以用户为准** —— 别照方案改回去。
-       * 这一轮先按"整份资料搜一次"实现（第 7 步做外部资源栏时再细化到小节）。
+       * ⚠️ 预搜粒度（2026-11-23 定稿）：用户 11-22 选过小节级，
+       * 上一轮实现被单方面改成章级且没有界面入口 —— 本轮用户拍板
+       * **「做成可选项」**：粒度由一级页传进来（默认章级），
+       * 选小节级时界面上如实提示约多少次模型调用。别再改回写死。
        *
        * ## 两条路，用户不用管哪条（2026-11-22 下午加）
        *
@@ -2973,9 +2985,9 @@ interface PlanDraft {
           edition: prep.subject.edition,
           chapters: boundTree.chapters,
           segmentsById: segMap,
-          granularity: 'chapter',
-          /* 上限 10：442 页 8 章没问题，超大资料也不会一次发几十个请求 */
-          maxTasks: 10,
+          /* 2026-11-23：粒度是用户在一级页选的，不再写死 */
+          granularity: presearchGranularity,
+          /* 上限不传 —— 用 PRESEARCH_MAX_TASKS[粒度]（模块里唯一来源） */
         });
 
         if (tasks.length > 0) {
@@ -3073,10 +3085,16 @@ interface PlanDraft {
              */
             if (added > 0) {
               await library.saveSettings({ sourceResources: nextSnapshot } as never);
-              presearchNote = '联网搜到 ' + added + ' 条参考资料，已放进「资源」里。';
+              /*
+               * 真实跑了几次要写出来 —— 用户在一级页看到的提示是估算
+               * （"约 N 次"），这里给确数，两边对得上（同一来源）。
+               */
+              presearchNote =
+                '联网搜了 ' + tasks.length + ' 次，找到 ' + added + ' 条参考资料，已放进「资源」里。';
             }
           } else {
-            presearchNote = '联网找过资料，没有找到可用的链接（不会硬凑）。你可以自己加。';
+            presearchNote =
+              '联网找过资料（搜了 ' + tasks.length + ' 次），没有找到可用的链接（不会硬凑）。你可以自己加。';
           }
         }
       } catch (e) {

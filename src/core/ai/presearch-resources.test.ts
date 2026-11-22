@@ -3,6 +3,7 @@ import {
   buildChapterQuery,
   buildPresearchPrompt,
   buildSectionQuery,
+  describePresearchCostEstimate,
   parsePresearchItems,
   planPresearchTasks,
   toPresearchedResources,
@@ -411,5 +412,70 @@ describe('toPresearchedResources', () => {
 
   it('空输入 → 空输出', () => {
     expect(toPresearchedResources(task, [])).toEqual([]);
+  });
+});
+
+describe('describePresearchCostEstimate：话术不许超过真实上限（2026-11-23）', () => {
+  it('章级：8 章教材 → 说 8 次（不谎报，也不截）', () => {
+    const t = describePresearchCostEstimate({ chapterCount: 8, granularity: 'chapter' });
+    expect(t).toContain('8 次');
+    expect(t).not.toContain('最多');
+  });
+
+  it('⚠️ 章级：14 章教材 → 明说最多 10 次（话术与实际调用数是同一来源）', () => {
+    const t = describePresearchCostEstimate({ chapterCount: 14, granularity: 'chapter' });
+    expect(t).toContain('最多搜 10 次');
+    /*
+     * 反向验证：把上限写回旧默认 12 → 这条必须红。
+     * （这条断言钉的是"话术说的数 = PRESEARCH_MAX_TASKS.chapter"，
+     * 不是钉 10 这个数字本身；改上限时记得连同这条一起改。）
+     */
+    expect(t).not.toContain('12');
+  });
+
+  it('小节级：上限是 30，不能被章级的 10 截（用户选的就是这个量级）', () => {
+    const t = describePresearchCostEstimate({ chapterCount: 8, granularity: 'section' });
+    expect(t).toContain('30');
+    expect(t).not.toContain('最多 10');
+  });
+
+  it('没有章结构 → 如实说估不了，不编数字', () => {
+    const t = describePresearchCostEstimate({ chapterCount: null, granularity: 'chapter' });
+    expect(t).toContain('估不');
+  });
+
+  it('两种粒度都说清"每次是一次完整模型调用"（成本要如实提示）', () => {
+    expect(
+      describePresearchCostEstimate({ chapterCount: 5, granularity: 'chapter' }),
+    ).toContain('完整模型调用');
+    expect(
+      describePresearchCostEstimate({ chapterCount: 5, granularity: 'section' }),
+    ).toContain('完整模型调用');
+  });
+});
+
+describe('PRESEARCH_MAX_TASKS 按粒度分表（2026-11-23）', () => {
+  it('planPresearchTasks 缺省上限按粒度取：15 个小节的资料，小节级不被章级的 10 截', () => {
+    /* 1 章 × 15 节（都有正文）—— 章级 1 个任务，小节级 15 个 */
+    const oneChManySec = [
+      chapter({
+        number: 1,
+        sections: Array.from({ length: 15 }, (_, j) =>
+          section({ id: `s${j}`, segmentIds: ['seg-1'] }),
+        ),
+      }),
+    ];
+    const chTasks = planPresearchTasks({
+      subject: 'x', edition: '', chapters: oneChManySec, segmentsById: SEGS, granularity: 'chapter',
+    });
+    const secTasks = planPresearchTasks({
+      subject: 'x', edition: '', chapters: oneChManySec, segmentsById: SEGS, granularity: 'section',
+    });
+    expect(chTasks).toHaveLength(1);
+    /*
+     * 反向验证：如果把缺省上限改回不分粒度的 10，这条变红 ——
+     * 钉的是"小节级用 30 这个量级"（用户 11-22 选的），不是钉 15。
+     */
+    expect(secTasks).toHaveLength(15);
   });
 });

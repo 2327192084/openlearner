@@ -35,6 +35,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SourceService } from '@/core/sources.ts';
 import { prepareSourcePlans, type SourcePlanPrep } from '@/v2/core/source-plan-inputs.ts';
 import {
+  describePresearchCostEstimate,
+  type PresearchGranularity,
+} from '@/core/ai/presearch-resources.ts';
+import {
   summarizeAll,
   type SourceTreeMap,
   type TreeSummary,
@@ -51,8 +55,14 @@ export interface MapHomePageProps {
    *
    * 这个回调由 App 实现（它拿得到 AI 能力与存储）。
    * 返回 Promise 是为了让本页能显示「正在规划…」并接住错误。
+   * `presearchGranularity` 是用户在下面选的找资料粒度（2026-11-23）。
    */
-  onCreate: (prep: SourcePlanPrep, subjectName: string, wantSearch: boolean) => Promise<void>;
+  onCreate: (
+    prep: SourcePlanPrep,
+    subjectName: string,
+    wantSearch: boolean,
+    presearchGranularity: PresearchGranularity,
+  ) => Promise<void>;
   /** 查看已有地图 → 跳到二级页面 */
   onOpen: (sourceId: string) => void;
 }
@@ -72,6 +82,13 @@ export function MapHomePage(props: MapHomePageProps) {
   const [subjectDraft, setSubjectDraft] = useState<Record<string, string>>({});
   /** 每份资料这次要不要联网 */
   const [wantSearch, setWantSearch] = useState<Record<string, boolean>>({});
+  /**
+   * 每份资料「联网找资料」的粒度（2026-11-23 用户拍板做成可选项）。
+   * 缺省章级（`undefined` 也按章级算）—— 上一轮它被单方面定为章级
+   * 且界面没有入口；现在小节级可达，但默认仍章级，理由是每次检索
+   * 都是一次完整模型调用（`presearch-resources.ts` 文件头记了成本账）。
+   */
+  const [granularity, setGranularity] = useState<Record<string, PresearchGranularity>>({});
 
   const load = useCallback(async () => {
     try {
@@ -113,7 +130,7 @@ export function MapHomePage(props: MapHomePageProps) {
     setCreating(id);
     setErr(null);
     try {
-      await onCreate(prep, name, wantSearch[id] === true);
+      await onCreate(prep, name, wantSearch[id] === true, granularity[id] ?? 'chapter');
     } catch (e) {
       setErr(e instanceof Error ? e.message : '规划失败');
     } finally {
@@ -263,6 +280,50 @@ export function MapHomePage(props: MapHomePageProps) {
                         />
                         联网查章节
                       </label>
+
+                      {/*
+                       * 「联网找资料」粒度（2026-11-23 用户拍板做成可选项）。
+                       *
+                       * 只在勾了联网之后才出现 —— 不联网就没有预搜，
+                       * 摆了选择等于假开关（硬约束 11）。
+                       * 代价提示用 `describePresearchCostEstimate` 生成：
+                       * 一级页没有真树（树是创建时 AI 排的），所以话术是
+                       * **估算**并明说估算；建图完成后 App 会用真实任务数
+                       * 汇报确数，两边同源可对照。
+                       */}
+                      {wantSearch[id] === true ? (
+                        <div className="maphome-gran">
+                          <span className="maphome-field__label">找资料粒度</span>
+                          <label className="maphome-gran__opt">
+                            <input
+                              type="radio"
+                              name={`gran-${id}`}
+                              checked={(granularity[id] ?? 'chapter') === 'chapter'}
+                              onChange={() => setGranularity((cur) => ({ ...cur, [id]: 'chapter' }))}
+                              disabled={busy}
+                            />
+                            按章（推荐）
+                          </label>
+                          <label className="maphome-gran__opt">
+                            <input
+                              type="radio"
+                              name={`gran-${id}`}
+                              checked={granularity[id] === 'section'}
+                              onChange={() => setGranularity((cur) => ({ ...cur, [id]: 'section' }))}
+                              disabled={busy}
+                            />
+                            按小节（更全，慢且花钱）
+                          </label>
+                          <p className="maphome-gran__cost">
+                            {describePresearchCostEstimate({
+                              chapterCount: p.coverage
+                                ? p.coverage.to - p.coverage.from + 1
+                                : null,
+                              granularity: granularity[id] ?? 'chapter',
+                            })}
+                          </p>
+                        </div>
+                      ) : null}
 
                       <button
                         type="button"
