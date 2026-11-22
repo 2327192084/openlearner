@@ -166,3 +166,54 @@ describe('presetDefaults', () => {
     expect(presetDefaults('nope')).toBeNull();
   });
 });
+
+describe('maxOutputTokens：按服务商夹住输出预算（2026-11-22 修超时）', () => {
+  /**
+   * ## 真实事故
+   *
+   * 路线规划传 `maxTokens: 8000`，智谱 `glm-4-flash` 上限 4095。
+   * 用户实测「智谱经常超时」就是它 —— 超限有两种表现：
+   * 直接 400（好查），或者**服务端不报错、只是不返回**（看起来是超时）。
+   *
+   * 官方参数表：https://docs.bigmodel.cn/cn/guide/start/concept-param
+   * 「glm-4-flash 动态计算 / 4095」
+   */
+
+  it('智谱标了 4095 的上限（默认模型就是 glm-4-flash）', () => {
+    const zhipu = findPreset('zhipu');
+    expect(zhipu?.defaultModel).toBe('glm-4-flash');
+    expect(zhipu?.maxOutputTokens).toBe(4095);
+  });
+
+  it('DeepSeek 标了 8192', () => {
+    expect(findPreset('deepseek')?.maxOutputTokens).toBe(8192);
+  });
+
+  it('月之暗面标了 4096（上下文 128k 但输出只有 4096）', () => {
+    expect(findPreset('moonshot')?.maxOutputTokens).toBe(4096);
+  });
+
+  it('⚠️ 自定义/中转站不标上限（各家差异太大，硬猜更糟）', () => {
+    expect(findPreset('custom')?.maxOutputTokens).toBeUndefined();
+  });
+
+  it('标了上限的都必须是正数（防止写错成 0 导致完全不能输出）', () => {
+    for (const p of PROVIDER_PRESETS) {
+      if (p.maxOutputTokens !== undefined) {
+        expect(p.maxOutputTokens).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('⚠️ 每个预设的默认模型都该能输出 4096 以上（否则排路线的 8000 预算会被压得太狠）', () => {
+    /*
+     * 这条不是硬规则（小模型确实有 1024 上限的），但它能提醒
+     * 以后有人把默认模型换成极小输出模型时想一下后果。
+     */
+    for (const p of PROVIDER_PRESETS) {
+      if (p.maxOutputTokens !== undefined && p.defaultModel) {
+        expect(p.maxOutputTokens).toBeGreaterThanOrEqual(2048);
+      }
+    }
+  });
+});

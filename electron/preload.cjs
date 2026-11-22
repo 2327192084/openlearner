@@ -159,6 +159,17 @@ const openleanerApi = Object.freeze({
   webSearch: (request) => ipcRenderer.invoke('openleaner:web-search', request),
 
   /**
+   * 用系统浏览器打开一条网址（2026-11-22，外部资源栏要它）。
+   *
+   * ⚠️ 只走 http/https —— 主进程侧用 `openExternalSafely` 校验
+   * （挡 javascript: / file: / 自定义协议）。
+   *
+   * 为什么不暴露通用 shell.openExternal：那等于把"打开任意协议"
+   * 交给页面。这里只暴露"打开一个网址"这一个语义。
+   */
+  openExternal: (url) => ipcRenderer.invoke('openleaner:open-external', { url }),
+
+  /**
    * 学习库位置（2026-11-11）。
    *
    * 目的：让用户**看得见**库存在哪、能改、能在资源管理器里打开。

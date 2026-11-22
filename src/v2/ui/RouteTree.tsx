@@ -44,6 +44,7 @@ import { layoutTree, TREE_METRICS, type TreeBox } from '@/v2/core/tree-layout.ts
 import { shortTitle } from './RouteBoard.tsx';
 import { SectionDetail } from './SectionDetail.tsx';
 import type { SectionStats } from './section-stats.ts';
+import type { SourceResource } from '@/v2/core/resource-store.ts';
 
 export interface RouteTreeProps {
   tree: SourceTree;
@@ -61,6 +62,19 @@ export interface RouteTreeProps {
   onGoFlashcards?: (section: SectionNode) => void;
   /** 去做题页练这一节的题 */
   onGoPractice?: (section: SectionNode) => void;
+  /*
+   * 外部资源（2026-11-22，方案第 7 步）。
+   *
+   * 资源是**资料级**存的（`SourceResource.sectionId` 指到小节），
+   * 所以这里收全量、按小节过滤后传给详情面板 ——
+   * 不让 RouteTree 自己碰存储（组件不碰 I/O 是项目一贯分工）。
+   */
+  /** 这份资料的全部资源 */
+  resources?: readonly SourceResource[];
+  /** 资料 id（新资源归属） */
+  sourceId?: string;
+  onAddResource?: (r: SourceResource) => void;
+  onRemoveResource?: (id: string) => void;
   /** 重新规划 */
   onReplan?: () => void;
   /** 清除路线 */
@@ -72,6 +86,10 @@ export function RouteTree(props: RouteTreeProps) {
   const {
     tree,
     sectionStats,
+    resources,
+    sourceId,
+    onAddResource,
+    onRemoveResource,
     onTasksChange,
     onGoFlashcards,
     onGoPractice,
@@ -412,6 +430,12 @@ export function RouteTree(props: RouteTreeProps) {
             {...(onTasksChange ? { onTasksChange } : {})}
             {...(onGoFlashcards ? { onGoFlashcards } : {})}
             {...(onGoPractice ? { onGoPractice } : {})}
+            {...(sourceId ? { sourceId } : {})}
+            {...(resources
+              ? { resources: resources.filter((r) => r.sectionId === openSection.section.id) }
+              : {})}
+            {...(onAddResource ? { onAddResource } : {})}
+            {...(onRemoveResource ? { onRemoveResource } : {})}
             onClose={() => setOpenSectionId(null)}
           />
         </div>

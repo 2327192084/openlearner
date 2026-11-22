@@ -1,0 +1,272 @@
+/**
+ * 外部资源面板的样式（2026-11-22，方案第 7 步）。
+ *
+ * 类名前缀 `rpanel-`。
+ *
+ * ## 形态参照用户给的 LogiNote 截图（方案 7.2）
+ *
+ * ```
+ * ● 资源标题
+ *   域名 · 来源标注（联网收集 / 人工整理）
+ *   相对时间
+ * ```
+ *
+ * 左侧小圆点 + 三行元信息，标题是主信息、其余压暗。
+ * 不做成卡片（资源是"边看边点开"的东西，卡片太占地方）。
+ *
+ * ## ⚠️ 层序陷阱
+ *
+ * `base.css` 有不在 `@layer` 内的 `button { color: inherit }`。
+ * 这里把资源做成了 `<button>`（整块可点、键盘可达），所以文字色
+ * 写在文件末尾**层外**，用 `.app .` 抬 specificity。
+ */
+
+@layer study.features {
+  .rpanel {
+    margin-top: var(--space-3);
+  }
+
+  .rpanel__head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+  }
+
+  .rpanel__title {
+    margin: 0;
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .rpanel__count {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .rpanel__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .rpanel__item {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-1);
+    border-radius: var(--radius-sm);
+    transition: background-color 140ms ease;
+  }
+
+  .rpanel__item:hover {
+    background: var(--bg-hover);
+  }
+
+  /*
+   * 整条做成按钮：可点、可 Tab、Enter 打开。
+   * 比"标题是链接、其余是文字"更符合"边看边点开"的用法 ——
+   * 用户点哪儿都能打开，不用瞄准标题。
+   */
+  .rpanel__link {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    text-align: left;
+    border: none;
+    background: transparent;
+    padding: var(--space-2);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+  }
+
+  .rpanel__link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+
+  /* 左侧圆点 —— 截图里那个 ● */
+  .rpanel__dot {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    margin-top: 6px;
+    border-radius: 50%;
+    background: var(--accent-text);
+  }
+
+  .rpanel__body {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .rpanel__name {
+    font-size: var(--fs-sm);
+    line-height: var(--lh-snug);
+    color: var(--text);
+    /* 长标题两行内截断 —— 资源标题常很长（视频全名） */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .rpanel__meta {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+  }
+
+  .rpanel__src {
+    color: var(--info);
+  }
+
+  .rpanel__time {
+    color: var(--text-faint);
+  }
+
+  .rpanel__note {
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    line-height: var(--lh-body);
+  }
+
+  /* 删除按钮：悬停才明显（平时不抢注意力，但要可达） */
+  .rpanel__del {
+    flex: none;
+    border: none;
+    background: transparent;
+    padding: 2px 6px;
+    margin-top: 4px;
+    cursor: pointer;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    opacity: 0.5;
+    transition: opacity 140ms ease, color 140ms ease;
+  }
+
+  .rpanel__item:hover .rpanel__del,
+  .rpanel__del:focus-visible {
+    opacity: 1;
+  }
+
+  .rpanel__empty {
+    margin: 0;
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    line-height: var(--lh-body);
+  }
+
+  /* ---------- 表单 ---------- */
+
+  .rpanel__form {
+    margin-top: var(--space-2);
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--bg-sunken);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .rpanel__field {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .rpanel__label {
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+  }
+
+  .rpanel__req {
+    color: var(--accent-text);
+  }
+
+  .rpanel__input {
+    font-size: var(--fs-sm);
+    width: 100%;
+    min-width: 0;
+  }
+
+  /*
+   * 错误用 warn 色而不是 bad：用户改一个字就能重试，这不是"出事了"。
+   * 但要说清具体原因（javascript: / 不是网址 / 重复），不能只说"无效"。
+   */
+  .rpanel__err {
+    margin: 0;
+    font-size: var(--fs-xs);
+    color: var(--warn);
+    line-height: var(--lh-body);
+  }
+
+  .rpanel__actions {
+    display: flex;
+    gap: var(--space-2);
+  }
+
+  .rpanel__add {
+    margin-top: var(--space-2);
+  }
+
+  /* ---------- 小节详情里的容器 ---------- */
+
+  .rsdetail__resources {
+    margin: var(--space-2) 0 0 calc(var(--space-3) + var(--space-2));
+    padding-left: var(--space-3);
+    border-left: 1px solid var(--line-soft);
+  }
+
+  /* 只读资源（规划时带的）的标注 */
+  .rsdetail__res-ro {
+    font-size: var(--fs-xs);
+    color: var(--text-faint);
+    font-style: italic;
+  }
+}
+
+/* ==========================================================================
+ * ⚠️ 层外：`button { color: inherit }` 不在层里，层内写的 color 一律无效。
+ * ========================================================================== */
+
+.app .rpanel__link {
+  color: var(--text);
+}
+
+.app .rpanel__link .rpanel__name {
+  color: var(--text);
+}
+
+.app .rpanel__link .rpanel__meta {
+  color: var(--text-faint);
+}
+
+.app .rpanel__del {
+  color: var(--text-faint);
+}
+
+.app .rpanel__del:hover {
+  color: var(--bad);
+}
+
+.app .rpanel__add {
+  color: var(--text-muted);
+}
+
+.app .rpanel__input {
+  color: var(--text);
+}

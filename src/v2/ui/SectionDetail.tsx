@@ -32,6 +32,8 @@ import { useState } from 'react';
 import type { ChapterNode, SectionNode, SectionTasks } from '@/v2/core/source-tree.ts';
 import { isSectionDone } from '@/v2/core/source-tree.ts';
 import { hasReal, statText, type SectionStats } from './section-stats.ts';
+import type { SourceResource } from '@/v2/core/resource-store.ts';
+import { ResourcePanel } from './ResourcePanel.tsx';
 
 export interface SectionDetailProps {
   section: SectionNode;
@@ -42,10 +44,37 @@ export interface SectionDetailProps {
   onGoFlashcards?: (section: SectionNode) => void;
   onGoPractice?: (section: SectionNode) => void;
   onClose: () => void;
+  /**
+   * 挂在这一节上的外部资源（2026-11-22，方案第 7 步）。
+   *
+   * 与 `tasks.resources` 的区别：
+   *  - `tasks.resources`：规划时随路线存下来的（只读展示）
+   *  - 这里：**资料级资源表**里 sectionId 指向这一节的（可增删）
+   *
+   * 两者都在任务一里显示，但只有后者能编辑 —— 前者是 AI 给的，
+   * 后者是用户自己的。分开是为了不让人误删 AI 搜来的依据。
+   */
+  resources?: readonly SourceResource[];
+  onAddResource?: (r: SourceResource) => void;
+  onRemoveResource?: (id: string) => void;
+  /** 资料 id（新资源归属） */
+  sourceId?: string;
 }
 
 export function SectionDetail(props: SectionDetailProps) {
-  const { section, chapter, stats, onTasksChange, onGoFlashcards, onGoPractice, onClose } = props;
+  const {
+    section,
+    chapter,
+    stats,
+    onTasksChange,
+    onGoFlashcards,
+    onGoPractice,
+    onClose,
+    resources,
+    onAddResource,
+    onRemoveResource,
+    sourceId,
+  } = props;
   const [newTask, setNewTask] = useState('');
 
   const t = section.tasks;
@@ -121,6 +150,7 @@ export function SectionDetail(props: SectionDetailProps) {
           <span className="rsdetail__task-name">看网课 / 查资料</span>
         </label>
 
+        {/* 规划时随路线存下来的资源（只读 —— 那是 AI 给的依据，别让人误删） */}
         {t.resources.length > 0 ? (
           <ul className="rsdetail__res-list">
             {t.resources.map((r) => (
@@ -129,14 +159,29 @@ export function SectionDetail(props: SectionDetailProps) {
                 <span className="rsdetail__res-src">
                   {r.source === 'search' ? '联网收集' : '人工整理'}
                 </span>
+                <span className="rsdetail__res-ro">规划时带的</span>
               </li>
             ))}
           </ul>
-        ) : (
-          <p className="rsdetail__hint">
-            这一节还没有外部资料。第 7 步会加上「+ 找资料」（联网搜）与「+ 添加」（自己存）。
-          </p>
-        )}
+        ) : null}
+
+        {/*
+          * 用户自己加的资源（2026-11-22，方案第 7 步）。
+          * 与小节详情同一位置 —— 用户在这一节看到的所有资料都在一起。
+          */}
+        {sourceId && resources && onAddResource && onRemoveResource ? (
+          <div className="rsdetail__resources">
+            <ResourcePanel
+              sourceId={sourceId}
+              sectionId={section.id}
+              resources={resources}
+              onAdd={onAddResource}
+              onRemove={onRemoveResource}
+              title="这一节的资料"
+              emptyHint="还没有这一节专属的资料。可以加网课、文档、视频的链接。"
+            />
+          </div>
+        ) : null}
       </div>
 
       {/* ==================== 任务二：闪卡 ==================== */}

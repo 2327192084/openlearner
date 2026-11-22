@@ -764,3 +764,71 @@ describe('finishReason：推理模型把预算吃光时不当作服务端错误'
     expect(r.finishReason).toBeNull();
   });
 });
+
+describe('max_tokens 会按服务商上限夹住（2026-11-22 修智谱超时）', () => {
+  /**
+   * ## 真实事故
+   *
+   * 路线规划传 8000，智谱 glm-4-flash 上限 4095。
+   * 用户报「智谱经常超时」—— 超限时服务端可能不报错、只是不返回，
+   * 界面就显示成超时。这个 bug 从界面上完全看不出原因。
+   *
+   * 判据必须验**实际发出去的 body**，不是验代码里写了 min()：
+   * 只验代码的话，改坏了（比如忘了用 effectiveMaxTokens）也能通过。
+   */
+  async function sentMaxTokens(opts: {
+    provider?: string;
+    maxTokens?: number;
+  }): Promise<unknown> {
+    let sent: Record<string, unknown> | null = null;
+    await chatCompletion({
+      apiKey: 'sk-test',
+      model: 'm',
+      systemPrompt: 's',
+      userPrompt: 'u',
+      ...(opts.provider ? { provider: opts.provider } : {}),
+      ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
+      fetchImpl: mockFetch((_url, init) => {
+        sent = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return { body: okResponse('ok') };
+      }),
+    });
+    return sent ? (sent as Record<string, unknown>)['max_tokens'] : undefined;
+  }
+
+  it('⚠️ 智谱 + 8000 → 实际发出 4095（夹到上限）', async () => {
+    expect(await sentMaxTokens({ provider: 'zhipu', maxTokens: 8000 })).toBe(4095);
+  });
+
+  it('智谱 + 1000 → 保持 1000（低于上限不动）', async () => {
+    expect(await sentMaxTokens({ provider: 'zhipu', maxTokens: 1000 })).toBe(1000);
+  });
+
+  it('DeepSeek + 8000 → 保持 8000（上限 8192，不夹）', async () => {
+    expect(await sentMaxTokens({ provider: 'deepseek', maxTokens: 8000 })).toBe(8000);
+  });
+
+  it('DeepSeek + 20000 → 夹到 8192', async () => {
+    expect(await sentMaxTokens({ provider: 'deepseek', maxTokens: 20000 })).toBe(8192);
+  });
+
+  it('月之暗面 + 8000 → 夹到 4096', async () => {
+    expect(await sentMaxTokens({ provider: 'moonshot', maxTokens: 8000 })).toBe(4096);
+  });
+
+  it('⚠️ 自定义/中转站不夹（不知道上限，硬猜更糟）', async () => {
+    expect(await sentMaxTokens({ provider: 'custom', maxTokens: 8000 })).toBe(8000);
+  });
+
+  it('没有 provider 时不夹', async () => {
+    expect(await sentMaxTokens({ maxTokens: 8000 })).toBe(8000);
+  });
+
+  it('没传 maxTokens → 不发这个字段（用服务端默认值）', async () => {
+    expect(await sentMaxTokens({ provider: 'zhipu' })).toBeUndefined();
+  });
+
+  it('上限恰好等于请求值时不动（边界）', async () => {
+    expect(await sentMaxTokens({ provider: 'zhipu', maxTokens: 4095 })).toBe(4095);
+  });
+});

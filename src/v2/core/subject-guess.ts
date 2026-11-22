@@ -199,44 +199,60 @@ export interface ParseCompleteness {
   /**
    * 不完整的原因分类：
    * - `no-text`：一点正文都没有（扫描件/没解析）
-   * - `partial-pages`：页数很多但只解析出一小部分
+   * - `thin-text`：有段落但总量太少（< 200 字），排不出可靠路线
    * - `partial-chapters`：目录声明到第 N 章，正文只到第 M 章
+   *
+   * ⚠️ 2026-11-22 去掉了 `partial-pages`（按「每页字数」判断）。
+   * 那个判据不成立：段数不等于页数，而且 PPT/图文资料每页天然字少。
    */
-  reason: 'none' | 'no-text' | 'partial-pages' | 'partial-chapters' | 'ok';
+  reason: 'none' | 'no-text' | 'thin-text' | 'partial-chapters' | 'ok';
   /** 给用户看的一句话 */
   message: string;
-  /** 已解析 / 总页数（或总段数），用于显示进度 */
+  /** 已解析的**段落数** */
   parsed: number;
+  /**
+   * 这份资料的**页数**（`pageCount`）；未知时等于段数。
+   *
+   * ⚠️ 这个字段不要拿来当"应该有几段"用 —— 段与页是两个量。
+   * 老文案犯的正是这个错，写出了「共 86 段，但只解析出 86 段」。
+   */
   total: number;
 }
 
 /**
  * 判断一份资料是否解析得够完整、可以据此规划路线。
  *
- * ## 为什么要拦
+ * ## 这个判断的定位已经变了（2026-11-22）
  *
- * 用户确认了这一条：
- * > 挡住，先提示补解析
+ * 原来它是个**闸门**（不完整就挡住，按钮不能点）。用户后来明确要求：
+ * > 这个提示应该是提醒用户资料未完全解析，但规划路线的按钮还是要保留给用户，
+ * > 让用户自己决定。
  *
- * 实测依据：用户库《高等数学 第7版 上》有 **442 页**，
- * 但正文只解析出 **35738 字**（平均每页 80 字）。
- * 拿这样的数据去规划路线，模型只能看到封面、前言和目录页 ——
- * 排出来的路线会严重跑偏，而用户以为是 AI 不行。
+ * 所以现在它**只产出提示文案**，调用方（`MapHomePage`）显示黄字、
+ * 但按钮始终可点。`ok === false` 不再意味着"不能规划"。
  *
- * ## 阈值怎么定的
+ * ## ⚠️ 为什么删掉「每页字数」这个判据
  *
- * - **一点正文都没有** → 直接拦（`no-text`）
- * - **每页平均不足 200 字** → 认为正文没进来（`partial-pages`）
- *   实测正常教材页约 600~2000 字；200 是「至少有内容」的下限。
- * - **目录声明到第 N 章，正文只到第 M 章且差距大** → `partial-chapters`
- *   这里只在 `declaredTo` 存在（说明目录确实更多）时才判定，
- *   且要求差 2 章以上 —— 差 1 章可能只是最后一章还没解析完。
+ * 老实现用「平均每页不足 200 字」判「正文没进来」，有两个真问题：
  *
- * ## 为什么不拦「章号不连续」
+ * 1. **段数被当成页数写进文案**。老文案是
+ *    「这份资料共 {pageCount} 页，但只解析出 {segments.length} 页」——
+ *    第二个值是**段数**。当一份 PPT 的段数恰好等于页数（86 段 / 86 页），
+ *    就渲染成「共 86 页，但只解析出 86 页」—— 自相矛盾。
+ *    用户是从截图里发现这句的。
  *
- * 节选资料（只有第 1、5、7 章）本身是**合法**的输入：
- * 用户可能就是想按手上这几章学。路线只要不超出这几章就行，
- * 那是 `coveredChapters` 的职责，不是闸门的。
+ * 2. **判据本身不成立**。一页 PPT 是标题 + 三五个要点，80 字很正常；
+ *    图文混排的书页也常常字少。按「每页 600 字」当基准，会把
+ *    大量正常资料判成"没解析"。
+ *
+ * ## 现在用什么判据（都可观测、可验证）
+ *
+ * - **一点段落都没有** → `no-text`（真的没正文）
+ * - **总量 < 200 字** → `thin-text`（有东西但太少，排不出路线）
+ * - **目录声明的章 > 正文覆盖的章，且差 ≥ 2** → `partial-chapters`
+ *   （这是唯一能真正说明"解析漏了"的证据：作者列了 8 章，正文只到第 1 章）
+ *
+ * 三条都不看"每页多少字"，所以不会再冤枉 PPT 和图文资料。
  */
 export function checkCompleteness(
   source: Pick<Source, 'pageCount' | 'textStatus'>,
@@ -244,8 +260,9 @@ export function checkCompleteness(
   outline: SourceOutline,
   coverage: { declaredTo: number | null; to: number } | null,
 ): ParseCompleteness {
-  const total = source.pageCount ?? segments.length;
   const parsed = segments.length;
+  /* total 只用于显示"这份资料有多少页"，不再冒充"应该有几段" */
+  const total = source.pageCount ?? segments.length;
   const charTotal = segments.reduce((n, s) => n + (s.charCount || s.text.length), 0);
 
   /* ---------- 1. 完全没有任何段落 ---------- */
@@ -264,57 +281,37 @@ export function checkCompleteness(
 
   /* ---------- 2. 有段落但总量极小 ---------- */
   /*
-   * ⚠️ 顺序很重要：这条必须在「每页字数」与「章数差」**之前**判断
-   * 极小的总量（< 200 字），但不能抢在那两条前面 ——
-   * 否则「127 页只解析 1 页」这种会被笼统判成「没正文」，
-   * 而真正该告诉用户的是「只解析了一部分」。
+   * 阈值 200 字：少于这个数连"这门课讲什么"都看不出来，
+   * 排出来的路线纯属模型自由发挥。
    *
-   * 所以这里用**双重条件**：总量极小 **且** 不是「页数很多但没解析完」
-   * 的情况时才判 no-text。
+   * 不再叠加「页数 <= 20」的条件 —— 那个条件的本意是"别把
+   * 127 页只解析 1 页的情况笼统判成没正文"，但删掉每页字数判据后
+   * 它没有意义了：内容够就是够，不够就是不够，与几页无关。
    */
-  if (charTotal < 200 && (source.pageCount === null || source.pageCount <= 20)) {
+  if (charTotal < 200) {
     return {
       ok: false,
-      reason: 'no-text',
+      reason: 'thin-text',
       message:
         source.textStatus === 'no-text-layer'
           ? '这份资料是扫描件，没有文字层。先到「文档解析」里用 OCR 识别出文字，再来规划路线。'
-          : `这份资料只有约 ${charTotal} 字正文，不足以规划路线。先到「文档解析」把它解析完整。`,
+          : `这份资料只解析出 ${charTotal} 字正文，不足以排出可靠的路线。先到「文档解析」把它解析完整。`,
       parsed,
       total,
     };
   }
 
-  /* ---------- 2. 页数很多但正文很少 ---------- */
-  /*
-   * 只在页数可信时判断（pageCount 为 null 时跳过 —— pptx/docx 没有页数概念）。
-   * 每页平均字数 = 总字数 / 总页数。
-   */
-  if (source.pageCount !== null && source.pageCount > 20) {
-    const perPage = charTotal / source.pageCount;
-    if (perPage < 200) {
-      return {
-        ok: false,
-        reason: 'partial-pages',
-        message:
-          `这份资料共 ${source.pageCount} 页，但只解析出 ${parsed} 页、约 ${charTotal} 字` +
-          `（平均每页 ${Math.round(perPage)} 字，正常教材应在 600 字以上）。` +
-          '正文没进来，规划出来的路线会跑偏。先到「文档解析」把它解析完。',
-        parsed,
-        total,
-      };
-    }
-  }
-
   /* ---------- 3. 目录声明比正文多得多 ---------- */
+  /*
+   * 这是唯一能真正证明"解析漏了"的证据：作者自己在目录里
+   * 列了 N 章，而正文只找到 M 章。
+   *
+   * 只在 `declaredTo` 存在时才判定（说明目录确实列得更多），
+   * 且要求差 2 章以上 —— 差 1 章可能只是最后一章刚开始。
+   */
   if (coverage?.declaredTo !== null && coverage?.declaredTo !== undefined) {
     const gap = coverage.declaredTo - coverage.to;
     if (gap >= 2) {
-      /*
-       * 找出目录里声明了、但正文里没有的那几章，直接列在提示里 ——
-       * 光说「目录列到第 8 章」用户还得自己翻目录对，
-       * 列出来才能一眼看懂「缺的是第 2~8 章」。
-       */
       const missing = outline.chapterNumbers.filter(
         (n) => !outline.contentChapterNumbers.includes(n),
       );

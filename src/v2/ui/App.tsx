@@ -70,6 +70,7 @@ import {
 } from '@/v2/core/source-tree-store.ts';
 import { MapHomePage } from './MapHomePage.tsx';
 import { MapTreePage } from './MapTreePage.tsx';
+import { normalizeResources, type SourceResource } from '@/v2/core/resource-store.ts';
 import { assembleStats } from './stats-assemble.ts';
 import type { SectionStats } from './section-stats.ts';
 import type { SourceRoute } from '@/core/ai/source-route.ts';
@@ -162,6 +163,7 @@ import './route-planner.css';
 import './route-board.css';
 import './route-tree.css';
 import './map-home.css';
+import './resource-panel.css';
 import './search-key-field.css';
 import './route-preview.css';
 import './focus-page.css';
@@ -3162,6 +3164,74 @@ interface PlanDraft {
     [openTreeSourceId, trees, saveTree],
   );
 
+  /* ==========================================================================
+   * 外部资源（2026-11-22，方案第 7 步）
+   *
+   * 存 `settings.sourceResources: { [sourceId]: SourceResource[] }`
+   * —— 资料级一份表，小节归属靠 `sectionId` 字段。
+   *
+   * ## 为什么不存进路线树里
+   *
+   * 资源比路线**活得久**：路线重排后资源不该跟着丢（用户加的东西
+   * 不该因为 AI 重新排一次就消失）。所以它与 `sourceTrees` 平级，
+   * 存在 settings 的另一个键上。
+   *
+   * ## 资料删了资源跟着删（用户确认过）
+   *
+   * 由 `pruneOrphanResources` 在读取时清理 —— 不级联删存储，
+   * 那样万一资料是误删还能靠备份找回。
+   * ========================================================================== */
+
+  const [resources, setResources] = useState<Record<string, SourceResource[]>>({});
+
+  const loadResources = useCallback(async () => {
+    try {
+      const st = await library.getSettings();
+      const raw = (st as unknown as { sourceResources?: unknown }).sourceResources;
+      setResources(normalizeResources(raw));
+    } catch {
+      /* 读不到就当没有：这是附加功能，不该让整页崩 */
+    }
+  }, [library]);
+
+  useEffect(() => {
+    if (page !== 'flow' && page !== 'mapTree') return;
+    void loadResources();
+  }, [page, loadResources]);
+
+  /** 写回资源表（整表写，一条路线一次写入天然原子） */
+  const persistResources = useCallback(
+    async (next: Record<string, SourceResource[]>) => {
+      setResources(next);
+      await library.saveSettings({ sourceResources: next } as never);
+    },
+    [library],
+  );
+
+  /** 加一条资源 */
+  const addResource = useCallback(
+    (r: SourceResource) => {
+      const list = resources[r.sourceId] ?? [];
+      const next = { ...resources, [r.sourceId]: [...list, r] };
+      void persistResources(next).catch(() => {
+        /* 写失败不回滚界面：下次进页面会按库里的重算，用户能看到真实状态 */
+      });
+    },
+    [resources, persistResources],
+  );
+
+  /** 删一条资源 */
+  const removeResource = useCallback(
+    (sourceId: string, id: string) => {
+      const list = resources[sourceId] ?? [];
+      const next = { ...resources, [sourceId]: list.filter((x) => x.id !== id) };
+      /* 删空了就把键去掉，别留空数组 */
+      if (next[sourceId]!.length === 0) delete next[sourceId];
+      void persistResources(next).catch(() => {});
+    },
+    [resources, persistResources],
+  );
+
   /** 二级页面面包屑的标题（资料标题优先，回退科目名） */
   const treeSourceTitle = (() => {
     if (!openTreeSourceId) return '';
@@ -3463,6 +3533,10 @@ interface PlanDraft {
               if (openTreeSourceId) await deleteTree(openTreeSourceId);
             }}
             replanNote={replanNote}
+            sourceId={openTreeSourceId}
+            resources={resources[openTreeSourceId] ?? []}
+            onAddResource={addResource}
+            onRemoveResource={(id) => removeResource(openTreeSourceId, id)}
           />
         ) : (
           <MapHomePage

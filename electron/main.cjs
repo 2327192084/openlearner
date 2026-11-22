@@ -863,6 +863,52 @@ function checkSearchTarget(url) {
   return { ok: true };
 }
 
+/**
+ * 用系统浏览器打开一条外部链接（2026-11-22，外部资源栏要它）。
+ *
+ * ## 为什么复用 `openExternalSafely` 而不新写一份
+ *
+ * 那个函数已经做了协议白名单（只允许 http/https，挡 javascript: / file: /
+ * 自定义协议）。外部资源的 URL 来自**任何地方**——用户复制粘贴、
+ * 别人发来的、联网搜到的——所以必须走同一条校验。
+ * 再写一份校验只会让两处口径漂移，而漂移的那一份就是漏洞。
+ *
+ * ## 为什么不暴露通用的 shell.openExternal
+ *
+ * 那等于把"打开任意协议"的能力交给页面。这里只暴露
+ * "打开一个 http/https 网址"，且在页面侧还会再校验一次
+ *（`resource-store.checkResourceUrl`）——两层都做不是重复，
+ * 因为它们的信任级别不同：页面可能被注入，主进程不会。
+ */
+function registerOpenExternal() {
+  ipcMain.handle('openleaner:open-external', async (_event, payload) => {
+    const url = payload && typeof payload === 'object' && typeof payload.url === 'string'
+      ? payload.url
+      : '';
+
+    if (!url.trim()) {
+      return { ok: false, message: '没有网址。' };
+    }
+
+    /*
+     * 先自己判一次协议，给出能看懂的失败原因；
+     * 真正打开仍交给 openExternalSafely（它里面还会再判一次并静默返回）。
+     */
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return { ok: false, message: '这不是一个合法的网址。' };
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return { ok: false, message: '只允许打开 http / https 网址。' };
+    }
+
+    openExternalSafely(parsed.toString());
+    return { ok: true };
+  });
+}
+
 function registerSearchProxy() {
   ipcMain.handle('openleaner:web-search', async (_event, payload) => {
     const body = payload && typeof payload === 'object' ? payload : {};
@@ -1835,6 +1881,7 @@ if (!gotTheLock) {
     buildMenu();
     registerChatProxy();
     registerSearchProxy();
+    registerOpenExternal();
     registerMineru();
     registerMineruFigureIpc();
     createWindow();

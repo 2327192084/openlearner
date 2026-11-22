@@ -370,6 +370,32 @@ export async function chatCompletion(options: ChatOptions): Promise<ChatResult> 
   const compat = resolveCompat(provider ?? '');
   const sendJsonMode = jsonMode && compat.jsonMode;
 
+  /**
+   * ⚠️ 把 max_tokens 夹到该服务商的上限内（2026-11-22 修）。
+   *
+   * ## 为什么必须夹（真实事故）
+   *
+   * 路线规划传 `maxTokens: 8000`，而智谱 `glm-4-flash` 上限是 4095。
+   * 用户实测「智谱经常超时」就是这个原因 —— 超限有两种表现：
+   *  - 直接 400（好查）
+   *  - 服务端不报错但长时间不返回 → 界面只显示**超时**
+   *    （用户看到的是"卡住"，而真正的原因藏在参数里）
+   *
+   * ## 为什么用 min 而不是报错
+   *
+   * 输出预算是"上限"不是"目标"：夹小只会让长输出被截断，
+   * 而截断有 `finishReason === 'length'` 可以检测、可以提示重试；
+   * 超限则可能整次调用失败。宁可截断。
+   *
+   * ## 未标注上限的服务商
+   *
+   * `maxOutputTokens` 为 undefined 时不夹（不同家差异太大，
+   * 硬猜一个数字可能反而更糟）。那种服务商保持原行为。
+   */
+  const cap = provider ? findPreset(provider)?.maxOutputTokens : undefined;
+  const effectiveMaxTokens =
+    cap !== undefined && maxTokens !== undefined ? Math.min(maxTokens, cap) : maxTokens;
+
   let response: Response;
   try {
     response = await doFetch(url, {
@@ -385,7 +411,7 @@ export async function chatCompletion(options: ChatOptions): Promise<ChatResult> 
           { role: 'user', content: buildUserContent(userPrompt, images) },
         ],
         temperature,
-        ...(maxTokens ? { max_tokens: maxTokens } : {}),
+        ...(effectiveMaxTokens ? { max_tokens: effectiveMaxTokens } : {}),
         ...(sendJsonMode ? { response_format: { type: 'json_object' } } : {}),
         stream: false,
       }),
@@ -403,7 +429,13 @@ export async function chatCompletion(options: ChatOptions): Promise<ChatResult> 
       throw new ApiError(
         'network',
         `请求超时（超过 ${Math.round(timeoutMs / 1000)} 秒）`,
-        '服务长时间没有响应。可以减少一次整理的页数，或稍后重试。',
+        /*
+         * 提示要能指向真因。实测智谱超时最常见的原因不是网速，
+         * 而是**参数超出该服务的限制**（如 max_tokens 超过上限）——
+         * 那种情况下服务端不报错、只是不返回，看起来就是"卡住"。
+         * 所以这里把这条可能性写在最前面。
+         */
+        '常见原因有三种，按可能性排查：① 这次任务要求它输出的内容太长（模型上限比预期低，可换输出上限更大的模型或减少一次处理的量）；② 该服务商的参数限制（例如 max_tokens 超过它的上限——这类错误常常表现为"不返回"而不是报错）；③ 网络/代理慢。可以先重试一次，或换「设置」里另一个模型。',
       );
     }
 

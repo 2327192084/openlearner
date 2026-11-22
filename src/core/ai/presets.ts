@@ -70,6 +70,26 @@ export interface ProviderPreset {
    * 并在测试连接前就拦住空值。
    */
   modelMustBeFilled?: boolean;
+  /**
+   * 这个服务商的模型**最大输出** token 数（2026-11-22 加）。
+   *
+   * ## 为什么需要它（这是真实事故的原因）
+   *
+   * 路线规划传了 `max_tokens: 8000`，而智谱 `glm-4-flash` 的
+   * 上限只有 **4095**（官方参数表：「glm-4-flash 动态计算 / 4095」，
+   * https://docs.bigmodel.cn/cn/guide/start/concept-param）。
+   *
+   * 超出上限的表现分两种，都很难查：
+   *  - 直接 400（`Range of max_tokens should be [1, 4095]`）
+   *  - 或者服务端不报错，但长时间不返回 → 用户看到的是**超时**
+   *
+   * 用户实测「智谱经常超时」正是这个原因。所以调用前要把
+   * `max_tokens` 夹到这个上限以下。
+   *
+   * `undefined` = 未标注，按「不发这个字段」处理（让服务端用默认值），
+   * 而不是猜一个可能超限的数字。
+   */
+  maxOutputTokens?: number;
 }
 
 /** 「自定义」预设的 id。选它时不覆盖用户已填的地址与模型。 */
@@ -90,6 +110,8 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     defaultModel: 'deepseek-chat',
     models: ['deepseek-chat', 'deepseek-reasoner'],
     vision: false,
+    /* deepseek-chat 的输出上限是 8192 */
+    maxOutputTokens: 8192,
     keyHint: '在 platform.deepseek.com 的「API keys」页面创建，形如 sk- 开头。',
   },
   {
@@ -100,6 +122,11 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     defaultModel: 'moonshot-v1-32k',
     models: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
     vision: false,
+    /*
+     * moonshot-v1 系列：上下文 8k/32k/128k 三种，但**输出上限都是 4096**。
+     * 这个很容易搞错 —— 上下文长不等于能输出长。
+     */
+    maxOutputTokens: 4096,
     keyHint: '在 platform.moonshot.cn 创建 API Key。',
   },
   {
@@ -110,6 +137,16 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     defaultModel: 'glm-4-flash',
     models: ['glm-4-flash', 'glm-4-plus', 'glm-4v-plus'],
     vision: true,
+    /*
+     * glm-4-flash / glm-4-plus / glm-4-air 这一代的上限是 4095
+     * （官方参数表标"动态计算 / 4095"）。
+     *
+     * 注意：这是**按老一代模型**取的保守值。用户如果换成 glm-4.5+
+     * 那些（上限 96k~128k），这个值会让他拿不到长输出，但那只是
+     * "少给点预算"，不会失败 —— 反过来（给多了）才会超时/报错。
+     * 宁可保守。
+     */
+    maxOutputTokens: 4095,
     keyHint: '在 bigmodel.cn 的「API Keys」页面创建。',
   },
   {

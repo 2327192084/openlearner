@@ -161,10 +161,24 @@ describe('guessEdition：抠版本与编者', () => {
 describe('checkCompleteness：用户确认要「挡住」', () => {
   const cover = (declaredTo: number | null, to: number) => ({ declaredTo, to });
 
-  it('⚠️ 高数那种：442 页只解析 3.5 万字 → 必须拦', () => {
+  it('⚠️ 高数那种：442 页 3.5 万字 → 不再只因为「每页字少」就拦', () => {
     /*
-     * 真实数据：用户库《高等数学 第7版 上》442 页、正文 35738 字
-     * = 平均每页 80 字。拿去规划路线只能看到封面和前言。
+     * 真实数据：用户库《高等数学 第7版 上》442 页、正文 35,297 字
+     * = 平均每页 80 字。
+     *
+     * ## 为什么这条断言被反转了（2026-11-22）
+     *
+     * 老判据是「平均每页不足 200 字 → 判为没解析」，于是这份资料
+     * 一直被提示"正文没进来"。但真相是：
+     *
+     *  1. **段数不等于页数**。老文案写「共 442 页，但只解析出 442 页」——
+     *     第二个数是段数，两个数字相同时文案自相矛盾。用户从截图发现了它。
+     *  2. 这份资料**确实解析出了 442 段**，只是每段（每页）字少。
+     *     图文混排的书页 80 字很正常。按"每页 600 字"当基准会冤枉它。
+     *
+     * 现在的判据只看**可观测的漏解析证据**（目录声明的章 > 正文覆盖的章）。
+     * 这份资料的目录声明与正文覆盖一致，所以应当**放行**（但仍会由
+     * 章覆盖那条给出真实提示，如果真缺章的话）。
      */
     const segs = Array.from({ length: 442 }, (_, i) =>
       seg(i + 1, '封面与前言内容'.repeat(3)),
@@ -176,9 +190,35 @@ describe('checkCompleteness：用户确认要「挡住」', () => {
       o,
       cover(null, 1),
     );
-    expect(c.ok).toBe(false);
-    expect(c.reason).toBe('partial-pages');
-    expect(c.message).toContain('442 页');
+    /*
+     * 只看章覆盖：declaredTo=null 说明目录没声明更多章 →
+     * 没有"漏解析"的可观测证据 → 放行。
+     * （这正是删掉"每页字数"判据后的行为）
+     */
+    expect(c.ok).toBe(true);
+    /* total 仍是页数，不会冒充段数 */
+    expect(c.total).toBe(442);
+    expect(c.parsed).toBe(442);
+  });
+
+  it('⚠️ 文案不再出现「共 N 页，但只解析出 N 页」这种自相矛盾', () => {
+    /*
+     * 这正是用户从截图里发现的那条：课程知识点一 86 段 / 86 页，
+     * 老文案渲染成「共 86 段，但只解析出 86 段」。
+     * 现在没有任何分支会拿"段数"冒充"页数"。
+     */
+    const segs = Array.from({ length: 86 }, (_, i) => seg(i + 1, '短'.repeat(50)));
+    const c = checkCompleteness(
+      source({ pageCount: 86, textStatus: 'ready' }),
+      segs,
+      buildOutline(segs),
+      cover(null, 1),
+    );
+    /* 不该提到"每页"或"只解析出 N 页" */
+    expect(c.message).not.toContain('只解析出');
+    expect(c.message).not.toMatch(/每页\s*\d+\s*字/);
+    /* 放行（没有可观测的漏解析证据） */
+    expect(c.ok).toBe(true);
   });
 
   it('正常教材（每页 800 字）→ 放行', () => {
@@ -269,7 +309,8 @@ describe('checkCompleteness：用户确认要「挡住」', () => {
       null,
     );
     expect(c.ok).toBe(false);
-    expect(c.reason).toBe('no-text');
+    /* 有 1 段但只有 100 字 → thin-text */
+    expect(c.reason).toBe('thin-text');
   });
 
   it('页数少（≤20）时不套用每页字数阈值', () => {
@@ -299,6 +340,7 @@ describe('checkCompleteness：用户确认要「挡住」', () => {
       null,
     );
     expect(c.ok).toBe(false);
-    expect(c.reason).toBe('no-text');
+    /* 有 3 段但总共 6 字 → thin-text */
+    expect(c.reason).toBe('thin-text');
   });
 });

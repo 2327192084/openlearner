@@ -25,6 +25,7 @@ import type { SectionNode, SourceTree } from '@/v2/core/source-tree.ts';
 import type { SectionStats } from './section-stats.ts';
 import { RouteTree } from './RouteTree.tsx';
 import { ConfirmDialog } from './dialog.tsx';
+import type { SourceResource } from '@/v2/core/resource-store.ts';
 
 export interface MapTreePageProps {
   /** 资料标题（从资料表来；树里只有科目名） */
@@ -43,6 +44,16 @@ export interface MapTreePageProps {
   onReplan: () => Promise<void>;
   /** 删掉这张地图（回到一级页） */
   onDelete: () => Promise<void>;
+  /*
+   * 外部资源（2026-11-22，方案第 7 步）。
+   *
+   * 这一页只做**透传**：数据从 App 来，交由 RouteTree → SectionDetail 用。
+   * 不在这里过滤/排序 —— 那是数据层的事。
+   */
+  resources?: readonly SourceResource[];
+  sourceId?: string;
+  onAddResource?: (r: SourceResource) => void;
+  onRemoveResource?: (id: string) => void;
   /**
    * 上一次「重新生成」的结果说明（保住了几节、丢了哪几节）。
    *
@@ -64,6 +75,10 @@ export function MapTreePage(props: MapTreePageProps) {
     onReplan,
     onDelete,
     replanNote,
+    resources,
+    sourceId,
+    onAddResource,
+    onRemoveResource,
   } = props;
 
   const [busy, setBusy] = useState(false);
@@ -96,6 +111,10 @@ export function MapTreePage(props: MapTreePageProps) {
         onTasksChange={onTasksChange}
         onGoFlashcards={onGoFlashcards}
         onGoPractice={onGoPractice}
+        {...(resources ? { resources } : {})}
+        {...(sourceId ? { sourceId } : {})}
+        {...(onAddResource ? { onAddResource } : {})}
+        {...(onRemoveResource ? { onRemoveResource } : {})}
         onReplan={() => setConfirming('replan')}
         onClear={() => setConfirming('delete')}
         busy={busy}
