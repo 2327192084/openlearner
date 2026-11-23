@@ -160,6 +160,59 @@ describe('改内容', () => {
     expect(await svc.update('nope', { frontText: 'x' })).toBeNull();
   });
 
+  /*
+   * 改归属（2026-11-24，用户要求「写完闪卡后再决定闪卡归属
+   * 知识点类、错题类还是记忆类」）。
+   */
+  it('能改归属：记忆 → 知识点', async () => {
+    const card = await svc.add({ frontText: '正面', origin: 'user', sourceKind: 'manual' });
+    expect(sourceKindOf(card!)).toBe('manual');
+    const next = await svc.update(card!.id, { sourceKind: 'point' });
+    expect(sourceKindOf(next!)).toBe('point');
+  });
+
+  it('能改归属：记忆 → 错题', async () => {
+    const card = await svc.add({ frontText: '正面', origin: 'user', sourceKind: 'manual' });
+    const next = await svc.update(card!.id, { sourceKind: 'wrong' });
+    expect(sourceKindOf(next!)).toBe('wrong');
+  });
+
+  it('不传 sourceKind 时归属不动（只改正面不该顺手改类）', async () => {
+    const card = await svc.add({ frontText: '正面', origin: 'user', sourceKind: 'wrong' });
+    const next = await svc.update(card!.id, { frontText: '改正面' });
+    expect(sourceKindOf(next!)).toBe('wrong');
+    expect(next?.frontText).toBe('改正面');
+  });
+
+  /*
+   * ★ 关系断言：改归属**不能**动 sourceId2。
+   *
+   * sourceId2 是"这张卡原来是从哪抄来的"的线索。跟着 sourceKind 一起改，
+   * 就会出现「卡片标成知识点、点进去却指向一道错题」——
+   * 界面上说的一件事、数据里存的另一件事。
+   */
+  it('★ 改归属不动 sourceId2（来源线索仍是原来那个）', async () => {
+    const card = await svc.add({
+      frontText: '正面',
+      origin: 'user',
+      sourceKind: 'point',
+      sourceId2: 'kp_original',
+      knowledgePointId: 'kp_original',
+    });
+    expect(card?.sourceId2).toBe('kp_original');
+    /* 数据层里 memory 仍叫 manual；界面上的 'memory' 由 sourceKindOfGroup 映射 */
+    const next = await svc.update(card!.id, { sourceKind: 'manual' });
+    expect(next?.sourceId2).toBe('kp_original');
+    expect(next?.knowledgePointId).toBe('kp_original');
+  });
+
+  it('★ 改归属后卡片总数不变（update 不是写一张新卡）', async () => {
+    const card = await svc.add({ frontText: '正面', origin: 'user' });
+    const before = (await svc.list()).length;
+    await svc.update(card!.id, { sourceKind: 'wrong' });
+    expect((await svc.list()).length).toBe(before);
+  });
+
   it('改过之后 updatedAt 变新，createdAt 不变', async () => {
     const card = await svc.add({ frontText: '正面', origin: 'user' });
     await new Promise((r) => setTimeout(r, 5));

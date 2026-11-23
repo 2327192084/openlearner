@@ -1294,3 +1294,132 @@
   cursor: pointer;
   accent-color: var(--accent);
 }
+
+/* ==========================================================================
+ * 归属三选一（2026-11-24，用户要求「写完闪卡后再决定归属」）
+ *
+ * 与「分组方式」那排（.fcx__gmode）刻意长得不一样：那一排是改**列表怎么分组**，
+ * 这一排是改**这张卡属于哪一类**。两者都叫"分组"会让用户以为改这个是换视图，
+ * 所以这里做成表单里的一行文字型 radio，紧挨着字段标签的语感。
+ * ========================================================================== */
+
+.fcx__grouppick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 2px 0 4px;
+}
+
+.fcx__grouppick-label {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.fcx__grouppick-opts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fcx__grouppick-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color 120ms, color 120ms, background-color 120ms;
+}
+
+.fcx__grouppick-opt:hover {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.fcx__grouppick-opt input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.fcx__grouppick-opt--on {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--text);
+}
+
+.fcx__grouppick-hint {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+
+/* ==========================================================================
+ * 导入面板（2026-11-24）
+ * ========================================================================== */
+
+.fcx__import-pick {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.fcx__import-file {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.fcx__import-stats,
+.fcx__import-warn {
+  margin: 0 0 var(--space-2);
+  padding-left: 1.2em;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+
+.fcx__import-stats b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 告警用 --warn 而不是 --bad：这些是"这张卡可能不合格式"，
+ * 不是"操作失败"，全涂成报错红会让用户以为导入坏了。 */
+.fcx__import-warn {
+  color: var(--text-muted);
+}
+
+.fcx__import-warn li::marker {
+  color: var(--warn);
+}
+
+.fcx__import-preview {
+  margin-bottom: var(--space-2);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.fcx__import-preview summary {
+  cursor: pointer;
+  padding: 3px 0;
+}
+
+.fcx__import-preview ol {
+  margin: 4px 0 0;
+  padding-left: 1.4em;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fcx__import-preview .fcx__front,
+.fcx__import-preview .fcx__back {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

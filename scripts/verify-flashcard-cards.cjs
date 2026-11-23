@@ -13,7 +13,7 @@
  * 3. 按资料分组的组头存在；组头数字 = 该组展开后的卡片数（**关系断言**）
  * 4. 组头折叠后卡消失、计数不变（折叠不改变统计）
  * 5. 点「只看这组」→ 列表只剩这一组的卡（组数变 1）
- * 6. 记忆闪卡入口能打开建卡面板（标题「记忆闪卡」），有标签编辑器
+ * 6. 写闪卡入口能打开建卡面板（标题「写闪卡」，2026-11-24 改回），有标签编辑器
  * 7. 新建一张带标签的记忆卡 → 出现在「记忆闪卡」tab 且标签筛选条里有这个标签
  * 8. 挖空卡：`[…]` 遮罩存在；点一下显形（`--shown`）
  * 9. 编辑入口在（每张卡有编辑按钮）；删除入口在
@@ -401,17 +401,18 @@ const skip = (n, why) => {
     await shot('04-cloze.png');
   }
 
-  /* ---------- 6. 记忆闪卡入口 + 新建带标签卡 ---------- */
+  /* ---------- 6. 写闪卡入口 + 新建带标签卡 ---------- */
+  /* 2026-11-24：入口文案从「记忆闪卡」改回「写闪卡」（tar 名未变） */
   await ev(`(() => {
     const b = [...document.querySelectorAll(".fcx__head-actions button")]
-      .find((x) => (x.textContent || "").includes("记忆闪卡"));
+      .find((x) => (x.textContent || "").includes("写闪卡"));
     if (b) b.click(); return !!b;
   })()`);
   await sleep(1200);
   const panelTitle = await ev(
     `((document.querySelector(".fcx__new-title") || {}).textContent || "").trim()`,
   );
-  rec('「记忆闪卡」入口打开建卡面板', panelTitle === '记忆闪卡', 'title=' + panelTitle);
+  rec('「写闪卡」入口打开建卡面板', panelTitle === '写闪卡', 'title=' + panelTitle);
   const hasTagEditor = await ev(`!!document.querySelector(".ctag") || !!document.querySelector(".ctagedit") || document.querySelectorAll(".fcx__new input").length > 0`);
   rec('新建面板里有标签编辑器', hasTagEditor);
   await shot('05-new-memory.png');

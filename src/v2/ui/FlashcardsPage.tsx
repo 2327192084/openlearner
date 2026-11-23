@@ -58,6 +58,10 @@ import {
 } from '@/v2/core/flashcard-export.ts';
 import { PickBanner, PickButton } from './PickBanner.tsx';
 import { CardTagEditor } from './CardTagEditor.tsx';
+import { CardGroupPicker } from './CardGroupPicker.tsx';
+import { FlashcardImportPanel, type ImportDraft } from './FlashcardImportPanel.tsx';
+import { sourceKindOfGroup } from '@/v2/core/flashcard-import.ts';
+import type { CardGroup } from '@/v2/core/callout-kind.ts';
 import {
   DEFAULT_EXPORT_OPTIONS,
   exportButtonLabel,
@@ -147,13 +151,18 @@ export interface FlashcardsPageProps {
 }
 
 /**
- * 三种新建来源。
+ * 四种新建来源。
  *
- * ⚠️ `'manual'` 是**内部标识**（对应界面上的「记忆闪卡」入口），
- * 不改名是为了不牵动 addManual 那一串调用；
- * 界面上这一栏 2026-11-23 已从「手写的」改名「记忆闪卡」（用户要求）。
+ * ⚠️ `'manual'` 是**内部标识**（对应界面上的「写闪卡」入口），
+ * 不改名是为了不牵动 addManual 那一串调用。
+ *
+ * 文案来回改过两次，记在这里免得后人再改：
+ * 2026-11-23 用户要求把「手写」改名「记忆闪卡」；
+ * 2026-11-24 用户又说「文本描述改回『写闪卡』」—— 现在是「写闪卡」。
+ * 改的是**界面文案**，数据层 `sourceKind: 'manual'` 一个字没动，
+ * 所以老卡还是老卡，只是入口换了个说法。
  */
-type NewKind = 'point' | 'wrong' | 'manual';
+type NewKind = 'point' | 'wrong' | 'manual' | 'import';
 
 /**
  * 背面标记行的插入模板（2026-11-23，规范 A4）。
@@ -233,6 +242,13 @@ export function FlashcardsPage({
     front: string;
     back: string;
     tags: string[];
+    /**
+     * 归属（2026-11-24，用户要求「写完闪卡后再决定归属」）。
+     *
+     * 编辑态把它一起读出来、一起写回去：用户点「编辑」多半就是想改
+     * 正面或标签，若这里只读不定，一保存就会把归属冲掉（旧行为确实会）。
+     */
+    sourceKind: CardGroup;
   } | null>(null);
 
   /** 新建面板 */
@@ -241,6 +257,15 @@ export function FlashcardsPage({
   const [manualBack, setManualBack] = useState('');
   /** 新建时就能打标签（2026-11-23）—— 用户说"编写完成后通过选择标签决定存放位置" */
   const [manualTags, setManualTags] = useState<string[]>([]);
+  /**
+   * 这张卡归到哪一栏（2026-11-24）。
+   *
+   * 用户原话：「用户使用这个功能写完闪卡后再决定闪卡归属知识点类、
+   * 错题类还是记忆类」—— 所以归属不再是"选哪个入口"，而是写完之后
+   * 在面板里选。默认「记忆」：从空白写一张、又不挂知识点/错题时，
+   * 绝大多数是用户自己记的便签。
+   */
+  const [manualGroup, setManualGroup] = useState<CardGroup>('memory');
 
   /** AI 帮忙写的草稿（先给用户看，确认后才入库） */
   const [aiDrafts, setAiDrafts] = useState<{ front: string; back: string }[] | null>(null);
@@ -568,7 +593,8 @@ export function FlashcardsPage({
       await flashcards.add({
         frontText: manualFront,
         backText: manualBack,
-        sourceKind: 'manual',
+        /* 归属由用户在面板里选（2026-11-24），不再写死 'manual' */
+        sourceKind: sourceKindOfGroup(manualGroup),
         origin: 'user',
         /* 标签（2026-11-23）：新建时就带上，不用建完再点编辑 */
         tags: manualTags,
@@ -598,11 +624,64 @@ export function FlashcardsPage({
         backText: editing.back,
         /* 标签（2026-11-23）：整体替换；服务层会 normalizeTags 去空去重 */
         tags: editing.tags,
+        /* 归属（2026-11-24）：从编辑面板的 radio 读 */
+        sourceKind: sourceKindOfGroup(editing.sourceKind),
       });
       setEditing(null);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * 库里已有的正面全文（2026-11-24，给导入面板判重用）。
+   *
+   * 判重规则与 `FlashcardService.addMany` 一致：按**正面全文 trim 后全等**。
+   * 两处各写一套迟早漂移 —— 面板上显示"会跳过 3 张"、真导入时跳过 2 张，
+   * 用户会以为丢了一张卡。所以这里直接复用同一口径。
+   */
+  const existingFronts = useMemo(
+    () => new Set((views ?? []).map((v) => v.front.trim())),
+    [views],
+  );
+
+  /**
+   * 导入一批卡（2026-11-24）。
+   *
+   * - 归属由用户在导入面板里选，这里映射成数据层的 sourceKind；
+   * - 标签过 `addMany` 的 normalizeTags（与手写卡同一套规则）；
+   * - 走 `addMany` 而不是逐张 `add`：一次写盘、天然按正面判重，
+   *   且返回的 created 长度正好是"真导进来几张"，回报数字不会虚。
+   */
+  async function importCards(drafts: readonly ImportDraft[], group: CardGroup) {
+    setBusy(true);
+    setError(null);
+    try {
+      const kind = sourceKindOfGroup(group);
+      const created = await flashcards.addMany(
+        drafts.map((d) => ({
+          frontText: d.front,
+          backText: d.back,
+          sourceKind: kind,
+          origin: 'user' as const,
+          tags: d.tags,
+          /* 正面自带 `==…==` 的按挖空卡存（与 AI 草稿、手写卡同一推断） */
+          ...(hasCloze(d.front) ? { format: 'cloze' as const } : {}),
+        })),
+      );
+      const skipped = drafts.length - created.length;
+      setNotice(
+        skipped > 0
+          ? `导入 ${created.length} 张，跳过 ${skipped} 张（库里已经有正面一样的卡）。`
+          : `导入 ${created.length} 张。`,
+      );
+      setNewKind(null);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '导入失败');
     } finally {
       setBusy(false);
     }
@@ -904,7 +983,10 @@ export function FlashcardsPage({
             ＋ 从错题
           </button>
           <button type="button" className="btn-ghost btn-ghost--sm" onClick={() => void openNew('manual')}>
-            ＋ 记忆闪卡
+            ＋ 写闪卡
+          </button>
+          <button type="button" className="btn-ghost btn-ghost--sm" onClick={() => void openNew('import')}>
+            ＋ 导入
           </button>
         </div>
       </header>
@@ -922,10 +1004,10 @@ export function FlashcardsPage({
       {/* ---------- 新建面板 ---------- */}
       {newKind === 'manual' ? (
         <div className="fcx__new">
-          <h2 className="fcx__new-title">记忆闪卡</h2>
+          <h2 className="fcx__new-title">写闪卡</h2>
           <p className="fcx__new-hint">
-            自己写一张，或让 AI 把你写的组织成一问一答。这一栏 2026-11-23 从「手写」改名为
-            「记忆」—— 你原来手写的卡都在这里面，一张没少。
+            自己写一张，或让 AI 把你写的组织成一问一答。写完之后再决定它归到哪一栏 ——
+            同一张卡现在归「记忆」，将来也能改成「知识点」或「错题」，改归属不用重写。
           </p>
           <label className="fcx__field">
             <span className="fcx__field-label">正面（问题/提示）</span>
@@ -967,6 +1049,13 @@ export function FlashcardsPage({
             ))}
             <span className="fcx__marks-hint">点一下往背面加一行（不强制，随便改）</span>
           </div>
+          <CardGroupPicker
+            value={manualGroup}
+            onChange={setManualGroup}
+            disabled={busy}
+            label="这张卡归到哪一栏"
+            hint="只是分类显示，不影响内容：之后想改，点卡片上的「编辑」就能换。"
+          />
           <CardTagEditor value={manualTags} known={knownTags} onChange={setManualTags} disabled={busy} />
           <div className="fcx__new-actions">
             <button type="button" className="btn-fill btn-fill--sm" onClick={() => void addManual()} disabled={busy}>
@@ -988,6 +1077,17 @@ export function FlashcardsPage({
             </button>
           </div>
         </div>
+      ) : null}
+
+      {/* ---------- 导入面板（2026-11-24） ---------- */}
+      {newKind === 'import' ? (
+        <FlashcardImportPanel
+          knownTags={knownTags}
+          existingFronts={existingFronts}
+          busy={busy}
+          onCancel={() => setNewKind(null)}
+          onImport={importCards}
+        />
       ) : null}
 
       {newKind === 'point' ? (
@@ -1414,6 +1514,20 @@ export function FlashcardsPage({
                   </div>
 
                   {/*
+                   * 归属（2026-11-24，用户要求「写完闪卡后再决定归属」）。
+                   *
+                   * 这是"改归属"的唯一入口，所以必须和标签一样留在编辑态里。
+                   * 不提供"改归属会动内容"的暗示：只写 sourceKind，
+                   * sourceId2（这卡原来从哪来的）保持原样不动。
+                   */}
+                  <CardGroupPicker
+                    value={editing.sourceKind}
+                    onChange={(next) => setEditing({ ...editing, sourceKind: next })}
+                    disabled={busy}
+                    label="归到哪一栏"
+                    hint="只是换个分类显示，正面背面一个字不改。"
+                  />
+                  {/*
                    * 标签（2026-11-23，用户要求「通过选择标签决定闪卡存放位置」）。
                    * 编辑入口保留在这里：用户可以自由增删标签。
                    */}
@@ -1483,7 +1597,19 @@ export function FlashcardsPage({
                     : {})}
                   onToggleOpen={() => toggleOpen(c.id)}
                   onEdit={() => {
-                    setEditing({ id: c.id, front: c.front, back: c.back ?? '', tags: [...c.tags] });
+                    setEditing({
+                      id: c.id,
+                      front: c.front,
+                      back: c.back ?? '',
+                      tags: [...c.tags],
+                      /*
+                       * 归属取卡片的展示分组再映射回数据层：
+                       * `UnifiedCard.group` 是 'point'|'wrong'|'memory'，
+                       * 而 `Flashcard.sourceKind` 是 'point'|'wrong'|'manual'
+                       * （memory 在数据层里仍叫 manual —— 老卡不改名，只是换个栏显示）。
+                       */
+                      sourceKind: c.group,
+                    });
                     setOpened((prev) => new Set(prev).add(c.id));
                   }}
                   onDelete={() => setPendingDelete(c)}

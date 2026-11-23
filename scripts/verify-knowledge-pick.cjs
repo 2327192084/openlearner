@@ -156,9 +156,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
     /* ================= 2. 类型按钮 ================= */
     const levels = await evalJs(`(() => {
-      const btns = [...document.querySelectorAll('.kb-level')];
+      /* 2026-11-11 起「★ 收藏」也是 .kb-level（多一个 kb-fav），
+         它是开关不是类型，所以要排掉，否则这里永远数出 5 个。 */
+      const all = [...document.querySelectorAll('.kb-level')];
+      const btns = all.filter(b => !b.classList.contains('kb-fav'));
       return {
         count: btns.length,
+        favCount: all.length - btns.length,
+        favText: ((all.find(b => b.classList.contains('kb-fav')) || {}).innerText || '').trim(),
         items: btns.map(b => ({
           text: (b.innerText || '').trim(),
           n: (b.querySelector('.kb-level__n') || {}).innerText || null,
@@ -170,7 +175,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
     levels.count === 4
       ? ok('有四个类型按钮', levels.items.map((i) => i.text.replace(/\s+/g, ' ')).join(' / '))
-      : bad('类型按钮数量不对', `实测 ${levels.count} 个`);
+      : bad('类型按钮数量不对', `实测 ${levels.count} 个（已排掉收藏开关）`);
+
+    /* 关系断言：收藏开关确实在，且没被算进类型按钮里 */
+    levels.favCount === 1 && levels.favText.indexOf('收藏') >= 0
+      ? ok('★ 收藏开关在且没算进类型按钮（关系断言）', `fav=${levels.favText}`)
+      : bad('收藏开关状态不对（关系断言）', `favCount=${levels.favCount} favText=${levels.favText}`);
 
     const labels = levels.items.map((i) => i.text.replace(/[0-9]/g, '').trim());
     const expect = ['记忆', '理解', '应用', '分析'];

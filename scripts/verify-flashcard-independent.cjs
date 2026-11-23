@@ -186,11 +186,14 @@ const readCards = (evalJs) =>
       return btns;
     })()`);
     record(
-      /* 2026-11-23：第三档从「＋ 写一张」改名「＋ 记忆闪卡」（意图没变：三档入口都要在） */
-      '★ 三种新建入口都在：从知识点 / 从错题 / 记忆闪卡',
+      /*
+       * 入口文案变迁：＋ 写一张（0428cb6 前）→ ＋ 记忆闪卡（11-23）→
+       * ＋ 写闪卡（11-24 用户要求改回）。tab 名仍是「记忆闪卡」。
+       */
+      '★ 三种新建入口都在：从知识点 / 从错题 / 写闪卡',
       entries.some((t) => t.indexOf('知识点') !== -1) &&
         entries.some((t) => t.indexOf('错题') !== -1) &&
-        entries.some((t) => t.indexOf('记忆闪卡') !== -1),
+        entries.some((t) => t.indexOf('写闪卡') !== -1),
       JSON.stringify(entries),
     );
 
@@ -199,9 +202,9 @@ const readCards = (evalJs) =>
     const BACK = '差商的极限。';
     const manual = await evalJs(`(async () => {
       const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-      /* 0428cb6 起按钮改名「记忆闪卡」 */
+      /* 2026-11-24 起按钮文案是「写闪卡」（tab 名仍是「记忆闪卡」） */
       const btn = [...document.querySelectorAll('.fcx__head-actions button')]
-        .find(b => (b.innerText || '').indexOf('记忆闪卡') !== -1);
+        .find(b => (b.innerText || '').indexOf('写闪卡') !== -1);
       if (!btn) return { ok: false, reason: 'no-manual-button' };
       btn.click();
       await sleep(700);

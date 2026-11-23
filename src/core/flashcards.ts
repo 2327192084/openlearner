@@ -286,6 +286,16 @@ export class FlashcardService {
       tags?: readonly string[];
       /** 卡型（2026-11-23） */
       format?: 'qa' | 'cloze';
+      /**
+       * 归属类型（2026-11-24，用户要求「写完闪卡后再决定归属」）。
+       *
+       * 传了就把这张卡挪到那一栏（知识点 / 错题 / 记忆）。
+       *
+       * ⚠️ 只改 `sourceKind`，**不动 `sourceId2`**：
+       * 那是"这张卡原来从哪抄来的"的线索，用户改归属不代表它换了来源。
+       * 跟着一起改写会出现「标成知识点、点进去却指向一道错题」。
+       */
+      sourceKind?: 'point' | 'wrong' | 'manual';
     },
   ): Promise<Flashcard | null> {
     const card = await this.storage.get('flashcards', id);
@@ -304,6 +314,7 @@ export class FlashcardService {
        */
       ...(patch.tags !== undefined ? { tags: normalizeTags(patch.tags) } : {}),
       ...(patch.format !== undefined ? { format: patch.format } : {}),
+      ...(patch.sourceKind !== undefined ? { sourceKind: patch.sourceKind } : {}),
       updatedAt: nowIso(),
     };
     await this.storage.put('flashcards', next);

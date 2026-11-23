@@ -253,7 +253,8 @@ const skip = (n, why) => {
    * 新建一张带标签 123 的记忆卡 → 点标签 chip 123 筛上 → 编辑这张卡删掉标签 → 保存
    * 期望：列表不能停在「没有符合条件的卡」，且筛选条里不再有那个 chip。
    */
-  await clickByText('.fcx__head-actions button', '记忆闪卡');
+  /* 2026-11-24 用户要求文案改回「写闪卡」（tab 名仍是「记忆闪卡」） */
+  await clickByText('.fcx__head-actions button', '写闪卡');
   await sleep(700);
   const newOpen = await ev(`!!document.querySelector(".fcx__new-title")`);
   if (newOpen) {
@@ -336,7 +337,7 @@ const skip = (n, why) => {
       rec('★ 标签删光后卡还在（不是被筛掉了）', itemsAfter > 0, `items=${itemsAfter}`);
     }
   } else {
-    skip('标签回归验证', '记忆闪卡建卡面板没打开');
+    skip('标签回归验证', '写闪卡建卡面板没打开');
   }
 
   /* ---------- 4. 新建文件夹 ---------- */
