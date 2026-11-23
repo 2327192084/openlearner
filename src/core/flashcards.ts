@@ -65,6 +65,15 @@ export interface FlashcardDraft {
   /** 归属资料 id（仅追溯用） */
   sourceId?: string | null;
   origin: 'ai' | 'user';
+  /**
+   * 用户标签（2026-11-23）。
+   *
+   * 用户原话：「让用户在编写完成后通过选择标签决定闪卡存放位置。」
+   * 建卡时可以不填（之后在管理页编辑），所以这里可选。
+   */
+  tags?: readonly string[];
+  /** 卡型（2026-11-23）：缺省 'qa'；挖空卡传 'cloze' */
+  format?: 'qa' | 'cloze';
 }
 
 /**
@@ -92,6 +101,47 @@ export function backOf(card: Flashcard): string | null {
   if (t) return t;
   const n = (card.backNote ?? '').trim();
   return n || null;
+}
+
+/**
+ * 标签规范化（2026-11-23）。
+ *
+ * 三件事：trim、去空、去重（保序）。
+ *
+ * ## 为什么必须去重
+ *
+ * 界面上标签是 chip 逐个加的，用户很容易把同一个名字加两遍
+ * （尤其是从别的卡复制过来的时候）。重复标签会让
+ * 「这张卡有几个标签」与「导出写出几个 `#flashcards/xxx` 分节」不一致 ——
+ * 那是本项目反复记的关系型错误。
+ *
+ * ## 为什么大小写敏感
+ *
+ * Obsidian 的嵌套标签 `#flashcards/高数` 与 `#flashcards/高等数学`
+ * 是两个不同卡组；把 `math` 自动改成 `Math` 反而会让用户找不到自己的卡组。
+ * 所以只做空白与重复的处理，不改字母。
+ */
+export function normalizeTags(tags: readonly string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of tags) {
+    const t = (raw ?? '').trim();
+    if (!t) continue;
+    if (seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out;
+}
+
+/** 读一张卡的标签（旧卡没有这个字段 → 空数组，不报错） */
+export function tagsOf(card: Flashcard): string[] {
+  return Array.isArray(card.tags) ? card.tags : [];
+}
+
+/** 读一张卡的卡型（旧卡没有 → 'qa'） */
+export function formatOf(card: Flashcard): 'qa' | 'cloze' {
+  return card.format === 'cloze' ? 'cloze' : 'qa';
 }
 
 /**
@@ -185,6 +235,16 @@ export class FlashcardService {
         ...(d.knowledgePointId ? { knowledgePointId: d.knowledgePointId } : {}),
         origin: d.origin,
         sourceId: d.sourceId ?? null,
+        /*
+         * 标签与卡型（2026-11-23）。
+         *
+         * ⚠️ 标签在这里过一次 normalizeTags：去空、去重、trim。
+         * 不规范化会出现 `['高数', ' 高数']` 这种两条同名标签 ——
+         * 导出时就会写成两个 `#flashcards/高数` 分节，
+         * 那是"界面显示的标签数"与"导出的分节数"对不上的关系错误。
+         */
+        tags: normalizeTags(d.tags ?? []),
+        ...(d.format === 'cloze' ? { format: 'cloze' as const } : {}),
         createdAt: ts,
         updatedAt: ts,
       };
@@ -205,7 +265,14 @@ export class FlashcardService {
   /** 改内容（正面/背面都能改 —— 它们现在是这张卡自己的内容） */
   async update(
     id: string,
-    patch: { frontText?: string; backText?: string | null },
+    patch: {
+      frontText?: string;
+      backText?: string | null;
+      /** 标签（2026-11-23）：传了就整体替换（界面是"编辑这一组标签"的语义） */
+      tags?: readonly string[];
+      /** 卡型（2026-11-23） */
+      format?: 'qa' | 'cloze';
+    },
   ): Promise<Flashcard | null> {
     const card = await this.storage.get('flashcards', id);
     if (!card) return null;
@@ -217,6 +284,12 @@ export class FlashcardService {
       ...card,
       frontText: front,
       ...(patch.backText !== undefined ? { backText: patch.backText?.trim() || null } : {}),
+      /*
+       * 标签同样过 normalizeTags —— 编辑路径与建卡路径必须一套规则，
+       * 否则建卡去了重、编辑时又能塞回重复的。
+       */
+      ...(patch.tags !== undefined ? { tags: normalizeTags(patch.tags) } : {}),
+      ...(patch.format !== undefined ? { format: patch.format } : {}),
       updatedAt: nowIso(),
     };
     await this.storage.put('flashcards', next);

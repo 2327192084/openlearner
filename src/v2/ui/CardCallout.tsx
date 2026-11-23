@@ -35,11 +35,15 @@
  */
 
 import type { UnifiedCard } from './flashcard-manage.ts';
+import { useState } from 'react';
 import {
   CALLOUT_ICON,
   calloutKindOf,
   cardTitleOf,
+  hasCloze,
+  renderClozeParts,
   renderRichText,
+  ROLE_ICON,
   splitFrontTitle,
 } from './card-rich.ts';
 import { escapeHtml } from './render-math.ts';
@@ -77,14 +81,18 @@ export function CardCallout(props: CardCalloutProps) {
    * 但「全部」筛选下用户需要一眼看出这张卡是知识点来的、错题来的、
    * 还是自己写的 —— 三种 callout 的颜色差别不足以承载这个信息，
    * 而且色盲/高对比度模式下颜色会失效。文字标签才可靠。
+   *
+   * 2026-11-23：第三类从「手写」改成「记忆」—— 用户要求
+   * 「去掉手写的闪卡这一栏」，那一栏变成「记忆闪卡」
+   * （含手写、AI 帮写的、挖空卡；旧手写卡不迁移，只是换个显示名）。
    */
-  const groupLabel = card.group === 'point' ? '知识点' : card.group === 'wrong' ? '错题' : '手写';
+  const groupLabel = card.group === 'point' ? '知识点' : card.group === 'wrong' ? '错题' : '记忆';
   const groupTitle =
     card.group === 'point'
       ? '从知识点挑出来做的'
       : card.group === 'wrong'
         ? '从错题做成的'
-        : '自己写的';
+        : '自己写的或让 AI 组织的（含挖空卡）';
 
   /*
    * 正面拆成「标题行 + 正文」。
@@ -186,14 +194,74 @@ export function CardCallout(props: CardCalloutProps) {
 }
 
 /**
+ * 一个挖空位（点一下显形）。
+ *
+ * 状态**内聚在这里**，不上提到卡片或页面 ——
+ * 每个挖空独立显形/隐藏，互不影响，也不需要往上传 key。
+ * ⚠️ 这是纯界面状态：卡片文本里始终带着 `==…==`，
+ * 点没点都不改库内容（否则"在应用里显过形 → 导出后挖空就没了"，
+ * 那是渲染状态污染数据的关系错误）。
+ */
+function ClozeBlank(props: { html: string }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <button
+      type="button"
+      className={`fcal__cloze${shown ? ' fcal__cloze--shown' : ''}`}
+      onClick={() => setShown((v) => !v)}
+      title={shown ? '再点隐藏' : '点一下看答案'}
+      aria-pressed={shown}
+    >
+      {shown ? (
+        <span className="fcal__cloze-answer" dangerouslySetInnerHTML={{ __html: props.html }} />
+      ) : (
+        <span className="fcal__cloze-mask" aria-hidden="true">
+          […]
+        </span>
+      )}
+    </button>
+  );
+}
+
+/**
  * 一行。
  *
  * ⚠️ `html` 来自 `card-rich.ts`：非公式段已经过 `escapeHtml`，
  * 公式段是 KaTeX 输出。所以这里 `dangerouslySetInnerHTML` 是安全的
- * —— 但**只允许**接 `renderRichText` 的产物，不能接原始文本。
+ * —— 但**只允许**接 `renderRichText` / `renderClozeParts` 的产物，
+ * 不能接原始文本。
  */
 function Line(props: { line: ReturnType<typeof renderRichText>[number] }) {
   const { line } = props;
+
+  /*
+   * 挖空行（2026-11-23）：这一行的正文里有 `==…==` 时，
+   * 逐个挖空渲染成可点击的空白位，其余文字照常。
+   * 判定用 hasCloze(line.body) —— body 是去掉 ✅💡 等标记前缀后的正文，
+   * 挖空可能出现在答案行、也可能出现在纯正文行，所以对所有角色一视同仁。
+   */
+  if (hasCloze(line.body)) {
+    const parts = renderClozeParts(line.body);
+    const icon = ROLE_ICON[line.role];
+    return (
+      <p className="fcal__line fcal__line--cloze">
+        {icon ? (
+          <span className="fcal__mark" aria-hidden="true">
+            {icon}
+          </span>
+        ) : null}
+        <span className="fcal__text">
+          {parts.map((p, i) =>
+            p.cloze ? (
+              <ClozeBlank key={i} html={p.html} />
+            ) : (
+              <span key={i} dangerouslySetInnerHTML={{ __html: p.html }} />
+            ),
+          )}
+        </span>
+      </p>
+    );
+  }
 
   if (line.role === 'ordered') {
     return (
@@ -224,10 +292,24 @@ function Line(props: { line: ReturnType<typeof renderRichText>[number] }) {
         ? 'fcal__line--point'
         : line.role === 'warn'
           ? 'fcal__line--warn'
-          : '';
+          : line.role === 'trap'
+            ? 'fcal__line--trap'
+            : '';
+
+  /*
+   * 标记行把 emoji 图标画回来（`splitRichLines` 为了判角色把它剥掉了）。
+   * ⚠️ 图标与颜色是**双通道** —— 只靠颜色在高对比度和色弱下会失效，
+   * 那是 11-23 组别徽章那次的同类错误。理由见 card-rich.ts 的 ROLE_ICON。
+   */
+  const icon = ROLE_ICON[line.role];
 
   return (
     <p className={`fcal__line${cls ? ' ' + cls : ''}`}>
+      {icon ? (
+        <span className="fcal__mark" aria-hidden="true">
+          {icon}
+        </span>
+      ) : null}
       <span className="fcal__text" dangerouslySetInnerHTML={{ __html: line.html }} />
     </p>
   );

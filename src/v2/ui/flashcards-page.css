@@ -54,6 +54,187 @@
   margin-bottom: var(--space-4);
 }
 
+/*
+ * 第二行筛选（2026-11-23）：分组开关 + 标签。
+ * 与 .fcx__bar 同一族（原生 input/button，整份在层外）。
+ */
+.fcx__bar2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: calc(-1 * var(--space-3)) 0 var(--space-4);
+}
+
+.fcx__groupsw {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.fcx__groupsw input {
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.fcx__tagfilter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+
+.fcx__tagchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.fcx__tagchip:hover {
+  border-color: var(--line-strong);
+}
+
+.fcx__tagchip--on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.fcx__tagn {
+  font-size: 10px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.app .fcx__tagchip {
+  color: var(--text-dim);
+}
+
+.app .fcx__tagchip--on {
+  color: var(--text);
+}
+
+/* ---------- 按资料分组的组头（2026-11-23） ---------- */
+
+.fcx__ghead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-5) 0 var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--line-soft);
+  list-style: none;
+}
+
+.fcx__ghead:first-child {
+  margin-top: 0;
+}
+
+.fcx__ghead-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: var(--fs-md);
+  cursor: pointer;
+}
+
+.fcx__ghead-caret {
+  display: inline-block;
+  transition: transform 160ms ease;
+  font-size: var(--fs-sm);
+  color: var(--text-faint);
+}
+
+.fcx__ghead-caret--open {
+  transform: rotate(90deg);
+}
+
+.fcx__ghead-title {
+  font-weight: 600;
+}
+
+.fcx__ghead-n {
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.fcx__ghead-filter {
+  padding: 2px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.fcx__ghead-filter:hover {
+  border-color: var(--line-strong);
+}
+
+.app .fcx__ghead-btn {
+  color: var(--text);
+}
+
+.app .fcx__ghead-filter {
+  color: var(--text-muted);
+}
+
+.app .fcx__ghead-filter:hover {
+  color: var(--text);
+}
+
+/* ---------- 背面标记行插入（2026-11-23，规范 A4） ---------- */
+
+.fcx__marks {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: calc(-1 * var(--space-2)) 0 var(--space-3);
+}
+
+.fcx__markbtn {
+  padding: 2px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-xs);
+  background: transparent;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.fcx__markbtn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.fcx__markbtn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.fcx__marks-hint {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+
+.app .fcx__markbtn {
+  color: var(--text-dim);
+}
+
 .fcx__tabs {
   display: flex;
   gap: 4px;
@@ -620,9 +801,13 @@
 }
 
 /*
- * 三种标记行的配色与 Obsidian 语义一致：
- * ✅ 答案=绿、💡 要点=蓝、⚠️ 警示=橙。
+ * 四种标记行的配色与 Obsidian 语义一致：
+ * ✅ 答案=绿、💡 要点=蓝、⚠️ 警示=橙、❌ 坑=危险色。
  * 只加粗 + 上色，不加背景块 —— 一屏十几张卡时背景块会糊成一片。
+ *
+ * ⚠️ `--trap` 那行是 2026-11-23 补的：用户 Obsidian 库里大量在用
+ * `❌坑：`，渲染器原来不认（详见 card-rich.ts 文件头）。
+ * 危险色用 v2 token `--bad`（项目里没有 --danger）。
  */
 .fcal__line--answer .fcal__text {
   color: var(--ok);
@@ -637,6 +822,78 @@
 .fcal__line--warn .fcal__text {
   color: #d08a3e;
   font-weight: 600;
+}
+
+.fcal__line--trap .fcal__text {
+  color: var(--bad);
+  font-weight: 600;
+}
+
+/*
+ * 标记行的 emoji 图标（由 CardCallout 的 <span class="fcal__mark"> 画）。
+ *
+ * ⚠️ 图标不是装饰：`splitRichLines` 把 emoji 从正文剥掉了，
+ * 若这里不画回来，四种标记行就只剩颜色差别 —— 高对比度模式与色弱下
+ * 信息全丢（11-23 组别徽章那次的同类错误）。
+ * 布局不用另写：`.fcal__line` 基类已经是 flex + baseline + gap。
+ */
+.fcal__mark {
+  flex: none;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+}
+
+/*
+ * 挖空位（cloze，2026-11-23）。
+ *
+ * 隐藏时是 `[...]` 占位，点一下显形 —— 这就是本应用内的"翻面"。
+ * 语法与 Obsidian Spaced Repetition 的填空卡片一致（`==高亮==`），
+ * 所以导出后不用转换就能在插件里复习。
+ *
+ * ⚠️ 写在这里（层外）而不是 @layer 内：这是个原生 <button>，
+ * base.css 有层外的 button 规则（font/color: inherit），
+ * 层内写的 color 会被它盖掉（项目踩过六次以上）。
+ */
+.fcal__cloze {
+  display: inline-flex;
+  align-items: baseline;
+  margin: 0 2px;
+  padding: 0 8px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  cursor: pointer;
+  vertical-align: baseline;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.fcal__cloze:hover {
+  border-color: var(--accent);
+}
+
+.fcal__cloze--shown {
+  border-style: solid;
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.fcal__cloze-mask {
+  color: var(--text-faint);
+  letter-spacing: 1px;
+  font-variant-numeric: tabular-nums;
+}
+
+.fcal__cloze-answer {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* 高对比度：挖空靠虚线边框区分，系统会忽略颜色，保底加实线 */
+@media (forced-colors: active) {
+  .fcal__cloze {
+    border: 2px solid CanvasText;
+    forced-color-adjust: none;
+  }
 }
 
 /* 列表项：编号单独一列，正文对齐 */
@@ -740,4 +997,14 @@
 .fcal__group--wrong {
   border-color: color-mix(in srgb, #d08a3e 45%, transparent);
   color: #d08a3e;
+}
+
+/*
+ * 记忆组（2026-11-23 改名：原来这一档没有专属样式，走默认灰）。
+ * 与 callout 的 quote 类型同色系（中性偏亮），三档徽章从此都有色可辨；
+ * 文字标签仍是主通道，颜色只是辅助。
+ */
+.fcal__group--memory {
+  border-color: color-mix(in srgb, var(--info) 40%, transparent);
+  color: var(--info);
 }

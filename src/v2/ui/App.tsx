@@ -2628,7 +2628,14 @@ interface PlanDraft {
    */
   const [sourceTitles, setSourceTitles] = useState<Map<string, string>>(new Map());
   useEffect(() => {
-    if (page !== 'flow' && page !== 'mapTree') return;
+    /*
+     * ⚠️ 2026-11-23 加了 'flashcards'：闪卡管理页要按所属资料分组，
+     * 而标题就是这个 Map 提供的。原来只在 flow/mapTree 拉，
+     * 用户从侧栏直接进闪卡页时 Map 是空的 ——
+     * 分组会满屏「（资料名读不到）」，看起来像功能坏了。
+     * 这类"功能做了但依赖的数据没接上"就是硬约束 11 说的第二向。
+     */
+    if (page !== 'flow' && page !== 'mapTree' && page !== 'flashcards') return;
     void (async () => {
       try {
         const list = await sourceService.list();
@@ -4888,6 +4895,12 @@ interface PlanDraft {
           {...(pickSession?.kind === 'flashcards' ? { pickBoundCardIds: pickBoundIds.cards } : {})}
           {...(pickSession?.kind === 'flashcards' ? { onPickCard: applyPick } : {})}
           {...(pickSession?.kind === 'flashcards' ? { onBackFromPick: backFromPick } : {})}
+          /*
+           * 按所属资料分组（2026-11-23 用户要求）。
+           * 标题来自 sourceTitles（上面那个 effect 现在也覆盖 flashcards 页）。
+           * 读不到标题时页面会显示「（资料名读不到）」而不是裸 id。
+           */
+          sourceTitleOf={(id) => sourceTitles.get(id) ?? null}
         />
       ) : page === 'oral' ? (
         /*

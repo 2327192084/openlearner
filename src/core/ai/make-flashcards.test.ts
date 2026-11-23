@@ -1,15 +1,20 @@
 /**
- * AI 协助做闪卡的单测（2026-11-14）。
+ * AI 协助做闪卡的单测（2026-11-14；2026-11-23 加格式规范与挖空）。
  *
  * 用户要求：「闪卡的制作可以用到后端 ai 协助制作」。
  *
- * 这里不碰网络，只钉两件事：
+ * 这里不碰网络，钉三件事：
  *  - 提示词里那三条硬约束真的在（不许编造、正面能独立看懂、长度上限）
  *  - 解析要能扛住模型真实会返回的几种脏格式
+ *  - ⚠️ **背面格式标记必须写进提示词**（2026-11-23）：用户 Obsidian 库里的
+ *    卡都用 ✅答案 / 💡要点 / ⚠️限制条件 / ❌坑 四种标记行，
+ *    渲染器（card-rich.ts）与导出（flashcard-export.ts）也按这四种实现。
+ *    提示词若少要求任何一种，就是"AI 写的"与"界面渲染的"两件事 ——
+ *    那正是本项目反复记的关系型盲区。
  */
 
 import { describe, expect, it } from 'vitest';
-import { buildCardPrompt, cardsToDrafts, parseCards } from './make-flashcards.ts';
+import { buildCardPrompt, buildClozePrompt, cardsToDrafts, parseCards } from './make-flashcards.ts';
 
 describe('提示词：三条硬约束必须写进去', () => {
   const { system } = buildCardPrompt({ kind: 'point', text: '导数的定义' });
@@ -67,6 +72,81 @@ describe('提示词：按素材类型给不同做法', () => {
     const { user } = buildCardPrompt({ kind: 'point', text: 'x' }, 3);
     expect(user).toContain('3 张');
     expect(user).toContain('角度要不同');
+  });
+});
+
+describe('⚠️ 背面格式标记必须写进提示词（2026-11-23，与渲染器/导出同源）', () => {
+  const { system } = buildCardPrompt({ kind: 'wrong', text: '题干…答案…解析…' });
+
+  it('四种标记行都在提示词里（少一种，AI 写的与界面渲染的就不是两回事）', () => {
+    expect(system).toContain('✅答案');
+    expect(system).toContain('💡要点');
+    expect(system).toContain('⚠️限制条件');
+    expect(system).toContain('❌坑');
+  });
+
+  it('要求「不适用的标记直接省略，不要硬凑」（否则模型会为凑格式编内容）', () => {
+    expect(system).toContain('不要硬凑');
+  });
+
+  it('要点多条时改成有序列表（与用户库里那种写法一致）', () => {
+    expect(system).toContain('有序列表');
+  });
+
+  it('错题素材必须给 ❌坑 行（用户要的就是"错在哪一步"）', () => {
+    const wrong = buildCardPrompt({ kind: 'wrong', text: 'x' });
+    expect(wrong.system + wrong.user).toContain('❌坑');
+  });
+
+  it('⚠️ 标题规则：单句正面不许硬加标题（钉住 11-23 那个"头部重述正文"的回归）', () => {
+    /*
+     * 这条与 card-rich.ts 的 splitFrontTitle 是同一件事的两端：
+     * 渲染端「只有多行才有标题」+ 生成端「单句别加标题」，
+     * 两边一起才不会出现头部和正文重复。
+     */
+    expect(system).toContain('不要硬加标题');
+  });
+});
+
+describe('挖空（cloze）提示词：2026-11-23 用户拍板"两者都要"', () => {
+  const { system } = buildClozePrompt({ kind: 'point', text: '欧拉公式' });
+
+  it('要求用 ==高亮== 挖空（不是自己发明语法）', () => {
+    /*
+     * 依据：Obsidian Spaced Repetition 官方文档「填空卡片」一节
+     * 认 ==高亮== / **加粗** / {{花括号}} 三种，==高亮== 导出后不用转换。
+     * Anki 风格 {{c1:…}} 那个插件明确不支持，所以不用。
+     *
+     * ⚠️ 断言不能只写 toContain('==') —— 提示词里 `=` 到处都是，
+     * 那种写法对坏实现也成立（"断言写得够宽 = 没在验"）。
+     * 这里钉的是**示例里真的出现了一对 `==…==` 包裹的挖空**。
+     */
+    expect(system).toMatch(/==[^=\n]{1,12}==/);
+  });
+
+  it('限制每张最多挖 2 处（挖多了没法答）', () => {
+    expect(system).toContain('最多挖 2 处');
+  });
+
+  it('⚠️ 禁止把整个公式挖掉（关系断言：挖的是该记的量，不是默写公式）', () => {
+    expect(system).toContain('不许把整个公式挖掉');
+  });
+
+  it('背面按 ✅答案 组织（与问答卡同一套标记，导出/渲染不用分叉）', () => {
+    expect(system).toContain('✅答案');
+  });
+
+  it('素材进 user，多张时要求挖不同的点', () => {
+    const two = buildClozePrompt({ kind: 'point', text: '欧拉公式的内容' }, 2);
+    expect(two.user).toContain('欧拉公式的内容');
+    expect(two.user).toContain('不是同一个点');
+  });
+
+  it('输出格式仍是严格 JSON（复用 parseCards，不另写一套解析）', () => {
+    expect(system).toContain('{"cards"');
+    const r = parseCards('{"cards":[{"front":"幅值是 ==1==","back":"✅答案：1"}]}');
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.cards[0]!.front).toContain('==1==');
   });
 });
 

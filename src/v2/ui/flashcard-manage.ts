@@ -29,12 +29,34 @@
  * 「来源还在不在」的状态 —— 来源与卡片无关了。
  *
  * `sourceKind` 只用于分组显示（「这张当初是从哪来的」）和追溯。
+ *
+ * ## 2026-11-23：三大类型改为「知识点 / 错题 / 记忆」，并加按资料分组
+ *
+ * 用户原话：
+ * > 可以去掉手写的闪卡这一栏，让用户在编写完成后通过选择标签决定闪卡存放位置。
+ * > 再增加一个在三大类型闪卡下按照所属资料进行分类的功能。
+ *
+ * 所以：
+ *
+ * | 变化 | 做法 |
+ * |---|---|
+ * | 去掉「手写的」这一栏 | `FlashcardGroup` 的 `manual` 换成 `memory`；**旧卡不迁移** —— `sourceKind` 仍是 `manual`/`ai`，只在展示层映射成 `memory`，用户原来手写的卡一张不丢，只是换个栏 |
+ * | 按所属资料分类 | `groupBySource()`（纯函数）；资料标题由调用方注入（组件不碰存储，项目一贯分工） |
+ * | 标签决定存放位置 | `UnifiedCard.tags` + `collectTags()`；标签是**第二个筛选维度**，与「所属资料」互不替代（资料=书的结构，标签=用户自己的归档口径） |
  */
 
 import type { FlashcardView } from '@/core/flashcards.ts';
 
-/** 闪卡的两类来源（展示用分组） */
-export type FlashcardGroup = 'point' | 'wrong' | 'manual';
+/**
+ * 三大类型（展示用分组）。
+ *
+ * ⚠️ `memory`（记忆闪卡）取代了原来的 `manual`（手写的）这一栏
+ * （2026-11-23 用户要求「去掉手写的闪卡这一栏」）。
+ * 但**数据层不动**：`Flashcard.sourceKind` 仍可能是 `manual` / `ai`，
+ * 只在下面 `toUnifiedCards` 里映射成 `memory` ——
+ * 用户原来手写的卡一张不丢，只是换个栏显示。
+ */
+export type FlashcardGroup = 'point' | 'wrong' | 'memory';
 
 /** 统一后的一张卡 */
 export interface UnifiedCard {
@@ -49,6 +71,15 @@ export interface UnifiedCard {
   back: string | null;
   /** 来源追溯标签（「来自：信号与系统 · 第2章」）；null = 没有可显示的 */
   sourceLabel: string | null;
+  /**
+   * 归属资料 id（2026-11-23，按资料分组要用）。
+   * null = 这张卡没关联资料（手工写的、或来源知识点本来就没 sourceId）。
+   */
+  sourceId: string | null;
+  /** 用户标签（2026-11-23）；旧卡没有 → 空数组 */
+  tags: string[];
+  /** 卡型（2026-11-23）：'cloze' 时正面含 ==挖空== */
+  format: 'qa' | 'cloze';
 }
 
 /**
@@ -62,10 +93,13 @@ export function toUnifiedCards(views: readonly FlashcardView[]): UnifiedCard[] {
     /*
      * 分组：按 sourceKind。旧卡没有这个字段时，服务层会用
      * knowledgePointId 推断成 'point' 或 'manual'（见 sourceKindOf）。
+     *
+     * ⚠️ 'manual' 与 'ai' 都归进 'memory'（记忆闪卡）——
+     * 数据层不改名（改了要迁移全库），只在展示层合并这一栏。
      */
     const kind = v.card.sourceKind ?? (v.card.knowledgePointId ? 'point' : 'manual');
     const group: FlashcardGroup =
-      kind === 'point' ? 'point' : kind === 'wrong' ? 'wrong' : 'manual';
+      kind === 'point' ? 'point' : kind === 'wrong' ? 'wrong' : 'memory';
 
     return {
       id: v.card.id,
@@ -74,6 +108,9 @@ export function toUnifiedCards(views: readonly FlashcardView[]): UnifiedCard[] {
       front: v.front,
       back: v.back,
       sourceLabel: v.sourceLabel,
+      sourceId: v.card.sourceId ?? null,
+      tags: Array.isArray(v.card.tags) ? v.card.tags : [],
+      format: v.card.format === 'cloze' ? 'cloze' : 'qa',
     };
   });
 }
@@ -82,19 +119,44 @@ export interface CardFilter {
   group: FlashcardGroup | 'all';
   /** 搜索词（正面/背面都搜），空 = 不过滤 */
   query: string;
+  /**
+   * 只看某一份资料的卡（2026-11-23）。
+   * 缺省 = 不按资料筛；`'__none__'` = 只看没关联资料的卡
+   * （界面上那一组叫「未关联资料」）。
+   */
+  sourceId?: string | null;
+  /** 只看带某个标签的卡（2026-11-23）；null/空 = 不按标签筛 */
+  tag?: string | null;
 }
 
 export const DEFAULT_FILTER: CardFilter = { group: 'all', query: '' };
+
+/** 「没有所属资料」那一组的哨兵值（与 sourceId=null 对应） */
+export const NO_SOURCE = '__none__';
 
 /**
  * 按当前筛选条件过滤。
  *
  * 搜索**同时搜正反面**：用户多半只记得那句话，不记得在哪一面。
+ *
+ * ## 资料与标签是两个独立维度（2026-11-23）
+ *
+ * 用户要的是「三大类型下按所属资料分类」+「通过标签决定存放位置」，
+ * 两者**都要能筛**，所以这里是 AND 关系叠加：
+ * 类型 → 资料 → 标签 → 关键词，逐层收窄。
+ * 少任何一层都会出现"筛了资料就丢标签"那种半套功能。
  */
 export function filterCards(cards: readonly UnifiedCard[], f: CardFilter): UnifiedCard[] {
   const q = f.query.trim().toLowerCase();
   return cards.filter((c) => {
     if (f.group !== 'all' && c.group !== f.group) return false;
+    if (f.sourceId !== undefined && f.sourceId !== null) {
+      const want = f.sourceId === NO_SOURCE ? null : f.sourceId;
+      if (c.sourceId !== want) return false;
+    }
+    if (f.tag !== undefined && f.tag !== null && f.tag.length > 0) {
+      if (c.tags.indexOf(f.tag) < 0) return false;
+    }
     if (!q) return true;
     const hay = `${c.front}\n${c.back ?? ''}`.toLowerCase();
     return hay.indexOf(q) !== -1;
@@ -105,16 +167,99 @@ export function filterCards(cards: readonly UnifiedCard[], f: CardFilter): Unifi
 export function countByGroup(cards: readonly UnifiedCard[]): {
   point: number;
   wrong: number;
-  manual: number;
+  memory: number;
   total: number;
 } {
   let point = 0;
   let wrong = 0;
-  let manual = 0;
+  let memory = 0;
   for (const c of cards) {
     if (c.group === 'point') point++;
     else if (c.group === 'wrong') wrong++;
-    else manual++;
+    else memory++;
   }
-  return { point, wrong, manual, total: cards.length };
+  return { point, wrong, memory, total: cards.length };
 }
+
+/** 按资料分组的结果 */
+export interface SourceGroup {
+  /** 资料 id；null = 未关联资料那一组 */
+  sourceId: string | null;
+  /** 界面上显示的组名（资料标题；null 时是「未关联资料」） */
+  title: string;
+  count: number;
+  cards: UnifiedCard[];
+}
+
+/**
+ * 把一批卡按所属资料分组（2026-11-23，用户要求）。
+ *
+ * ## 顺序规则（必须确定，不能靠 Map 的插入顺序）
+ *
+ * 有资料的组按**卡数多的在前**，并列时按标题排 ——
+ * 「未关联资料」永远排最后（它是兜底组，不该抢在前面）。
+ * 不这么定的话，同一份库每次打开顺序可能不同，
+ * 用户记不住"我那组卡在第几个"。
+ *
+ * ## 标题由调用方给（组件不碰存储）
+ *
+ * `titleOf` 找不到标题时**如实回落到「（资料名读不到）」**，
+ * 而不是显示裸 id —— 那类 `__all__` 显示事故项目记过。
+ */
+export function groupBySource(
+  cards: readonly UnifiedCard[],
+  titleOf: (sourceId: string) => string | null,
+): SourceGroup[] {
+  const byId = new Map<string | null, UnifiedCard[]>();
+  for (const c of cards) {
+    const list = byId.get(c.sourceId);
+    if (list) list.push(c);
+    else byId.set(c.sourceId, [c]);
+  }
+
+  const out: SourceGroup[] = [];
+  for (const [sourceId, list] of byId) {
+    out.push({
+      sourceId,
+      title:
+        sourceId === null
+          ? '未关联资料'
+          : titleOf(sourceId) ?? '（资料名读不到）',
+      count: list.length,
+      cards: list,
+    });
+  }
+
+  out.sort((a, b) => {
+    if (a.sourceId === null) return 1;
+    if (b.sourceId === null) return -1;
+    if (b.count !== a.count) return b.count - a.count;
+    return a.title.localeCompare(b.title, 'zh-Hans-CN');
+  });
+  return out;
+}
+
+/**
+ * 汇总每个标签**有多少张卡**（标签筛选条用）。
+ *
+ * ## 为什么按卡去重而不是数出现次数
+ *
+ * 脏数据里一张卡可能带两次同名标签（normalizeTags 在建卡/编辑时挡，
+ * 但历史数据、别的入口写进来的都可能漏）。若这里数出现次数，
+ * chip 会显示「高数 3」而实际只有 2 张卡带它 ——
+ * 那正是本项目反复记的**重复计数**盲区（11-22「0/26 与 0/78」同一类）。
+ * 所以一张卡对同一个标签最多贡献 1。
+ *
+ * 按卡数多的在前，并列按名字排 —— 与 groupBySource 同一套确定性规则。
+ */
+export function collectTags(cards: readonly UnifiedCard[]): { tag: string; count: number }[] {
+  const n = new Map<string, number>();
+  for (const c of cards) {
+    /* 一张卡内的同名标签只算一次 */
+    for (const t of new Set(c.tags)) n.set(t, (n.get(t) ?? 0) + 1);
+  }
+  return [...n.entries()]
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.tag.localeCompare(b.tag, 'zh-Hans-CN')));
+}
+

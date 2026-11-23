@@ -20,7 +20,16 @@
  * | `✅答案：…` | AI 的答案行 | 绿色标记行 |
  * | `💡要点：…` | AI 的要点标题 | 蓝色标记行 |
  * | `⚠️限制条件：…` | AI 的警示行 | 橙色标记行 |
+ * | `❌坑：…` | 用户库里的易错行 | 危险色标记行 |
  * | `$$…$$` / `$…$` | LaTeX | 交给 renderMath（公式段不碰 markdown） |
+ *
+ * ## ⚠️ `❌坑：` 是 2026-11-23 补的（从用户库里读出来的缺口）
+ *
+ * 用户 Obsidian 库（`信号与系统/第一章错题闪卡.md`、`高数/极限错题闪卡.md`）
+ * 大量在用 `❌坑：` 这一行 —— 但本渲染器原来只认 ✅💡⚠️ 三种，
+ * 于是那些行**渲染成普通文本**，没有标记色。
+ * 规范（`docs/规范-闪卡编写格式.md`）与 AI 提示词都按四种标记写，
+ * 渲染器必须同样认四种，否则"提示词要求的"与"界面渲染的"又是两件事。
  *
  * ## ⚠️ 一条重要原则：解析不了就原样显示
  *
@@ -37,6 +46,7 @@ export type LineRole =
   | 'answer' /** ✅ */
   | 'point' /** 💡 */
   | 'warn' /** ⚠️ */
+  | 'trap' /** ❌（用户库里的「坑/易错」行） */
   | 'ordered' /** 1. 2. 3. */
   | 'bullet'; /** - • */
 
@@ -68,6 +78,12 @@ const ROLE_PREFIX: { re: RegExp; role: LineRole }[] = [
   { re: /^💡\s*(.*)$/, role: 'point' },
   /* ⚠ 有两种写法（带 / 不带变体选择符 U+FE0F），都认 */
   { re: /^⚠\uFE0F?\s*(.*)$/, role: 'warn' },
+  /*
+   * ❌ = 「坑/易错」行（用户库里高频，见文件头）。
+   * 只认行首；正文中间的 ❌（"这步 ❌ 不能这么写"）不算标记行 ——
+   * 与 ✅ 同一条取舍。
+   */
+  { re: /^❌\s*(.*)$/, role: 'trap' },
 ];
 
 /** 有序列表：`1. xxx` / `1、xxx` / `1) xxx` */
@@ -133,6 +149,25 @@ export function splitRichLines(text: string): RichLine[] {
 }
 
 /**
+ * 标记行的图标（渲染时补回行首）。
+ *
+ * ## 为什么要单独导出这张表（2026-11-23）
+ *
+ * `splitRichLines` 把 emoji 从 `body` 里剥掉了（角色已经由 role 表达），
+ * 但界面上**必须把图标画回来** —— 用户 Obsidian 库里的原文就带 ✅💡⚠️❌，
+ * 只靠颜色区分是"颜色承载唯一信息"：
+ * 11-23 组别徽章那次已经吃过这个教训（高对比度模式下颜色会失效，
+ * 而且「答案行」和「要点行」对色弱用户几乎同色）。
+ * 图标 + 颜色双通道才算如实。
+ */
+export const ROLE_ICON: Partial<Record<LineRole, string>> = {
+  answer: '✅',
+  point: '💡',
+  warn: '⚠️',
+  trap: '❌',
+};
+
+/**
  * 行内 markdown：`**加粗**` 与 `` `代码` ``。
  *
  * ## 前提：传进来的必须是**已转义**的文本
@@ -162,6 +197,70 @@ export function renderInlineMarkdown(escaped: string): string {
 }
 
 /**
+ * 挖空标记（cloze）。
+ *
+ * ## 语法为什么是 `==高亮==`
+ *
+ * 不是自己发明：Obsidian 的 Spaced Repetition 插件原生认
+ * `==高亮==` / `**加粗**` / `{{花括号}}` 三种填空标记
+ * （官方文档 `docs/docs/zh/flashcards.md`「填空卡片」一节）。
+ * 其中只有 `==高亮==` 与我们的 markdown 子集不冲突
+ * （`**加粗**` 我们已经用作加粗，`{{…}}` 与 LaTeX 的 `x_{…}` 易混），
+ * 所以本项目只用 `==…==`。导出时原样带出去，插件直接认。
+ *
+ * ## 与公式的嵌套顺序（这一条是关键）
+ *
+ * 用户库里的挖空经常是**整个公式**：`==$e^{-2t}\cos(100t+\frac{\pi}{2})$==`。
+ * 所以必须**先切挖空、再切公式**：
+ * 反过来（先 splitMath）会把 `==` 与它包着的 `$…$` 拆到不同段里，
+ * 挖空边界就没了。
+ *
+ * ## 未闭合的 `==` 原样显示
+ *
+ * 与整个文件的原则一致：解析不了就保留原文，
+ * 卡片文字是用户的学习材料，不能因为渲染器丢内容。
+ */
+/*
+ * ⚠️ 挖空内容里**允许单个 `=`，只禁止出现 `==`**（2026-11-23 改的）。
+ *
+ * 第一版写的是 `[^=\n]`（内部不许有等号），但那会把用户最常见的答案
+ * 直接排除掉：`==$e^{...}$，k=100==`、`==A=\dfrac12==` ——
+ * 答案里带等号是常态，尤其导出到 Obsidian 的填空卡。
+ * 那种写法会让"导出时是填空卡、在本应用里点不出答案"，
+ * 是"两个部分之间的关系"上的错（同一份文本在两边行为不一致）。
+ *
+ * `=(?!=)` = 一个等号，后面不跟等号 —— 所以 `==` 仍然是终止符。
+ * 未闭合的 `==` 依旧原样显示（走不到闭合就整段当普通文本）。
+ */
+const RE_CLOZE = /==((?:[^=\n]|=(?!=)){1,200})==/g;
+
+/** 一段文本里的挖空切分结果 */
+export interface ClozePart {
+  text: string;
+  cloze: boolean;
+}
+
+export function splitCloze(text: string): ClozePart[] {
+  const out: ClozePart[] = [];
+  let last = 0;
+  RE_CLOZE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = RE_CLOZE.exec(text)) !== null) {
+    if (m.index > last) out.push({ text: text.slice(last, m.index), cloze: false });
+    out.push({ text: m[1] ?? '', cloze: true });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push({ text: text.slice(last), cloze: false });
+  return out;
+}
+
+/** 这段文本里有没有挖空（决定正面要不要走"点显形"交互） */
+export function hasCloze(text: string): boolean {
+  RE_CLOZE.lastIndex = 0;
+  return RE_CLOZE.test(text);
+}
+
+/**
  * 渲染一行：先按公式切段，**markdown 只作用于非公式段**。
  *
  * ## 为什么不能"先整行渲染数学，再对 HTML 做 markdown"
@@ -186,9 +285,19 @@ export function renderInlineMarkdown(escaped: string): string {
  * （宁可看到 `$...$` 也不要看到 KaTeX 的红色错误块）。
  */
 export function renderRichLine(line: RichLine): RenderedLine {
-  const parts = splitMath(line.body);
+  return { ...line, html: renderInlineHtml(line.body) };
+}
 
-  const html = parts
+/**
+ * 把一段文本渲染成 HTML：先切挖空、再切公式、markdown 只作用于非公式段。
+ *
+ * 单独导出是为了给 `CardCallout` 用 —— 挖空位要**逐个可点击显形**，
+ * 所以它需要按挖空边界拿到一段一段的 HTML，而不是整行一个字符串。
+ */
+export function renderInlineHtml(text: string): string {
+  const parts = splitMath(text);
+
+  return parts
     .map((p) => {
       if (!p.math) return renderInlineMarkdown(escapeHtml(p.value));
 
@@ -200,8 +309,17 @@ export function renderRichLine(line: RichLine): RenderedLine {
       return rendered;
     })
     .join('');
+}
 
-  return { ...line, html };
+/**
+ * 按挖空边界切开并渲染（2026-11-23）。
+ *
+ * 返回的每一段要么是普通文本，要么是一个挖空位的内容。
+ * `hidden` 由调用方决定 —— 渲染器**不管状态**，只管切与渲染，
+ * 这样点显形的交互留在 React 侧，这里保持纯函数可单测。
+ */
+export function renderClozeParts(text: string): { html: string; cloze: boolean }[] {
+  return splitCloze(text).map((p) => ({ html: renderInlineHtml(p.text), cloze: p.cloze }));
 }
 
 /** 整段渲染 */
@@ -270,33 +388,14 @@ export function cardTitleOf(front: string, max = 46): string {
 }
 
 /**
- * 该用哪种 callout 类型。
+ * 该用哪种 callout 类型 / 头部图标。
  *
- * 用户只给了**错题卡**的格式（`[!tip]`）。知识点卡与手写卡按同样思路配：
- *
- * | 组 | callout | 理由 |
- * |---|---|---|
- * | `wrong` 错题 | `tip` | 用户给的就是这个；错题是"要点提醒"性质 |
- * | `point` 知识点 | `note` | 知识点是中性陈述，不该用提示色抢注意力 |
- * | `manual` 手写 | `quote` | 自己写的更像摘录/自述，用引文样式 |
- *
- * 类型只影响**色条与图标**，不改内容排版 —— 三种卡片的正文结构一致，
- * 用户切换组别时不会看到版式跳变。
+ * ⚠️ 2026-11-23 移到 `src/v2/core/callout-kind.ts`，这里只是转发引用：
+ * 导出器（flashcard-export.ts）也要用同一份映射。
+ * 原来两边各写一套的话，界面显示 `[!note]`、导出写 `[!tip]`
+ * 就是"两个部分说的不是同一件事"。改动请去那个文件。
  */
-export type CalloutKind = 'tip' | 'note' | 'quote';
-
-export function calloutKindOf(group: 'point' | 'wrong' | 'manual'): CalloutKind {
-  if (group === 'wrong') return 'tip';
-  if (group === 'point') return 'note';
-  return 'quote';
-}
-
-/** callout 头部图标（与 Obsidian 的语义一致） */
-export const CALLOUT_ICON: Record<CalloutKind, string> = {
-  tip: '🔗',
-  note: '📘',
-  quote: '✏️',
-};
+export { calloutKindOf, CALLOUT_ICON, type CalloutKind } from '@/v2/core/callout-kind.ts';
 
 /** 供测试与调试用：转义（导出避免各处重复实现） */
 export { escapeHtml };

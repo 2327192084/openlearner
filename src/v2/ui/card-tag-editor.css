@@ -1,0 +1,181 @@
+/*
+ * 闪卡标签编辑器（2026-11-23）。
+ *
+ * ⚠️ 与 flashcards-page.css 同一套取舍：**全部写在 @layer 外**。
+ * 里面有原生 <input> 与 <button>，而 src/styles/base.css 有一条
+ * 不在任何 @layer 里的 `button, input { font: inherit; color: inherit }`。
+ * 级联「层级先于特异性」，写进层里会被它盖掉（项目踩过六次以上）。
+ *
+ * 类名 `ctag-` 前缀，避开 v1 的短类名。
+ */
+
+.ctag {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+}
+
+.ctag__label {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  line-height: var(--lh-body);
+}
+
+/* ---------- 库里已有的标签（候选） ---------- */
+
+.ctag__known {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ctag__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.ctag__chip:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.ctag__chip--on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.ctag__chip:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.ctag__n {
+  font-size: 10px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 这张卡当前的标签 ---------- */
+
+.ctag__current {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ctag__cur {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 9px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-xs);
+}
+
+.ctag__rm {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+.ctag__rm:hover:not(:disabled) {
+  color: var(--bad);
+}
+
+.ctag__empty {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  line-height: var(--lh-body);
+}
+
+/* ---------- 新标签输入 ---------- */
+
+.ctag__add {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.ctag__input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-canvas);
+  font-size: var(--fs-sm);
+}
+
+.ctag__input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+
+.ctag__addbtn {
+  flex: none;
+  padding: 4px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.ctag__addbtn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.ctag__addbtn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* ---------- 层外：文字色（base.css 的 button/input color:inherit 在层外） ---------- */
+
+.app .ctag__chip,
+.app .ctag__cur,
+.app .ctag__addbtn {
+  color: var(--text-dim);
+}
+
+.app .ctag__chip--on {
+  color: var(--text);
+}
+
+.app .ctag__input {
+  color: var(--text);
+}
+
+/*
+ * 高对比度（Windows forced-colors）：chip 选中态靠背景色区分，
+ * 系统会忽略 —— 改用实线边框 + 加粗字重保底
+ * （route-tree.css / pick-banner.css 同一套三层降级思路）。
+ */
+@media (forced-colors: active) {
+  .ctag__chip--on {
+    border: 2px solid CanvasText;
+    font-weight: 700;
+    forced-color-adjust: none;
+  }
+}

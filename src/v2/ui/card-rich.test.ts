@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   calloutKindOf,
   cardTitleOf,
+  hasCloze,
+  renderClozeParts,
   renderInlineMarkdown,
   renderRichLine,
   renderRichText,
+  ROLE_ICON,
+  splitCloze,
   splitRichLines,
   splitFrontTitle,
 } from './card-rich.ts';
@@ -42,6 +46,37 @@ describe('splitRichLines：行角色判定', () => {
     expect(splitRichLines('⚠️限制条件：x')[0]!.role).toBe('warn');
     /* U+26A0 不带 U+FE0F */
     expect(splitRichLines('⚠限制条件：x')[0]!.role).toBe('warn');
+  });
+
+  /*
+   * ❌坑：用户 Obsidian 库里高频使用（信号与系统/第一章错题闪卡.md、
+   * 高数/极限错题闪卡.md 几乎每张卡都有一行），渲染器原来不认它 ——
+   * 于是那一行渲染成普通文本。这几条钉住"提示词要求的四种标记 =
+   * 渲染器认的四种标记"这个关系。
+   */
+  it('❌ 开头是坑行（2026-11-23 补的第四种标记）', () => {
+    const [l] = splitRichLines('❌坑：不能直接把虚数 j 当作实振幅 A');
+    expect(l!.role).toBe('trap');
+    expect(l!.body).toBe('坑：不能直接把虚数 j 当作实振幅 A');
+  });
+
+  it('❌ 在行中同样不算标记行', () => {
+    expect(splitRichLines('这步 ❌ 不能这么写')[0]!.role).toBe('plain');
+  });
+
+  it('⚠️ 四种标记行都有图标（图标与颜色双通道，反向验证：删掉表里任一项这条红）', () => {
+    /*
+     * 为什么单独钉这个：splitRichLines 把 emoji 从 body 剥掉了，
+     * 界面靠 ROLE_ICON 画回来。少一个图标 = 那一行只剩颜色，
+     * 高对比度/色弱下信息全丢（11-23 组别徽章那次的同类错误）。
+     */
+    for (const role of ['answer', 'point', 'warn', 'trap'] as const) {
+      expect(ROLE_ICON[role]).toBeTruthy();
+    }
+    expect(ROLE_ICON.answer).toBe('✅');
+    expect(ROLE_ICON.point).toBe('💡');
+    expect(ROLE_ICON.warn).toBe('⚠️');
+    expect(ROLE_ICON.trap).toBe('❌');
   });
 
   it('⚠️ 星号在**行中**不算标记行（"答案对 ✅"不该变绿）', () => {
@@ -221,7 +256,7 @@ describe('cardTitleOf：callout 头部的短标题', () => {
 describe('calloutKindOf：三组卡片的类型分配', () => {
   /**
    * 用户只给了**错题卡**的格式（[!tip]）。
-   * 知识点与手写按同样思路配，理由写在实现注释里。
+   * 知识点与记忆按同样思路配，理由写在实现注释里。
    */
   it('错题 → tip（用户给的那种）', () => {
     expect(calloutKindOf('wrong')).toBe('tip');
@@ -231,12 +266,19 @@ describe('calloutKindOf：三组卡片的类型分配', () => {
     expect(calloutKindOf('point')).toBe('note');
   });
 
-  it('手写 → quote（自己写的更像摘录）', () => {
-    expect(calloutKindOf('manual')).toBe('quote');
+  it('记忆 → quote（自己写/让 AI 组织的更像摘录；2026-11-23 从「手写」改名）', () => {
+    expect(calloutKindOf('memory')).toBe('quote');
   });
 
   it('三种类型互不相同（否则版式没意义）', () => {
-    const kinds = new Set(['wrong', 'point', 'manual'].map((g) => calloutKindOf(g as never)));
+    /*
+     * ⚠️ 这里不用 `as never` 兜住参数类型 —— 上一版写的是
+     * `['wrong','point','manual'].map(g => calloutKindOf(g as never))`，
+     * 那个 cast 让"改名后传错值"这件事编译期查不出来（断言写得够宽=没在验）。
+     * 现在用真实的 FlashcardGroup 联合类型，改名会直接编译报错。
+     */
+    const groups: ('point' | 'wrong' | 'memory')[] = ['wrong', 'point', 'memory'];
+    const kinds = new Set(groups.map((g) => calloutKindOf(g)));
     expect(kinds.size).toBe(3);
   });
 });
@@ -331,3 +373,71 @@ describe('splitFrontTitle：标题不能重述正文（2026-11-23 修的缺陷�
     expect(r.body).toBe('乙');
   });
 });
+
+describe('splitCloze / hasCloze：挖空切分（2026-11-23）', () => {
+  it('一个挖空切成三段（前文 / 挖空 / 后文）', () => {
+    const parts = splitCloze('幅值是 ==1== 保持不变');
+    expect(parts).toEqual([
+      { text: '幅值是 ', cloze: false },
+      { text: '1', cloze: true },
+      { text: ' 保持不变', cloze: false },
+    ]);
+  });
+
+  it('多个挖空按出现顺序切开', () => {
+    const parts = splitCloze('==A== 与 ==B==');
+    expect(parts.filter((p) => p.cloze).map((p) => p.text)).toEqual(['A', 'B']);
+  });
+
+  it('⚠️ 未闭合的 == 原样保留（解析不了不许丢内容）', () => {
+    const t = '这里有个 == 没闭合';
+    expect(splitCloze(t)).toEqual([{ text: t, cloze: false }]);
+    expect(hasCloze(t)).toBe(false);
+  });
+
+  it('hasCloze 认成对的 ==…==', () => {
+    expect(hasCloze('幅值是 ==1==')).toBe(true);
+    expect(hasCloze('没有挖空')).toBe(false);
+  });
+
+  it('⚠️ 挖空里套公式：先切挖空再切公式（顺序反了边界就没了）', () => {
+    /*
+     * 用户库里的挖空经常整个是公式：==$e^{-2t}\cos(100t+\frac{\pi}{2})$==
+     * 如果先 splitMath，`==` 会被分到公式段外面，挖空边界丢失。
+     * 这条钉住"挖空优先于公式"这个切分顺序。
+     */
+    const parts = splitCloze('实部是 ==$e^{-2t}$==');
+    const blank = parts.find((p) => p.cloze);
+    expect(blank?.text).toBe('$e^{-2t}$');
+  });
+
+  /*
+   * 2026-11-23 实测改的一条：第一版正则禁止挖空内部出现 `=`，
+   * 而用户最常见的答案恰恰带等号（k=100、A=\dfrac12）。
+   * 那会让"导出时是填空卡、在本应用里点不出答案"——
+   * 同一份文本在两边行为不一致，是关系型错误。
+   */
+  it('⚠️ 挖空内容里可以有单个 =（答案带等号是常态）', () => {
+    expect(splitCloze('==k=100==').find((p) => p.cloze)?.text).toBe('k=100');
+    expect(splitCloze('==A=\\dfrac{1}{2}==').find((p) => p.cloze)?.text).toBe('A=\\dfrac{1}{2}');
+  });
+
+  it('四个连续等号 ==== 不算挖空（内容为空，宁可原样）', () => {
+    expect(splitCloze('====')).toEqual([{ text: '====', cloze: false }]);
+  });
+
+  it('相邻两个挖空各认各的（不会把中间的文字吞掉）', () => {
+    const parts = splitCloze('==a==b==');
+    expect(parts.filter((p) => p.cloze).map((p) => p.text)).toEqual(['a']);
+    /* 剩下的 b== 没有开头，原样保留 */
+    expect(parts[parts.length - 1]!.cloze).toBe(false);
+  });
+
+  it('renderClozeParts 把挖空内容渲染成 HTML（公式段走 KaTeX）', () => {
+    const parts = renderClozeParts('实部是 ==$x$==');
+    expect(parts.some((p) => p.cloze)).toBe(true);
+    /* 非公式文字正常渲染，挖空段是渲染后的公式 */
+    for (const p of parts) expect(p.html.length).toBeGreaterThan(0);
+  });
+});
+
