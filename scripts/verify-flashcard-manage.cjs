@@ -675,6 +675,37 @@ const skip = (n, why) => {
             cardKinds.length > 0,
             `kinds=${JSON.stringify(trashKinds)}`,
           );
+
+          /*
+           * ★ 数量关系：回收站那条记录必须装下**全部**被删的卡。
+           *
+           * 只看「有没有一条 kind=闪卡 的记录」不够 —— 若 removeMany 只把第一张
+           * 塞进回收站、其余直接删掉，上面那条断言照样全绿（截图复核时我差点
+           * 以为「10 条关联」是少算了第一张，查源码才发现结构如此）。
+           *
+           * 记录结构（src/core/trash.ts:145）：
+           *   payload     = 第一张卡（主记录，**不在** attachments 里）
+           *   attachments = 其余 N 张
+           * 界面（src/v2/ui/TrashPage.tsx:194）把附件数渲染成
+           *   「还原时一并恢复 N 条关联内容」
+           * 所以：总数 = 1（主）+ N（附件），必须等于删掉的张数。
+           * 只有一张卡时没有 .trash-item__attach 节点，N 按 0 计。
+           */
+          const trashCount = await ev(`(() => {
+            const items = [...document.querySelectorAll('.trash-item')];
+            const hit = items.find((li) => (li.querySelector('.trash-item__kind')?.textContent || '').trim() === '闪卡');
+            if (!hit) return null;
+            const txt = (hit.querySelector('.trash-item__attach')?.textContent || '').trim();
+            const m = txt.match(/一并恢复\\s*(\\d+)\\s*条/);
+            const attachments = m ? Number(m[1]) : 0;
+            return { attachments, total: 1 + attachments, text: txt };
+          })()`);
+
+          rec(
+            '★ 回收站那条记录装下了全部被删的卡（1 主 + N 关联 = 删掉的张数）',
+            !!trashCount && before > 0 && trashCount.total === before,
+            `trash=${JSON.stringify(trashCount)} deleted=${before}`,
+          );
           await shot('10-trash.png');
 
           /* 回闪卡页 */
