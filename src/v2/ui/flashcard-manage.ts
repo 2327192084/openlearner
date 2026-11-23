@@ -46,6 +46,7 @@
  */
 
 import type { FlashcardView } from '@/core/flashcards.ts';
+import type { FlashcardFolder } from '@/v2/core/flashcard-folders.ts';
 
 /**
  * 三大类型（展示用分组）。
@@ -80,6 +81,14 @@ export interface UnifiedCard {
   tags: string[];
   /** 卡型（2026-11-23）：'cloze' 时正面含 ==挖空== */
   format: 'qa' | 'cloze';
+  /**
+   * 所在文件夹 id（2026-11-23 晚）；null = 未归入任何文件夹。
+   *
+   * ⚠️ 文件夹归属**不在 flashcards 记录里**，存在 settings.flashcardFolders.assigns。
+   * 理由：往 Flashcard 加字段就要动备份兼容与迁移；而归属是"用户怎么归类"，
+   * 不是卡本身的内容。所以这里由 toUnifiedCards 的第 2 参注入。
+   */
+  folderId: string | null;
 }
 
 /**
@@ -87,8 +96,14 @@ export interface UnifiedCard {
  *
  * 注意它**不再读 `v.point` / `v.stale`** —— 那两个字段在
  * 2026-11-14 的模型里已经不存在了（闪卡独立，无来源依赖）。
+ *
+ * 第 2 参 `assigns` 是文件夹归属（2026-11-23 晚，settings.flashcardFolders.assigns）。
+ * 不传 = 所有卡都「未归入文件夹」，现有调用点不受影响。
  */
-export function toUnifiedCards(views: readonly FlashcardView[]): UnifiedCard[] {
+export function toUnifiedCards(
+  views: readonly FlashcardView[],
+  assigns: Readonly<Record<string, string>> = {},
+): UnifiedCard[] {
   return views.map((v) => {
     /*
      * 分组：按 sourceKind。旧卡没有这个字段时，服务层会用
@@ -111,6 +126,7 @@ export function toUnifiedCards(views: readonly FlashcardView[]): UnifiedCard[] {
       sourceId: v.card.sourceId ?? null,
       tags: Array.isArray(v.card.tags) ? v.card.tags : [],
       format: v.card.format === 'cloze' ? 'cloze' : 'qa',
+      folderId: assigns[v.card.id] ?? null,
     };
   });
 }
@@ -127,12 +143,20 @@ export interface CardFilter {
   sourceId?: string | null;
   /** 只看带某个标签的卡（2026-11-23）；null/空 = 不按标签筛 */
   tag?: string | null;
+  /**
+   * 只看某个文件夹里的卡（2026-11-23 晚）。
+   * 缺省 = 不按文件夹筛；`'__nofolder__'` = 只看未归入文件夹的卡。
+   */
+  folder?: string | null;
 }
 
 export const DEFAULT_FILTER: CardFilter = { group: 'all', query: '' };
 
 /** 「没有所属资料」那一组的哨兵值（与 sourceId=null 对应） */
 export const NO_SOURCE = '__none__';
+
+/** 「未归入文件夹」那一组的哨兵值（与 folderId=null 对应） */
+export const NO_FOLDER = '__nofolder__';
 
 /**
  * 按当前筛选条件过滤。
@@ -154,6 +178,10 @@ export function filterCards(cards: readonly UnifiedCard[], f: CardFilter): Unifi
       const want = f.sourceId === NO_SOURCE ? null : f.sourceId;
       if (c.sourceId !== want) return false;
     }
+    if (f.folder !== undefined && f.folder !== null) {
+      const want = f.folder === NO_FOLDER ? null : f.folder;
+      if (c.folderId !== want) return false;
+    }
     if (f.tag !== undefined && f.tag !== null && f.tag.length > 0) {
       if (c.tags.indexOf(f.tag) < 0) return false;
     }
@@ -161,6 +189,32 @@ export function filterCards(cards: readonly UnifiedCard[], f: CardFilter): Unifi
     const hay = `${c.front}\n${c.back ?? ''}`.toLowerCase();
     return hay.indexOf(q) !== -1;
   });
+}
+
+/**
+ * 判断一个标签筛选是否还该保留（2026-11-23 晚修 bug 用）。
+ *
+ * ## 修的是什么
+ *
+ * 用户反馈原话：「闪卡打上标签后，选择了特定的标签分组，之后删掉标签后
+ * 界面会显示没有符合条件的卡。」
+ *
+ * 根因：标签 chip 那一行是从**当前数据**算出来的（`collectTags`），
+ * 标签被删光后 chip 消失；但 `filter.tag` 还留着旧值，
+ * 于是筛出 0 张 —— 而用户**看不到那个 chip，也就没有任何地方能取消它**，
+ * 界面就永久卡在空列表上。这类"状态还在、入口没了"是死锁，
+ * 不是简单的筛得严。
+ *
+ * ## 做法
+ *
+ * 纯函数：标签仍在 → 原样返回（保留用户的筛选）；
+ * 标签已不存在 → 返回 null（调用方据此清掉 filter.tag）。
+ * **不要**在 filterCards 里悄悄忽略不存在的标签 ——
+ * 那样用户以为筛着某个标签，实际看到的是全部，是反向的错觉。
+ */
+export function reconcileTag(tag: string | null | undefined, known: readonly string[]): string | null {
+  if (tag === undefined || tag === null || tag.length === 0) return null;
+  return known.indexOf(tag) >= 0 ? tag : null;
 }
 
 /** 计数（界面上的数字都来自同一份数据，不各算一遍） */
@@ -261,5 +315,62 @@ export function collectTags(cards: readonly UnifiedCard[]): { tag: string; count
   return [...n.entries()]
     .map(([tag, count]) => ({ tag, count }))
     .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.tag.localeCompare(b.tag, 'zh-Hans-CN')));
+}
+
+/** 按文件夹分组的结果 */
+export interface FolderGroup {
+  /** 文件夹 id；null = 「未归入文件夹」那一组 */
+  folderId: string | null;
+  /** 界面上显示的组名 */
+  title: string;
+  count: number;
+  cards: UnifiedCard[];
+}
+
+/**
+ * 把一批卡按用户自建的文件夹分组（2026-11-23 晚，用户要求"像新建文件夹一样管理"）。
+ *
+ * ## 顺序与"空文件夹"规则（两条都是刻意的）
+ *
+ * 1. **按用户建文件夹的先后顺序**排，不按卡数排 ——
+ *    文件夹是用户自己搭的结构，位置被人为安排过，
+ *    按卡数重排会让"我刚建的文件夹跑到第 5 个"（与按资料分组不同：
+ *    资料顺序来自书本结构，用户没排过）。
+ * 2. **空文件夹照样显示，计数 0** ——
+ *    否则"新建文件夹"点完界面上什么都没出现，看上去像没生效
+ *    （本项目记过的"做了没接上"同类体验事故）。它也是拖卡的落点。
+ * 3. **「未归入文件夹」有卡才出现** —— 它是兜底桶不是用户建的，
+ *    没有落单的卡时不该占一行。
+ *
+ * ## 不属于任何已知文件夹的卡
+ *
+ * `normalizeFolderSettings` 已经把指向不存在文件夹的 assigns 清掉了，
+ * 所以这里不会出现"孤儿归属"。万一将来有别的入口写坏数据，
+ * 这里按「未归入文件夹」处理（`assigns[id]` 不在 folders 里 → 落到 null 组），
+ * 而不是让卡凭空消失。
+ */
+export function groupByFolder(
+  cards: readonly UnifiedCard[],
+  folders: readonly FlashcardFolder[],
+): FolderGroup[] {
+  const known = new Set(folders.map((f) => f.id));
+  const byId = new Map<string | null, UnifiedCard[]>();
+  for (const c of cards) {
+    const key = c.folderId !== null && known.has(c.folderId) ? c.folderId : null;
+    const list = byId.get(key);
+    if (list) list.push(c);
+    else byId.set(key, [c]);
+  }
+
+  const out: FolderGroup[] = folders.map((f) => {
+    const list = byId.get(f.id) ?? [];
+    return { folderId: f.id, title: f.name, count: list.length, cards: list };
+  });
+
+  const loose = byId.get(null) ?? [];
+  if (loose.length > 0) {
+    out.push({ folderId: null, title: '未归入文件夹', count: loose.length, cards: loose });
+  }
+  return out;
 }
 

@@ -8,6 +8,7 @@ import { FlashcardService } from '@/core/flashcards.ts';
 import { OralReviewService } from '@/core/oral-review-service.ts';
 import { TaskRunService } from '@/core/task-run-service.ts';
 import { ResourceService } from '@/core/resource-service.ts';
+import { FlashcardFolderService } from '@/core/flashcard-folder-service.ts';
 import { DeckService } from '@/core/questions/service.ts';
 import { SlideService } from '@/core/slides/service.ts';
 import { UsageService } from '@/core/usage.ts';
@@ -90,14 +91,17 @@ function Bootstrap() {
     const knowledge = new KnowledgeService(storage, sources, usage, trash);
     const decks = new DeckService(storage, usage, trash);
     const slides = new SlideService(storage, usage);
-    /* 记忆闪卡（2026-11-10）：只读写 flashcards 分区，不碰复习记录 */
-    const flashcards = new FlashcardService(storage);
+    /* 记忆闪卡（2026-11-10）：只读写 flashcards 分区，不碰复习记录
+       （2026-11-23 补：批量删除走回收站，所以第 2 参传 trash） */
+    const flashcards = new FlashcardService(storage, trash);
     /* 提问式复习的记录（2026-11-10）：判定逻辑在 core/oral-review.ts */
     const oralReviews = new OralReviewService(storage);
     /* 任务运行记录（2026-11-17）：解析 / 整理 / 出题共用 generationRuns */
     const taskRuns = new TaskRunService(storage);
     /* 外部资源（2026-11-22）：网课/文档链接，存 settings.sourceResources */
     const resources = new ResourceService(library);
+    /* 闪卡文件夹（2026-11-23）：用户自组织的分类，存 settings.flashcardFolders */
+    const flashcardFolders = new FlashcardFolderService(library);
 
     library
       .init()
@@ -181,6 +185,7 @@ function Bootstrap() {
           oralReviews,
           taskRuns,
           resources,
+          flashcardFolders,
           trash,
           env: detectEnv(),
         });

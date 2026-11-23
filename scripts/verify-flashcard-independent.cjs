@@ -146,9 +146,22 @@ const readCards = (evalJs) =>
     const root = document.querySelector('.fcx');
     if (!root) return null;
     return [...root.querySelectorAll('.fcx__item')].map(li => ({
-      front: (li.querySelector('.fcx__front')?.innerText || '').trim().replace(/\\s+/g,' '),
-      badge: (li.querySelector('.fcx__badge')?.innerText || '').trim(),
-      src: (li.querySelector('.fcx__src')?.innerText || '').trim(),
+      /* 正面取 .fcal__body 里的 .fcal__line（排除展开的 .fcal__back）；
+         不能取 .fcal__head-text —— 那是「闪卡 3」+标题，不是正面 */
+      front: (() => {
+        const body = li.querySelector('.fcal__body');
+        if (body) {
+          return [...body.querySelectorAll('.fcal__line')]
+            .filter((l) => !l.closest('.fcal__back'))
+            .map((l) => (l.innerText || '').trim())
+            .join(' ')
+            .replace(/\\s+/g, ' ')
+            .trim();
+        }
+        return (li.querySelector('.fcx__front')?.innerText || '').trim();
+      })(),
+      badge: ((li.querySelector('.fcal__group') || li.querySelector('.fcx__badge'))?.innerText || '').trim(),
+      src: ((li.querySelector('.fcal__src') || li.querySelector('.fcx__src'))?.innerText || '').trim(),
       /* 旧实现会显示「来源已删」这种状态 -->
          这里专门找一下，用来证明新实现没有它 */
       hasDeadState: /来源已删|内容已变/.test(li.innerText || ''),
@@ -173,10 +186,11 @@ const readCards = (evalJs) =>
       return btns;
     })()`);
     record(
-      '★ 三种新建入口都在：从知识点 / 从错题 / 自己写',
+      /* 2026-11-23：第三档从「＋ 写一张」改名「＋ 记忆闪卡」（意图没变：三档入口都要在） */
+      '★ 三种新建入口都在：从知识点 / 从错题 / 记忆闪卡',
       entries.some((t) => t.indexOf('知识点') !== -1) &&
         entries.some((t) => t.indexOf('错题') !== -1) &&
-        entries.some((t) => t.indexOf('写一张') !== -1),
+        entries.some((t) => t.indexOf('记忆闪卡') !== -1),
       JSON.stringify(entries),
     );
 
@@ -185,8 +199,9 @@ const readCards = (evalJs) =>
     const BACK = '差商的极限。';
     const manual = await evalJs(`(async () => {
       const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+      /* 0428cb6 起按钮改名「记忆闪卡」 */
       const btn = [...document.querySelectorAll('.fcx__head-actions button')]
-        .find(b => (b.innerText || '').indexOf('写一张') !== -1);
+        .find(b => (b.innerText || '').indexOf('记忆闪卡') !== -1);
       if (!btn) return { ok: false, reason: 'no-manual-button' };
       btn.click();
       await sleep(700);
@@ -221,11 +236,24 @@ const readCards = (evalJs) =>
       await sleep(1800);
       const rows = [...document.querySelectorAll('.fcx__pick-item')];
       if (rows.length === 0) return { ok: false, reason: 'no-points' };
-      const text = (rows[0].querySelector('.fcx__pick-text')?.innerText || '').trim();
-      const add = [...rows[0].querySelectorAll('.fcx__act')]
-        .find(b => (b.innerText || '').indexOf('加入闪卡') !== -1);
-      if (!add) return { ok: false, reason: 'no-add-button' };
-      add.click();
+      /*
+       * ⚠️ 不能死取 rows[0]：第一条知识点可能已经建过卡，
+       * 按钮变「已加入」且 disabled —— 那样会报 no-add-button，但产品是好的。
+       * 改成找**第一条按钮可点的**。
+       */
+      let text = '';
+      let clicked = false;
+      for (const row of rows) {
+        const add = [...row.querySelectorAll('.fcx__act')]
+          .find(b => (b.innerText || '').indexOf('加入闪卡') !== -1 && !b.disabled);
+        if (add) {
+          text = (row.querySelector('.fcx__pick-text')?.innerText || '').trim();
+          add.click();
+          clicked = true;
+          break;
+        }
+      }
+      if (!clicked) return { ok: false, reason: 'all-points-already-added' };
       await sleep(1800);
       return { ok: true, text };
     })()`);
@@ -297,9 +325,20 @@ const readCards = (evalJs) =>
         md.indexOf('#flashcards') !== -1,
         md.slice(0, 120).replace(/\n/g, ' / '),
       );
-      /* 单独一行的 ? 是多行卡的分隔符 */
-      const sepLine = md.split('\n').some((l) => l.trim() === '?');
-      record('★ 有单独一行的「?」分隔正反面（Obsidian 多行卡语法）', sepLine, '');
+      /*
+       * 2026-11-23（0428cb6）起默认版式是 callout：
+       *   > [!note] 闪卡 1｜标题
+       *   > 正面
+       *   > ✅答案：==背面==
+       * 不再产出「单独一行的 ?」（那套多行语法要手动选 review 版式才有）。
+       * 改成验 callout 版式真正的两个判据：
+       *   a) 有 > [!note] / [!tip] 之类的头
+       *   b) 有 ==…==（没有它 Obsidian 的 SR 插件根本不认这张卡）
+       */
+      const hasCalloutHead = /^> \[!(note|tip|quote|warning)\]/m.test(md);
+      record('★ 导出用 callout 版式（有 > [!note] 之类的头）', hasCalloutHead, '');
+      const hasCloze = /==[^=\n]{1,200}==/.test(md);
+      record('★ 答案被包成 ==…== 挖空（没这个 Obsidian SR 插件不认卡）', hasCloze, '');
       record(
         '★ 卡片之间有空行（否则插件会连成一张卡）',
         /\n\n/.test(md),

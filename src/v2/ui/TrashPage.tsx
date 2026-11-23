@@ -40,6 +40,7 @@ const KIND_LABEL: Record<string, string> = {
   questions: '题目',
   notes: '笔记',
   todos: '待办',
+  flashcards: '闪卡',
   generationRuns: '任务记录',
 };
 

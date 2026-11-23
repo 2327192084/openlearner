@@ -1008,3 +1008,289 @@
   border-color: color-mix(in srgb, var(--info) 40%, transparent);
   color: var(--info);
 }
+
+/* ============================================================
+ * 整理条：分组方式三选一 + 文件夹 + 多选 + 导出选项（2026-11-23 晚）
+ *
+ * 全部是原生 input/button/select（与 .fcx__bar2 同族），
+ * 所以照本项目惯例放在 @layer 之外 —— 层内的重置会盖掉原生外观。
+ * ============================================================ */
+
+.fcx__gmode {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+}
+
+/*
+ * 三选一的每一档复用 .fcx__groupsw（既有 CDP 锚点），
+ * 但取消它的 inline-flex 间距，改成胶囊。
+ */
+.fcx__gmode .fcx__gmode-opt {
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: calc(var(--radius-xs) - 1px);
+  cursor: pointer;
+}
+
+.fcx__gmode-opt--on {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.app .fcx__gmode-opt--on {
+  color: var(--text);
+}
+
+.fcx__gmode-opt--off {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.fcx__bar2-gap {
+  flex: 1 1 auto;
+}
+
+.fcx__folders {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.fcx__folderchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 2px 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: transparent;
+}
+
+.fcx__folderchip-name {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.fcx__folderchip-del {
+  border: 0;
+  background: transparent;
+  padding: 0 5px;
+  font-size: var(--fs-sm);
+  line-height: 1.2;
+  cursor: pointer;
+  color: var(--text-faint);
+}
+
+.fcx__folderchip-del:hover {
+  color: var(--bad);
+}
+
+.fcx__foldernew {
+  padding: 2px 9px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.fcx__foldernew:hover {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.fcx__folderform {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.fcx__folderinput {
+  width: 130px;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--bg-canvas);
+  font-size: var(--fs-xs);
+}
+
+.fcx__folderinput:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.fcx__hint {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.fcx__hint--bad {
+  color: var(--bad);
+}
+
+.fcx__pickbtn,
+.fcx__optbtn {
+  padding: 3px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: transparent;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.fcx__pickbtn:hover:not(:disabled),
+.fcx__optbtn:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.fcx__pickbtn--on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.fcx__pickbtn:disabled,
+.fcx__optbtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---------- 多选工具条 ---------- */
+
+.fcx__pickbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: calc(-1 * var(--space-2)) 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.fcx__pickn {
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.fcx__foldersel {
+  padding: 2px 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--bg-canvas);
+  font-size: var(--fs-xs);
+}
+
+/* ---------- 卡片上的勾选框 ---------- */
+
+.fcx__pickbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.fcx__pickbox input {
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+/* ---------- 组头批量操作 ---------- */
+
+.fcx__ghead-del {
+  padding: 2px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.fcx__ghead-del:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--bad) 45%, transparent);
+  color: var(--bad);
+}
+
+.fcx__ghead-del:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---------- 导出选项框 ---------- */
+
+.fcx__optbox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+  text-align: left;
+}
+
+.fcx__optgroup {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-xs);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  margin: 0;
+}
+
+.fcx__optlegend {
+  padding: 0 5px;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.fcx__optrow {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.fcx__optrow input {
+  margin-top: 3px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.fcx__optrow b {
+  font-weight: 600;
+}
+
+.fcx__optrow .fcx__hint {
+  display: block;
+  margin-top: 2px;
+  line-height: 1.5;
+}
+
+.fcx__optrow--off {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.fcx__optrow--off input {
+  cursor: not-allowed;
+}
+
+/* 组头上的多选勾选框（2026-11-23 晚）：贴着组头左侧，与组名按钮之间留一点 */
+.fcx__ghead-pick {
+  flex: none;
+  margin-left: 2px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}

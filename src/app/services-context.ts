@@ -16,7 +16,7 @@ import type { FocusService } from '@/core/focus.ts';
 import type { TrashService } from '@/core/trash.ts';
 import type { TaskRunService } from '@/core/task-run-service.ts';
 import type { ResourceService } from '@/core/resource-service.ts';
-
+import type { FlashcardFolderService } from '@/core/flashcard-folder-service.ts';
 /**
  * 应用运行时上下文。
  *
@@ -84,6 +84,13 @@ export interface AppServices {
    * 三处要用它：阅读器右栏、小节详情、规划预搜。
    */
   resources: ResourceService;
+  /**
+   * 闪卡文件夹（2026-11-23 晚）。
+   *
+   * 用户自己把卡组织成文件夹（一张卡只在一个文件夹里）。
+   * 纯存储服务，纯逻辑在 `v2/core/flashcard-folders.ts`。
+   */
+  flashcardFolders: FlashcardFolderService;
   /** 运行环境：浏览器 / Electron 桌面端 / 测试 */
   env: 'web' | 'desktop' | 'test';
 }

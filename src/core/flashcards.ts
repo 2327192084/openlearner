@@ -40,10 +40,20 @@
  * 那时删了还能从知识点重建）。它仍不进回收站：
  * 回收站躺 30 天会让用户以为还能还原，而闪卡往往是「临时记一下就删」
  * 的便签式内容。代价是误删不可恢复 —— 所以界面删除必须二次确认。
+ *
+ * ## 2026-11-23 补：**批量**删（整组 / 整个文件夹）进回收站
+ *
+ * 上面那条只适用于**单张**。「删这一组」是用户点一下就可能带走十几张卡，
+ * 误点一次的代价与「删一张便签」不是一个量级 —— 所以 `removeMany` 走回收站，
+ * 并且是一批合成一条记录（回收站里看到「删了 8 张闪卡」，而不是 8 条）。
+ *
+ * 两条路径刻意不对称，理由就一句：**误伤面积**。
+ * 单卡：误删成本低，进回收站反而让人以为还留着；批量：误删成本高，必须能还原。
  */
 
 import type { Flashcard, KnowledgePoint } from './model.ts';
 import type { StorageAdapter } from './storage/types.ts';
+import type { TrashService, TrashEntry } from './trash.ts';
 import { newId, nowIso } from './id.ts';
 
 /** 建卡时的输入 */
@@ -156,7 +166,11 @@ export function sourceKindOf(card: Flashcard): 'point' | 'wrong' | 'manual' | 'a
 }
 
 export class FlashcardService {
-  constructor(private readonly storage: StorageAdapter) {}
+  constructor(
+    private readonly storage: StorageAdapter,
+    /** 回收站（2026-11-08），可选。不传则删除不可恢复 */
+    private readonly trash?: TrashService,
+  ) {}
 
   /**
    * 全部闪卡。
@@ -315,6 +329,39 @@ export class FlashcardService {
     if (!card) return false;
     await this.storage.remove('flashcards', id);
     return true;
+  }
+
+  /**
+   * 批量删卡（「删这一组」/「删这个文件夹」用）—— **进回收站**。
+   *
+   * 与 `remove` 刻意不对称（理由见头注释末尾）。一批合成一条回收站记录：
+   * `moveToTrash` 的语义就是「同一次删除动作」合成一条，还原时整批一起回来。
+   *
+   * @returns 实际删掉的张数（传进来的 id 有已经不存在的，不计数）
+   */
+  async removeMany(ids: readonly string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+
+    const want = new Set(ids);
+    const hit = (await this.storage.getAll('flashcards')).filter((c) => want.has(c.id));
+    if (hit.length === 0) return 0;
+
+    /*
+     * 先收进回收站，再从原分区删。
+     * 顺序不能反：反了就是「先真删、后备份」，中间崩一次数据就没了。
+     */
+    if (this.trash) {
+      const entries: TrashEntry[] = hit.map((c) => ({
+        kind: 'flashcards',
+        title: c.frontText.slice(0, 40),
+        summary: '闪卡',
+        payload: c,
+      }));
+      await this.trash.moveToTrash(entries);
+    }
+
+    for (const c of hit) await this.storage.remove('flashcards', c.id);
+    return hit.length;
   }
 
   /** 某个知识点是否已经建过卡（界面用它显示「已加入」而不是重复按钮） */

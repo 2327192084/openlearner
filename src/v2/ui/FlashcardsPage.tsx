@@ -39,11 +39,14 @@ import { hasCloze } from './card-rich.ts';
 import { downloadBlob } from '@/pages/slides/download.ts';
 import {
   DEFAULT_FILTER,
+  NO_FOLDER,
   NO_SOURCE,
   collectTags,
   countByGroup,
   filterCards,
+  groupByFolder,
   groupBySource,
+  reconcileTag,
   toUnifiedCards,
   type CardFilter,
   type FlashcardGroup,
@@ -55,6 +58,29 @@ import {
 } from '@/v2/core/flashcard-export.ts';
 import { PickBanner, PickButton } from './PickBanner.tsx';
 import { CardTagEditor } from './CardTagEditor.tsx';
+import {
+  DEFAULT_EXPORT_OPTIONS,
+  exportButtonLabel,
+  resolveGroupMode,
+  toExporterOptions,
+  type ExportOptionState,
+  type GroupMode,
+} from './flashcard-organize.ts';
+import { FlashcardOrganizeBar, FlashcardPickBar } from './FlashcardOrganizeBar.tsx';
+import { ExportOptionsDialog } from './ExportOptionsDialog.tsx';
+import { ConfirmDialog } from './dialog.tsx';
+import {
+  effectiveIds,
+  groupPickState,
+  pruneSelection,
+  toggleCard,
+  toggleGroup,
+} from './card-selection.ts';
+import {
+  EMPTY_FOLDER_SETTINGS,
+  type FlashcardFolderSettings,
+} from '@/v2/core/flashcard-folders.ts';
+import type { FlashcardFolderService } from '@/core/flashcard-folder-service.ts';
 
 export interface FlashcardsPageProps {
   flashcards: FlashcardService;
@@ -110,6 +136,14 @@ export interface FlashcardsPageProps {
    * 那类 `__all__` 露内部标识的事故项目记过）。
    */
   sourceTitleOf?: (sourceId: string) => string | null;
+  /**
+   * 文件夹服务（2026-11-23 晚，用户要求「类似新建文件夹的功能」）。
+   *
+   * 归属存在 `settings.flashcardFolders` 里，不在 flashcards 记录上
+   * （理由见 `flashcard-folders.ts` 头注释）。不传就整个文件夹功能不出现
+   * ——不做"能点但点了没反应"的假开关。
+   */
+  folderService?: FlashcardFolderService;
 }
 
 /**
@@ -151,6 +185,7 @@ export function FlashcardsPage({
   onPickCard,
   onBackFromPick,
   sourceTitleOf,
+  folderService,
 }: FlashcardsPageProps) {
   const [views, setViews] = useState<FlashcardView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -159,15 +194,36 @@ export function FlashcardsPage({
 
   const [filter, setFilter] = useState<CardFilter>(DEFAULT_FILTER);
   /*
-   * 按所属资料分组（2026-11-23，用户要求「在三大类型闪卡下按照所属资料进行分类」）。
+   * 分组方式（2026-11-23 晚，用户要求「增加个类似新建文件夹的功能」）。
    *
-   * 默认开：用户提这条就是因为他要按资料看。
-   * 留开关是因为分组后"找某一张卡"要多绕一层，纯浏览/搜索时平铺更快。
-   * ⚠️ 只在宿主给了 sourceTitleOf 时才可能分组 —— 没有标题来源就
-   * 老老实实平铺，不显示这个开关（不做假开关，硬约束 11）。
+   * 原来是「按所属资料分组」一个勾选框，现在扩成三选一：
+   * 不分组 / 按资料 / 按文件夹。默认仍是「按资料」——
+   * 用户提第一版分组需求时就是要按资料看，这次不该把他熟悉的默认改掉。
+   * 只有宿主给了 sourceTitleOf 才可能按资料分组（没标题来源就把那档灰掉，
+   * 不做假开关，硬约束 11）。
    */
-  const [grouped, setGrouped] = useState(true);
+  const [groupMode, setGroupMode] = useState<GroupMode>('source');
   const [collapsedSources, setCollapsedSources] = useState<Set<string>>(new Set());
+
+  /* ---------- 文件夹（2026-11-23 晚） ---------- */
+  const [folderSettings, setFolderSettings] = useState<FlashcardFolderSettings>(EMPTY_FOLDER_SETTINGS);
+
+  /* ---------- 导出多选（2026-11-23 晚） ---------- */
+  /** 多选模式开关：关着时导出 = 当前筛选全部（旧行为不破） */
+  const [picking, setPicking] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  /** 归入时的目标文件夹（null = 未归入） */
+  const [assignTarget, setAssignTarget] = useState<string | null>(null);
+  /** 导出选项（记住上次选的，关页面才丢） */
+  const [exportOptions, setExportOptions] = useState<ExportOptionState>(DEFAULT_EXPORT_OPTIONS);
+  const [showExportOptions, setShowExportOptions] = useState(false);
+  /** 等确认的「删掉这一组」 */
+  const [pendingGroupDelete, setPendingGroupDelete] = useState<{
+    key: string;
+    title: string;
+    cardIds: string[];
+  } | null>(null);
+
   const [opened, setOpened] = useState<Set<string>>(new Set());
   const [pendingDelete, setPendingDelete] = useState<UnifiedCard | null>(null);
 
@@ -216,9 +272,25 @@ export function FlashcardsPage({
     }
   }, [flashcards]);
 
+  /**
+   * 读文件夹设置（2026-11-23 晚）。
+   *
+   * 与闪卡分开读：文件夹存 settings，闪卡存 flashcards 分区，
+   * 一个读失败不该把另一个也拖成空白页。
+   */
+  const loadFolders = useCallback(async () => {
+    if (!folderService) return;
+    try {
+      setFolderSettings(await folderService.loadAll());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '读不出文件夹');
+    }
+  }, [folderService]);
+
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadFolders();
+  }, [load, loadFolders]);
 
   /**
    * 接住从阅读器带过来的 AI 草稿（2026-11-14）。
@@ -252,7 +324,10 @@ export function FlashcardsPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incomingAiCards?.token]);
 
-  const cards = useMemo(() => (views ? toUnifiedCards(views) : null), [views]);
+  const cards = useMemo(
+    () => (views ? toUnifiedCards(views, folderSettings.assigns) : null),
+    [views, folderSettings.assigns],
+  );
   const counts = useMemo(() => (cards ? countByGroup(cards) : null), [cards]);
   const visible = useMemo(() => (cards ? filterCards(cards, filter) : []), [cards, filter]);
 
@@ -262,6 +337,48 @@ export function FlashcardsPage({
    * 用户就看不到别的标签了，越筛越窄出不来。
    */
   const knownTags = useMemo(() => (cards ? collectTags(cards) : []), [cards]);
+
+  /**
+   * 标签被删光后自动解除筛选（2026-11-23 晚，修用户报的 bug）。
+   *
+   * ## 用户报的现象
+   *
+   * 「闪卡打上标签后，选择了特定的标签分组，之后删掉标签后界面会显示
+   * 没有符合条件的卡」—— 而且**没有任何入口能退出来**：
+   * chip 是从当前卡算出来的，标签一删光 chip 就消失了，
+   * 只剩「全部标签」那个（它只在 `!filter.tag` 时才高亮，
+   * 点它确实能清 —— 但用户看不出自己在筛什么，只会以为卡丢了）。
+   *
+   * ## 规则
+   *
+   * `filter.tag` 必须是当前真实存在的标签，否则清掉。
+   * 判断逻辑在 `reconcileTag`（纯函数，单独测过），这里只负责调用。
+   * 放在 effect 里而不是渲染期算：渲染期改 state 会触发无限渲染。
+   */
+  useEffect(() => {
+    const next = reconcileTag(filter.tag, knownTags.map((t) => t.tag));
+    if (next !== (filter.tag ?? null)) setFilter((f) => ({ ...f, tag: next }));
+  }, [filter.tag, knownTags]);
+
+  /**
+   * 卡片列表现在能显示的是哪一批 id（多选/导出的作用域）。
+   *
+   * 只认 visible —— 界面上写「导出 N 张」时 N 必须是用户眼前这 N 张，
+   * 筛选收窄后已选里的隐藏卡不能偷偷跟着导出（`effectiveIds` 保证这点）。
+   */
+  const visibleIds = useMemo(() => visible.map((c) => c.id), [visible]);
+  /** 勾了且当前可见的（= 真正会导出的那批） */
+  const pickedIds = useMemo(() => effectiveIds(selected, visibleIds), [selected, visibleIds]);
+
+  /** 卡被删/被筛出后，把勾选里已经不存在的剪掉（防越勾越多） */
+  useEffect(() => {
+    if (!cards) return;
+    const alive = cards.map((c) => c.id);
+    setSelected((cur) => {
+      const next = pruneSelection(cur, alive);
+      return next.size === cur.size ? cur : next;
+    });
+  }, [cards]);
 
   /*
    * 列表要渲染的"行"（2026-11-23，按资料分组）。
@@ -281,27 +398,77 @@ export function FlashcardsPage({
    */
   const listRows = useMemo(() => {
     type Row =
-      | { kind: 'head'; key: string; title: string; count: number; sourceId: string | null; collapsed: boolean }
+      | {
+          kind: 'head';
+          key: string;
+          /**
+           * 这一组的身份（折叠状态、只看这组、删掉这组都用它）。
+           *
+           * ⚠️ 不能拿 `sourceId ?? NO_SOURCE` 当 key：按文件夹分组时
+           * 每一组的 sourceId 都是 null，会全落到同一个 NO_SOURCE 上，
+           * 折叠一组等于折叠全部（关系错误）。所以单独给一个字段。
+           */
+          groupKey: string;
+          title: string;
+          count: number;
+          sourceId: string | null;
+          /** 这一组的卡 id（组头「多选本组」「删掉这组」要用） */
+          cardIds: string[];
+          collapsed: boolean;
+        }
       | { kind: 'card'; key: string; card: UnifiedCard };
 
     const rows: Row[] = [];
-    const canGroup = !!sourceTitleOf && grouped;
-    if (!canGroup) {
+    const mode = resolveGroupMode(groupMode, !!sourceTitleOf);
+    if (mode === 'none') {
       for (const c of visible) rows.push({ kind: 'card', key: c.key, card: c });
       return rows;
     }
-    const groups = groupBySource(
-      visible,
-      (id) => sourceTitleOf!(id),
-    );
-    for (const g of groups) {
-      const key = g.sourceId ?? NO_SOURCE;
-      const collapsed = collapsedSources.has(key);
-      rows.push({ kind: 'head', key: `h:${key}`, title: g.title, count: g.count, sourceId: g.sourceId, collapsed });
+
+    /*
+     * 两种分组共用同一个行流，但组的形状不同（SourceGroup / FolderGroup），
+     * 所以先归一成一组通用字段再进 rows —— 不要在三元里直接取字段，
+     * 那样 tsc 会在联合类型上抱怨（而且真出过错：folderId 不存在于 SourceGroup）。
+     */
+    const heads: {
+      groupKey: string;
+      title: string;
+      count: number;
+      sourceId: string | null;
+      cards: UnifiedCard[];
+    }[] =
+      mode === 'folder'
+        ? groupByFolder(visible, folderSettings.folders).map((g) => ({
+            groupKey: g.folderId ?? NO_FOLDER,
+            title: g.title,
+            count: g.count,
+            sourceId: null,
+            cards: g.cards,
+          }))
+        : groupBySource(visible, (id) => sourceTitleOf!(id)).map((g) => ({
+            groupKey: g.sourceId ?? NO_SOURCE,
+            title: g.title,
+            count: g.count,
+            sourceId: g.sourceId,
+            cards: g.cards,
+          }));
+
+    for (const g of heads) {
+      const collapsed = collapsedSources.has(g.groupKey);
+      rows.push({
+        kind: 'head',
+        key: `h:${g.groupKey}`,
+        groupKey: g.groupKey,
+        title: g.title,
+        count: g.count,
+        sourceId: g.sourceId,
+        cardIds: g.cards.map((c) => c.id),
+        collapsed,
+      });
       if (!collapsed) for (const c of g.cards) rows.push({ kind: 'card', key: c.key, card: c });
     }
     return rows;
-  }, [visible, sourceTitleOf, grouped, collapsedSources]);
+  }, [visible, sourceTitleOf, groupMode, folderSettings.folders, collapsedSources]);
 
   /**
    * 某张卡在**全部卡**里的序号（不是筛选后的）。
@@ -454,19 +621,120 @@ export function FlashcardsPage({
     }
   }
 
+  /* ==================== 文件夹（2026-11-23 晚） ==================== */
+
+  /** 新建文件夹：成功就刷新设置（失败原因交给组件在输入框旁显示） */
+  async function newFolder(name: string) {
+    if (!folderService) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await folderService.create(name);
+      if (r.ok) setFolderSettings(r.settings);
+      else
+        setError(
+          r.reason === 'dup' ? '已经有同名文件夹了。' : r.reason === 'empty' ? '文件夹名不能空着。' : '建不了这个文件夹。',
+        );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '新建文件夹失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function renameFolder(id: string, name: string) {
+    if (!folderService) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await folderService.rename(id, name);
+      if (r.ok) setFolderSettings(r.settings);
+      else setError(r.reason === 'dup' ? '已经有同名文件夹了。' : '改不了这个名字。');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '改名失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * 删文件夹：**只删文件夹，卡都留着**（变成「未归入文件夹」）。
+   *
+   * 为什么不顺手删卡：文件夹只是用户自己搭的分类格子，
+   * 删格子和扔东西是两件事 —— 想扔东西有「删掉这组」那个按钮。
+   */
+  async function removeFolder(id: string) {
+    if (!folderService) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setFolderSettings(await folderService.remove(id));
+      if (assignTarget === id) setAssignTarget(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '删文件夹失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** 把勾起来的卡归入某个文件夹（null = 移出文件夹） */
+  async function assignToFolder(folderId: string | null) {
+    if (!folderService || pickedIds.length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const n = await folderService.assign(pickedIds, folderId);
+      setFolderSettings(await folderService.loadAll());
+      setNotice(n === 0 ? '这些卡本来就在那儿。' : `已把 ${n} 张卡归入${folderId === null ? '「未归入文件夹」' : '文件夹'}。`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '归入文件夹失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /* ==================== 删掉一整组（2026-11-23 晚） ==================== */
+
+  /**
+   * 删掉这一组的全部卡（走回收站，30 天内可还原）。
+   *
+   * ## 为什么这条路径进回收站，而单卡删除不进
+   *
+   * 单卡是「临时记一下就删」的便签式操作，误删一张自己知道是哪张，
+   * 重写也就一行；整组一次可能是几十张，误点一下代价太大。
+   * 两类删除**刻意不对称**（`flashcards.ts` 头注释记了这条决策）。
+   */
+  async function removeGroup() {
+    if (!pendingGroupDelete) return;
+    setBusy(true);
+    try {
+      const n = await flashcards.removeMany(pendingGroupDelete.cardIds);
+      setPendingGroupDelete(null);
+      await load();
+      setNotice(`已把 ${n} 张卡收进回收站（30 天内可还原）。`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '删除没成功');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   /**
    * 导出成 Obsidian markdown。
    *
-   * 导出**当前筛选结果**而不是全部：用户按「错题闪卡」筛完再导出，
-   * 期待的就是那一组（导出全部会让他拿到一堆不想要的卡）。
-   * 界面上会明写导出了几张。
+   * ## 导出哪一批（2026-11-23 晚改）
+   *
+   * - 没开多选：导出**当前筛选结果** —— 用户按「错题闪卡」筛完再导出，
+   *   期待的就是那一组（导出全部会让他拿到一堆不想要的卡）。
+   * - 开了多选：导出**勾了的那几张**（且必须仍可见，见 `effectiveIds`）。
+   *   计数字样随之改口（「导出所选」），不能一律写"全部"。
    */
   function exportObsidian() {
     if (!views) return;
-    const picked = new Set(visible.map((c) => c.id));
-    const list = views.filter((v) => picked.has(v.card.id)).map((v) => v.card);
+    const want = new Set(picking ? pickedIds : visible.map((c) => c.id));
+    const list = views.filter((v) => want.has(v.card.id)).map((v) => v.card);
     if (list.length === 0) {
-      setError('当前筛选结果里没有卡片可导出。');
+      setError(picking ? '没勾卡。勾几张再导出。' : '当前筛选结果里没有卡片可导出。');
       return;
     }
 
@@ -489,7 +757,8 @@ export function FlashcardsPage({
     const { content, count, warnings } = flashcardsToObsidianMarkdown(
       'Open Learner 闪卡',
       list,
-      { includeSource: true },
+      /* 导出选项 2026-11-23 晚接上（之前 UI 一个开关都没接，见 ExportOptionsDialog） */
+      toExporterOptions(exportOptions),
       labelOf,
     );
     downloadBlob(new Blob([content], { type: 'text/markdown;charset=utf-8' }), flashcardFileName('Open Learner 闪卡'));
@@ -898,27 +1167,47 @@ export function FlashcardsPage({
           aria-label="搜索闪卡"
         />
 
-        <button type="button" className="fcx__export" onClick={exportObsidian} disabled={visible.length === 0}>
-          导出到 Obsidian（{visible.length} 张）
+        <button
+          type="button"
+          className="fcx__export"
+          onClick={exportObsidian}
+          disabled={(picking ? pickedIds.length : visible.length) === 0}
+          title={
+            picking
+              ? '导出勾起来的那几张'
+              : '导出当前筛选结果；想改版式/填空/双向卡就点旁边的「导出选项」'
+          }
+        >
+          {exportButtonLabel(picking ? pickedIds.length : visible.length, picking)}
         </button>
       </div>
 
       {/*
-       * 第二行筛选（2026-11-23）：按资料分组开关 + 标签。
+       * 第二行：分组方式（三选一）/ 文件夹 / 多选 / 导出选项 + 标签筛选。
        *
-       * ⚠️ 整行只在宿主给了 sourceTitleOf 时才出现 ——
-       * 没有标题来源就分不了组，摆个开关等于假开关（硬约束 11）。
+       * 2026-11-23 晚把原来的「按所属资料分组」单勾选框扩成三选一：
+       * 不分组 / 按资料 / 按文件夹。`fcx__groupsw` 类名保留在每一档上
+       * （既有 CDP 脚本按 `.fcx__groupsw input` 判断有没有分组开关）。
        */}
-      {sourceTitleOf && cards.length > 0 ? (
+      {cards.length > 0 ? (
         <div className="fcx__bar2">
-          <label className="fcx__groupsw">
-            <input
-              type="checkbox"
-              checked={grouped}
-              onChange={(e) => setGrouped(e.target.checked)}
-            />
-            按所属资料分组
-          </label>
+          <FlashcardOrganizeBar
+            groupMode={resolveGroupMode(groupMode, !!sourceTitleOf)}
+            onGroupMode={setGroupMode}
+            canGroupBySource={!!sourceTitleOf}
+            folders={folderSettings.folders}
+            busy={busy}
+            onNewFolder={(n) => void newFolder(n)}
+            onRenameFolder={(id, n) => void renameFolder(id, n)}
+            onRemoveFolder={(id) => void removeFolder(id)}
+            picking={picking}
+            onTogglePicking={() => {
+              setPicking((v) => !v);
+              if (picking) setSelected(new Set());
+            }}
+            onOpenExportOptions={() => setShowExportOptions(true)}
+            visibleCount={visible.length}
+          />
 
           {knownTags.length > 0 ? (
             <div className="fcx__tagfilter" role="group" aria-label="按标签筛">
@@ -948,6 +1237,21 @@ export function FlashcardsPage({
         </div>
       ) : null}
 
+      {/* 多选工具条（挂着多选模式才出现） */}
+      {picking && cards.length > 0 ? (
+        <FlashcardPickBar
+          selected={pickedIds.length}
+          visible={visible.length}
+          onSelectAll={() => setSelected(new Set(visibleIds))}
+          onSelectNone={() => setSelected(new Set())}
+          onAssign={(fid) => void assignToFolder(fid)}
+          folders={folderSettings.folders}
+          assignTarget={assignTarget}
+          onAssignTarget={setAssignTarget}
+          busy={busy}
+        />
+      ) : null}
+
       {/* ---------- 列表 ---------- */}
       {cards.length === 0 ? (
         <p className="fcx__empty">
@@ -958,11 +1262,32 @@ export function FlashcardsPage({
       ) : (
         <ul className="fcx__list">
           {listRows.map((row) => {
-            /* ---------- 组头（按资料分组时才有） ---------- */
+            /* ---------- 组头（分组时才出现） ---------- */
             if (row.kind === 'head') {
-              const key = row.sourceId ?? NO_SOURCE;
+              const key = row.groupKey;
+              /**
+               * 当前分组维度。组头的「只看这组」「删掉这组」在资料/文件夹
+               * 两种模式下筛的东西不同，必须按实际模式走。
+               */
+              const headMode = resolveGroupMode(groupMode, !!sourceTitleOf);
+              /* 组头三态：这一组勾了几张（多选模式下显示） */
+              const gState = groupPickState(selected, row.cardIds);
               return (
                 <li key={row.key} className="fcx__ghead">
+                  {picking ? (
+                    <input
+                      type="checkbox"
+                      className="fcx__ghead-pick"
+                      checked={gState === 'all'}
+                      ref={(el) => {
+                        /* 部分选中画成半选（不是选中，否则用户以为整组都要导） */
+                        if (el) el.indeterminate = gState === 'some';
+                      }}
+                      onChange={() => setSelected((cur) => toggleGroup(cur, row.cardIds))}
+                      aria-label={`多选「${row.title}」这一组的 ${row.count} 张卡`}
+                      disabled={row.count === 0}
+                    />
+                  ) : null}
                   <button
                     type="button"
                     className="fcx__ghead-btn"
@@ -983,13 +1308,45 @@ export function FlashcardsPage({
                     {/* ⚠️ 这个数 = 这一组显示出来的卡数（来自 visible，见 listRows 注释） */}
                     <span className="fcx__ghead-n">{row.count}</span>
                   </button>
+                  {/*
+                   * 「只看这组」+「删掉这组」两个都在。
+                   *
+                   * 用户原话（2026-11-23）：「最后需要一个总的删除某一资源的闪卡按钮，
+                   * 建议在图三每个资源右边加上一个删除按钮」—— 图三就是按资料分组那屏，
+                   * 所以资源组头上**必须**有删除按钮，不能只在文件夹模式里给。
+                   *
+                   * 「只看这组」按当前分组维度筛：按资料筛 sourceId，
+                   * 按文件夹筛 folder。这样两种模式下这两个按钮都名副其实。
+                   */}
                   <button
                     type="button"
                     className="fcx__ghead-filter"
-                    onClick={() => setFilter((f) => ({ ...f, sourceId: f.sourceId === key ? null : key }))}
-                    title={filter.sourceId === key ? '取消只看这一份资料' : '只看这一份资料的卡'}
+                    onClick={() => {
+                      if (headMode === 'folder') {
+                        const want = key === NO_FOLDER ? NO_FOLDER : key;
+                        setFilter((f) => ({ ...f, folder: f.folder === want ? null : want }));
+                      } else {
+                        setFilter((f) => ({ ...f, sourceId: f.sourceId === key ? null : key }));
+                      }
+                    }}
+                    title={headMode === 'folder' ? '只看这个文件夹里的卡' : '只看这一份资料的卡'}
                   >
-                    {filter.sourceId === key ? '取消只看这组' : '只看这组'}
+                    {headMode === 'folder'
+                      ? filter.folder === (key === NO_FOLDER ? NO_FOLDER : key)
+                        ? '取消只看这组'
+                        : '只看这组'
+                      : filter.sourceId === key
+                        ? '取消只看这组'
+                        : '只看这组'}
+                  </button>
+                  <button
+                    type="button"
+                    className="fcx__ghead-del"
+                    onClick={() => setPendingGroupDelete({ key, title: row.title, cardIds: row.cardIds })}
+                    disabled={busy || row.cardIds.length === 0}
+                    title={`把「${row.title}」里的 ${row.count} 张卡都收进回收站（30 天内可还原）`}
+                  >
+                    删掉这组
                   </button>
                 </li>
               );
@@ -1109,6 +1466,21 @@ export function FlashcardsPage({
                         ),
                       }
                     : {})}
+                  {...(picking
+                    ? {
+                        selectSlot: (
+                          <label className="fcx__pickbox">
+                            <input
+                              type="checkbox"
+                              checked={selected.has(c.id)}
+                              onChange={() => setSelected((cur) => toggleCard(cur, c.id))}
+                              aria-label={`勾选这张闪卡（导出用）`}
+                            />
+                            <span>选</span>
+                          </label>
+                        ),
+                      }
+                    : {})}
                   onToggleOpen={() => toggleOpen(c.id)}
                   onEdit={() => {
                     setEditing({ id: c.id, front: c.front, back: c.back ?? '', tags: [...c.tags] });
@@ -1152,6 +1524,49 @@ export function FlashcardsPage({
           </button>
           。
         </p>
+      ) : null}
+
+      {/*
+       * ---------- 删掉一整组（2026-11-23 晚） ----------
+       *
+       * 用 ConfirmDialog 而不是像上面单卡那样自己搭一段：
+       * 批量删是这一页最危险的按钮，需要"初始焦点在取消、执行中锁定、
+       * Escape 关掉"这些现成保障（dialog.tsx 头注释那三条要求）。
+       */}
+      {pendingGroupDelete ? (
+        <ConfirmDialog
+          title={`删掉「${pendingGroupDelete.title}」里的 ${pendingGroupDelete.cardIds.length} 张卡？`}
+          description="这些卡会进回收站，30 天内可以还原。"
+          confirmLabel="收进回收站"
+          onConfirm={() => void removeGroup()}
+          onClose={() => setPendingGroupDelete(null)}
+        >
+          <p className="set-hint">
+            只删这一组里的 {pendingGroupDelete.cardIds.length} 张，别的组的卡不动。文件夹本身也不会被删掉。
+          </p>
+        </ConfirmDialog>
+      ) : null}
+
+      {/* ---------- 导出选项（2026-11-23 晚） ---------- */}
+      {showExportOptions ? (
+        <ExportOptionsDialog
+          initial={exportOptions}
+          count={picking ? pickedIds.length : visible.length}
+          onConfirm={(next) => {
+            /*
+             * 只记住选项、关框，不在这里直接导出。
+             *
+             * 理由：导出按钮就在旁边且一直可见，点了才知道导出几张；
+             * 在确认框里顺手导出一份，用户会以为是"保存设置"，
+             * 结果多下一个文件（也难说清哪份是新的）。
+             * 记下来后按钮标题会跟着变（「导出所选（N 张）」）。
+             */
+            setExportOptions(next);
+            setShowExportOptions(false);
+            setNotice('导出选项已记住，点「导出」就按这套选项导出。');
+          }}
+          onClose={() => setShowExportOptions(false)}
+        />
       ) : null}
     </div>
   );

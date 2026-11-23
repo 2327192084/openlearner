@@ -188,8 +188,7 @@ describe('删除', () => {
   });
 });
 
-describe('按知识点查/删（知识点那一侧的操作）', () => {
-  it('hasForPoint 能认出从该知识点建的卡', async () => {
+describe('按知识点查/删（知识点那一侧的操作）', () => {  it('hasForPoint 能认出从该知识点建的卡', async () => {
     await svc.add(draftFromPoint(point()));
     expect(await svc.hasForPoint('kp1')).toBe(true);
     expect(await svc.hasForPoint('kp2')).toBe(false);
@@ -231,5 +230,64 @@ describe('列表', () => {
     await svc.add({ frontText: 'x', origin: 'user' });
     const views = await svc.listWithLabels();
     expect(views[0]?.sourceLabel).toBeNull();
+  });
+});
+
+/**
+ * 批量删（2026-11-23 晚新增）。
+ *
+ * 用户要求「每个资源右边加一个总的删除闪卡按钮」，所以有了 `removeMany`。
+ * 与单卡 `remove` 的区别：**批量删进回收站**（误伤面积大，必须能还原）。
+ * 进回收站那部分在 trash-wiring.test.ts 里验；这里验计数与不误伤。
+ */
+describe('removeMany：批量删（整组 / 整个文件夹）', () => {
+  it('删指定的几张', async () => {
+    const a = await svc.add({ frontText: 'a', origin: 'user' });
+    const b = await svc.add({ frontText: 'b', origin: 'user' });
+    const c = await svc.add({ frontText: 'c', origin: 'user' });
+    expect(await svc.removeMany([a!.id, c!.id])).toBe(2);
+    const left = await svc.list();
+    expect(left.map((x) => x.id)).toEqual([b!.id]);
+  });
+
+  it('传空数组返回 0（别在上面白跑一次 getAll）', async () => {
+    expect(await svc.removeMany([])).toBe(0);
+  });
+
+  it('id 有已经不存在的，只数真删掉的', async () => {
+    const a = await svc.add({ frontText: 'a', origin: 'user' });
+    expect(await svc.removeMany([a!.id, 'ghost1', 'ghost2'])).toBe(1);
+    expect(await svc.list()).toHaveLength(0);
+  });
+
+  it('全都不存在 → 0，且不抛', async () => {
+    expect(await svc.removeMany(['x', 'y'])).toBe(0);
+  });
+
+  it('重复 id 不重复计数、也不重复删', async () => {
+    const a = await svc.add({ frontText: 'a', origin: 'user' });
+    expect(await svc.removeMany([a!.id, a!.id, a!.id])).toBe(1);
+    expect(await svc.list()).toHaveLength(0);
+  });
+
+  it('★ 没被点到的卡一张都不能少（关系断言：删前 = 删后 + 返回数）', async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      const c = await svc.add({ frontText: `卡${i}`, origin: 'user' });
+      ids.push(c!.id);
+    }
+    const before = (await svc.list()).length;
+    const n = await svc.removeMany([ids[1], ids[4]]);
+    const after = (await svc.list()).length;
+    expect(before).toBe(6);
+    expect(n).toBe(2);
+    expect(before - n).toBe(after);
+  });
+
+  it('删卡不影响知识点（与单卡删同一条规则）', async () => {
+    await storage.put('knowledgePoints', point());
+    const card = await svc.add(draftFromPoint(point()));
+    await svc.removeMany([card!.id]);
+    expect(await storage.get('knowledgePoints', 'kp1')).not.toBeNull();
   });
 });

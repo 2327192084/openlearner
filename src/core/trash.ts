@@ -314,6 +314,8 @@ export class TrashService {
         return this.storage.put('notes', payload as StoreRecordMap['notes']);
       case 'todos':
         return this.storage.put('todos', payload as StoreRecordMap['todos']);
+      case 'flashcards':
+        return this.storage.put('flashcards', payload as StoreRecordMap['flashcards']);
       case 'generationRuns':
         return this.storage.put('generationRuns', payload as StoreRecordMap['generationRuns']);
     }

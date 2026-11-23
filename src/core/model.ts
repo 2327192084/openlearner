@@ -1650,6 +1650,7 @@ export type TrashKind =
   | 'questions'
   | 'notes'
   | 'todos'
+  | 'flashcards'
   | 'generationRuns';
 
 /**

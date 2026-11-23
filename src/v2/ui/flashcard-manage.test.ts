@@ -14,14 +14,18 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_FILTER,
+  NO_FOLDER,
   NO_SOURCE,
   collectTags,
   countByGroup,
   filterCards,
+  groupByFolder,
   groupBySource,
+  reconcileTag,
   toUnifiedCards,
   type UnifiedCard,
 } from './flashcard-manage.ts';
+import type { FlashcardFolder } from '@/v2/core/flashcard-folders.ts';
 import type { FlashcardView } from '@/core/flashcards.ts';
 import type { Flashcard } from '@/core/model.ts';
 
@@ -313,5 +317,127 @@ describe('不变式', () => {
   it('key 唯一（React 列表需要）', () => {
     const out = toUnifiedCards([view({ id: 'a' }), view({ id: 'b' })]);
     expect(new Set(out.map((c) => c.key)).size).toBe(2);
+  });
+});
+
+describe('reconcileTag：标签被删光后不能卡死在空列表（修用户报的 bug）', () => {
+  it('标签还在 → 保留筛选', () => {
+    expect(reconcileTag('高数', ['高数', '线代'])).toBe('高数');
+  });
+
+  it('标签没了 → 返回 null（调用方清掉 filter.tag）', () => {
+    expect(reconcileTag('高数', ['线代'])).toBeNull();
+  });
+
+  it('过一个都不剩时也回 null（清掉最后一个标签的情况）', () => {
+    expect(reconcileTag('123', [])).toBeNull();
+  });
+
+  it('没筛标签时原样 null，不算"标签丢了"', () => {
+    expect(reconcileTag(null, ['高数'])).toBeNull();
+    expect(reconcileTag(undefined, ['高数'])).toBeNull();
+    expect(reconcileTag('', ['高数'])).toBeNull();
+  });
+
+  it('大小写敏感，与 normalizeTags / collectTags 同口径', () => {
+    expect(reconcileTag('Gauss', ['gauss'])).toBeNull();
+  });
+
+  /*
+   * 这条是整个 bug 的回归断言：场景重放一遍。
+   * 打标签 → 筛它 → 把这张卡的标签删掉 → 界面不能停在 0 张。
+   */
+  it('回归：打完标签筛上、删标签后筛选自动解除', () => {
+    const withTag = [view({ id: 'a', tags: ['123'] }), view({ id: 'b' })];
+    const filterTag = '123';
+    expect(filterCards(toUnifiedCards(withTag), { ...DEFAULT_FILTER, tag: filterTag })).toHaveLength(1);
+
+    /* 用户把唯一的标签删了（编辑那张卡，tags 清空） */
+    const after = [view({ id: 'a', tags: [] }), view({ id: 'b' })];
+    const known = collectTags(toUnifiedCards(after)).map((t) => t.tag);
+    const nextTag = reconcileTag(filterTag, known);
+
+    expect(nextTag).toBeNull();
+    /* 清掉之后必须能看到全部卡，不能还是 0 张 */
+    expect(filterCards(toUnifiedCards(after), { ...DEFAULT_FILTER, tag: nextTag })).toHaveLength(2);
+  });
+
+  it('反向验证：若不清（原样留着旧 tag），就会停在 0 张', () => {
+    const after = [view({ id: 'a', tags: [] }), view({ id: 'b' })];
+    const cards = toUnifiedCards(after);
+    /* 故意不清：这就是线上发生的事 */
+    expect(filterCards(cards, { ...DEFAULT_FILTER, tag: '123' })).toHaveLength(0);
+  });
+});
+
+describe('文件夹维度（2026-11-23 晚）', () => {
+  const folders: FlashcardFolder[] = [
+    { id: 'fold_1', name: '高数错题' },
+    { id: 'fold_2', name: '信号公式' },
+    { id: 'fold_3', name: '空文件夹' },
+  ];
+
+  it('toUnifiedCards 注入归属；不传 assigns 时全为 null', () => {
+    const views = [view({ id: 'a' }), view({ id: 'b' })];
+    expect(toUnifiedCards(views).map((c) => c.folderId)).toEqual([null, null]);
+    expect(toUnifiedCards(views, { a: 'fold_1' }).map((c) => c.folderId)).toEqual(['fold_1', null]);
+  });
+
+  it('filterCards 按文件夹筛；NO_FOLDER 只看未归入的', () => {
+    const cards = toUnifiedCards(
+      [view({ id: 'a' }), view({ id: 'b' }), view({ id: 'c' })],
+      { a: 'fold_1', b: 'fold_2' },
+    );
+    expect(filterCards(cards, { ...DEFAULT_FILTER, folder: 'fold_1' }).map((c) => c.id)).toEqual(['a']);
+    expect(filterCards(cards, { ...DEFAULT_FILTER, folder: NO_FOLDER }).map((c) => c.id)).toEqual(['c']);
+    /* 不传 folder = 不按文件夹筛 */
+    expect(filterCards(cards, DEFAULT_FILTER)).toHaveLength(3);
+  });
+
+  it('groupByFolder 按用户建文件夹的顺序排，不按卡数排', () => {
+    /* fold_1 只有 1 张、fold_2 有 2 张，但仍按建的顺序 fold_1 在前 */
+    const cards = toUnifiedCards(
+      [view({ id: 'a' }), view({ id: 'b' }), view({ id: 'c' })],
+      { a: 'fold_1', b: 'fold_2', c: 'fold_2' },
+    );
+    const groups = groupByFolder(cards, folders.slice(0, 2));
+    expect(groups.map((g) => g.folderId)).toEqual(['fold_1', 'fold_2']);
+    expect(groups.map((g) => g.count)).toEqual([1, 2]);
+  });
+
+  it('空文件夹照样出现且计数 0（否则"新建"看不出效果）', () => {
+    const groups = groupByFolder([], folders);
+    expect(groups).toHaveLength(3);
+    expect(groups.every((g) => g.count === 0 && g.cards.length === 0)).toBe(true);
+  });
+
+  it('「未归入文件夹」有卡才出现，且排最后', () => {
+    const cards = toUnifiedCards([view({ id: 'a' }), view({ id: 'b' })], { a: 'fold_1' });
+    const groups = groupByFolder(cards, folders);
+    expect(groups[groups.length - 1].folderId).toBeNull();
+    expect(groups[groups.length - 1].title).toBe('未归入文件夹');
+    expect(groups[groups.length - 1].count).toBe(1);
+
+    /* 全都归好类时不该出现兜底组 */
+    const tidy = toUnifiedCards([view({ id: 'a' })], { a: 'fold_1' });
+    expect(groupByFolder(tidy, folders).some((g) => g.folderId === null)).toBe(false);
+  });
+
+  it('归属指向不存在的文件夹 → 落到「未归入」，卡不能凭空消失（关系断言）', () => {
+    const cards = toUnifiedCards([view({ id: 'a' }), view({ id: 'b' })], { a: 'fold_deleted' });
+    const groups = groupByFolder(cards, folders);
+    const sum = groups.reduce((n, g) => n + g.count, 0);
+    expect(sum).toBe(cards.length); /* ★ 计数之和 = 卡数 */
+    expect(groups.find((g) => g.folderId === null)?.count).toBe(2);
+  });
+
+  it('每组的 count 都等于组内卡片数（防重复计数）', () => {
+    const cards = toUnifiedCards(
+      [view({ id: 'a' }), view({ id: 'b' }), view({ id: 'c' })],
+      { a: 'fold_1', b: 'fold_1', c: 'fold_2' },
+    );
+    for (const g of groupByFolder(cards, folders)) {
+      expect(g.count).toBe(g.cards.length);
+    }
   });
 });

@@ -611,6 +611,7 @@ export function App({
     trash: trashService,
     knowledge: knowledgeService,
     flashcards: flashcardsService,
+    flashcardFolders: flashcardFolderService,
     oralReviews: oralReviewService,
     taskRuns,
   } = useServices();
@@ -4901,6 +4902,8 @@ interface PlanDraft {
            * 读不到标题时页面会显示「（资料名读不到）」而不是裸 id。
            */
           sourceTitleOf={(id) => sourceTitles.get(id) ?? null}
+          /* 文件夹归属存 settings.flashcardFolders（2026-11-23 晚） */
+          folderService={flashcardFolderService}
         />
       ) : page === 'oral' ? (
         /*

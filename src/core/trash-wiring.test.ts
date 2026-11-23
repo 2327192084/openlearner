@@ -6,6 +6,7 @@ import { DeckService } from './questions/service.ts';
 import { KnowledgeService } from './knowledge/service.ts';
 import { NoteService } from './notes.ts';
 import { TodoService } from './todos.ts';
+import { FlashcardService } from './flashcards.ts';
 import type { Course } from './model.ts';
 
 /**
@@ -330,6 +331,67 @@ describe('笔记与待办删除进回收站', () => {
     expect(rec.summary).toBe('3 条');
     await trash.restore(rec.id);
     expect(await storage.getAll('todos')).toHaveLength(4);
+  });
+});
+
+describe('闪卡批量删除进回收站（2026-11-23 晚）', () => {
+  /**
+   * ⚠️ 单卡删除**刻意不进回收站**（见 flashcards.ts 头注释），
+   * 批量删（整组 / 整个文件夹）才进 —— 误伤面积大，必须能还原。
+   * 这组断言守的是「批量那条路径真的接上了」，
+   * 因为构造参数可选，漏传编译器不会报错。
+   */
+  it('批量删 → 回收站一条（含全部卡） → 还原整批回来', async () => {
+    const { storage, trash } = newStack();
+    const flashcards = new FlashcardService(storage, trash);
+
+    const a = await flashcards.add({ frontText: '第一张', origin: 'user' });
+    const b = await flashcards.add({ frontText: '第二张', origin: 'user' });
+    const c = await flashcards.add({ frontText: '留着的', origin: 'user' });
+
+    expect(await flashcards.removeMany([a!.id, b!.id])).toBe(2);
+
+    /* 原分区里真没了，没点到的还在 */
+    expect(await storage.get('flashcards', a!.id)).toBeNull();
+    expect(await storage.get('flashcards', c!.id)).not.toBeNull();
+
+    /* 回收站里一条，带 2 张 */
+    const list = await trash.list();
+    expect(list).toHaveLength(1);
+    expect(list[0]!.kind).toBe('flashcards');
+    expect(list[0]!.attachments).toHaveLength(1); /* 主记录 + 1 附件 = 2 张 */
+
+    /* 还原：两张都回来，正文没坏 */
+    await trash.restore(list[0]!.id);
+    const back = await storage.getAll('flashcards');
+    expect(back).toHaveLength(3);
+    expect(back.map((x) => x.frontText).sort()).toEqual(['第一张', '第二张', '留着的'].sort());
+    expect(await trash.list()).toHaveLength(0);
+  });
+
+  it('★ 单卡删除仍然不进回收站（两类删除刻意不对称）', async () => {
+    const { storage, trash } = newStack();
+    const flashcards = new FlashcardService(storage, trash);
+    const a = await flashcards.add({ frontText: '单删的', origin: 'user' });
+
+    expect(await flashcards.remove(a!.id)).toBe(true);
+    expect(await storage.get('flashcards', a!.id)).toBeNull();
+    /* 回收站里必须一条都没有 —— 否则这条「不对称」就没守住 */
+    expect(await trash.list()).toHaveLength(0);
+  });
+
+  it('批量删空批次不产生回收站记录（别留空条目）', async () => {
+    const { storage, trash } = newStack();
+    const flashcards = new FlashcardService(storage, trash);
+    expect(await flashcards.removeMany([])).toBe(0);
+    expect(await trash.list()).toHaveLength(0);
+  });
+
+  it('删不存在的 id 不产生回收站记录', async () => {
+    const { storage, trash } = newStack();
+    const flashcards = new FlashcardService(storage, trash);
+    expect(await flashcards.removeMany(['ghost'])).toBe(0);
+    expect(await trash.list()).toHaveLength(0);
   });
 });
 

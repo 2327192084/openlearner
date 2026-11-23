@@ -68,10 +68,19 @@ export interface CardCalloutProps {
    * CardCallout 与选取会话零耦合，单测不受影响。
    */
   pickSlot?: React.ReactNode;
+  /**
+   * 导出多选时的勾选框（2026-11-23 晚，用户要求「加个多选或是全选的按钮」）。
+   *
+   * 与 pickSlot 一样由宿主传进来 —— 卡片本身不认识"选择"这件事，
+   * 它只负责把勾选框放在操作区最左（拇指/视线首先落到的地方）。
+   * 与 pickSlot **同时**出现不会冲突：选取模式与导出多选是两个场景，
+   * 页面不会同时打开（见 FlashcardsPage 的注释）。
+   */
+  selectSlot?: React.ReactNode;
 }
 
 export function CardCallout(props: CardCalloutProps) {
-  const { card, index, open, onToggleOpen, onEdit, onDelete, busy, pickSlot } = props;
+  const { card, index, open, onToggleOpen, onEdit, onDelete, busy, pickSlot, selectSlot } = props;
   const kind = calloutKindOf(card.group);
 
   /*
@@ -174,6 +183,8 @@ export function CardCallout(props: CardCalloutProps) {
       <div className="fcal__acts">
         {/* 选取模式的「选这个」放最左（主操作位）；浏览模式这里什么都没有 */}
         {pickSlot ?? null}
+        {/* 导出多选的勾选框同样在最左（与 pickSlot 不会同时出现） */}
+        {selectSlot ?? null}
         <button type="button" className="fcal__act" onClick={onToggleOpen} aria-expanded={open}>
           {open ? '收起背面' : '看背面'}
         </button>
