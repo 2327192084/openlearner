@@ -1,5 +1,5 @@
 ; ============================================================================
-; OpenLeaner 安装程序 —— Inno Setup 6（2026-11-24，v4.0 起替换 NSIS）
+; OpenLeaner 安装程序 —— Inno Setup 6（2026-11-24，v0.40 起替换 NSIS）
 ;
 ; ## 为什么从 NSIS 换到 Inno Setup
 ;
@@ -21,7 +21,7 @@
 ;
 ; ## 编译方式
 ;
-;   ISCC.exe /DVERSION=4.0.0 installer.iss
+;   ISCC.exe /DVERSION=0.40.0 installer.iss
 ; （SOURCE_DIR 缺省 release\win-unpacked；版本号与 package.json 保持同值，
 ;  由 scripts/build-innosetup.cjs 自动传入。）
 
@@ -31,7 +31,7 @@
 #define MyAppId "com.openleaner.app"
 
 #ifndef VERSION
-  #define VERSION "4.0.0"
+  #define VERSION "0.40.0"
 #endif
 
 #ifndef SOURCE_DIR

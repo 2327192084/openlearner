@@ -7,9 +7,33 @@
 不需要注册账号，也不上传任何东西到别人的服务器。
 Windows 桌面版（Electron）与浏览器版共用同一份代码。
 
-**当前版本 4.0.0** · [下载安装包](https://github.com/2327192084/openlearner/releases/latest) · [开发文档](DEVELOPMENT.md)
+**当前版本 0.40.0** · [⬇️ 下载 Windows 安装包](https://github.com/2327192084/openlearner/releases/download/v0.40/OpenLeaner-0.40.0-setup.exe) · [全部 Release](https://github.com/2327192084/openlearner/releases) · [开发文档](DEVELOPMENT.md)
+
+**安装**：双击安装包即可 —— 装到你自己的用户目录（`%LOCALAPPDATA%\Programs\OpenLeaner`），
+全程不弹 UAC、不写系统目录；卸载不会删除学习库（数据在 `%APPDATA%\OpenLeaner`）。
+不需要注册任何账号；AI 功能在「设置」里填入你自己的模型接口（任何 OpenAI 兼容服务均可）。
 
 ---
+
+## 它能做什么（功能总览）
+
+| 模块 | 你能做的事 |
+|---|---|
+| 📚 **资料库** | 导入 PDF / Word / PPT / Markdown / 图片；扫描件接 MinerU 转正文；分片解析大书；逐页看 PPT 原件 |
+| 🔍 **全文搜索** | 一次搜遍全部资料，命中按书汇总、同页归并，点击跳到原文那句话 |
+| 🧠 **知识骨架** | AI 从资料提取知识点（带原文页码角标），整理成章节树，自检「能不能讲清楚」 |
+| 📝 **出题刷题** | 单选/多选/判断/填空/问答六种题型，草稿先审后发，错题自动进错题本 |
+| 🃏 **闪卡** | 三大类 + 自定义文件夹 + 标签 + `==挖空==` 翻面；与 Obsidian 双向导入导出 |
+| 📅 **复习计划** | 记忆曲线排复习、每日安排、模拟考试限时整卷、专注计时 |
+| 📊 **学习地图** | 题库按资料与章节摊开，看清哪块练得少、哪块最容易错 |
+| 🖥️ **AI 演示文稿** | 从资料原文生成可编辑 .pptx（六套配色，预览导出同一主题） |
+| 🔌 **AI 接入** | 任何 OpenAI 兼容接口；8 家预设；一键拉取可用模型列表；用量按天记账 |
+
+## 适合谁用
+
+- **备考的人**：教材 + 课件 + 真题散落各处，需要一个地方把它们串成「资料 → 知识点 → 题 → 错题本 → 复习计划」的闭环
+- **不想把学习数据交出去的人**：全部数据存本机 IndexedDB，不注册账号、不上传内容；AI 走你自己接的模型接口
+- **用 Obsidian 做笔记的人**：闪卡可以导出成 Obsidian Callout 版式，装上 Spaced Repetition 插件直接在库里翻卡复习；写好的卡也能导回来
 
 ## 它解决什么问题
 
@@ -259,7 +283,7 @@ node scripts/update-desktop.cjs          # 只更新已装的桌面版
 安装包用 [Inno Setup 6](https://jrsoftware.org/isinfo.php)（`winget install JRSoftware.InnoSetup`），
 脚本在 `build/installer.iss`。装到用户目录、不弹 UAC、卸载不删学习库
 （数据在 `%APPDATA%\OpenLeaner`）。
-（v4.0 之前用 NSIS，脚本保留在 `build/installer.nsi` 作为回退，不再被流程调用。）
+（v0.40 之前用 NSIS，脚本保留在 `build/installer.nsi` 作为回退，不再被流程调用。）
 
 ---
 
@@ -267,7 +291,7 @@ node scripts/update-desktop.cjs          # 只更新已装的桌面版
 
 ```bash
 npx tsc -b          # 类型检查，0 错误
-npx vitest run      # 144 files / 2657 passed（6 跳过）
+npx vitest run      # 183 files / 3693 passed（6 跳过）
 npx vite build      # 构建
 ```
 
@@ -284,52 +308,24 @@ npx vite build      # 构建
 
 ---
 
-## 一些取舍（写在代码注释里，也写在这里）
-
-- **不做「假开关」**。勾了没反应的能力选项比没有更糟。已经摘掉过几个：
-  资料页「未分类 更改」、折叠的「PDF 解析」块、「自动保存」开关。
-- **宁可少给，也不给假角标**。段落缺页码时，要点照常生成但没有角标。
-- **取不到的图不存空记录**。宁可少一张图，也不要存 `dataUri` 为空、
-  渲染出来是破图的记录 —— 那会让用户以为资料坏了。
-- **失败必须说清下一步**。所有错误对象都带 `hint`，界面不允许只显示「失败」。
-- **迁移只做加法**。旧备份缺的字段补默认值，绝不编造数据；判断不了就留空并如实标注。
-- **不伪造统计**。缺数据就显示「未配置」，不把未知价格默认当成免费。
-- **界面改完必须在真实应用里看**。tsc 通过、单测通过都不等于功能在。
-
----
-
-## 已知未做
-
-- **提问式复习的记录回看界面**：`recentStats()` 已实现并有单测，缺 UI
-- **闪卡的挖空（cloze）形态**：目前只有正反面
-- **练习进度落库**：现在没有持久化
-- **旧题没有 `why` 字段**：新题有，旧数据没有
-- **tesseract 中文识别包 1.6MB 仍在包内**：是否也改成本地下载待定
-- **音频转写 / 课堂实录**：需要先定用哪个转写引擎
-- **备考补习**：需要先支持导入考纲
-- **资料库滚动位置未保留**：翻页会 `scrollTo(0)`
-
----
-
 ## 项目结构
 
 ```
 src/core/       核心逻辑（存储、迁移、解析、AI、出题、复习）
-src/v2/ui/      实际在跑的界面（v2）
-src/pages/      v1 界面，大部分已废弃但文件还在
+src/v2/ui/      界面
 electron/       主进程（数据目录、MinerU、窗口、IPC）
 scripts/        验收与诊断脚本
-docs/           交接文档、事故复盘、设计说明
+docs/           设计说明与开发记录
 ```
 
-⚠️ **v1 与 v2 并存**。改任何界面代码前先确认 `App.tsx` 实际 import 的是哪一份：
+---
 
-```bash
-grep -n "import.*SourcesPage" src/v2/ui/App.tsx
-```
+## 致谢
 
-`src/pages/sources/SourcesPage.tsx` 与 `src/v2/ui/SourcesPage.tsx` 是同名不同命的两个文件，
-改错那份 tsc 照样通过，但界面一动不动。
+- [StudyHub](https://github.com/EricWang1358/dsh-web-studyhub)（MIT）—— 本项目 AI 接入层的结构、首页「今天做什么」的信息架构等设计，借鉴了 StudyHub 的做法；早期开发时对其源码的逐条分析（`docs/StudyHub源码分析-启发.md`）帮着少走了很多弯路。
+- [MinerU](https://github.com/opendatalab/MinerU) —— 扫描版 PDF 的正文转换。
+- [pptx-wasm](https://www.npmjs.com/package/pptx-wasm) / [pptxgenjs](https://github.com/gitbrent/PptxGenJS) —— PPT 原件渲染与导出。
+- [Obsidian Spaced Repetition](https://github.com/st3v3nmw/obsidian-spaced-repetition) —— 闪卡导出版式所兼容的复习插件。
 
 ---
 

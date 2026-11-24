@@ -17,7 +17,7 @@ npx tsc -b           # 类型检查
 npm run build        # 生产构建到 dist/
 npm run electron:dev    # 桌面端开发模式（需交互式桌面会话）
 npm run electron:pack   # 打包免安装目录到 release/win-unpacked
-node scripts/build-innosetup.cjs   # Inno Setup 编安装包到 build/（v4.0 起）
+node scripts/build-innosetup.cjs   # Inno Setup 编安装包到 build/（v0.40 起）
 
 # 桌面端启动：用启动器，不要直接双击 exe
 #   release\win-unpacked\OpenLeaner-Launcher.bat
