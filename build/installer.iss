@@ -100,11 +100,15 @@ begin
 end;
 
 // 已装旧版（NSIS 装的）也沿用其目录：NSIS 写过 HKCU\Software\OpenLeaner\InstallDir
-function InitializeSetup(): Boolean;
+// 2026-11-24 修复：原实现把 WizardForm.DirEdit 放在 InitializeSetup 里 —— 官方文档明确
+// InitializeSetup 在向导窗体创建之前调用，此时引用 WizardForm 属于未定义行为：
+// 大多数机器上 Inno 会自动先建窗体，但无 DWM / 精简系统上自动创建失败，表现为
+// "Runtime error (at 4:280): Could not call proc"（用户新电脑实测复现）。
+// 改成 InitializeWizard —— 官方指定用于初始化向导控件的时机，此时窗体必然已存在。
+procedure InitializeWizard();
 var
   oldDir: String;
 begin
-  Result := True;
   if RegQueryStringValue(HKCU, 'Software\OpenLeaner', 'InstallDir', oldDir) then
   begin
     if DirExists(oldDir) then
