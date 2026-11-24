@@ -207,9 +207,9 @@ export function FlashcardOrganizeBar(props: FlashcardOrganizeBarProps) {
         onClick={onTogglePicking}
         disabled={busy || visibleCount === 0}
         aria-pressed={picking}
-        title={picking ? '退出多选，导出变回"当前筛选全部"' : '勾几张卡只导出它们'}
+        title={picking ? '退出多选，导出变回"当前筛选全部"' : '勾几张卡：只导出它们，或归进某个文件夹'}
       >
-        {picking ? '退出多选' : '多选导出'}
+        {picking ? '退出多选' : '多选'}
       </button>
       <button type="button" className="fcx__optbtn" onClick={onOpenExportOptions} disabled={busy}>
         导出选项

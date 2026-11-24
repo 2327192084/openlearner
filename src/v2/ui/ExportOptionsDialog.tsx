@@ -135,7 +135,7 @@ export function ExportOptionsDialog(props: ExportOptionsDialogProps) {
         </label>
 
         <p className="fcx__hint">
-          本机目前没装 Obsidian 的 Spaced Repetition 插件 —— 不装的话导出文件只是一份普通笔记，翻不了卡。
+          装了 Obsidian 的 Spaced Repetition 插件就能直接翻卡复习；没装的话，导出文件仍是一份结构完整的笔记。
         </p>
       </div>
     </ConfirmDialog>

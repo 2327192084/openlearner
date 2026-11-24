@@ -830,8 +830,9 @@ export function FlashcardsPage({
      * "没开填空开关就一张都进不了复习队列"，界面却不吭声，
      * 用户拿到文件才发现不对。
      *
-     * 另外文案不能说"放进 Obsidian 库里即可"—— 用户本机目前**没装**
-     * Spaced Repetition 插件（取证确认），不装就只是普通笔记。
+     * 另外文案不能说"放进 Obsidian 库里即可"—— 装没装 Spaced Repetition
+     * 插件只有用户自己知道（2026-11-24 用户已装上），所以改成中性说法，
+     * 不替用户断言本机状态。
      */
     const { content, count, warnings } = flashcardsToObsidianMarkdown(
       'Open Learner 闪卡',
@@ -844,7 +845,7 @@ export function FlashcardsPage({
     setNotice(
       `已导出 ${count} 张卡。` +
         (warnings.length > 0 ? ' ' + warnings.join(' ') : '') +
-        '（要在 Obsidian 里翻卡复习，需装 Spaced Repetition 插件；没装就只是普通笔记。）',
+        '（导入 Obsidian 后，装了 Spaced Repetition 插件即可翻卡复习。）',
     );
   }
 

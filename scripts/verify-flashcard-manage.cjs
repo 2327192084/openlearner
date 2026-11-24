@@ -439,7 +439,7 @@ const skip = (n, why) => {
 
 
     /* ---------- 5/6/7. 多选 ---------- */
-    await clickByText('.fcx__pickbtn', '多选导出');
+    await clickByText('.fcx__pickbtn', '多选');
     await sleep(800);
     const boxes = await ev(`document.querySelectorAll(".fcx__pickbox input").length`);
     rec('开多选后每张卡有勾选框', boxes > 0, `boxes=${boxes}`);
