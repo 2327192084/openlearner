@@ -70,3 +70,10 @@ OpenLeaner-*-setup.exe
 /Preferences
 /SharedStorage
 /SharedStorage-wal
+
+# 开发过程文档（交接/日报/复盘等）只在本地留存，不上传 GitHub
+# 用户在仓库里只需要看到与代码相关的东西（技术栈在 README）
+docs/
+
+# 运行时锁文件
+.mineru-service.lock
