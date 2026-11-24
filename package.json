@@ -1,7 +1,7 @@
 {
   "name": "openleaner",
   "private": true,
-  "version": "0.3.1",
+  "version": "4.0.0",
   "description": "学习备考软件 — 把教材/课件整理成可复习的 PPT 与可刷的习题集，每条内容都能点回原文",
   "author": "OpenLeaner",
   "license": "MIT",
@@ -17,7 +17,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
-    "electron:build": "npm run build && electron-builder",
+    "electron:build": "npm run electron:pack && node scripts/build-innosetup.cjs",
     "electron:pack": "npm run build && electron-builder --dir",
     "check": "npm run typecheck && npm run check:css-vars"
   },
@@ -62,13 +62,12 @@
     "win": {
       "target": [
         {
-          "target": "nsis",
+          "target": "dir",
           "arch": [
             "x64"
           ]
         }
-      ],
-      "artifactName": "${productName}-${version}-setup.${ext}"
+      ]
     },
     "mac": {
       "target": [
@@ -85,17 +84,6 @@
         "from": "build/OpenLeaner-Launcher.bat",
         "to": "OpenLeaner-Launcher.bat"
       }
-    ],
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "OpenLeaner",
-      "uninstallDisplayName": "OpenLeaner ${version}",
-      "deleteAppDataOnUninstall": false,
-      "differentialPackage": false
-    }
+    ]
   }
 }

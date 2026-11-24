@@ -7,7 +7,7 @@
 不需要注册账号，也不上传任何东西到别人的服务器。
 Windows 桌面版（Electron）与浏览器版共用同一份代码。
 
-**当前版本 0.3.1** · [下载安装包](https://github.com/2327192084/openlearner/releases/latest) · [开发文档](DEVELOPMENT.md)
+**当前版本 4.0.0** · [下载安装包](https://github.com/2327192084/openlearner/releases/latest) · [开发文档](DEVELOPMENT.md)
 
 ---
 
@@ -122,16 +122,24 @@ PPT 导入后既抽文字（总结知识点、出题用），也把原件字节�
 搜索框全部收起，正文放大；再点按钮或按 `Esc` 退出。
 「看原图」模式下同样能全屏，幻灯片铺满整屏。
 
-### 闪卡：独立内容，可导出到 Obsidian
+### 闪卡：三大类 + 文件夹 + 标签，可导入导出到 Obsidian
 
 闪卡不是「指向知识点的引用」，而是**独立的一份内容**：从知识点或错题挑出来后，
 原件删了、改了，卡片都不受影响。
 
-- 四种建卡方式：从知识点挑 / 从错题挑 / 空白手写 / 让 AI 写
-- 阅读器里**划选一段正文 → 「做成闪卡」**，AI 用那一段写卡
-- 正面背面都能编辑
-- 导出为 [Obsidian Spaced Repetition](https://github.com/st3v3nmw/obsidian-spaced-repetition)
-  插件认的 Markdown（多行卡用单独一行 `?` 分隔、卡间空行、顶部 `#flashcards` 标签）
+- 五种建卡方式：从知识点挑 / 从错题挑 / **写闪卡**（空白手写）/ 让 AI 写 / **导入 Obsidian Markdown**
+- 写完再定归属：每张卡可归入「知识点 / 错题 / 记忆」三栏，随时能改，不用重写
+- **自定义文件夹**：一卡一个文件夹，像目录一样自组织；多选几张卡（组头可整组勾）
+  一步归入；删整个文件夹只清归属，卡一张不丢
+- **标签筛选**：标签 chip 按卡去重计数；标签被删光后筛选自动解除，
+  不会卡死在「没有符合条件的卡」
+- **挖空翻面**：正面写 `==答案==`，复习时点一下显形 —— 装了
+  [Obsidian Spaced Repetition](https://github.com/st3v3nmw/obsidian-spaced-repetition)
+  插件后在 Obsidian 里同样能翻
+- **导入/导出双向**：导出按标签分卡组、支持 Callout 与多行问答两种版式、
+  可选双向卡；导入认用户 Obsidian 库的两种真实版式（平铺 callout 与嵌套
+  `[!answer]`），按正面判重、报告跳过几张
+- 批量删除（整组/整个文件夹）进回收站，30 天内可还原
 
 AI 写的卡**先展示，确认后才入库** —— 模型偶尔会写出偏离素材的内容。
 
@@ -207,7 +215,7 @@ AI 写的卡**先展示，确认后才入库** —— 模型偶尔会写出偏�
 | PPT 导出 | pptxgenjs |
 | AI | 任何 OpenAI 兼容接口 |
 
-**规模**：源码 104,000+ 行，单元测试 144 个文件 / 2,657 条，验收脚本 95 个。
+**规模**：源码 104,000+ 行，单元测试 183 个文件 / 3,693 条，验收脚本 95 个。
 
 ### AI 接入
 
@@ -243,12 +251,15 @@ npm run electron:dev     # 桌面端开发模式
 ### 从源码构建 Windows 安装包
 
 ```bash
-TMP=E:/openleaner/.tmp/estmp TEMP=E:/openleaner/.tmp/estmp npx vite build
-npx electron-builder --dir
+TMP=E:/openleaner/.tmp/buildtmp TEMP=E:/openleaner/.tmp/buildtmp npm run electron:pack
+node scripts/build-innosetup.cjs         # Inno Setup 编出 build/OpenLeaner-<版本>-setup.exe
 node scripts/update-desktop.cjs          # 只更新已装的桌面版
 ```
 
-重新生成安装包见 `build/installer.nsi`。
+安装包用 [Inno Setup 6](https://jrsoftware.org/isinfo.php)（`winget install JRSoftware.InnoSetup`），
+脚本在 `build/installer.iss`。装到用户目录、不弹 UAC、卸载不删学习库
+（数据在 `%APPDATA%\OpenLeaner`）。
+（v4.0 之前用 NSIS，脚本保留在 `build/installer.nsi` 作为回退，不再被流程调用。）
 
 ---
 
