@@ -21,7 +21,7 @@ node scripts/build-innosetup.cjs   # Inno Setup 编安装包到 build/（v0.40 �
 
 # 桌面端启动：用启动器，不要直接双击 exe
 #   release\win-unpacked\OpenLeaner-Launcher.bat
-# 原因见 docs/桌面端启动说明.md（部分 Windows 环境下 Chromium 沙箱在 JS
+# 原因（部分 Windows 环境下 Chromium 沙箱在 JS
 # 执行前就崩溃，进程 exit 3 且零日志，只能靠启动参数绕过）
 ```
 

@@ -315,14 +315,13 @@ src/core/       核心逻辑（存储、迁移、解析、AI、出题、复习�
 src/v2/ui/      界面
 electron/       主进程（数据目录、MinerU、窗口、IPC）
 scripts/        验收与诊断脚本
-docs/           设计说明与开发记录
 ```
 
 ---
 
 ## 致谢
 
-- [StudyHub](https://github.com/EricWang1358/dsh-web-studyhub)（MIT）—— 本项目 AI 接入层的结构、首页「今天做什么」的信息架构等设计，借鉴了 StudyHub 的做法；早期开发时对其源码的逐条分析（`docs/StudyHub源码分析-启发.md`）帮着少走了很多弯路。
+- [StudyHub](https://github.com/EricWang1358/dsh-web-studyhub)（MIT）—— 本项目 AI 接入层的结构、首页「今天做什么」的信息架构等设计，借鉴了 StudyHub 的做法。
 - [MinerU](https://github.com/opendatalab/MinerU) —— 扫描版 PDF 的正文转换。
 - [pptx-wasm](https://www.npmjs.com/package/pptx-wasm) / [pptxgenjs](https://github.com/gitbrent/PptxGenJS) —— PPT 原件渲染与导出。
 - [Obsidian Spaced Repetition](https://github.com/st3v3nmw/obsidian-spaced-repetition) —— 闪卡导出版式所兼容的复习插件。
