@@ -444,10 +444,10 @@ export function App({
    * 页面会重新挂载，组件内部 state 全丢 —— 分组又折叠、要重新找到
    * 刚才那一题。那正是用户说的「返回后不好定位原先的位置」。
    *
-   * 提到 App 层后，返回时这三样原样还在。
+   * 提到 App 层后，返回时这两样（排序、展开的组）原样还在。
+   * 2026-11-26 起分组维度固定为「资料」，不再是可切换项。
    */
   const [wrongbookView, setWrongbookView] = useState<WrongBookView>({
-    groupBy: 'deck',
     sort: 'wrongCount',
     open: new Set<string>(),
   });

@@ -346,3 +346,42 @@
   color: var(--warn);
   font-size: var(--fs-xs);
 }
+
+/* ==========================================================================
+ * 「已收藏」栏（2026-11-26）
+ *
+ * 题库的收藏是全集，错题页的「已收藏」是它再与「最近一次做错」取交集 ——
+ * 子集。所以这里按题组分组（题库的组织单位），不按资料。
+ *
+ * button 相关样式一律写在层外：base.css 有不在任何 @layer 里的
+ * `button{color:inherit}`，套进 @layer 会被它压住（项目里踩过）。
+ * ========================================================================== */
+
+.decks-fav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.decks-fav__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.decks-fav__deck {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  color: var(--text);
+}
+
+.decks-fav__count {
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}

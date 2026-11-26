@@ -30,6 +30,22 @@
  *  2. **两个归类维度**：章节/知识点（默认）与题型，可切换。
  *  3. 排序（错得最多 / 错的比例 / 最近错的）在分组内部生效。
  *
+ * ## 2026-11-26 重构（用户要求）
+ *
+ * 用户原话：「一级分组默认按资料分组，去掉来源/知识点分组，
+ * 「按题型展开」改成二级筛选，以横排小标签形式展示在分组栏下方：
+ * 全部 / 单选 / 多选 / 判断 / 填空等等，默认显示全部」。
+ * 原话还说：「新增错题收藏：每张错题卡加一个『收藏』按钮。
+ * 收藏的题单独加一个『已收藏』栏目，里面同样按资料分组展示」。
+ *
+ * 所以现在：
+ *  1. 一级分组**只有资料**（同一份资料的题归在一起），题型与章节不再是一级分组
+ *  2. 题型是分组栏下方的横排小标签（筛选条件），默认「全部」
+ *  3. 每张卡可收藏；「已收藏」是同一层级的一个栏目，同样按资料分组
+ *
+ * 收藏状态的真相在 `Question.favorite` 上，与题库共用（见 model.ts 该字段注释）：
+ * 题库的「已收藏」是全集，这里是「收藏 ∩ 最近一次做错」这个子集。
+ *
  * ## 为什么不需要「让 AI 给题打标签」
  *
  * 用户的思路是「出题阶段让 AI 打标签」。查过数据后确认**不需要**：
@@ -41,17 +57,17 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Card } from '@/v2/core/cards.ts';
-import { CARD_KIND_LABEL } from '@/v2/core/cards.ts';
-import { chapterOf, sourceOf, NO_CHAPTER, type MapPoint } from '@/v2/core/study-map.ts';
-import type { Question, SourceLocation } from '@/core/model.ts';
+import type { Card, CardKind } from '@/v2/core/cards.ts';
+import { chapterOf, sourceOf, type MapPoint } from '@/v2/core/study-map.ts';
+import type { Question, QuestionKind, SourceLocation } from '@/core/model.ts';
+import { GENERATE_KINDS, kindShort } from '@/core/questions/kinds.ts';
 import { anchorPrecision, precisionCopy } from '@/core/questions/anchor-precision.ts';
 import type { KnowledgeService } from '@/core/knowledge/service.ts';
 import type { SourceService } from '@/core/sources.ts';
 import type { DeckService } from '@/core/questions/service.ts';
 import type { ReviewService } from '@/v2/core/review-service.ts';
 import type { CardLoader } from './cards-loader.ts';
-import { wrongGroupKey, type GroupBy, type SortKey } from './wrong-group.ts';
+import { NO_SOURCE, wrongSourceKey, type SortKey } from './wrong-group.ts';
 
 export interface WrongBookPageProps {
   reviewService: ReviewService;
@@ -121,33 +137,52 @@ interface WrongRow {
   deckTitle: string | null;
   /** 归属章节（知识点上的 chapter / 锚点 chapter / 第 N 页 / 未归类） */
   chapter: string;
+  /** 归属资料 id（三层回退后的结果）；null 表示哪一层都没找到 */
+  sourceId: string | null;
   /** 资料标题 */
   sourceTitle: string | null;
+  /** 是否收藏。真相在 `Question.favorite`，这里只是读出来的镜像 */
+  favorite: boolean;
+  /**
+   * 真实题型（`Question.kind`）。
+   *
+   * 不能直接用 `card.kind`：卡片层把「问答」和「计算」都压成了 `short`
+   * （见 cards-loader.ts 的 `toCardKind`），压完就分不出计算题了。
+   * 而用户明确要求题型筛选「所有可以生成的题型都要做出来，包括计算、判断」，
+   * 所以这里从题目本身取，卡片只负责渲染。
+   */
+  kind: QuestionKind;
 }
 
 /**
- * 归类维度。
+ * 题型筛选的全部选项（2026-11-26，用户要求「题型分类功能做全」）。
  *
- * `deck` 默认 —— 用户 2026-11-07 反馈：按知识点分组仍然臃肿，
- * 根因是「知识点太多太散」，一个题组能炸出十几个章节分组。
- * 题组是出题的自然单位，数量天然少（用户库里 3 个），一屏就能看完。
- * 章节/知识点保留为可切换项 —— 用户说「后续再思考能不能做」，
- * 所以不做删减，只把默认换掉。
+ * 不做「只显示实际出现过的题型」那套：列全 6 种，哪一种是 0 道用户自己能看见
+ * （点进去是空提示），而不是疑惑「我明明出过计算题，怎么没有计算这个筛子」。
+ * 顺序与出题页共用注册表（kinds.ts），加新题型时这里自动跟上。
  */
-/*
- * 分组维度 / 排序类型与「分组 key」规则都住在 wrong-group.ts 里
- * （2026-11-13 深夜抽出）。key 规则要用在两处：渲染分组，
- * 以及从首页点进来时「该展开哪一组」—— 两处各写一遍必然漂移。
+const KIND_FILTERS: readonly QuestionKind[] = GENERATE_KINDS;
+
+/** 一级栏目：全部错题 / 只在错题里收藏过的题 */
+type WrongTab = 'wrong' | 'favorite';
+
+/**
+ * 一级分组 = 资料（2026-11-26）。
+ *
+ * 为什么按资料而不是按题组：用户复习时想的是「这本书我哪几道还错着」，
+ * 而不是「第几批生成的题错着」。同一份资料生成过两次题组时，
+ * 按题组分组会把同一本书拆成两块，反而看不出整体缺口。
+ * 组标题仍用资料名；组内如果跨了多个题组，note 里写「N 个题组」。
  */
 
 /**
  * 错题页的视图状态（可跨页面存活，2026-11-09）。
  *
  * 由 App 持有，这样从错题跳到原文再返回时，
- * 「按什么分组、怎么排序、哪几组是展开的」都还在原位。
+ * 「怎么排序、哪几组是展开的」都还在原位。
+ * 2026-11-26 起分组维度固定为资料，不再是可切换项，所以这里只剩两项。
  */
 export interface WrongBookView {
-  groupBy: GroupBy;
   sort: SortKey;
   /** 展开了哪些分组 */
   open: Set<string>;
@@ -189,7 +224,7 @@ export function WrongBookPage({
   const [error, setError] = useState<string | null>(null);
 
   /*
-   * 分组维度 / 排序 / 展开哪些组 —— 这三样决定「用户现在看到什么」。
+   * 排序 / 展开哪些组 —— 这两样决定「用户现在看到什么」。
    *
    * 2026-11-09 改成可受控：用户从错题跳到原文再返回时，
    * 这些状态原本随组件卸载一起丢了（分组又全部折叠，得重新展开、
@@ -197,36 +232,45 @@ export function WrongBookPage({
    *
    * 传了 view 就用外部的（App 持有，跨页面存活）；
    * 不传就退回组件内部 state（单独使用本组件时不改调用方）。
+   *
+   * 2026-11-26：分组维度固定成「资料」，所以它不再受控 —— 一个常量，
+   * 没有「回到页面后还记着上次按什么分组」的必要。
    */
-  const [innerGroupBy, setInnerGroupBy] = useState<GroupBy>('deck');
   const [innerSort, setInnerSort] = useState<SortKey>('wrongCount');
   const [innerOpen, setInnerOpen] = useState<Set<string>>(new Set());
 
-  const groupBy = view?.groupBy ?? innerGroupBy;
   const sort = view?.sort ?? innerSort;
   const open = view?.open ?? innerOpen;
 
-  const setGroupBy = useCallback(
-    (next: GroupBy) => {
-      setInnerGroupBy(next);
-      onViewChange?.({ groupBy: next, sort, open });
-    },
-    [onViewChange, sort, open],
-  );
   const setSort = useCallback(
     (next: SortKey) => {
       setInnerSort(next);
-      onViewChange?.({ groupBy, sort: next, open });
+      onViewChange?.({ sort: next, open });
     },
-    [onViewChange, groupBy, open],
+    [onViewChange, open],
   );
   const setOpen = useCallback(
     (next: Set<string>) => {
       setInnerOpen(next);
-      onViewChange?.({ groupBy, sort, open: next });
+      onViewChange?.({ sort, open: next });
     },
-    [onViewChange, groupBy, sort],
+    [onViewChange, sort],
   );
+
+  /**
+   * 一级栏目：错题 / 已收藏（2026-11-26）。
+   *
+   * 「已收藏」不是第三个分组维度，而是与「错题」并列的一个视图 ——
+   * 用户要的是「我标过的题在哪」，不是「按收藏这个属性分组」。
+   * 两个栏目都按资料分组（这正是用户说的「里面同样按资料分组展示」）。
+   */
+  const [tab, setTab] = useState<WrongTab>('wrong');
+  /** 二级筛选：题型。默认「全部」 */
+  const [kindFilter, setKindFilter] = useState<'all' | QuestionKind>('all');
+  /** 正在写入收藏的题目 id（防连点，也用来把按钮置灰） */
+  const [favBusy, setFavBusy] = useState<string | null>(null);
+  /** 收藏失败时的提示（成功不弹，按钮状态本身就是反馈） */
+  const [favError, setFavError] = useState<string | null>(null);
 
   /** 导出结果提示 */
   const [exportNote, setExportNote] = useState<string | null>(null);
@@ -247,15 +291,14 @@ export function WrongBookPage({
     const target = rows.find((r) => r.card.id === focusCardId);
     if (!target) return;
 
-    /* 找出它属于哪个分组：用与渲染同一套 key 规则 */
-    const groupKey = wrongGroupKey(
-      {
-        card: target.card,
-        chapter: target.chapter,
-        kindLabel: kindLabel(target.card),
-      },
-      groupBy,
-    );
+    /* 找出它属于哪个分组：用与渲染同一套 key 规则（2026-11-26 起一级 = 资料） */
+    const groupKey = wrongSourceKey(target.sourceId);
+    /*
+     * 从首页点进来的一定是「错题」栏目里的题：先把栏目拉回错题、
+     * 题型筛选回到「全部」，否则那题根本不在 DOM 里，展开分组也没用。
+     */
+    setTab('wrong');
+    setKindFilter('all');
     /*
      * 用当时的 open 算新集合再交给 setOpen，而不是传函数。
      * `setOpen` 不是 React 的 setState，而是本页封装的
@@ -328,11 +371,20 @@ export function WrongBookPage({
        * 而 getAll('questions') 会把草稿题也捞出来。
        */
       const pointIdByQuestion = new Map<string, string | null>();
+      /*
+       * 题目 id → 题目。
+       * Card.id 就是 Question.id（cards-loader 的 questionToCard 原样带过来），
+       * 所以错题的 card.id 可以直接去这里查收藏状态。
+       */
+      const questionById = new Map<string, Question>();
       await Promise.all(
         deckList.map(async (deck) => {
           try {
             const qs = await decks.getQuestions(deck.id);
-            for (const q of qs) pointIdByQuestion.set(q.id, q.knowledgePointId);
+            for (const q of qs) {
+              pointIdByQuestion.set(q.id, q.knowledgePointId);
+              questionById.set(q.id, q);
+            }
           } catch {
             /* 题组刚被删：跳过 */
           }
@@ -366,6 +418,13 @@ export function WrongBookPage({
         const card = cardById.get(d.cardId);
         if (!card) continue; // 题已被删：不显示点不开的空壳
         const deck = deckById.get(card.deckId);
+        /*
+         * 资料 id 走 sourceOf 的三层回退。
+         * 只用 card.sourceId 的话，「题组没归属资料但锚点有出处」的题
+         * 在错题页会显示成群标题没有书名 —— 我已经在真实库里见到
+         * 同一页有的组有书名、有的没有，看起来像是数据坏了。
+         */
+        const sourceId = sourceOf(card, pointByQuestion) || null;
         out.push({
           card,
           wrongCount: d.wrongCount,
@@ -374,13 +433,11 @@ export function WrongBookPage({
           wrongRate: d.reviewCount > 0 ? d.wrongCount / d.reviewCount : 1,
           deckTitle: deck?.title ?? null,
           chapter: chapterOf(card, pointByQuestion),
-          /*
-           * 资料名要走 sourceOf 的三层回退。
-           * 只用 card.sourceId 的话，「题组没归属资料但锚点有出处」的题
-           * 在错题页会显示成群标题没有书名 —— 我已经在真实库里见到
-           * 同一页有的组有书名、有的没有，看起来像是数据坏了。
-           */
-          sourceTitle: sourceTitleOf(card, pointByQuestion, titleById),
+          sourceId,
+          sourceTitle: sourceId ? (titleById.get(sourceId) ?? null) : null,
+          favorite: questionById.get(card.id)?.favorite === true,
+          /* 题被删了就没有 Question，退回卡片层的粗分类（不会显示成「未知」） */
+          kind: questionById.get(card.id)?.kind ?? toQuestionKind(card.kind),
         });
       }
 
@@ -395,25 +452,26 @@ export function WrongBookPage({
     void load();
   }, [load]);
 
-  /** 分组 + 组内排序 */
-  const groups = useMemo<Group[]>(() => {
+  /** 二级筛选后的行：先按栏目（错题 / 已收藏），再按题型 */
+  const visibleRows = useMemo<WrongRow[]>(() => {
     if (!rows) return [];
+    const base = tab === 'favorite' ? rows.filter((r) => r.favorite) : rows;
+    return kindFilter === 'all' ? base : base.filter((r) => r.kind === kindFilter);
+  }, [rows, tab, kindFilter]);
 
+  /** 每种题型各几道（渲染在筛选项后面，让「0 道」也看得见） */
+  const kindCounts = useMemo<Record<string, number>>(() => {
+    const base = tab === 'favorite' ? (rows ?? []).filter((r) => r.favorite) : (rows ?? []);
+    const out: Record<string, number> = { all: base.length };
+    for (const r of base) out[r.kind] = (out[r.kind] ?? 0) + 1;
+    return out;
+  }, [rows, tab]);
+
+  /** 分组（一级 = 资料）+ 组内排序 */
+  const groups = useMemo<Group[]>(() => {
     const byKey = new Map<string, WrongRow[]>();
-    for (const r of rows) {
-      /*
-       * 分组 key 必须带资料 id（chapter 维度）。
-       * 踩过的坑与完整理由见 wrong-group.ts 头注释 —— 规则现在住在那儿，
-       * 因为「从首页定位到某一题、该展开哪一组」也要用同一套规则。
-       */
-      const key = wrongGroupKey(
-        {
-          card: r.card,
-          chapter: r.chapter,
-          kindLabel: kindLabel(r.card),
-        },
-        groupBy,
-      );
+    for (const r of visibleRows) {
+      const key = wrongSourceKey(r.sourceId);
       const list = byKey.get(key) ?? [];
       list.push(r);
       byKey.set(key, list);
@@ -427,46 +485,35 @@ export function WrongBookPage({
       else sorted.sort((a, b) => (a.lastWrongDay < b.lastWrongDay ? 1 : -1));
 
       /*
-       * 标题：
-       *  - 按题组 → 题组名（没有就退回 id 末段，绝不编造）
-       *  - 按章节 → 章节名，资料名放 note
-       *  - 按题型 → 题型名
-       * 标题要能被扫描，所以章节名和资料名分开两栏，
-       * 「第 9 页 信号与系统（第二版）第1章…」混在一起会让每行都长得一样。
+       * 标题 = 资料名。组内跨了多个题组时，note 写「N 个题组」——
+       * 一本书先后生成过几批题很常见，写出来用户才知道这组为什么特别长。
        */
-      const title =
-        groupBy === 'deck'
-          ? (sorted[0]!.deckTitle ?? '未命名题组')
-          : groupBy === 'chapter'
-            ? sorted[0]!.chapter
-            : key;
-      const note = groupBy === 'deck' ? null : groupBy === 'chapter' ? sourceNote(sorted) : null;
-
       out.push({
         key,
-        title,
-        note,
+        title: sorted[0]!.sourceTitle ?? NO_SOURCE,
+        note: deckNote(sorted),
         rows: sorted,
         worst: Math.max(...sorted.map((r) => r.wrongCount)),
       });
     }
 
     /*
-     * 分组排序：错得最多的组排前面。
-     * 「未归类」永远排最后 —— 它不是一块知识，是数据缺口，
-     * 摆在一堆正经章节中间会让人误以为那也是要复习的内容。
+     * 组间：错得最多的资料排前面。
+     * 「未归类」永远最后 —— 它不是一本书，是数据缺口，
+     * 摆在一堆正经资料中间会让人误以为那也是要复习的内容。
      */
     out.sort((a, b) => {
-      if (a.title === NO_CHAPTER) return 1;
-      if (b.title === NO_CHAPTER) return -1;
+      if (a.title === NO_SOURCE) return 1;
+      if (b.title === NO_SOURCE) return -1;
       return b.worst - a.worst || b.rows.length - a.rows.length;
     });
 
     return out;
-  }, [rows, groupBy, sort]);
+  }, [visibleRows, sort]);
 
   const totalWrong = rows?.length ?? 0;
-  const repeatWrong = rows?.filter((r) => r.wrongCount > 1).length ?? 0;
+  const totalFavorite = rows?.filter((r) => r.favorite).length ?? 0;
+  const repeatWrong = visibleRows.filter((r) => r.wrongCount > 1).length;
 
   if (error) {
     return (
@@ -501,14 +548,42 @@ export function WrongBookPage({
   }
 
   /**
+   * 收藏 / 取消收藏一道题（2026-11-26）。
+   *
+   * 写的是 `Question.favorite`，与题库的「已收藏」是同一份数据 ——
+   * 用户要的是「我标过的题」，不是「错题页自己的标记」。
+   * 所以这里不落任何本页私有的状态，只把服务返回的结果镜像进 rows。
+   *
+   * 成功不弹提示：按钮从「☆ 收藏」变「★ 已收藏」本身就是反馈，
+   * 多一行「已收藏」的 toast 反而让页面跳。失败才出声。
+   */
+  async function toggleFavorite(cardId: string) {
+    if (favBusy) return;
+    setFavBusy(cardId);
+    setFavError(null);
+    try {
+      const updated = await decks.toggleFavorite(cardId);
+      /* null = 题已被删（另开窗口删过）。不报错，下次刷新它自然消失 */
+      if (!updated) return;
+      setRows((prev) =>
+        prev
+          ? prev.map((r) => (r.card.id === cardId ? { ...r, favorite: updated.favorite === true } : r))
+          : prev,
+      );
+    } catch (err) {
+      setFavError(err instanceof Error ? err.message : '收藏失败');
+    } finally {
+      setFavBusy(null);
+    }
+  }
+
+  /**
    * 导出当前视图里的错题为 Obsidian 闪卡。
    *
-   * 选哪个题组：
-   *  - 有筛选 → 那个
-   *  - 没筛选 → 错题最多的那个（与列表默认排序一致，用户看到的第一个）
+   * 选哪个题组：当前视图里错得最多的那道题所在的题组
+   * （与列表默认排序一致，用户看到的第一个）。
    *
    * 为什么不逐个题组各导一个文件：一次点击产生多个下载会让人以为出错。
-   * 想导别的一组，先按题组筛一下再导。
    */
   async function exportObsidian() {
     if (!groups.length) return;
@@ -516,19 +591,14 @@ export function WrongBookPage({
     setExportNote(null);
     try {
       /*
-       * 选错题最多的那个题组。
+       * 选错题最多的那道题所在的题组。
        *
-       * 按题组分组时 groups 就是题组；按章节/题型分组时，
-       * 一条组的题可能跨多个题组 —— 那种情况取第一条里错得最多的题的题组。
-       * 不逐个导多个文件：一次点击产生多个下载会让人以为出错。
+       * 2026-11-26 一级分组固定为资料后，一个资料组里的题会跨多个题组，
+       * 所以不能再拿 groups[0].key 当题组 id —— 取当前视图里错得最多的
+       * 那道题的 deckId。不逐个导多个文件：一次点击产生多个下载会让人以为出错。
        */
-      let target: string | null = null;
-      if (groupBy === 'deck') {
-        target = groups[0]?.key ?? null;
-      } else {
-        const all = groups.flatMap((g) => g.rows).sort((a, b) => b.wrongCount - a.wrongCount);
-        target = all[0]?.card.deckId ?? null;
-      }
+      const all = visibleRows.slice().sort((a, b) => b.wrongCount - a.wrongCount);
+      const target = all[0]?.card.deckId ?? null;
       if (!target) {
         setExportNote('没有可导出的题组。');
         return;
@@ -579,21 +649,70 @@ export function WrongBookPage({
         </div>
       ) : (
         <>
+          {/* ---- 一级栏目：错题 / 已收藏 ---- */}
+          <div className="wbk-tabs" role="tablist" aria-label="错题栏目">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'wrong'}
+              className={`wbk-tab${tab === 'wrong' ? ' wbk-tab--on' : ''}`}
+              onClick={() => setTab('wrong')}
+            >
+              错题<span className="wbk-tab__n">{totalWrong}</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'favorite'}
+              className={`wbk-tab${tab === 'favorite' ? ' wbk-tab--on' : ''}`}
+              onClick={() => setTab('favorite')}
+            >
+              已收藏<span className="wbk-tab__n">{totalFavorite}</span>
+            </button>
+          </div>
+
+          {/*
+            ---- 二级筛选：题型 ----
+            用户原话：「『按题型展开』改成二级筛选，以横排小标签形式
+            展示在分组栏下方：全部 / 单选 / 多选 / 判断 / 填空等等，默认显示全部」。
+            2026-11-26 补一句用户要求：「题型分类功能做全，所有可以生成的题型
+            都要做出来，包括计算，判断等」—— 所以 6 种全列，不按「有没有出现过」裁掉；
+            每种后面的数字直接说明这里有几道，0 道点了会看到空态说明。
+          */}
+          <div className="wbk-chips" role="group" aria-label="按题型筛选">
+            <button
+              type="button"
+              data-kind="all"
+              className={`wbk-chip${kindFilter === 'all' ? ' wbk-chip--on' : ''}`}
+              aria-pressed={kindFilter === 'all'}
+              onClick={() => setKindFilter('all')}
+            >
+              全部<span className="wbk-chip__n">{kindCounts.all ?? 0}</span>
+            </button>
+            {KIND_FILTERS.map((k) => (
+              <button
+                key={k}
+                type="button"
+                data-kind={k}
+                className={`wbk-chip${kindFilter === k ? ' wbk-chip--on' : ''}`}
+                aria-pressed={kindFilter === k}
+                onClick={() => setKindFilter(k)}
+              >
+                {kindShort(k)}
+                <span className="wbk-chip__n">{kindCounts[k] ?? 0}</span>
+              </button>
+            ))}
+          </div>
+
           {/* ---- 概览 ---- */}
           <div className="wbk-stats">
             <span className="wbk-stat">
-              <span className="wbk-stat__n">{totalWrong}</span>
-              <span className="wbk-stat__label">道错题</span>
+              <span className="wbk-stat__n">{visibleRows.length}</span>
+              <span className="wbk-stat__label">{tab === 'wrong' ? '道错题' : '道已收藏'}</span>
             </span>
             <span className="wbk-stat">
               <span className="wbk-stat__n">{groups.length}</span>
-              <span className="wbk-stat__label">
-                {groupBy === 'deck'
-                  ? '个题组'
-                  : groupBy === 'chapter'
-                    ? '个章节/知识点'
-                    : '种题型'}
-              </span>
+              <span className="wbk-stat__label">份资料</span>
             </span>
             {repeatWrong > 0 ? (
               <span className="wbk-stat wbk-stat--warn">
@@ -603,44 +722,10 @@ export function WrongBookPage({
             ) : null}
           </div>
 
-          {/* ---- 归类维度 + 排序 ---- */}
-          <div className="wbk-toolbar">
-            <div className="wbk-seg" role="group" aria-label="归类方式">
-              <button
-                type="button"
-                className={`wbk-seg__btn${groupBy === 'deck' ? ' wbk-seg__btn--on' : ''}`}
-                aria-pressed={groupBy === 'deck'}
-                onClick={() => {
-                  setGroupBy('deck');
-                  setOpen(new Set());
-                }}
-              >
-                按题组
-              </button>
-              <button
-                type="button"
-                className={`wbk-seg__btn${groupBy === 'chapter' ? ' wbk-seg__btn--on' : ''}`}
-                aria-pressed={groupBy === 'chapter'}
-                onClick={() => {
-                  setGroupBy('chapter');
-                  setOpen(new Set());
-                }}
-              >
-                按章节/知识点
-              </button>
-              <button
-                type="button"
-                className={`wbk-seg__btn${groupBy === 'kind' ? ' wbk-seg__btn--on' : ''}`}
-                aria-pressed={groupBy === 'kind'}
-                onClick={() => {
-                  setGroupBy('kind');
-                  setOpen(new Set());
-                }}
-              >
-                按题型
-              </button>
-            </div>
+          {favError ? <p className="wbk-error wbk-error--inline">{favError}</p> : null}
 
+          {/* ---- 排序 + 右侧动作 ---- */}
+          <div className="wbk-toolbar">
             <div className="wbk-sort" role="group" aria-label="组内排序">
               {SORTS.map((s) => (
                 <button
@@ -713,7 +798,14 @@ export function WrongBookPage({
           ) : null}
 
           {/* ---- 分组列表（默认收起） ---- */}
-          <ul className="wbk-groups">
+          {visibleRows.length === 0 ? (
+            <p className="wbk-hint wbk-empty-filter">
+              {tab === 'favorite'
+                ? '这个筛选下还没有收藏的错题。点题目上的「☆ 收藏」把它收进来。'
+                : '这个题型下没有错题，换个题型看看。'}
+            </p>
+          ) : (
+            <ul className="wbk-groups">
             {groups.map((g) => {
               const isOpen = open.has(g.key);
               return (
@@ -754,7 +846,7 @@ export function WrongBookPage({
                             <span className="wbk-item__rate">
                               共做 {r.reviewCount} 次 · 错 {Math.round(r.wrongRate * 100)}%
                             </span>
-                            <span className="wbk-item__kind">{kindLabel(r.card)}</span>
+                            <span className="wbk-item__kind">{kindShort(r.kind)}</span>
                             <span className="wbk-item__date">最近错于 {r.lastWrongDay}</span>
                           </div>
                           <p className="wbk-item__prompt">{r.card.prompt}</p>
@@ -788,6 +880,25 @@ export function WrongBookPage({
                             {r.deckTitle ? (
                               <span className="wbk-item__deck">{r.deckTitle}</span>
                             ) : null}
+                            {/*
+                              收藏（2026-11-26）。
+                              紧跟题组名放左边：「对这道题做标记」是题目的属性；
+                              右边的「出变式题 / 看原文」才是离开这一页的动作。
+                            */}
+                            <button
+                              type="button"
+                              className={`wbk-item__fav${r.favorite ? ' wbk-item__fav--on' : ''}`}
+                              aria-pressed={r.favorite}
+                              disabled={favBusy === r.card.id}
+                              onClick={() => void toggleFavorite(r.card.id)}
+                              title={
+                                r.favorite
+                                  ? '取消收藏（题库的「已收藏」里会同步移除）'
+                                  : '收藏这道题（题库的「已收藏」里也能看到）'
+                              }
+                            >
+                              {r.favorite ? '★ 已收藏' : '☆ 收藏'}
+                            </button>
                             {/*
                               单题变式（2026-11-12）。
                               用户反馈「我需要一个入口，你做了功能可是没有使用入口」——
@@ -829,6 +940,7 @@ export function WrongBookPage({
               );
             })}
           </ul>
+          )}
         </>
       )}
     </div>
@@ -847,33 +959,38 @@ function anchorOf(card: Card): SourceLocation | null {
   return a ?? null;
 }
 
-/** 资料名：走和 study-map 同一套三层回退，两页的归属判断必须一致 */
-function sourceTitleOf(
-  card: Card,
-  pointByQuestion: ReadonlyMap<string, MapPoint>,
-  titleById: ReadonlyMap<string, string>,
-): string | null {
-  const id = sourceOf(card, pointByQuestion);
-  if (!id) return null;
-  return titleById.get(id) ?? null;
-}
-
-/** 题型中文名 —— 统一从注册表取，避免加了新题型忘同步（项目踩过） */
-function kindLabel(card: Card): string {
-  return CARD_KIND_LABEL[card.kind] ?? card.kind;
+/**
+ * 卡片层的粗分类 → 题目层的真实题型（只在找不到 Question 时兜底）。
+ *
+ * 卡片把问答与计算都压成 short，这里没法还原是哪一种 —— 退回 essay
+ * （两者交互一样，都是长文本 + 自评），至少不会显示成「单选」。
+ */
+function toQuestionKind(kind: CardKind): QuestionKind {
+  switch (kind) {
+    case 'single':
+    case 'multiple':
+    case 'truefalse':
+    case 'blank':
+      return kind;
+    case 'short':
+    case 'point':
+      return 'essay';
+    default:
+      return 'essay';
+  }
 }
 
 /**
- * 一组的次要说明：列出这一组涉及的资料名。
+ * 一组的次要说明：这一组跨了几个题组。
  *
- * 只列第一份、超过一份时写「等 N 份」——
- * 一个章节名后面跟五个书名会把标题行挤爆。
+ * 一级分组按资料后，同一份资料先后生成过几批题是常态；
+ * 只写「12 道」会让人以为漏了，写「3 个题组」才解释得通。
+ * 只有一个题组时不写 —— 那是默认情况，多一句只是噪音。
  */
-function sourceNote(rows: WrongRow[]): string | null {
-  const titles = [...new Set(rows.map((r) => r.sourceTitle).filter((t): t is string => !!t))];
-  if (titles.length === 0) return null;
-  if (titles.length === 1) return titles[0]!;
-  return `${titles[0]} 等 ${titles.length} 份资料`;
+function deckNote(rows: WrongRow[]): string | null {
+  const titles = [...new Set(rows.map((r) => r.deckTitle).filter((t): t is string => !!t))];
+  if (titles.length <= 1) return null;
+  return `${titles.length} 个题组`;
 }
 
 /** 某个选项是不是正确答案（多选用逗号分隔） */
@@ -887,13 +1004,3 @@ function isAnswerKey(card: Card, key: string): boolean {
   }
   return answer === key.toUpperCase();
 }
-
-/** 题型中文名（对外导出，供别处复用） */
-export const QUESTION_KIND_LABEL: Record<Question['kind'], string> = {
-  single: '单选',
-  multiple: '多选',
-  truefalse: '判断',
-  blank: '填空',
-  essay: '问答',
-  calc: '计算',
-};

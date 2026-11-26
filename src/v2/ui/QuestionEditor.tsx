@@ -55,6 +55,20 @@ export function QuestionEditor({ question, index, decks, onChanged }: QuestionEd
   const [note, setNote] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  /*
+   * 收藏（2026-11-26）。
+   *
+   * 为什么不直接用 `question.favorite` 渲染：点完星标要立刻变，
+   * 而 `question` 是外层读出来的快照，重新读题是异步的。
+   * 所以本地先镜像一份，外层刷新后（question 变了）再同步回来 ——
+   * 这样既没有「点了没反应」，也不会和库里的真相长期分叉。
+   */
+  const [favorite, setFavorite] = useState(question.favorite === true);
+  const [favBusy, setFavBusy] = useState(false);
+  useEffect(() => {
+    setFavorite(question.favorite === true);
+  }, [question.id, question.favorite]);
+
   /* 编辑态草稿：初始值是当前题目 */
   const [prompt, setPrompt] = useState(question.prompt);
   const [answer, setAnswer] = useState(question.answer);
@@ -135,6 +149,33 @@ export function QuestionEditor({ question, index, decks, onChanged }: QuestionEd
     }
   }, [busy, decks, question, prompt, answer, explanation, options, onChanged]);
 
+  /**
+   * 点星标：切换收藏。
+   *
+   * 写完仍然 `onChanged()` —— 外层可能正按收藏过滤（题库的「已收藏」栏），
+   * 取消收藏后那道题就该从列表里消失，只改本地状态是不够的。
+   */
+  const toggleFavorite = useCallback(async () => {
+    if (favBusy) return;
+    setFavBusy(true);
+    setNote(null);
+    try {
+      const updated = await decks.toggleFavorite(question.id);
+      if (!aliveRef.current) return;
+      if (!updated) {
+        setNote('收藏失败：这道题可能已被删除。');
+        return;
+      }
+      setFavorite(updated.favorite === true);
+      onChanged();
+    } catch (e) {
+      if (!aliveRef.current) return;
+      setNote(e instanceof Error ? e.message : '收藏失败');
+    } finally {
+      if (aliveRef.current) setFavBusy(false);
+    }
+  }, [favBusy, decks, question.id, onChanged]);
+
   const doDelete = useCallback(async () => {
     if (busy) return;
     setBusy(true);
@@ -187,6 +228,16 @@ export function QuestionEditor({ question, index, decks, onChanged }: QuestionEd
           {note ? <p className="qed-note">{note}</p> : null}
 
           <div className="qed-actions">
+            <button
+              type="button"
+              className={`qed-fav${favorite ? ' qed-fav--on' : ''}`}
+              aria-pressed={favorite}
+              onClick={() => void toggleFavorite()}
+              disabled={busy || favBusy}
+              title={favorite ? '取消收藏' : '收藏这道题（错题页的「已收藏」里也会显示）'}
+            >
+              {favorite ? '★ 已收藏' : '☆ 收藏'}
+            </button>
             <button type="button" className="btn-ghost btn-ghost--sm" onClick={beginEdit} disabled={busy}>
               编辑
             </button>

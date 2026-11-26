@@ -7,7 +7,7 @@
 不需要注册账号，也不上传任何东西到别人的服务器。
 Windows 桌面版（Electron）与浏览器版共用同一份代码。
 
-**当前版本 0.40.0** · [⬇️ 下载 Windows 安装包](https://github.com/2327192084/openlearner/releases/download/v0.40/OpenLeaner-0.40.0-setup.exe) · [全部 Release](https://github.com/2327192084/openlearner/releases) · [开发文档](DEVELOPMENT.md)
+**当前版本 0.40.1** · [⬇️ 下载 Windows 安装包（v0.40）](https://github.com/2327192084/openlearner/releases/download/v0.40/OpenLeaner-0.40.0-setup.exe) · [全部 Release](https://github.com/2327192084/openlearner/releases) · [开发文档](DEVELOPMENT.md)
 
 **安装**：双击安装包即可 —— 装到你自己的用户目录（`%LOCALAPPDATA%\Programs\OpenLeaner`），
 全程不弹 UAC、不写系统目录；卸载不会删除学习库（数据在 `%APPDATA%\OpenLeaner`）。

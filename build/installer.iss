@@ -21,7 +21,7 @@
 ;
 ; ## 编译方式
 ;
-;   ISCC.exe /DVERSION=0.40.0 installer.iss
+;   ISCC.exe /DVERSION=0.40.1 installer.iss
 ; （SOURCE_DIR 缺省 release\win-unpacked；版本号与 package.json 保持同值，
 ;  由 scripts/build-innosetup.cjs 自动传入。）
 
@@ -31,7 +31,7 @@
 #define MyAppId "com.openleaner.app"
 
 #ifndef VERSION
-  #define VERSION "0.40.0"
+  #define VERSION "0.40.1"
 #endif
 
 #ifndef SOURCE_DIR

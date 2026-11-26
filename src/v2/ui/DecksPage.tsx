@@ -34,7 +34,7 @@ import { PickBanner, PickButton } from './PickBanner.tsx';
  * 3. **删除要二次确认**，并说清会连带删掉什么。
  */
 
-type Tab = 'all' | 'draft' | 'published';
+type Tab = 'all' | 'draft' | 'published' | 'favorite';
 
 export interface DecksPageProps {
   decks: DeckService;
@@ -111,6 +111,14 @@ export function DecksPage({
   const [sources, setSources] = useState<Source[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('all');
+  /**
+   * 收藏的题（2026-11-26）。
+   *
+   * 与错题页共用 `Question.favorite`：这里是全集（不分题组状态），
+   * 错题页的「已收藏」是它再与「最近一次做错」取交集 —— 子集。
+   * 直接在 load 里读，因为 tab 标签要显示数量。
+   */
+  const [favQuestions, setFavQuestions] = useState<Question[] | null>(null);
 
   /** 当前展开的题组 id */
   const [openId, setOpenId] = useState<string | null>(initialDeckId ?? null);
@@ -138,14 +146,28 @@ export function DecksPage({
 
   const load = useCallback(async () => {
     try {
-      const [d, s] = await Promise.all([decks.list(), sourceService.list()]);
+      const [d, s, f] = await Promise.all([
+        decks.list(),
+        sourceService.list(),
+        decks.listFavorites(),
+      ]);
       setList(d);
       setSources(s);
+      setFavQuestions(f);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : '读不出题组');
     }
   }, [decks, sourceService]);
+
+  /** 只重读收藏（点星标后调用；不必把整个题组列表读一遍） */
+  const refreshFavorites = useCallback(async () => {
+    try {
+      setFavQuestions(await decks.listFavorites());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '读不出收藏');
+    }
+  }, [decks]);
 
   useEffect(() => {
     void load();
@@ -177,8 +199,33 @@ export function DecksPage({
       all: all.length,
       draft: all.filter((d) => d.status === 'draft').length,
       published: all.filter((d) => d.status === 'published').length,
+      favorite: (favQuestions ?? []).length,
     };
-  }, [list]);
+  }, [list, favQuestions]);
+
+  /**
+   * 「已收藏」栏的内容：按题组分组。
+   *
+   * 为什么不按资料分组（错题页那样）：题库的组织单位是题组，
+   * 用户在这里想的是「我标了哪几道、它们在哪一批题里」；
+   * 按资料分反而要跨越题组边界重新聚合，与这一页的列表语言不一致。
+   */
+  const favGroups = useMemo(() => {
+    const deckById = new Map((list ?? []).map((d) => [d.id, d]));
+    const byDeck = new Map<string, Question[]>();
+    for (const q of favQuestions ?? []) {
+      const arr = byDeck.get(q.deckId) ?? [];
+      arr.push(q);
+      byDeck.set(q.deckId, arr);
+    }
+    return [...byDeck.entries()]
+      .map(([deckId, questions]) => ({
+        deckId,
+        deckTitle: deckById.get(deckId)?.title ?? '未命名题组',
+        questions,
+      }))
+      .sort((a, b) => a.deckTitle.localeCompare(b.deckTitle, 'zh-Hans-CN'));
+  }, [favQuestions, list]);
 
   /**
    * 展开一个题组并读它的题目。
@@ -380,6 +427,7 @@ export function DecksPage({
             ['all', `全部 ${counts.all}`],
             ['draft', `待审核 ${counts.draft}`],
             ['published', `已发布 ${counts.published}`],
+            ['favorite', `已收藏 ${counts.favorite}`],
           ] as Array<[Tab, string]>
         ).map(([key, label]) => (
           <button
@@ -395,7 +443,40 @@ export function DecksPage({
         ))}
       </div>
 
-      {filtered.length === 0 ? (
+      {tab === 'favorite' ? (
+        <section className="decks-fav">
+          <p className="decks-hint">
+            这是题库里的全部收藏（{counts.favorite} 道），按题组分组。
+            错题页的「已收藏」是它的子集 —— 只有<strong>最近一次还做错</strong>的题才会出现在那里。
+          </p>
+          {favGroups.length === 0 ? (
+            <div className="decks-empty">
+              <p className="decks-empty__title">还没有收藏的题目</p>
+              <p className="decks-hint">展开任意题组里的题，点题下方的「☆ 收藏」。</p>
+            </div>
+          ) : (
+            favGroups.map((g) => (
+              <div key={g.deckId} className="decks-fav__group">
+                <h2 className="decks-fav__deck">
+                  {g.deckTitle}
+                  <span className="decks-fav__count">{g.questions.length} 道</span>
+                </h2>
+                <ol className="deck-q-list">
+                  {g.questions.map((q, i) => (
+                    <QuestionEditor
+                      key={q.id}
+                      question={q}
+                      index={i + 1}
+                      decks={decks}
+                      onChanged={() => void refreshFavorites()}
+                    />
+                  ))}
+                </ol>
+              </div>
+            ))
+          )}
+        </section>
+      ) : filtered.length === 0 ? (
         <div className="decks-empty">
           <IconGenerate size={30} />
           <p className="decks-empty__title">

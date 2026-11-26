@@ -113,3 +113,40 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ==========================================================================
+ * 收藏按钮（2026-11-26）
+ *
+ * 题库的收藏是全集：题组里每题都能标，标过的在「已收藏」栏里能翻出来。
+ * 与题卡同层的「编辑 / 删除」是描边小按钮，收藏要更轻 —— 它是标记，
+ * 不是对题目内容的操作。
+ *
+ * 层外：base.css 有不在任何 @layer 里的 button 规则（本项目硬约束）。
+ * ========================================================================== */
+
+.qed-fav {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-faint);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  appearance: none;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.qed-fav:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--text-faint);
+}
+
+.qed-fav--on {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.qed-fav:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

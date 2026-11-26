@@ -779,6 +779,44 @@ export class DeckService {
   }
 
   /**
+   * 切换收藏（2026-11-26）。
+   *
+   * ## 为什么不复用 updateQuestion
+   *
+   * `updateQuestion` 的 patch 是白名单（prompt/answer/explanation/options/kind），
+   * 那是**题目编辑器改内容**的通道：它会重跑 `revalidate`。
+   * 收藏不是内容 —— 它不影响题目能不能发布，也不该因为点一下星标
+   * 就让发布校验重跑一遍（校验还会把 blockingIssues 写回题组）。
+   *
+   * 取反语义也放在服务层：调用方不该自己维护旧值，
+   * 界面上连点两下要能回到原状（同 `KnowledgeService.toggleFavorite`）。
+   */
+  async toggleFavorite(id: string): Promise<Question | null> {
+    const existing = await this.storage.get('questions', id);
+    if (!existing) return null;
+
+    const next: Question = {
+      ...existing,
+      favorite: !existing.favorite,
+      updatedAt: nowIso(),
+    };
+    await this.storage.put('questions', next);
+    return next;
+  }
+
+  /**
+   * 全部收藏的题（2026-11-26）。
+   *
+   * 题库的「已收藏」栏要的是**全集**：不分题组、不分是否发布。
+   * 错题页的「已收藏」是它的子集（再与「最近一次做错」取交集），
+   * 由错题页自己算 —— 两边共用 `Question.favorite` 这一个真相。
+   */
+  async listFavorites(): Promise<Question[]> {
+    const all = await this.storage.getAll('questions');
+    return all.filter((q) => q.favorite === true);
+  }
+
+  /**
    * 追加一条「针对错误生成的补充讲解」（2026-11-19）。
    *
    * ## 为什么不复用 updateQuestion
