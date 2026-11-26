@@ -270,7 +270,8 @@ npm run dev              # 浏览器开发模式
 npm run electron:dev     # 桌面端开发模式
 ```
 
-详细命令、验收复跑、打包说明见 [DEVELOPMENT.md](DEVELOPMENT.md)。
+详细命令、验收复跑、打包说明见 [DEVELOPMENT.md](DEVELOPMENT.md)；
+版本号规则（谁是当前版本、下一版叫什么、发版要改哪几处）见 [VERSIONING.md](VERSIONING.md)。
 
 ### 从源码构建 Windows 安装包
 
@@ -283,7 +284,7 @@ node scripts/update-desktop.cjs          # 只更新已装的桌面版
 安装包用 [Inno Setup 6](https://jrsoftware.org/isinfo.php)（`winget install JRSoftware.InnoSetup`），
 脚本在 `build/installer.iss`。装到用户目录、不弹 UAC、卸载不删学习库
 （数据在 `%APPDATA%\OpenLeaner`）。
-（v0.40 之前用 NSIS，脚本保留在 `build/installer.nsi` 作为回退，不再被流程调用。）
+（v0.40.0 之前用 NSIS，脚本保留在 `build/installer.nsi` 作为回退，不再被流程调用。）
 
 ---
 

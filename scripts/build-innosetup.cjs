@@ -57,6 +57,24 @@ function findIscc() {
 const version = arg('version', JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version);
 const sourceDir = path.resolve(ROOT, arg('dir', 'release/win-unpacked'));
 
+/*
+ * 打包前先对一遍版本号（2026-11-26）。
+ *
+ * 版本号散在 package.json / installer.iss / README 三处，全靠人手同步；
+ * 0.40 那次就漏了 —— tag 打在改版本号之前的提交上。
+ * 显式传 --version（本地试编）时跳过：那种场景本来就不打算让三处对齐。
+ */
+if (!process.argv.includes('--version')) {
+  try {
+    execFileSync(process.execPath, [path.join(__dirname, 'check-version.cjs'), version], {
+      stdio: 'inherit',
+    });
+  } catch {
+    console.error('版本号不一致，先统一再打包（node scripts/check-version.cjs）');
+    process.exit(2);
+  }
+}
+
 if (!fs.existsSync(path.join(sourceDir, 'OpenLeaner.exe'))) {
   console.error(`win-unpacked 不存在或没有 OpenLeaner.exe：${sourceDir}`);
   console.error('先跑：TMP=E:\\openleaner\\.tmp\\buildtmp TEMP=E:\\openleaner\\.tmp\\buildtmp npm run electron:pack');
